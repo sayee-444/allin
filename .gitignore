@@ -1,0 +1,5 @@
+src/.env
+.mypy_cache
+.vscode
+src/1.egg-info
+venv
