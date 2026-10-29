@@ -22,7 +22,16 @@ class UserInput(BaseModel):
     text: str
 
 
-WindowMessage = Annotated[WindowReady | UserInput, Field(discriminator="type")]
+class InputDraft(BaseModel):
+    """What the input holds, sent once the user stops typing for a moment, so a restarted
+    Main can give it back."""
+
+    type: Literal["input_draft"] = "input_draft"
+    text: str
+
+
+type WindowToMain = WindowReady | UserInput | InputDraft
+WindowMessage = Annotated[WindowToMain, Field(discriminator="type")]
 
 # Main -> Window
 
@@ -81,7 +90,7 @@ class Close(BaseModel):
 type MainToWindow = ChatAppend | ChatDelta | TurnState | ContextUsage | InputRestore | Close
 MainMessage = Annotated[MainToWindow, Field(discriminator="type")]
 
-_window_adapter: TypeAdapter[WindowReady | UserInput] = TypeAdapter(WindowMessage)
+_window_adapter: TypeAdapter[WindowToMain] = TypeAdapter(WindowMessage)
 _main_adapter: TypeAdapter[MainToWindow] = TypeAdapter(MainMessage)
 
 
@@ -90,7 +99,7 @@ def encode(message: BaseModel) -> str:
     return message.model_dump_json() + "\n"
 
 
-def decode_window_message(line: str) -> WindowReady | UserInput:
+def decode_window_message(line: str) -> WindowToMain:
     return _decode(_window_adapter, line)
 
 

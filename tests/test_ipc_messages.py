@@ -4,6 +4,7 @@ from allin.core.errors import AllInError, MalformedMessage
 from allin.ipc.messages import (
     ChatAppend,
     Close,
+    InputDraft,
     UserInput,
     WindowReady,
     decode_main_message,
@@ -13,7 +14,7 @@ from allin.ipc.messages import (
 
 
 def test_window_messages_round_trip():
-    for message in (UserInput(text="hola\nmundo"), WindowReady()):
+    for message in (UserInput(text="hola\nmundo"), WindowReady(), InputDraft(text="a\nb")):
         assert decode_window_message(encode(message)) == message
 
 

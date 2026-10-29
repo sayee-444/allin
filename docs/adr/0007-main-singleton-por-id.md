@@ -1,0 +1,7 @@
+# Un solo Main por id y carpeta de datos; al arrancar cierra las Ventanas huérfanas
+
+Main reescribe su MainState, la cola y los Logs tras cada cambio, y solo él los escribe (ADR-0001). Dos Mains con el mismo id sobre la misma carpeta de datos (p. ej. lanzar `python -m allin` dos veces por accidente) se pisarían esos archivos y abrirían Ventanas de las mismas Sesiones. Por eso Main toma, antes de tocar nada, un `flock` exclusivo sobre `<data-dir>/state/<main_id>.lock`; si otro lo tiene, sale con `main_already_running`. El candado es por `main_id`: cada submain futuro tendrá el suyo y correrá a la vez que los demás.
+
+Se eligió `flock` y no un archivo de PID porque el kernel lo suelta cuando el proceso termina, como sea que termine: un `kill -9` nunca deja un candado viejo que haya que borrar a mano. El descriptor no se hereda (PEP 446), así que las xterm que sobreviven a Main no lo retienen.
+
+Como solo corre un Main por id, cualquier Ventana de sus Sesiones que siga viva al arrancar la dejó un Main muerto (en solo lectura, "Main disconnected"). MainState guarda el pid de la xterm de cada Ventana abierta; al restaurar, Main cierra (`SIGTERM`) esa xterm antes de abrir la nueva, así cada Sesión vuelve con una sola Ventana. Solo se toca un proceso cuyo `/proc/<pid>/cmdline` ejecuta `allin.window` con ese id de Sesión, porque tras la muerte de Main el pid pudo reutilizarse.

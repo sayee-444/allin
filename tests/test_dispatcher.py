@@ -19,6 +19,7 @@ from allin.main.chat_rebuild import rebuild_chat
 from allin.main.conversation import Conversation, Step
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import (
+    DraftReceived,
     ErrorOccurred,
     InputReceived,
     LlmAvailable,
@@ -30,8 +31,10 @@ from allin.main.events import (
 )
 from allin.main.executors import TurnJob, execute
 from allin.main.log import Log, LogEntry, read_log
+from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import resolve_slots
+from allin.main.state import MainState, MainStateStore
 from allin.ui.chat import Chat, Row
 from tests.llm_fakes import DroppedStream, FakeLlm, Unreachable, answer, completed, full_reply
 
@@ -42,7 +45,8 @@ NOTHING_YET = ContextUsage(context=None, limit=131072, tokens_per_second=None)
 
 
 class FakeWindowLink:
-    def __init__(self) -> None:
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
         self.sent: list[BaseModel] = []
         self.closed = False
 
@@ -73,6 +77,18 @@ class DrainingInbox(queue.Queue[MainEvent]):
             return self._later.pop(0) if self._later else Shutdown()
 
 
+class RecordingStateStore(MainStateStore):
+    """A real MainStateStore that also keeps every state saved, in order."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.saved: list[MainState] = []
+
+    def save(self, state: MainState) -> None:
+        super().save(state)
+        self.saved.append(state)
+
+
 class MainHarness:
     """A Dispatcher over a real SessionStore whose Windows are fakes and whose LLM is fake.
 
@@ -95,6 +111,10 @@ class MainHarness:
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
         self.health_watches = 0  # times Main asked to be told when the server is back
+        self.state = RecordingStateStore(tmp_path / "state" / "root.json")
+        self.server_up = True  # the queue, paused on start, resumes before any event
+        self.orphans: list[tuple[str, int]] = []  # Windows a dead Main left, as Main closed them
+        self.live_orphans: set[int] = set()  # their pids; any other pid is gone or not a Window
 
     def create_session(self, owner: MainId = ME, **settings: object) -> Session:
         session_settings = SETTINGS.session.model_copy(update=settings)
@@ -110,6 +130,8 @@ class MainHarness:
         (Turns included); else all of them are queued at once.
         """
         main_chat: list[str] = []
+        if self.server_up:
+            events = (LlmAvailable(), *events)
         inbox = DrainingInbox(list(events) if settle else [])
 
         def submit_turn(job: TurnJob) -> None:
@@ -130,6 +152,8 @@ class MainHarness:
             self.slots,
             self.sysprompts,
             self._watch_health,
+            self.state,
+            self._close_orphan,
         )
         for event in [] if settle else events:
             inbox.put(event)
@@ -145,8 +169,14 @@ class MainHarness:
     def _watch_health(self) -> None:
         self.health_watches += 1
 
+    def _close_orphan(self, session_id: str, pid: int) -> bool:
+        if pid not in self.live_orphans:
+            return False
+        self.orphans.append((session_id, pid))
+        return True
+
     def _open_window(self, session_id: str) -> FakeWindowLink:
-        link = FakeWindowLink()
+        link = FakeWindowLink(pid=1000 + len(self.opened))
         self.opened.append((session_id, link))
         return link
 
@@ -652,14 +682,14 @@ def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
         LlmAvailable(),  # what the health watch says once /health is OK
         settle=True,
     )
-    assert main.health_watches == 1
+    assert main.health_watches == 2  # on start, then for the dead server
     assert turn_lines(chat) == [
         f"[{a.id}] turn started",
         f"[{b.id}] turn started",
         f"[{b.id}] turn finished",
     ]
-    [paused] = [n for n, line in enumerate(chat) if "queue paused" in line]
-    [resumed] = [n for n, line in enumerate(chat) if "queue resumed" in line]
+    [paused] = [n for n, line in enumerate(chat) if "cannot be reached" in line]
+    resumed = max(n for n, line in enumerate(chat) if "queue resumed" in line)
     assert paused < resumed < chat.index(f"[{b.id}] turn started")
     [window] = main.windows(b.id)
     assert any(isinstance(m, ChatAppend) and "cannot be reached" in m.text for m in window.sent)
@@ -676,20 +706,20 @@ def test_turns_failing_at_once_on_a_dead_server_pause_the_queue_once(main: MainH
         TurnEnded(b.id, error=LlmUnavailable(reason="Connection error.")),
         settle=True,
     )
-    assert main.health_watches == 1
-    assert [entry.event for entry in main.main_log()].count("queue_paused") == 1
+    assert main.health_watches == 2  # on start, then once for both
+    assert [entry.event for entry in main.main_log()].count("queue_paused") == 2
 
 
 def test_a_turn_that_fails_for_another_reason_does_not_pause_the_queue(main: MainHarness):
     a, b = main.create_session(), main.create_session()
     main.llm = FakeLlm([answer("half")], full_reply("", "ok"))
     chat = main.run(InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), settle=True)
-    assert main.health_watches == 0
+    assert main.health_watches == 1  # only the one on start
     assert turn_lines(chat)[-1] == f"[{b.id}] turn finished"
 
 
 @pytest.mark.parametrize("stop", [MainCommandEntered("/exit"), Shutdown()], ids=["exit", "signal"])
-def test_shutting_down_cancels_turns_and_drops_the_queue_before_closing_windows(
+def test_shutting_down_cancels_turns_and_saves_the_queue_before_closing_windows(
     main: MainHarness, stop: MainEvent
 ):
     main.slots = resolve_slots(server_slots=2, parallel=None)
@@ -710,10 +740,18 @@ def test_shutting_down_cancels_turns_and_drops_the_queue_before_closing_windows(
         assert window.sent[-1] == Close() and window.closed
         assert not any(isinstance(message, InputRestore) for message in window.sent)
     assert main.sessions.load_conversation(a) == Conversation(sysprompt="I am AllIn; you are ana.")
-    events = [entry.event for entry in main.session_log(a)]
-    assert events[-2:] == ["turn_cancelled", "prompts_dropped"]
-    [dropped] = [entry for entry in main.session_log(a) if entry.event == "prompts_dropped"]
-    assert dropped.fields["texts"] == ["a2\nmore"]
+    # Closed by this Main, so the next start has nothing to mark closed.
+    assert [entry.event for entry in main.session_log(a)][-2:] == [
+        "turn_cancelled",
+        "window_closed",
+    ]
+    [closed] = [entry for entry in main.session_log(b) if entry.event == "window_closed"]
+    assert closed.fields["reason"] == "main is shutting down"
+    assert main.state.load() == MainState(
+        windows={a.id: 1000, b.id: 1001},
+        queue=[Prompt(a.id, "a2\nmore")],
+        running=[Prompt(a.id, "a1"), Prompt(b.id, "b1")],
+    )
     assert main.main_log()[-1].event == "main_stopped"
 
 
@@ -751,3 +789,131 @@ def test_a_turn_that_ended_just_before_shutdown_is_saved_not_given_back(main: Ma
     assert conversation is not None and [turn.prompt for turn in conversation.turns] == ["hola"]
     [window] = main.windows(session.id)
     assert not any(isinstance(message, InputRestore) for message in window.sent)
+
+
+def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
+    session = main.create_session()
+    sid = session.id
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {sid}"),
+        DraftReceived(sid, "hal"),
+        InputReceived(sid, "a1"),
+        InputReceived(sid, "a2"),
+        settle=True,
+    )
+    windows = {sid: 1000}  # its xterm's pid
+    assert main.state.saved == [
+        MainState(windows=windows),
+        MainState(windows=windows, drafts={sid: "hal"}),
+        MainState(windows=windows, running=[Prompt(sid, "a1")]),
+        MainState(windows=windows, queue=[Prompt(sid, "a2")], running=[Prompt(sid, "a1")]),
+    ]
+
+
+def test_restarting_main_puts_the_user_back_where_they_were(main: MainHarness):
+    main.slots = resolve_slots(server_slots=2, parallel=None)
+    a, b, c = main.create_session(), main.create_session(), main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}"),
+        MainCommandEntered(f"/open {c.id}"),
+        WindowClosed(c.id, returncode=0),
+        InputReceived(a.id, "a1"),
+        InputReceived(a.id, "a2"),
+        InputReceived(b.id, "b1"),
+        InputReceived(b.id, "b2"),
+        DraftReceived(a.id, "typing"),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    started, watches = len(main.held), main.health_watches
+    main.server_up = False
+    main.run(settle=True)
+    assert len(main.held) == started, "the queue waits for the server's /health"
+    assert main.health_watches == watches + 1
+    [_, window_a], [_, window_b] = main.windows(a.id), main.windows(b.id)
+    assert len(main.windows(c.id)) == 1
+    # Its Turn is reverted: its Prompt goes back to the input, before the draft, unsent.
+    assert InputRestore(text="a1\ntyping") in window_a.sent
+    assert InputRestore(text="b1") in window_b.sent
+    assert main.sessions.load_conversation(a) == Conversation(sysprompt="I am AllIn; you are ana.")
+    main.run(LlmAvailable(), settle=True)
+    assert [job.request.input[-1]["content"] for job in main.held[started:]] == ["a2", "b2"]
+
+
+def test_a_main_killed_mid_turn_gives_the_turns_prompt_back_on_start(main: MainHarness):
+    session = main.create_session()
+    main.state.save(
+        MainState(
+            windows={session.id: 4242},
+            drafts={session.id: "typing"},
+            running=[Prompt(session.id, "a1")],
+        )
+    )
+    main.run()
+    [window] = main.windows(session.id)
+    assert InputRestore(text="a1\ntyping") in window.sent
+    assert main.llm.requests == []
+
+
+def test_on_start_the_windows_a_killed_main_left_open_are_closed_before_reopening(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    main.state.save(MainState(windows={a.id: 4242, b.id: 4243}))
+    main.live_orphans = {4242}  # b's xterm was closed by hand while no Main ran
+    chat = main.run()
+    assert main.orphans == [(a.id, 4242)]
+    assert any(a.id in line and "left open" in line for line in chat)
+    assert len(main.windows(a.id)) == len(main.windows(b.id)) == 1
+    assert main.state.load().windows == {a.id: 1000, b.id: 1001}
+
+
+def test_a_draft_comes_back_when_its_sessions_window_is_opened_again(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        DraftReceived(session.id, "typing"),
+        WindowClosed(session.id, returncode=0),
+        MainCommandEntered(f"/open {session.id}"),
+        settle=True,
+    )
+    [first, second] = main.windows(session.id)
+    assert InputRestore(text="typing") not in first.sent
+    assert InputRestore(text="typing") in second.sent
+
+
+def test_the_prompt_of_a_turn_cancelled_by_closing_its_window_never_comes_back(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1"),
+        WindowClosed(session.id, returncode=0),
+        MainCommandEntered("/exit"),  # before its executor reported the cancelled Turn
+        settle=True,
+    )
+    assert main.state.load() == MainState()
+
+
+def test_a_draft_that_arrived_just_before_shutdown_is_kept(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered("/exit"),
+        DraftReceived(session.id, "typing"),  # sent while /exit waited in the inbox
+    )
+    assert main.state.load().drafts == {session.id: "typing"}
+
+
+def test_a_restored_window_with_queued_prompts_says_why_they_wait(main: MainHarness):
+    session = main.create_session()
+    main.state.save(MainState(windows={session.id: 4242}, queue=[Prompt(session.id, "a1")]))
+    main.server_up = False
+    main.run()
+    [window] = main.windows(session.id)
+    assert any(isinstance(m, ChatAppend) and "/health" in m.text for m in window.sent)

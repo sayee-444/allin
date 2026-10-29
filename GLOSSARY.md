@@ -9,7 +9,7 @@ Orquestador de terminal para conversar con un LLM local (vía OpenAI SDK) desde 
 ## Procesos
 
 **Main**:
-El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único del estado de todas las Sesiones y de la cola de Turnos.
+El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único del estado de todas las Sesiones y de la cola de Turnos. Solo corre uno por id y carpeta de datos (ADR-0007).
 _Avoid_: abuelo, padre, proceso principal
 
 **Lanzador** (`Launcher`):
@@ -37,6 +37,13 @@ _Avoid_: chat, historial
 **Log** (`Log`):
 Registro con fecha y hora de los eventos de una Sesión o de Main; siempre activo, nunca se apaga. El Log de Main y el de cada Sesión son independientes.
 _Avoid_: historial
+
+**Estado de Main** (`MainState`):
+Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json`, para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Borradores, cola de Prompts y Prompts de los Turnos en curso. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
+_Avoid_: snapshot, sesión de Main
+
+**Borrador** (`draft`):
+Lo que hay escrito en el input de una Ventana sin enviar; la Ventana se lo manda a Main cuando el usuario deja de teclear un momento, y vuelve al input al reabrirla o al reiniciar Main.
 
 **Sysprompt** (`Sysprompt`):
 Archivo de texto plantilla en `sysprompts/` que, renderizado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).

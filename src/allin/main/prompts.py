@@ -33,6 +33,10 @@ class PromptQueue:
         self._prompts = [prompt for prompt in self._prompts if prompt.session_id != session_id]
         return dropped
 
+    def all(self) -> list[Prompt]:
+        """Every queued Prompt, in queue order."""
+        return list(self._prompts)
+
     def has(self, session_id: str) -> bool:
         return any(prompt.session_id == session_id for prompt in self._prompts)
 

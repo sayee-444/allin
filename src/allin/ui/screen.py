@@ -8,11 +8,13 @@ curses; other threads hand it updates through ``inbox``.
 import curses
 import queue
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from allin.core.errors import ScreenTooSmall
 from allin.ui.chat import Chat, Row
+from allin.ui.draft import DraftReporter
 from allin.ui.input_buffer import InputBuffer
 from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
 from allin.ui.layout import Layout, Rect, compute_layout
@@ -100,21 +102,28 @@ class ChatScreen:
         self._locked = True
         self._dirty = True
 
-    def run(self, on_submit: Callable[[str], None]) -> None:
-        """Run the UI loop until ``None`` arrives in the inbox."""
+    def run(
+        self, on_submit: Callable[[str], None], on_draft: Callable[[str], None] | None = None
+    ) -> None:
+        """Run the UI loop until ``None`` arrives in the inbox.
+
+        ``on_draft`` gets the input's text once the user stops typing for a moment.
+        """
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
         self._role_attrs = _role_attrs()
         _write_terminal(_BRACKETED_PASTE_ON)
         try:
-            self._loop(on_submit)
+            self._loop(on_submit, DraftReporter(on_draft) if on_draft else None)
         finally:
             _write_terminal(_BRACKETED_PASTE_OFF)
 
-    def _loop(self, on_submit: Callable[[str], None]) -> None:
+    def _loop(self, on_submit: Callable[[str], None], draft: DraftReporter | None) -> None:
         while True:
             if not self._drain_inbox():
                 return
+            if draft is not None:
+                draft.update(self._input.text, time.monotonic())
             if self._dirty:
                 self._draw()
             try:

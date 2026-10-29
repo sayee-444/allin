@@ -20,6 +20,14 @@ class InputReceived:
 
 
 @dataclass(frozen=True)
+class DraftReceived:
+    """What a Window's input holds, once the user stopped typing for a moment."""
+
+    session_id: str
+    text: str
+
+
+@dataclass(frozen=True)
 class WindowClosed:
     session_id: str
     returncode: int
@@ -85,6 +93,7 @@ class Shutdown:
 type MainEvent = (
     WindowConnected
     | InputReceived
+    | DraftReceived
     | WindowClosed
     | ErrorOccurred
     | MainCommandEntered

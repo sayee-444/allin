@@ -27,6 +27,11 @@ class Launcher:
         self._on_exit = on_exit
         self._process: subprocess.Popen[bytes] | None = None
 
+    @property
+    def pid(self) -> int:
+        assert self._process is not None, "pid asked for before start()"
+        return self._process.pid
+
     def start(self) -> None:
         """Spawn the process (fork+exec done safely by Popen) and a watcher thread."""
         self._log_path.parent.mkdir(parents=True, exist_ok=True)

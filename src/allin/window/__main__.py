@@ -14,6 +14,7 @@ from allin.ipc.messages import (
     ChatDelta,
     Close,
     ContextUsage,
+    InputDraft,
     InputRestore,
     MainToWindow,
     TurnState,
@@ -74,7 +75,7 @@ def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: P
         channel.send(UserInput(text=text))
 
     try:
-        screen.run(submit)
+        screen.run(submit, lambda text: channel.send(InputDraft(text=text)))
     except KeyboardInterrupt:
         pass
     finally:

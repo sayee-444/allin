@@ -38,6 +38,7 @@ from allin.ipc.messages import (
 from allin.main.chat_rebuild import dropped_entry, error_entry, rebuild_chat, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
 from allin.main.events import (
+    DraftReceived,
     ErrorOccurred,
     InputReceived,
     LlmAvailable,
@@ -56,6 +57,7 @@ from allin.main.log import Log
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import Slots
+from allin.main.state import MainState, MainStateStore
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
 from allin.main.usage import context_tokens, tokens_per_second
@@ -63,6 +65,11 @@ from allin.main.usage import context_tokens, tokens_per_second
 
 class WindowLink(Protocol):
     """Main's side of an open Window."""
+
+    @property
+    def pid(self) -> int:
+        """Its xterm's, kept in MainState to close it if Main dies and leaves it open."""
+        ...
 
     def send(self, message: BaseModel) -> None: ...
 
@@ -72,11 +79,16 @@ class WindowLink(Protocol):
 
 
 type OpenWindow = Callable[[str], WindowLink]
+# Closes the Window of a Session (by its xterm's pid) that a killed Main left open; returns
+# whether there was one.
+type CloseOrphanWindow = Callable[[str, int], bool]
 type SubmitTurn = Callable[[TurnJob], None]
 # Starts watching the server's /health; once it is OK, ``LlmAvailable`` reaches the inbox.
 type WatchHealth = Callable[[], None]
 
 _PAUSED_TEXT = "queue paused: the LLM server cannot be reached, waiting for its /health"
+_STARTING_TEXT = "queue paused until the LLM server's /health is OK"
+_READY_TEXT = "queue resumed: the LLM server is ready"
 _RESUMED_TEXT = "queue resumed: the LLM server is back"
 _MAIN_DIED = "main stopped without closing it"
 _TURN_ENDINGS = ("turn_finished", "turn_failed", "turn_cancelled")
@@ -144,6 +156,8 @@ class Dispatcher:
         slots: Slots,
         sysprompts: Path,
         watch_health: WatchHealth,
+        state: MainStateStore,
+        close_orphan_window: CloseOrphanWindow,
     ) -> None:
         self._inbox = inbox
         self._main_chat = main_chat
@@ -156,7 +170,12 @@ class Dispatcher:
         self._slots = slots
         self._sysprompts = sysprompts
         self._watch_health = watch_health
+        self._state = state
+        self._close_orphan_window = close_orphan_window
+        self._saved = MainState()  # what ``state`` holds now
         self._paused = False  # no Turn starts while the server cannot be reached
+        self._paused_text = _PAUSED_TEXT
+        self._drafts: dict[str, str] = {}  # each Session's input, as its Window last sent it
         self._stopping = False  # nor once Main is shutting down
         self._windows: dict[str, WindowLink] = {}
         self._prompts = PromptQueue()
@@ -187,27 +206,83 @@ class Dispatcher:
         if (warning := slots.warning()) is not None:
             self._report(None, "warning", f"warning {warning}", warning=warning)
         self._close_left_open()
+        self._restore()
         while self._handle(self._inbox.get()):
-            pass
+            self._save_state()
         self._stopping = True
         self._take_turn_events()
+        self._save_state()  # Windows, queue and running Turns as they are: a restart restores them
         self._stop_turns()
         for link in self._windows.values():
             link.send(Close())
-        for link in self._windows.values():
+        for session_id, link in self._windows.items():
             link.close()
+            shown = f"window closed: {SHUTTING_DOWN}"
+            self._record(session_id, "window_closed", shown, returncode=None, reason=SHUTTING_DOWN)
         self._log_main("main_stopped", main_id=self._main_id)
 
     def _take_turn_events(self) -> None:
-        """Handle what Turns reported before Main stopped, so a Turn that already ended is
-        saved instead of being cancelled; no command or Window event is taken any more."""
+        """Handle what Turns and drafts reported before Main stopped, so a Turn that already
+        ended is saved instead of being cancelled and the last draft is kept; no command or
+        other Window event is taken any more."""
         while True:
             try:
                 event = self._inbox.get(block=False)
             except queue.Empty:
                 return
-            if isinstance(event, TurnOutput | StepEnded | TurnEnded):
+            if isinstance(event, TurnOutput | StepEnded | TurnEnded | DraftReceived):
                 self._handle(event)
+
+    def _restore(self) -> None:
+        """Put the user back where they were when Main last stopped, however it stopped.
+
+        A Turn that was running is reverted (only whole Turns reach a Conversation): its Prompt
+        goes back to its Window's input, before the draft, and is not sent again by itself.
+        The queue waits for the server's ``/health``, which may still be loading the model.
+        """
+        try:
+            self._saved = self._state.load()
+        except AllInError as error:
+            self._show_error(error)
+        saved = self._saved
+        self._drafts = dict(saved.drafts)
+        for prompt in saved.running:
+            draft = self._drafts.get(prompt.session_id)
+            self._drafts[prompt.session_id] = "\n".join(filter(None, [prompt.text, draft]))
+        for prompt in saved.queue:
+            self._prompts.push(prompt)
+        for session_id, pid in saved.windows.items():
+            # Only one Main of this id runs (ADR-0007), so a Window of its still up is an orphan.
+            if self._close_orphan_window(session_id, pid):
+                shown = "window left open by the last main closed"
+                self._record(session_id, "orphan_window_closed", shown, pid=pid)
+            try:
+                self._attach_window(self._owned_session(session_id))
+            except AllInError as error:
+                self._show_error(error, session_id)
+        self._pause(_STARTING_TEXT)  # once the Windows are open, so they are told why
+        self._save_state()
+
+    def _save_state(self) -> None:
+        state = MainState(
+            windows={session_id: link.pid for session_id, link in self._windows.items()},
+            drafts={session_id: text for session_id, text in self._drafts.items() if text},
+            queue=self._prompts.all(),
+            # A Turn cancelled because its Window closed must not come back as a draft.
+            running=[
+                running.prompt
+                for running in self._running.values()
+                if running.cancellation.reason is None
+            ],
+        )
+        if state == self._saved:
+            return
+        try:
+            self._state.save(state)
+        except AllInError as error:
+            self._show_error(error)
+        else:
+            self._saved = state
 
     def _close_left_open(self) -> None:
         """Mark closed the Sessions a Main killed outright left with an open Window or a Turn.
@@ -238,8 +313,11 @@ class Dispatcher:
                 self._record(session_id, "window_connected", "window connected")
                 self._send_turn_state(session_id)
             case InputReceived(session_id, text):
+                self._drafts.pop(session_id, None)  # the Window's input is empty now
                 self._run_main_command(f"/send {session_id} {text}")
                 self._send_turn_state(session_id)  # unblocks Enter if /send failed
+            case DraftReceived(session_id, text):
+                self._drafts[session_id] = text
             case TurnOutput(session_id, kind, text):
                 self._show_output(session_id, kind, text)
             case TurnRaw(session_id, raw):
@@ -349,7 +427,7 @@ class Dispatcher:
         self._to_window(session.id, ChatAppend(role="user", label=label, text=text))
         self._send_turn_state(session.id)
         if self._paused:
-            self._to_window(session.id, _paused_entry())
+            self._to_window(session.id, self._paused_entry())
         self._start_turns()
         return True
 
@@ -374,6 +452,8 @@ class Dispatcher:
             self._send_chat(session)
         except AllInError as error:
             self._show_error(error, session.id)
+        if draft := self._drafts.get(session.id):
+            self._to_window(session.id, InputRestore(text=draft))
 
     def _send_chat(self, session: Session) -> None:
         """Show a Window the Session's Chat so far, rebuilt from its Conversation and Log."""
@@ -417,21 +497,26 @@ class Dispatcher:
             self._record(session.id, "turn_started", "turn started")
             self._submit_turn(job)
 
-    def _pause(self) -> None:
+    def _pause(self, text: str = _PAUSED_TEXT) -> None:
         """Keep the queued Prompts until the server is back, instead of failing each in turn."""
         if self._paused:  # Turns running at once all fail when the server dies
             return
         self._paused = True
-        self._report(None, "queue_paused", _PAUSED_TEXT)
+        self._paused_text = text
+        self._report(None, "queue_paused", text)
         for session_id in self._prompts.session_ids():
-            self._to_window(session_id, _paused_entry())
+            self._to_window(session_id, self._paused_entry())
         self._watch_health()
+
+    def _paused_entry(self) -> ChatAppend:
+        return ChatAppend(role="info", label="queue", text=self._paused_text)
 
     def _resume(self) -> None:
         if not self._paused:
             return
         self._paused = False
-        self._report(None, "queue_resumed", _RESUMED_TEXT)
+        starting = self._paused_text == _STARTING_TEXT
+        self._report(None, "queue_resumed", _READY_TEXT if starting else _RESUMED_TEXT)
         self._start_turns()
 
     def _cancel(self, session_id: str, reason: str) -> None:
@@ -454,17 +539,15 @@ class Dispatcher:
         return texts
 
     def _stop_turns(self) -> None:
-        """On shutdown: cancel every running Turn and empty the queue.
+        """On shutdown: cancel every running Turn.
 
-        The Turns are ended here, as cancelled, since no event is handled after this. No Prompt
-        goes back to an input: every Window is closed right after, so only the Log keeps them.
+        The Turns are ended here, as cancelled, since no event is handled after this. Their
+        Prompts and the queue stay in the saved MainState, for the next start to give back.
         """
         for running in self._running.values():
             running.cancellation.cancel(SHUTTING_DOWN)
             self._fail_turn(running, TurnCancelled(reason=SHUTTING_DOWN))
         self._running.clear()
-        for session_id in self._prompts.session_ids():
-            self._drop_prompts(session_id, SHUTTING_DOWN)
 
     def _conversation(self, session: Session) -> Conversation:
         conversation = self._sessions.load_conversation(session)
@@ -528,7 +611,7 @@ class Dispatcher:
             if isinstance(failure, LlmUnavailable):
                 self._pause()
                 if not self._prompts.has(session_id):  # else ``_pause`` or ``_send`` told it
-                    self._to_window(session_id, _paused_entry())
+                    self._to_window(session_id, self._paused_entry())
         else:
             self._record(session_id, "turn_finished", "turn finished", turn=turn)
             if (tokens := tokens_entry(steps)) is not None:
@@ -563,10 +646,6 @@ class Dispatcher:
 def _last_index(events: list[str], *names: str) -> int:
     """Where the last of ``names`` is in ``events``; -1 if none is."""
     return max((index for index, event in enumerate(events) if event in names), default=-1)
-
-
-def _paused_entry() -> ChatAppend:
-    return ChatAppend(role="info", label="queue", text=_PAUSED_TEXT)
 
 
 def _summary(text: str, width: int = 60) -> str:

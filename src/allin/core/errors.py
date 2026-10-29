@@ -123,3 +123,21 @@ class LogUnreadable(AllInError):
     """A Log exists but cannot be read."""
 
     code: ClassVar[str] = "log_unreadable"
+
+
+class MainStateUnreadable(AllInError):
+    """Main's saved state is there but cannot be read; Main starts without it."""
+
+    code: ClassVar[str] = "main_state_unreadable"
+
+
+class MainStateStorageFailed(AllInError):
+    """Main's state could not be saved."""
+
+    code: ClassVar[str] = "main_state_storage_failed"
+
+
+class MainAlreadyRunning(AllInError):
+    """Another Main with the same id and data dir is running; only one may (ADR-0007)."""
+
+    code: ClassVar[str] = "main_already_running"
