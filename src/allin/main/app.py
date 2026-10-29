@@ -21,7 +21,7 @@ from allin.main.events import (
     WindowConnected,
 )
 from allin.main.launcher import Launcher, xterm_command
-from allin.ui.screen import LineScreen
+from allin.ui.screen import ChatScreen
 
 _CLOSE_GRACE = 2.0
 
@@ -52,7 +52,7 @@ def run(data_dir: Path) -> None:
 
 
 def _run(stdscr: curses.window, data_dir: Path) -> None:
-    screen = LineScreen(stdscr, "AllIn · Main  (/exit to quit)")
+    screen = ChatScreen(stdscr, "AllIn · Main  (/exit to quit)")
     inbox: queue.Queue[MainEvent] = queue.Queue()
     dispatcher = Dispatcher(inbox, screen.inbox.put)
 

@@ -27,3 +27,9 @@ class ChannelBroken(AllInError):
     """An end of an IPC channel could not be opened, read or written."""
 
     code: ClassVar[str] = "channel_broken"
+
+
+class ScreenTooSmall(AllInError):
+    """The terminal has no room left for the Chat or the input."""
+
+    code: ClassVar[str] = "screen_too_small"

@@ -10,13 +10,13 @@ from pathlib import Path
 from allin.core.errors import AllInError
 from allin.ipc.channel import Channel
 from allin.ipc.messages import ChatAppend, Close, UserInput, WindowReady, decode_main_message
-from allin.ui.screen import LineScreen
+from allin.ui.screen import ChatScreen
 
 
 class _MainListener:
     """Turns what Main sends into lines for the Window's screen."""
 
-    def __init__(self, screen: LineScreen) -> None:
+    def __init__(self, screen: ChatScreen) -> None:
         self._screen = screen
 
     def on_message(self, message: ChatAppend | Close) -> None:
@@ -34,7 +34,7 @@ class _MainListener:
 
 
 def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: Path) -> None:
-    screen = LineScreen(stdscr, f"AllIn · {session_id}")
+    screen = ChatScreen(stdscr, f"AllIn · {session_id}")
     channel = Channel(to_window, from_window, decode_main_message, _MainListener(screen))
     channel.start()
     channel.send(WindowReady())
