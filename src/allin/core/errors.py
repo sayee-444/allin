@@ -99,3 +99,21 @@ class TurnCrashed(AllInError):
     """A Turn hit an unexpected error; the executor survives it and reports it."""
 
     code: ClassVar[str] = "turn_crashed"
+
+
+class UnknownCommand(AllInError):
+    """No Command main has this name."""
+
+    code: ClassVar[str] = "unknown_command"
+
+
+class LogWriteFailed(AllInError):
+    """An event could not be appended to a Log."""
+
+    code: ClassVar[str] = "log_write_failed"
+
+
+class LogUnreadable(AllInError):
+    """A Log exists but cannot be read."""
+
+    code: ClassVar[str] = "log_unreadable"

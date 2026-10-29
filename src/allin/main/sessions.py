@@ -1,7 +1,7 @@
 """Sessions on disk: one folder per Session under ``<data-dir>/sessions/<sid>/``.
 
 The folder outlives the Session's Window; ``session.json`` holds its metadata and Settings,
-``conversation.json`` its Conversation.
+``conversation.json`` its Conversation and ``log.jsonl`` its Log.
 """
 
 from collections.abc import Callable
@@ -15,8 +15,10 @@ from allin.core.files import write_atomically
 from allin.core.ids import MainId, is_session_id, new_session_id
 from allin.core.settings import SessionSettings
 from allin.main.conversation import Conversation, load_conversation, save_conversation
+from allin.main.log import Log, LogEntry, read_log
 
 _METADATA = "session.json"
+_LOG = "log.jsonl"
 
 
 class Session(BaseModel, frozen=True):
@@ -66,6 +68,14 @@ class SessionStore:
 
     def save_conversation(self, session: Session, conversation: Conversation) -> None:
         save_conversation(self._root / session.id, conversation)
+
+    def log(self, session_id: str) -> Log:
+        if not is_session_id(session_id):
+            raise SessionNotFound(session_id=session_id)
+        return Log(self._root / session_id / _LOG)
+
+    def read_log(self, session: Session) -> list[LogEntry]:
+        return read_log(self._root / session.id / _LOG)
 
     def _new_folder(self) -> Path:
         while True:

@@ -19,7 +19,9 @@ from allin.main.events import (
     WindowClosed,
 )
 from allin.main.executors import TurnJob, execute
+from allin.main.log import Log, LogEntry, read_log
 from allin.main.sessions import Session, SessionStore
+from allin.ui.chat import Chat, Row
 from tests.llm_fakes import FakeLlm, answer, full_reply
 
 ME = MainId("root")
@@ -39,13 +41,21 @@ class FakeWindowLink:
 
 
 class DrainingInbox(queue.Queue[MainEvent]):
-    """An inbox that says Shutdown once it is empty, so a test's dispatcher always stops."""
+    """An inbox that says Shutdown once it is empty, so a test's dispatcher always stops.
+
+    Events in ``later`` are fed one at a time, each once the inbox is empty, as if the user
+    waited for Main to finish with everything before.
+    """
+
+    def __init__(self, later: list[MainEvent]) -> None:
+        super().__init__()
+        self._later = later
 
     def get(self, block: bool = True, timeout: float | None = None) -> MainEvent:
         try:
             return super().get(block=False)
         except queue.Empty:
-            return Shutdown()
+            return self._later.pop(0) if self._later else Shutdown()
 
 
 class MainHarness:
@@ -64,6 +74,7 @@ class MainHarness:
         self.llm = FakeLlm()
         self.settings = SETTINGS
         self.opened: list[tuple[str, FakeWindowLink]] = []
+        self.main_log_path = tmp_path / "main.jsonl"
 
     def create_session(self, owner: MainId = ME, **settings: object) -> Session:
         session_settings = SETTINGS.session.model_copy(update=settings)
@@ -72,10 +83,14 @@ class MainHarness:
     def windows(self, session_id: str) -> list[FakeWindowLink]:
         return [link for sid, link in self.opened if sid == session_id]
 
-    def run(self, *events: MainEvent) -> list[str]:
-        """Feed events to a dispatcher, run it until nothing is left and return Main's Chat."""
+    def run(self, *events: MainEvent, settle: bool = False) -> list[str]:
+        """Feed events to a dispatcher, run it until nothing is left and return Main's Chat.
+
+        With ``settle``, each event arrives only once Main has handled all that came before it
+        (Turns included); else all of them are queued at once.
+        """
         main_chat: list[str] = []
-        inbox = DrainingInbox()
+        inbox = DrainingInbox(list(events) if settle else [])
 
         def submit_turn(job: TurnJob) -> None:
             execute(self.llm, job, inbox.put, lambda: False)
@@ -83,6 +98,7 @@ class MainHarness:
         dispatcher = Dispatcher(
             inbox,
             main_chat.append,
+            Log(self.main_log_path),
             self.sessions,
             self._open_window,
             submit_turn,
@@ -90,10 +106,16 @@ class MainHarness:
             self.settings,
             self.sysprompts,
         )
-        for event in events:
+        for event in [] if settle else events:
             inbox.put(event)
         dispatcher.run()
         return main_chat
+
+    def main_log(self) -> list[LogEntry]:
+        return read_log(self.main_log_path)
+
+    def session_log(self, session: Session) -> list[LogEntry]:
+        return read_log(self.root / session.id / "log.jsonl")
 
     def _open_window(self, session_id: str) -> FakeWindowLink:
         link = FakeWindowLink()
@@ -306,3 +328,127 @@ def test_a_session_that_cannot_be_stored_is_reported_and_main_keeps_running(main
     assert main.opened == []
     assert any("session_storage_failed" in line for line in chat)
     assert any("/nope" in line for line in chat)
+
+
+def test_mains_chat_shows_each_sessions_turn_with_its_sid_but_not_what_it_streams(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.llm = FakeLlm(full_reply("thinking", "Hello"))
+    chat = main.run(MainCommandEntered(f"/open {session.id}"), InputReceived(session.id, "hola"))
+    assert f"[{session.id}] turn started" in chat
+    assert f"[{session.id}] turn finished" in chat
+    assert not any("Hello" in line or "thinking" in line for line in chat)
+
+
+def test_a_command_is_shown_in_mains_chat_with_its_result(main: MainHarness):
+    session = main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered("/nope"),
+    )
+    assert f"[{session.id}] /open {session.id}: ok" in chat
+    assert any(
+        line.startswith(f"[{session.id}] /open {session.id}: error window_already_open")
+        for line in chat
+    )
+    assert any(line.startswith("/nope: error unknown_command") for line in chat)
+
+
+def test_every_event_lands_in_mains_log_and_the_sessions_own_in_the_same_order(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.llm = FakeLlm(full_reply("thinking", "Hello"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        WindowClosed(session.id, returncode=0),
+        settle=True,
+    )
+    assert [entry.event for entry in main.session_log(session)] == [
+        "window_opened",
+        "prompt",
+        "turn_started",
+        "turn_finished",
+        "window_closed",
+    ]
+    main_events = [(entry.event, entry.fields.get("sid")) for entry in main.main_log()]
+    for event in ["command", "window_opened", "turn_started", "turn_finished", "window_closed"]:
+        assert (event, session.id) in main_events
+    raw = [entry.fields["data"]["type"] for entry in main.main_log() if entry.event == "raw"]
+    assert raw == [
+        "response.reasoning_text.delta",
+        "response.output_text.delta",
+        "response.completed",
+    ]
+
+
+def test_raw_on_shows_the_streams_raw_events_in_mains_chat_and_raw_off_hides_them(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.llm = FakeLlm(full_reply("", "one"), full_reply("", "two"))
+    chat = main.run(
+        MainCommandEntered("/raw on"),
+        InputReceived(session.id, "first"),
+        MainCommandEntered("/raw off"),
+        InputReceived(session.id, "second"),
+        settle=True,
+    )
+    raw = [line for line in chat if line.startswith(f"[{session.id}] raw ")]
+    assert len(raw) == 3
+    assert '"one"' in raw[1] and not any('"two"' in line for line in raw)
+
+
+def test_raw_on_with_a_sid_shows_only_that_sessions_raw_events(main: MainHarness):
+    main.settings = SETTINGS.model_copy(update={"parallel": 2})
+    a, b = main.create_session(), main.create_session()
+    main.llm = FakeLlm(full_reply("", "a"), full_reply("", "b"))
+    chat = main.run(
+        MainCommandEntered(f"/raw on {a.id}"),
+        InputReceived(a.id, "for a"),
+        InputReceived(b.id, "for b"),
+    )
+    assert any(line.startswith(f"[{a.id}] raw ") for line in chat)
+    assert not any(line.startswith(f"[{b.id}] raw ") for line in chat)
+
+
+@pytest.mark.parametrize("command", ["/raw", "/raw maybe", "/raw on a b"])
+def test_raw_takes_on_or_off_and_an_optional_sid(main: MainHarness, command: str):
+    chat = main.run(MainCommandEntered(command))
+    assert any("invalid_arguments" in line for line in chat)
+
+
+def shown_chat(window: FakeWindowLink) -> list[Row]:
+    """The Chat a Window draws from what Main sent it."""
+    chat = Chat()
+    for message in window.sent:
+        match message:
+            case ChatAppend(role=role, label=label, text=text):
+                chat.add(text, role, label)
+            case ChatDelta(role=role, label=label, text=text):
+                chat.stream(text, role, label)
+            case TurnState(active=False):
+                chat.end_stream()
+            case _:
+                pass
+    return chat.rows(60)
+
+
+def test_reopening_a_session_shows_the_same_chat_as_before_it_was_closed(main: MainHarness):
+    session = main.create_session()
+    main.llm = FakeLlm(full_reply("thinking", "Hello"), [answer("half an ans")])
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        InputReceived(session.id, "again"),
+        ErrorOccurred(MalformedMessage(line="x", reason="bad"), session.id),
+        WindowClosed(session.id, returncode=0),
+        MainCommandEntered(f"/open {session.id}"),
+        settle=True,
+    )
+    before, after = main.windows(session.id)
+    assert shown_chat(after) == shown_chat(before)
+    assert len(shown_chat(before)) >= 6

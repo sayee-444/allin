@@ -1,6 +1,7 @@
 """Events consumed by Main's dispatcher, in arrival order (ADR-0001)."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from allin.core.errors import AllInError
 from allin.main.conversation import Step
@@ -47,6 +48,14 @@ class TurnOutput:
 
 
 @dataclass(frozen=True)
+class TurnRaw:
+    """One raw event of a Turn's stream, as JSON; it always goes to Main's Log."""
+
+    session_id: str
+    event: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class TurnEnded:
     """A Session's Turn finished with its Steps, or stopped with ``error``."""
 
@@ -67,6 +76,7 @@ type MainEvent = (
     | ErrorOccurred
     | MainCommandEntered
     | TurnOutput
+    | TurnRaw
     | TurnEnded
     | Shutdown
 )

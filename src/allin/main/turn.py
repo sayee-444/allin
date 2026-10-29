@@ -67,9 +67,13 @@ def run_turn(
     request: TurnRequest,
     on_output: Callable[[OutputKind, str], None],
     cancelled: Callable[[], bool],
+    on_raw: Callable[[dict[str, Any]], None],
 ) -> list[Step]:
-    """Run the Turn's Steps; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early."""
-    return [_run_step(llm, request, on_output, cancelled)]
+    """Run the Turn's Steps; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early.
+
+    ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams.
+    """
+    return [_run_step(llm, request, on_output, cancelled, on_raw)]
 
 
 def _run_step(
@@ -77,6 +81,7 @@ def _run_step(
     request: TurnRequest,
     on_output: Callable[[OutputKind, str], None],
     cancelled: Callable[[], bool],
+    on_raw: Callable[[dict[str, Any]], None],
 ) -> Step:
     try:
         stream = llm.stream(request.model, request.input, request.params)
@@ -84,6 +89,7 @@ def _run_step(
             for event in stream:
                 if cancelled():
                     raise TurnCancelled(reason="main is shutting down")
+                on_raw(event.model_dump(mode="json", exclude_none=True, warnings=False))
                 match event:
                     case ResponseReasoningTextDeltaEvent(delta=delta):
                         on_output("reasoning", delta)

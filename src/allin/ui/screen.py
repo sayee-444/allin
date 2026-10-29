@@ -53,7 +53,7 @@ class ChatStream:
 
 @dataclass(frozen=True)
 class InputLock:
-    """Block or unblock Enter (the text being typed is kept); also closes the open entry."""
+    """Block or unblock Enter (the text being typed is kept); unblocking closes the open entry."""
 
     locked: bool
 
@@ -152,7 +152,8 @@ class ChatScreen:
                     self._chat.stream(text, role, label)
                 case InputLock(locked):
                     self._locked = locked
-                    self._chat.end_stream()
+                    if not locked:  # the Turn is over; a lock must not split a replayed stream
+                        self._chat.end_stream()
             self._dirty = True
 
     def _scroll_chat(self, pages: int) -> None:

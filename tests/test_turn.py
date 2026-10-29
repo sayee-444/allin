@@ -15,7 +15,13 @@ REQUEST = TurnRequest(
 
 def run(llm: FakeLlm, cancelled: bool = False) -> tuple[object, list[tuple[str, str]]]:
     shown: list[tuple[str, str]] = []
-    steps = run_turn(llm, REQUEST, lambda kind, text: shown.append((kind, text)), lambda: cancelled)
+    steps = run_turn(
+        llm,
+        REQUEST,
+        lambda kind, text: shown.append((kind, text)),
+        lambda: cancelled,
+        lambda _raw: None,
+    )
     return steps, shown
 
 
