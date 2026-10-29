@@ -67,3 +67,13 @@ def test_take_returns_the_text_and_empties_the_input():
     buffer = typed("hola\nmundo")
     assert buffer.take() == "hola\nmundo"
     assert buffer.text == ""
+
+
+def test_a_restored_prompt_goes_before_what_was_typed_meanwhile():
+    buffer = InputBuffer()
+    buffer.restore("hola\nadiós")
+    assert buffer.text == "hola\nadiós"
+    buffer.take()
+    buffer.insert("y otra")
+    buffer.restore("hola")
+    assert buffer.text == "hola\ny otra"

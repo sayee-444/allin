@@ -11,6 +11,7 @@ from allin.core.settings import MainSettings
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import MainCommandEntered, MainEvent, Shutdown
 from allin.main.executors import TurnExecutors
+from allin.main.health import HealthWatch
 from allin.main.log import Log
 from allin.main.sessions import SessionStore
 from allin.main.slots import fetch_total_slots, resolve_slots
@@ -34,6 +35,7 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
     inbox: queue.Queue[MainEvent] = queue.Queue()
     slots = resolve_slots(fetch_total_slots(settings.base_url), settings.parallel)
     executors = TurnExecutors(OpenAiLlm(settings.base_url), slots.count, inbox)
+    health = HealthWatch(settings.base_url, inbox)
     dispatcher = Dispatcher(
         inbox,
         screen.inbox.put,
@@ -45,11 +47,13 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
         settings,
         slots,
         sysprompts,
+        health.start,
     )
 
     def dispatch() -> None:
         dispatcher.run()  # closes every Window before returning
         executors.shutdown(_SHUTDOWN_GRACE)  # running Turns are cancelled, never saved
+        health.stop()
         screen.inbox.put(None)
 
     executors.start()

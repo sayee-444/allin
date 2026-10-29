@@ -89,6 +89,12 @@ class LlmRequestFailed(AllInError):
     code: ClassVar[str] = "llm_request_failed"
 
 
+class LlmUnavailable(LlmRequestFailed):
+    """The LLM's server cannot be reached: it is down, or it died while a Step streamed."""
+
+    code: ClassVar[str] = "llm_unavailable"
+
+
 class TurnCancelled(AllInError):
     """A Turn was stopped before it finished: its Window closed, or Main is shutting down."""
 

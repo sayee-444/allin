@@ -23,6 +23,13 @@ class InputBuffer:
         text, self.text = self.text, ""
         return text
 
+    def restore(self, text: str) -> None:
+        """Put a Prompt back before what was typed meanwhile, on a line of its own."""
+        typed, self.text = self.text, ""
+        self.insert(text)
+        if typed:
+            self.text += "\n" + typed
+
     def backspace(self) -> None:
         self.text = self.text[:-1]
 

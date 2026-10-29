@@ -4,15 +4,23 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from allin.core.errors import MalformedMessage, TurnCancelled
+from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings, Sampling, SessionSettings
-from allin.ipc.messages import ChatAppend, ChatDelta, Close, ContextUsage, TurnState
+from allin.ipc.messages import (
+    ChatAppend,
+    ChatDelta,
+    Close,
+    ContextUsage,
+    InputRestore,
+    TurnState,
+)
 from allin.main.conversation import Conversation, Step
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import (
     ErrorOccurred,
     InputReceived,
+    LlmAvailable,
     MainCommandEntered,
     MainEvent,
     Shutdown,
@@ -24,7 +32,7 @@ from allin.main.log import Log, LogEntry, read_log
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import resolve_slots
 from allin.ui.chat import Chat, Row
-from tests.llm_fakes import FakeLlm, answer, completed, full_reply
+from tests.llm_fakes import DroppedStream, FakeLlm, Unreachable, answer, completed, full_reply
 
 ME = MainId("root")
 SETTINGS = MainSettings(session=SessionSettings(username="ana", assistant_name="AllIn"))
@@ -83,6 +91,7 @@ class MainHarness:
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
+        self.health_watches = 0  # times Main asked to be told when the server is back
 
     def create_session(self, owner: MainId = ME, **settings: object) -> Session:
         session_settings = SETTINGS.session.model_copy(update=settings)
@@ -117,6 +126,7 @@ class MainHarness:
             self.settings,
             self.slots,
             self.sysprompts,
+            self._watch_health,
         )
         for event in [] if settle else events:
             inbox.put(event)
@@ -128,6 +138,9 @@ class MainHarness:
 
     def session_log(self, session: Session) -> list[LogEntry]:
         return read_log(self.root / session.id / "log.jsonl")
+
+    def _watch_health(self) -> None:
+        self.health_watches += 1
 
     def _open_window(self, session_id: str) -> FakeWindowLink:
         link = FakeWindowLink()
@@ -599,3 +612,74 @@ def test_closing_a_window_with_no_turn_or_prompt_cancels_nothing(main: MainHarne
     session = main.create_session()
     main.run(MainCommandEntered(f"/open {session.id}"), WindowClosed(session.id, returncode=0))
     assert [entry.event for entry in main.session_log(session)][-1] == "window_closed"
+
+
+@pytest.mark.parametrize(
+    "stream", [Unreachable(), DroppedStream([answer("half")])], ids=["down", "dies mid-turn"]
+)
+def test_when_the_server_is_unreachable_the_prompt_goes_back_to_its_windows_input(
+    main: MainHarness, stream: Unreachable | DroppedStream
+):
+    session = main.create_session()
+    main.llm = FakeLlm(stream)
+    main.run(MainCommandEntered(f"/open {session.id}"), InputReceived(session.id, "hola\nadiós"))
+    assert main.sessions.load_conversation(session) == Conversation(
+        sysprompt="I am AllIn; you are ana."
+    )
+    [window] = main.windows(session.id)
+    [error] = [m for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
+    assert "llm_unavailable" in error.text
+    assert any(isinstance(m, ChatAppend) and "cannot be reached" in m.text for m in window.sent)
+    restored = window.sent.index(InputRestore(text="hola\nadiós"))
+    assert restored < window.sent.index(TurnState(active=False))
+    [failed] = [entry for entry in main.session_log(session) if entry.event == "turn_failed"]
+    assert "llm_unavailable" in failed.fields["error"]
+
+
+def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.llm = FakeLlm(DroppedStream([answer("half")]), full_reply("", "back"))
+    chat = main.run(
+        MainCommandEntered(f"/open {b.id}"),
+        InputReceived(a.id, "a1"),
+        InputReceived(b.id, "b1"),  # a free slot, but the queue is paused
+        LlmAvailable(),  # what the health watch says once /health is OK
+        settle=True,
+    )
+    assert main.health_watches == 1
+    assert turn_lines(chat) == [
+        f"[{a.id}] turn started",
+        f"[{b.id}] turn started",
+        f"[{b.id}] turn finished",
+    ]
+    [paused] = [n for n, line in enumerate(chat) if "queue paused" in line]
+    [resumed] = [n for n, line in enumerate(chat) if "queue resumed" in line]
+    assert paused < resumed < chat.index(f"[{b.id}] turn started")
+    [window] = main.windows(b.id)
+    assert any(isinstance(m, ChatAppend) and "cannot be reached" in m.text for m in window.sent)
+
+
+def test_turns_failing_at_once_on_a_dead_server_pause_the_queue_once(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.hold_turns = True
+    main.run(
+        InputReceived(a.id, "a1"),
+        InputReceived(b.id, "b1"),
+        TurnEnded(a.id, error=LlmUnavailable(reason="Connection error.")),
+        TurnEnded(b.id, error=LlmUnavailable(reason="Connection error.")),
+        settle=True,
+    )
+    assert main.health_watches == 1
+    assert [entry.event for entry in main.main_log()].count("queue_paused") == 1
+
+
+def test_a_turn_that_fails_for_another_reason_does_not_pause_the_queue(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.llm = FakeLlm([answer("half")], full_reply("", "ok"))
+    chat = main.run(InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), settle=True)
+    assert main.health_watches == 0
+    assert turn_lines(chat)[-1] == f"[{b.id}] turn finished"

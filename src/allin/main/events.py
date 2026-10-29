@@ -73,6 +73,11 @@ class TurnEnded:
 
 
 @dataclass(frozen=True)
+class LlmAvailable:
+    """The LLM's server answers ``/health`` with OK again, after Main's queue paused for it."""
+
+
+@dataclass(frozen=True)
 class Shutdown:
     pass
 
@@ -87,5 +92,6 @@ type MainEvent = (
     | TurnRaw
     | StepEnded
     | TurnEnded
+    | LlmAvailable
     | Shutdown
 )

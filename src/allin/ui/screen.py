@@ -65,8 +65,15 @@ class BorderStatus:
     text: str
 
 
+@dataclass(frozen=True)
+class InputText:
+    """Text put back in the input, before whatever is being typed."""
+
+    text: str
+
+
 # A plain str is a ChatLine with no role; None asks the screen to quit.
-type ScreenUpdate = str | ChatLine | ChatStream | InputLock | BorderStatus | None
+type ScreenUpdate = str | ChatLine | ChatStream | InputLock | BorderStatus | InputText | None
 
 
 class ChatScreen:
@@ -164,6 +171,8 @@ class ChatScreen:
                         self._chat.end_stream()
                 case BorderStatus(text):
                     self._status = text
+                case InputText(text):
+                    self._input.restore(text)
             self._dirty = True
 
     def _scroll_chat(self, pages: int) -> None:

@@ -43,7 +43,7 @@ def resolve_slots(server_slots: int | None, parallel: int | None) -> Slots:
 def fetch_total_slots(base_url: str, timeout: float = _PROPS_TIMEOUT) -> int | None:
     """``total_slots`` from the server's ``/props``; ``None`` if it gives no usable answer."""
     try:
-        with urllib.request.urlopen(f"{_server_root(base_url)}/props", timeout=timeout) as reply:
+        with urllib.request.urlopen(f"{server_root(base_url)}/props", timeout=timeout) as reply:
             props = json.load(reply)
     except (OSError, ValueError):  # no server, an HTTP error status, or not JSON
         return None
@@ -53,7 +53,8 @@ def fetch_total_slots(base_url: str, timeout: float = _PROPS_TIMEOUT) -> int | N
     return None
 
 
-def _server_root(base_url: str) -> str:
-    """``/props`` is llama-server's own endpoint, outside the OpenAI-compatible ``/v1``."""
+def server_root(base_url: str) -> str:
+    """Where llama-server's own endpoints (``/props``, ``/health``) are: outside the
+    OpenAI-compatible ``/v1``."""
     root = base_url.rstrip("/")
     return root.removesuffix("/v1")

@@ -1,13 +1,21 @@
 import threading
 
-import httpx2
-import openai
 import pytest
 
-from allin.core.errors import LlmRequestFailed, TurnCancelled
+from allin.core.errors import LlmRequestFailed, LlmUnavailable, TurnCancelled
 from allin.main.conversation import Step
 from allin.main.turn import Cancellation, TurnRequest, run_turn
-from tests.llm_fakes import FakeLlm, HangingStream, answer, completed, failed, reasoning
+from tests.llm_fakes import (
+    DroppedStream,
+    FakeLlm,
+    HangingStream,
+    Unreachable,
+    answer,
+    completed,
+    connection_lost,
+    failed,
+    reasoning,
+)
 
 REQUEST = TurnRequest(
     model="allin",
@@ -65,7 +73,7 @@ def test_the_request_carries_the_model_the_input_and_only_the_params_given():
     [
         [answer("half")],  # the connection dropped before response.completed
         [answer("half"), failed("out of memory")],
-        openai.APIConnectionError(request=httpx2.Request("POST", "http://127.0.0.1:9931/v1")),
+        connection_lost(),
     ],
 )
 def test_a_step_that_does_not_complete_fails_the_turn_and_closes_its_stream(stream):
@@ -117,3 +125,20 @@ def test_each_step_keeps_llama_cpps_timings_and_is_reported_as_soon_as_it_ends()
     )
     assert reported == steps
     assert steps[0].timings == timings
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [connection_lost(), DroppedStream([answer("half")])],
+    ids=["server down", "server dies mid-step"],
+)
+def test_a_server_that_cannot_be_reached_makes_the_llm_unavailable(stream):
+    llm = FakeLlm(stream)
+    with pytest.raises(LlmUnavailable):
+        run(llm)
+    assert llm.opened[0].closed
+
+
+def test_an_unreachable_server_is_unavailable_even_before_a_stream_opens():
+    with pytest.raises(LlmUnavailable):
+        run(FakeLlm(Unreachable()))

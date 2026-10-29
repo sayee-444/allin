@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from allin.core.errors import (
     AllInError,
     InvalidArguments,
+    LlmUnavailable,
     SessionNotOwned,
     TurnCancelled,
     TurnCrashed,
@@ -26,12 +27,20 @@ from allin.core.errors import (
 )
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings
-from allin.ipc.messages import ChatAppend, ChatDelta, Close, ContextUsage, TurnState
+from allin.ipc.messages import (
+    ChatAppend,
+    ChatDelta,
+    Close,
+    ContextUsage,
+    InputRestore,
+    TurnState,
+)
 from allin.main.chat_rebuild import dropped_entry, error_entry, rebuild_chat, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
 from allin.main.events import (
     ErrorOccurred,
     InputReceived,
+    LlmAvailable,
     MainCommandEntered,
     MainEvent,
     Shutdown,
@@ -64,6 +73,11 @@ class WindowLink(Protocol):
 
 type OpenWindow = Callable[[str], WindowLink]
 type SubmitTurn = Callable[[TurnJob], None]
+# Starts watching the server's /health; once it is OK, ``LlmAvailable`` reaches the inbox.
+type WatchHealth = Callable[[], None]
+
+_PAUSED_TEXT = "queue paused: the LLM server cannot be reached, waiting for its /health"
+_RESUMED_TEXT = "queue resumed: the LLM server is back"
 
 
 @dataclass(frozen=True)
@@ -127,6 +141,7 @@ class Dispatcher:
         settings: MainSettings,
         slots: Slots,
         sysprompts: Path,
+        watch_health: WatchHealth,
     ) -> None:
         self._inbox = inbox
         self._main_chat = main_chat
@@ -138,6 +153,8 @@ class Dispatcher:
         self._settings = settings
         self._slots = slots
         self._sysprompts = sysprompts
+        self._watch_health = watch_health
+        self._paused = False  # no Turn starts while the server cannot be reached
         self._windows: dict[str, WindowLink] = {}
         self._prompts = PromptQueue()
         self._running: dict[str, _RunningTurn] = {}
@@ -199,6 +216,8 @@ class Dispatcher:
                 self._cancel(session_id, "window closed")
             case ErrorOccurred(error, session_id):
                 self._show_error(error, session_id)
+            case LlmAvailable():
+                self._resume()
             case MainCommandEntered(text):
                 return self._run_main_command(text)
             case Shutdown():
@@ -288,6 +307,8 @@ class Dispatcher:
         label = session.settings.username
         self._to_window(session.id, ChatAppend(role="user", label=label, text=text))
         self._send_turn_state(session.id)
+        if self._paused:
+            self._to_window(session.id, _paused_entry())
         self._start_turns()
         return True
 
@@ -334,7 +355,7 @@ class Dispatcher:
 
     def _start_turns(self) -> None:
         """Hand ready Prompts to executors while the server has free slots (ADR-0004)."""
-        while len(self._running) < self._slots.count:
+        while not self._paused and len(self._running) < self._slots.count:
             prompt = self._prompts.pop_ready(active=self._running)
             if prompt is None:
                 return
@@ -354,6 +375,23 @@ class Dispatcher:
             self._running[session.id] = _RunningTurn(prompt, session, job.cancellation)
             self._record(session.id, "turn_started", "turn started")
             self._submit_turn(job)
+
+    def _pause(self) -> None:
+        """Keep the queued Prompts until the server is back, instead of failing each in turn."""
+        if self._paused:  # Turns running at once all fail when the server dies
+            return
+        self._paused = True
+        self._report(None, "queue_paused", _PAUSED_TEXT)
+        for session_id in self._prompts.session_ids():
+            self._to_window(session_id, _paused_entry())
+        self._watch_health()
+
+    def _resume(self) -> None:
+        if not self._paused:
+            return
+        self._paused = False
+        self._report(None, "queue_resumed", _RESUMED_TEXT)
+        self._start_turns()
 
     def _cancel(self, session_id: str, reason: str) -> None:
         """Drop a Session's queued Prompts and stop its running Turn.
@@ -428,6 +466,10 @@ class Dispatcher:
             turn = self._save_turn(running, steps)
         except AllInError as failure:
             self._fail_turn(running, failure)
+            if isinstance(failure, LlmUnavailable):
+                self._pause()
+                if not self._prompts.has(session_id):  # else ``_pause`` or ``_send`` told it
+                    self._to_window(session_id, _paused_entry())
         else:
             self._record(session_id, "turn_finished", "turn finished", turn=turn)
             if (tokens := tokens_entry(steps)) is not None:
@@ -439,9 +481,12 @@ class Dispatcher:
         session_id = running.session.id
         # What it streamed is in no Conversation, so the Log keeps it for the rebuilt Chat.
         fields = {"error": str(error), "reasoning": running.reasoning, "answer": running.answer}
-        ending = "cancelled" if isinstance(error, TurnCancelled) else "failed"
+        cancelled = isinstance(error, TurnCancelled)
+        ending = "cancelled" if cancelled else "failed"
         self._record(session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields)
         self._to_window(session_id, error_entry(str(error)))
+        if not cancelled:  # its Prompt is in no Conversation, so the user may send it again
+            self._to_window(session_id, InputRestore(text=running.prompt.text))
 
     def _save_turn(self, running: _RunningTurn, steps: list[Step]) -> int:
         """Save the finished Turn and return its index in the Conversation."""
@@ -454,6 +499,10 @@ class Dispatcher:
     def _send_turn_state(self, session_id: str) -> None:
         active = session_id in self._running or self._prompts.has(session_id)
         self._to_window(session_id, TurnState(active=active))
+
+
+def _paused_entry() -> ChatAppend:
+    return ChatAppend(role="info", label="queue", text=_PAUSED_TEXT)
 
 
 def _summary(text: str, width: int = 60) -> str:

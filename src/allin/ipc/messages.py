@@ -65,13 +65,20 @@ class ContextUsage(BaseModel):
     tokens_per_second: float | None
 
 
+class InputRestore(BaseModel):
+    """Put a Prompt that never reached the Conversation back in the Window's input."""
+
+    type: Literal["input_restore"] = "input_restore"
+    text: str
+
+
 class Close(BaseModel):
     """Ask the Window to exit."""
 
     type: Literal["close"] = "close"
 
 
-type MainToWindow = ChatAppend | ChatDelta | TurnState | ContextUsage | Close
+type MainToWindow = ChatAppend | ChatDelta | TurnState | ContextUsage | InputRestore | Close
 MainMessage = Annotated[MainToWindow, Field(discriminator="type")]
 
 _window_adapter: TypeAdapter[WindowReady | UserInput] = TypeAdapter(WindowMessage)

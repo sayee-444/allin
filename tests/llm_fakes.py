@@ -4,6 +4,8 @@ import threading
 from collections.abc import Iterator
 from typing import Any
 
+import httpx2
+import openai
 from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
@@ -69,6 +71,11 @@ def failed(message: str) -> ResponseFailedEvent:
     return ResponseFailedEvent.model_construct(type="response.failed", response=response)
 
 
+def connection_lost() -> openai.APIConnectionError:
+    """What the SDK raises when llama-server is down, or dies while it streams."""
+    return openai.APIConnectionError(request=httpx2.Request("POST", "http://127.0.0.1:9931/v1"))
+
+
 def full_reply(thinking: str, text: str) -> list[ResponseStreamEvent]:
     return [reasoning(thinking), answer(text), completed(thinking, text)]
 
@@ -85,6 +92,14 @@ class FakeStream:
 
     def close(self) -> None:
         self.closed = True
+
+
+class DroppedStream(FakeStream):
+    """Streams its events, then loses the connection, as when llama-server is killed."""
+
+    def __iter__(self) -> Iterator[ResponseStreamEvent]:
+        yield from super().__iter__()
+        raise connection_lost()
 
 
 class HangingStream(FakeStream):
@@ -112,10 +127,17 @@ class HangingStream(FakeStream):
         self._released.set()
 
 
+class Unreachable:
+    """A scripted Step whose stream never opens: the SDK raises on the request itself."""
+
+
+type Script = list[ResponseStreamEvent] | Exception | FakeStream | Unreachable
+
+
 class FakeLlm:
     """Answers each Step with the next scripted stream and records what it was asked."""
 
-    def __init__(self, *streams: list[ResponseStreamEvent] | Exception | FakeStream) -> None:
+    def __init__(self, *streams: Script) -> None:
         self._streams = list(streams)
         self.requests: list[dict[str, Any]] = []
         self.opened: list[FakeStream] = []
@@ -123,6 +145,8 @@ class FakeLlm:
     def stream(self, model: str, input: list[Item], params: dict[str, Any]) -> FakeStream:
         self.requests.append({"model": model, "input": input, **params})
         script = self._streams.pop(0)
+        if isinstance(script, Unreachable):
+            raise connection_lost()
         stream = script if isinstance(script, FakeStream) else FakeStream(script)
         self.opened.append(stream)
         return stream

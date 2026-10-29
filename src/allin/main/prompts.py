@@ -35,3 +35,7 @@ class PromptQueue:
 
     def has(self, session_id: str) -> bool:
         return any(prompt.session_id == session_id for prompt in self._prompts)
+
+    def session_ids(self) -> list[str]:
+        """The Sessions with queued Prompts, each once, in the order of their first one."""
+        return list(dict.fromkeys(prompt.session_id for prompt in self._prompts))

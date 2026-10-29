@@ -23,7 +23,7 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
-from allin.core.errors import LlmRequestFailed, TurnCancelled
+from allin.core.errors import LlmRequestFailed, LlmUnavailable, TurnCancelled
 from allin.main.conversation import Item, Step
 
 type OutputKind = Literal["reasoning", "answer"]
@@ -45,6 +45,7 @@ class OpenAiLlm:
         self._client = OpenAI(
             base_url=base_url,
             api_key="None",
+            max_retries=0,  # a server that is down pauses Main's queue until /health says OK
         )
 
     def stream(self, model: str, input: list[Item], params: dict[str, Any]) -> LlmStream:
@@ -125,6 +126,8 @@ def run_turn(
 ) -> list[Step]:
     """Run the Turn's Steps; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early.
 
+    ``LlmUnavailable``, a kind of ``LlmRequestFailed``, means the server could not be reached.
+
     ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams and
     ``on_step`` each Step as soon as it ends.
     """
@@ -161,6 +164,8 @@ def _run_step(
                     case _:
                         pass
             cancellation.check()  # a stream closed by ``cancel`` may also just end
+    except openai.APIConnectionError as error:  # the SDK's own, also for a stream cut short
+        raise LlmUnavailable(reason=str(error)) from error
     except openai.OpenAIError as error:
         raise LlmRequestFailed(reason=str(error)) from error
     raise LlmRequestFailed(reason="stream ended without a completed response")
