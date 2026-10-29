@@ -9,15 +9,15 @@ Orquestador de terminal para conversar con un LLM local (vía OpenAI SDK) desde 
 ## Procesos
 
 **Main**:
-El proceso orquestador (`main.py`); dueño único del estado de todas las Sesiones y de la cola de Turnos.
+El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único del estado de todas las Sesiones y de la cola de Turnos.
 _Avoid_: abuelo, padre, proceso principal
 
 **Lanzador** (`Launcher`):
-El proceso intermedio que Main crea para abrir una Ventana; solo existe para hacer `setsid` + `exec` de xterm y Main espera su terminación.
+El componente de Main que abre una Ventana: lanza xterm con `Popen` en una sesión nueva (`setsid`) y un thread vigía espera su terminación (ADR-0003). No hay proceso intermedio.
 _Avoid_: hijo, worker
 
 **Ventana** (`Window`):
-El proceso xterm/curses (`start.py`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión.
+El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión.
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
 
 ## Sesiones y registros

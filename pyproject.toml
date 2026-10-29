@@ -3,14 +3,27 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "1"          
+name = "allin"
 version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "basedpyright"]
+
+[project.scripts]
+allin = "allin.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.basedpyright]
 typeCheckingMode = "standard"
+venvPath = "."
+venv = "venv"
 
 [tool.ruff]
 line-length = 100
