@@ -20,6 +20,17 @@ _Avoid_: hijo, worker
 El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión.
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
 
+**Servidor** (`Server`):
+El proceso `llama serve` que atiende los Pasos de los Turnos de los Mains que apuntan a él. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa.
+_Avoid_: deploy, LLM (como nombre del proceso)
+
+**Supervisor** (`Supervisor`):
+Entidad con nombre y sus propios Ajustes del Servidor que, cuando está **activo**, es un proceso de AllIn que lanza su Servidor, lo relanza si cae y lo reinicia con otros Ajustes cuando se le pide; **dormido**, solo existen sus Ajustes. No muere con Main. Varios Mains pueden compartir un Supervisor, y se reparten los slots de su Servidor.
+_Avoid_: singleton, el script que ejecuta llama, servidor por defecto
+
+**Enlace** (`server` link):
+Ajuste de Main que nombra el único Supervisor al que manda sus Turnos. Al arrancar, Main despierta a ese Supervisor (o se adhiere a él si ya está activo) y a ningún otro. Un submain lo hereda por copia.
+
 ## Sesiones y registros
 
 **Sesión** (`Session`):
@@ -54,7 +65,7 @@ Parámetros que gobiernan a Main o a una Sesión. Se heredan siempre por copia: 
 _Avoid_: settings, config
 
 **Ajustes de Main** (`MainSettings`):
-Los que Main usa para sí mismo (su idioma, sus colores, `llm.parallel`…); no se comparten con las Sesiones.
+Los que Main usa para sí mismo (su idioma, sus colores, el Enlace, `parallel`…); no se comparten con las Sesiones.
 
 **Ajustes de Sesión** (`SessionSettings`):
 Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que solo almacena, no usa, y que se copian a la Sesión en `/new`; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
@@ -64,6 +75,10 @@ La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige a
 
 **Ajustes por defecto** (`default settings`):
 La versión con la que Main arranca tras un `/reset`; se cambia con `/set --default`.
+
+**Ajustes del Servidor** (`ServerSettings`):
+Los parámetros de carga con los que arranca el Servidor (modelo, contexto, slots, caché KV, GPU…); solo cambian reiniciándolo. No son los parámetros de muestreo, que viajan en cada Paso desde los Ajustes de Sesión.
+Los **en curso** son con los que corre el Servidor ahora (los informa el Supervisor); los **pendientes** son los que se aplicarán en su próximo arranque, sea por reinicio pedido o por caída.
 
 **Tema** (`Theme`):
 Conjunto con nombre de Ajustes visuales (fuente, tamaño, geometría, colores por rol) en `themes/<nombre>.toml`; las claves sueltas sobrescritas tienen prioridad sobre él.
@@ -76,15 +91,18 @@ Una petición al LLM para una Sesión, en espera en la cola de Main; siempre nac
 _Avoid_: /run
 
 **Turno** (`Turn`):
-La atención completa de un Prompt: empieza cuando Main lo saca de la cola y termina cuando un paso concluye sin llamadas a tools pendientes, o al cancelarse o fallar. Una Sesión tiene a lo sumo un Turno activo; Sesiones distintas pueden tener Turnos en paralelo hasta el número de slots del servidor.
+La atención completa de un Prompt: empieza cuando Main lo saca de la cola y termina cuando un paso concluye sin llamadas a tools pendientes, o al cancelarse o fallar. Una Sesión tiene a lo sumo un Turno activo; Sesiones distintas pueden tener Turnos en paralelo hasta el número de slots del Servidor, que se reparten entre los Mains que lo comparten.
 _Avoid_: request, petición (para el ciclo completo)
+
+**Turno suspendido** (`suspended turn`):
+Turno que, al caer o reiniciarse el Servidor, no falla porque ya llamó a una Zombie: conserva su Conversación hasta la salida de la última Zombie terminada y continúa con un Paso nuevo, antes que cualquier Prompt de la cola, cuando el Servidor vuelve a estar listo.
 
 **Paso** (`Step`):
 Una sola llamada a `responses.create` dentro de un Turno; un Turno con tools tiene varios Pasos.
 _Avoid_: ronda, iteración
 
 **Contexto** (`Context`):
-Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite de contexto de la Sesión.
+Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten las Sesiones con Turno activo.
 _Avoid_: tokens gastados (ambiguo)
 
 ## Comandos
@@ -143,6 +161,9 @@ _Avoid_: agent, function agent, agente
 Clase cuyos métodos públicos se exponen como Function tools para controlar un proceso que corre en paralelo adherido a Main, que el usuario también puede manipular directamente. `screen.py` es solo un ejemplo de fscreen, sin estatus especial; su comportamiento lo definen sus métodos, no los Ajustes.
 _Avoid_: screen, function screen
 
+**Zombie** (`zombie`):
+Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.
+
 **Confirmación** (`Confirmation`):
-Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool o un comando); `-y` la salta para esa invocación y `--devastation` para todas.
+Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando); si la rechaza, el LLM recibe el rechazo como salida de la tool. `-y` la salta para esa invocación y `--devastation` para todas.
 _Avoid_: aprobación, permiso
