@@ -58,14 +58,22 @@ class InputLock:
     locked: bool
 
 
+@dataclass(frozen=True)
+class BorderStatus:
+    """Text shown on the Chat's border, after the title; it replaces the previous one."""
+
+    text: str
+
+
 # A plain str is a ChatLine with no role; None asks the screen to quit.
-type ScreenUpdate = str | ChatLine | ChatStream | InputLock | None
+type ScreenUpdate = str | ChatLine | ChatStream | InputLock | BorderStatus | None
 
 
 class ChatScreen:
     def __init__(self, stdscr: curses.window, title: str) -> None:
         self._stdscr = stdscr
         self._title = title
+        self._status = ""
         self._chat = Chat()
         self._chat_rows: list[Row] = []  # self._chat wrapped to the Chat pad's width
         self._chat_view = Viewport()
@@ -154,6 +162,8 @@ class ChatScreen:
                     self._locked = locked
                     if not locked:  # the Turn is over; a lock must not split a replayed stream
                         self._chat.end_stream()
+                case BorderStatus(text):
+                    self._status = text
             self._dirty = True
 
     def _scroll_chat(self, pages: int) -> None:
@@ -186,7 +196,9 @@ class ChatScreen:
         assert self._boxes is not None and self._pads is not None
         chat_box, input_box = self._boxes
         chat_pad, input_pad = self._pads
-        chat_box.addnstr(0, 2, f" {self._title} ", max(0, layout.chat_box.width - 4))
+        chat_box.border()  # wipes a longer status drawn before
+        title = f" {self._title} " + (f"─ {self._status} " if self._status else "")
+        chat_box.addnstr(0, 2, title, max(0, layout.chat_box.width - 4))
         chat_box.noutrefresh()
         input_box.border()
         if self._locked:

@@ -32,7 +32,10 @@ def answer(delta: str) -> ResponseTextDeltaEvent:
     )
 
 
-def completed(thinking: str, text: str, total_tokens: int = 10) -> ResponseCompletedEvent:
+def completed(
+    thinking: str, text: str, total_tokens: int = 10, timings: dict[str, Any] | None = None
+) -> ResponseCompletedEvent:
+    """``timings`` is the extra field llama-server adds to the event."""
     output = [
         ResponseReasoningItem(
             id="rs_1",
@@ -54,7 +57,10 @@ def completed(thinking: str, text: str, total_tokens: int = 10) -> ResponseCompl
         total_tokens=total_tokens,
     )
     response = Response.model_construct(id="resp_1", output=output, usage=usage)
-    return ResponseCompletedEvent.model_construct(type="response.completed", response=response)
+    event = ResponseCompletedEvent.model_construct(type="response.completed", response=response)
+    if timings is not None:
+        event.__pydantic_extra__ = {"timings": timings}
+    return event
 
 
 def failed(message: str) -> ResponseFailedEvent:

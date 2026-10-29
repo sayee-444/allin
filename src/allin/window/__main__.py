@@ -13,13 +13,15 @@ from allin.ipc.messages import (
     ChatAppend,
     ChatDelta,
     Close,
+    ContextUsage,
     MainToWindow,
     TurnState,
     UserInput,
     WindowReady,
     decode_main_message,
 )
-from allin.ui.screen import ChatLine, ChatScreen, ChatStream, InputLock
+from allin.ui.screen import BorderStatus, ChatLine, ChatScreen, ChatStream, InputLock
+from allin.ui.status import context_status
 
 
 class _MainListener:
@@ -36,6 +38,8 @@ class _MainListener:
                 self._screen.inbox.put(ChatStream(text, role, label))
             case TurnState(active=active):
                 self._screen.inbox.put(InputLock(active))
+            case ContextUsage(context=context, limit=limit, tokens_per_second=speed):
+                self._screen.inbox.put(BorderStatus(context_status(context, limit, speed)))
             case Close():
                 self._screen.inbox.put(None)
 

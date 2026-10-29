@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from allin.core.errors import MalformedMessage
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings, Sampling, SessionSettings
-from allin.ipc.messages import ChatAppend, ChatDelta, Close, TurnState
+from allin.ipc.messages import ChatAppend, ChatDelta, Close, ContextUsage, TurnState
 from allin.main.conversation import Conversation, Step
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import (
@@ -24,10 +24,12 @@ from allin.main.log import Log, LogEntry, read_log
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import resolve_slots
 from allin.ui.chat import Chat, Row
-from tests.llm_fakes import FakeLlm, answer, full_reply
+from tests.llm_fakes import FakeLlm, answer, completed, full_reply
 
 ME = MainId("root")
 SETTINGS = MainSettings(session=SessionSettings(username="ana", assistant_name="AllIn"))
+# What a Window is first sent for a Session with no Turns: just its context limit.
+NOTHING_YET = ContextUsage(context=None, limit=131072, tokens_per_second=None)
 
 
 class FakeWindowLink:
@@ -161,7 +163,7 @@ def test_closing_a_window_keeps_its_session_so_it_can_be_opened_again(main: Main
     first, second = main.windows(session.id)
     assert first.closed and Close() not in first.sent
     assert main.sessions.load(session.id) == session
-    assert second.sent == [Close()] and second.closed
+    assert second.sent == [NOTHING_YET, Close()] and second.closed
 
 
 def test_open_on_a_session_whose_window_is_open_is_an_error_and_does_nothing(main: MainHarness):
@@ -215,6 +217,7 @@ def test_enter_in_a_window_streams_the_turn_into_that_window_only(main: MainHarn
         TurnState(active=True),
         ChatDelta(role="reasoning", label="reasoning", text="thinking"),
         ChatDelta(role="answer", label="AllIn", text="Hello"),
+        ChatAppend(role="info", label="tokens", text="10 tokens this turn"),
         TurnState(active=False),
     ]
     assert not any(isinstance(m, ChatAppend | ChatDelta) for m in window_b.sent)
@@ -233,6 +236,36 @@ def test_a_finished_turn_is_saved_whole_and_the_next_turn_sees_it(main: MainHarn
     assert second_input[1] == {"role": "user", "content": "pick a fruit"}
     assert second_input[3]["content"][0]["text"] == "Mango"
     assert second_input[-1] == {"role": "user", "content": "which?"}
+
+
+# 200 tokens read, 10 of them new to the server's cache, and 200 written at 100 tok/s.
+TIMINGS = {"cache_n": 190, "prompt_n": 10, "predicted_n": 200, "predicted_per_second": 100.0}
+
+
+def test_after_each_step_the_window_shows_the_context_and_speed_and_then_the_turns_tokens(
+    main: MainHarness,
+):
+    session = main.create_session(context_limit=8192)
+    main.llm = FakeLlm([answer("Hi"), completed("", "Hi", total_tokens=400, timings=TIMINGS)])
+    main.run(MainCommandEntered(f"/open {session.id}"), InputReceived(session.id, "hola"))
+    [window] = main.windows(session.id)
+    after_open = window.sent.index(ContextUsage(context=None, limit=8192, tokens_per_second=None))
+    usage = window.sent.index(ContextUsage(context=400, limit=8192, tokens_per_second=100.0))
+    tokens = window.sent.index(ChatAppend(role="info", label="tokens", text="210 tokens this turn"))
+    assert after_open < usage < tokens < window.sent.index(TurnState(active=False))
+
+
+def test_reopening_a_window_shows_the_context_its_last_turn_left(main: MainHarness):
+    session = main.create_session(context_limit=8192)
+    main.llm = FakeLlm([completed("", "Hi", total_tokens=400, timings=TIMINGS)])
+    main.run(
+        InputReceived(session.id, "hola"),
+        MainCommandEntered(f"/open {session.id}"),
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    assert ContextUsage(context=400, limit=8192, tokens_per_second=100.0) in window.sent
+    assert ChatAppend(role="info", label="tokens", text="210 tokens this turn") in window.sent
 
 
 def test_a_turn_that_fails_half_way_leaves_the_conversation_as_it_was(main: MainHarness):
@@ -308,7 +341,7 @@ def test_closed_window_is_reported_and_no_longer_receives_messages(main: MainHar
     )
     assert any(session.id in line and "closed" in line for line in chat)
     [window] = main.windows(session.id)
-    assert window.sent == []
+    assert window.sent == [NOTHING_YET]
 
 
 def test_errors_are_shown_in_main_chat_with_their_session(main: MainHarness):
@@ -324,7 +357,7 @@ def test_exit_closes_every_window_and_stops(main: MainHarness):
         MainCommandEntered("/new"),
     )
     assert len(main.opened) == 2
-    assert all(link.sent == [Close()] and link.closed for _, link in main.opened)
+    assert all(link.sent == [NOTHING_YET, Close()] and link.closed for _, link in main.opened)
 
 
 def test_unknown_main_command_is_reported(main: MainHarness):

@@ -96,3 +96,18 @@ def test_a_session_without_a_log_shows_its_conversations_turns():
         ChatAppend(role="user", label="ana", text="hola"),
         ChatAppend(role="answer", label="AllIn", text="Hello"),
     ]
+
+
+def test_a_finished_turn_shows_what_it_cost_after_its_output():
+    usage = {
+        "input_tokens": 328,
+        "input_tokens_details": {"cached_tokens": 324},
+        "output_tokens": 39,
+    }
+    costly = Turn(prompt="hola", steps=[Step(output=[], usage=usage)])
+    conversation = Conversation(sysprompt="s", turns=[costly])
+    log = [entry("prompt", text="hola"), entry("turn_finished", turn=0)]
+    assert rebuild_chat(conversation, log, SETTINGS) == [
+        ChatAppend(role="user", label="ana", text="hola"),
+        ChatAppend(role="info", label="tokens", text="43 tokens this turn"),
+    ]

@@ -68,12 +68,16 @@ def run_turn(
     on_output: Callable[[OutputKind, str], None],
     cancelled: Callable[[], bool],
     on_raw: Callable[[dict[str, Any]], None],
+    on_step: Callable[[Step], None],
 ) -> list[Step]:
     """Run the Turn's Steps; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early.
 
-    ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams.
+    ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams and
+    ``on_step`` each Step as soon as it ends.
     """
-    return [_run_step(llm, request, on_output, cancelled, on_raw)]
+    step = _run_step(llm, request, on_output, cancelled, on_raw)
+    on_step(step)
+    return [step]
 
 
 def _run_step(
@@ -96,7 +100,7 @@ def _run_step(
                     case ResponseTextDeltaEvent(delta=delta):
                         on_output("answer", delta)
                     case ResponseCompletedEvent(response=response):
-                        return _step(response)
+                        return _step(response, (event.model_extra or {}).get("timings"))
                     case ResponseFailedEvent(response=response):
                         raise LlmRequestFailed(reason=str(response.error))
                     case ResponseIncompleteEvent(response=response):
@@ -110,8 +114,9 @@ def _run_step(
     raise LlmRequestFailed(reason="stream ended without a completed response")
 
 
-def _step(response: Response) -> Step:
+def _step(response: Response, timings: dict[str, Any] | None) -> Step:
+    """``timings`` is not in the Responses API: llama-server adds it to the completed event."""
     # Items are kept as the JSON the server sent, which it accepts back as ``input``.
     output = [item.model_dump(mode="json", exclude_none=True) for item in response.output]
     usage = response.usage.model_dump(mode="json") if response.usage else None
-    return Step(output=output, usage=usage)
+    return Step(output=output, usage=usage, timings=timings)

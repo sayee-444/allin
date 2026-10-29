@@ -23,6 +23,8 @@ class SessionSettings(BaseModel, frozen=True):
     sysprompt: str = "default.txt"  # a file in the sysprompts folder
     model: str = "allin"
     sampling: Sampling = Sampling()
+    # Tokens the Conversation may fill, as llama-server was started with (-c); only shown.
+    context_limit: int = Field(default=131072, ge=1)
 
 
 class MainSettings(BaseModel, frozen=True):

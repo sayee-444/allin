@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from allin.core.errors import AllInError, TurnCrashed
-from allin.main.events import MainEvent, TurnEnded, TurnOutput, TurnRaw
+from allin.main.events import MainEvent, StepEnded, TurnEnded, TurnOutput, TurnRaw
 from allin.main.turn import Llm, TurnRequest, run_turn
 
 
@@ -31,6 +31,7 @@ def execute(
             lambda kind, text: emit(TurnOutput(job.session_id, kind, text)),
             cancelled,
             lambda event: emit(TurnRaw(job.session_id, event)),
+            lambda step: emit(StepEnded(job.session_id, step)),
         )
     except AllInError as error:
         emit(TurnEnded(job.session_id, error=error))

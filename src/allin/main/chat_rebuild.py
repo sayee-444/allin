@@ -9,8 +9,9 @@ from collections.abc import Iterable
 
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
-from allin.main.conversation import Conversation, Item, Turn
+from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.log import LogEntry
+from allin.main.usage import turn_tokens
 
 
 def rebuild_chat(
@@ -55,6 +56,8 @@ def _turn_output(turn: Turn, settings: SessionSettings) -> list[ChatAppend]:
                 chat += _output("", _text(item, "output_text"), settings)
             case _:
                 pass
+    if (tokens := tokens_entry(turn.steps)) is not None:
+        chat.append(tokens)
     return chat
 
 
@@ -76,3 +79,10 @@ def _text(item: Item, part_type: str) -> str:
 
 def error_entry(text: str) -> ChatAppend:
     return ChatAppend(role="error", label="error", text=text)
+
+
+def tokens_entry(steps: list[Step]) -> ChatAppend | None:
+    """What a finished Turn cost, shown after its output; ``None`` if no Step has usage."""
+    if all(step.usage is None for step in steps):
+        return None
+    return ChatAppend(role="info", label="tokens", text=f"{turn_tokens(steps)} tokens this turn")

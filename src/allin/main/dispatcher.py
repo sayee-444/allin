@@ -25,8 +25,8 @@ from allin.core.errors import (
 )
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings
-from allin.ipc.messages import ChatAppend, ChatDelta, Close, TurnState
-from allin.main.chat_rebuild import error_entry, rebuild_chat
+from allin.ipc.messages import ChatAppend, ChatDelta, Close, ContextUsage, TurnState
+from allin.main.chat_rebuild import error_entry, rebuild_chat, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
 from allin.main.events import (
     ErrorOccurred,
@@ -34,6 +34,7 @@ from allin.main.events import (
     MainCommandEntered,
     MainEvent,
     Shutdown,
+    StepEnded,
     TurnEnded,
     TurnOutput,
     TurnRaw,
@@ -47,6 +48,7 @@ from allin.main.sessions import Session, SessionStore
 from allin.main.slots import Slots
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import OutputKind, TurnRequest
+from allin.main.usage import context_tokens, tokens_per_second
 
 
 class WindowLink(Protocol):
@@ -81,6 +83,7 @@ class _RunningTurn:
     session: Session
     reasoning: str = ""  # streamed so far, shown again if its Window is reopened mid-Turn
     answer: str = ""
+    steps: list[Step] = field(default_factory=list[Step])  # ended so far
 
 
 @dataclass
@@ -181,6 +184,8 @@ class Dispatcher:
                 self._show_output(session_id, kind, text)
             case TurnRaw(session_id, raw):
                 self._show_raw(session_id, raw)
+            case StepEnded(session_id, step):
+                self._end_step(session_id, step)
             case TurnEnded(session_id, steps, error):
                 self._end_turn(session_id, steps, error)
             case WindowClosed(session_id, returncode):
@@ -313,6 +318,11 @@ class Dispatcher:
         ):
             self._to_window(session.id, message)
         running = self._running.get(session.id)
+        if running is not None and running.steps:
+            last_steps = running.steps
+        else:
+            last_steps = conversation.turns[-1].steps if conversation.turns else []
+        self._send_context(session, last_steps)
         if running is not None:  # what the running Turn has streamed so far; it goes on streaming
             if running.reasoning:
                 self._to_window(session.id, self._delta(running, "reasoning", running.reasoning))
@@ -372,6 +382,22 @@ class Dispatcher:
         if session_id in self._raw:
             self._main_chat(f"[{session_id}] raw {json.dumps(raw, ensure_ascii=False)}")
 
+    def _end_step(self, session_id: str, step: Step) -> None:
+        running = self._running.get(session_id)
+        if running is None:
+            return
+        running.steps.append(step)
+        self._send_context(running.session, running.steps)
+
+    def _send_context(self, session: Session, steps: list[Step]) -> None:
+        """Show the Window the Context ``steps`` leave and how fast the last one generated."""
+        usage = ContextUsage(
+            context=context_tokens(steps),
+            limit=session.settings.context_limit,
+            tokens_per_second=tokens_per_second(steps),
+        )
+        self._to_window(session.id, usage)
+
     def _end_turn(
         self, session_id: str, steps: list[Step] | None, error: AllInError | None
     ) -> None:
@@ -386,6 +412,8 @@ class Dispatcher:
             self._fail_turn(running, failure)
         else:
             self._record(session_id, "turn_finished", "turn finished", turn=turn)
+            if (tokens := tokens_entry(steps)) is not None:
+                self._to_window(session_id, tokens)
         self._send_turn_state(session_id)
         self._start_turns()
 

@@ -55,13 +55,23 @@ class TurnState(BaseModel):
     active: bool
 
 
+class ContextUsage(BaseModel):
+    """How much of its context limit the Session fills and how fast its last Step generated;
+    ``None`` when not known yet."""
+
+    type: Literal["context_usage"] = "context_usage"
+    context: int | None
+    limit: int
+    tokens_per_second: float | None
+
+
 class Close(BaseModel):
     """Ask the Window to exit."""
 
     type: Literal["close"] = "close"
 
 
-type MainToWindow = ChatAppend | ChatDelta | TurnState | Close
+type MainToWindow = ChatAppend | ChatDelta | TurnState | ContextUsage | Close
 MainMessage = Annotated[MainToWindow, Field(discriminator="type")]
 
 _window_adapter: TypeAdapter[WindowReady | UserInput] = TypeAdapter(WindowMessage)

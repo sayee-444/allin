@@ -56,6 +56,14 @@ class TurnRaw:
 
 
 @dataclass(frozen=True)
+class StepEnded:
+    """One Step of a Session's running Turn ended; the Turn may go on with another."""
+
+    session_id: str
+    step: Step
+
+
+@dataclass(frozen=True)
 class TurnEnded:
     """A Session's Turn finished with its Steps, or stopped with ``error``."""
 
@@ -77,6 +85,7 @@ type MainEvent = (
     | MainCommandEntered
     | TurnOutput
     | TurnRaw
+    | StepEnded
     | TurnEnded
     | Shutdown
 )

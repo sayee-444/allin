@@ -17,10 +17,12 @@ type Item = dict[str, Any]  # a Responses API input/output item, as JSON
 
 
 class Step(BaseModel, frozen=True):
-    """One ``responses.create`` call: the items it produced and its token usage."""
+    """One ``responses.create`` call: the items it produced, its token usage and llama.cpp's
+    ``timings`` for it (prompt and generation counts and speeds)."""
 
     output: list[Item]
     usage: dict[str, Any] | None = None
+    timings: dict[str, Any] | None = None
 
 
 class Turn(BaseModel, frozen=True):
