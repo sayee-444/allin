@@ -21,7 +21,7 @@ def wrap(text: str, width: int) -> list[str]:
     lines: list[str] = []
     for logical in text.split("\n"):
         line, used = "", 0
-        for char in _printable(logical):
+        for char in printable(logical):
             cells = cell_width(char)
             if used + cells > width and line:
                 lines.append(line)
@@ -32,6 +32,7 @@ def wrap(text: str, width: int) -> list[str]:
     return lines
 
 
-def _printable(line: str) -> str:
+def printable(line: str) -> str:
+    """``line`` (with no newlines) as the pad draws it."""
     line = line.replace("\t", _TAB)
     return "".join(char for char in line if unicodedata.category(char) != "Cc")

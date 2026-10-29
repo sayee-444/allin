@@ -7,16 +7,19 @@ curses; other threads hand it lines through ``inbox``.
 
 import curses
 import queue
+import sys
 from collections.abc import Callable
 
 from allin.core.errors import ScreenTooSmall
+from allin.ui.input_buffer import InputBuffer
+from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
 from allin.ui.layout import Layout, Rect, compute_layout
 from allin.ui.viewport import Viewport
 from allin.ui.wrap import cell_width, wrap
 
 _POLL_MS = 50  # curses has no blocking wait on both keys and the inbox
-_ENTER = ("\n", "\r", curses.KEY_ENTER)
-_BACKSPACE = ("\x7f", "\b", curses.KEY_BACKSPACE)
+_BRACKETED_PASTE_ON = "\x1b[?2004h"
+_BRACKETED_PASTE_OFF = "\x1b[?2004l"
 _TOO_SMALL = "Terminal too small: please enlarge it"
 
 
@@ -28,7 +31,8 @@ class ChatScreen:
         self._chat_rows: list[str] = []  # self._chat wrapped to self._chat_width
         self._chat_width = 0
         self._chat_view = Viewport()
-        self._buffer = ""
+        self._input = InputBuffer()
+        self._keys = KeyDecoder()
         self._layout: Layout | None = None
         self._boxes: tuple[curses.window, curses.window] | None = None
         self._pads: tuple[curses.window, curses.window] | None = None
@@ -47,6 +51,13 @@ class ChatScreen:
         """Run the UI loop until ``None`` arrives in the inbox."""
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
+        _write_terminal(_BRACKETED_PASTE_ON)
+        try:
+            self._loop(on_submit)
+        finally:
+            _write_terminal(_BRACKETED_PASTE_OFF)
+
+    def _loop(self, on_submit: Callable[[str], None]) -> None:
         while True:
             if not self._drain_inbox():
                 return
@@ -55,21 +66,35 @@ class ChatScreen:
             try:
                 key = self._stdscr.get_wch()
             except curses.error:
+                self._keys.flush()
                 continue
-            self._dirty = True
-            if key == curses.KEY_RESIZE:
+            for chord in self._keys.feed(key):
+                self._dirty = True
+                self._handle(chord, on_submit)
+
+    def _handle(self, chord: KeyEvent, on_submit: Callable[[str], None]) -> None:
+        match chord:
+            case Paste(text=text):
+                self._input.insert(text)
+            case KeyChord(key=Key.RESIZE):
                 curses.update_lines_cols()
                 self._repaint = True
-            elif key in _ENTER:
-                text, self._buffer = self._buffer, ""
+            case KeyChord(key=Key.ENTER, ctrl=True):
+                self._input.insert("\n")
+            case KeyChord(key=Key.ENTER):
+                text = self._input.take()
                 if text.strip():
                     on_submit(text)
-            elif key in _BACKSPACE:
-                self._buffer = self._buffer[:-1]
-            elif key in (curses.KEY_PPAGE, curses.KEY_NPAGE):
-                self._scroll_chat(-1 if key == curses.KEY_PPAGE else 1)
-            elif isinstance(key, str) and key.isprintable():
-                self._buffer += key
+            case KeyChord(key=Key.BACKSPACE, ctrl=True):
+                self._input.delete_word()
+            case KeyChord(key=Key.BACKSPACE):
+                self._input.backspace()
+            case KeyChord(key=Key.PAGE_UP | Key.PAGE_DOWN as key):
+                self._scroll_chat(-1 if key == Key.PAGE_UP else 1)
+            case KeyChord(key=str() as char, ctrl=False, alt=False) if char.isprintable():
+                self._input.insert(char)
+            case _:
+                pass
 
     def _drain_inbox(self) -> bool:
         while True:
@@ -98,7 +123,7 @@ class ChatScreen:
             self._layout = None
         height, width = self._stdscr.getmaxyx()
         # A trailing space reserves the cell where the cursor sits after the last character.
-        input_rows = wrap(self._buffer + " ", max(1, width - 2))
+        input_rows = wrap(self._input.text + " ", max(1, width - 2))
         try:
             layout = compute_layout(height, width, len(input_rows))
         except ScreenTooSmall:
@@ -140,6 +165,12 @@ class ChatScreen:
         except curses.error:
             pass
         self._stdscr.refresh()
+
+
+def _write_terminal(sequence: str) -> None:
+    """Send a control sequence straight to the terminal, bypassing curses."""
+    sys.stdout.write(sequence)
+    sys.stdout.flush()
 
 
 def _box(rect: Rect) -> curses.window:
