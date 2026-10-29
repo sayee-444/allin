@@ -13,7 +13,7 @@ from allin.core.errors import AllInError, TurnCrashed
 from allin.main.events import MainEvent, StepEnded, TurnEnded, TurnOutput, TurnRaw
 from allin.main.turn import Cancellation, Llm, TurnRequest, run_turn
 
-_SHUTTING_DOWN = "main is shutting down"
+SHUTTING_DOWN = "main is shutting down"
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ class TurnExecutors:
             self._stopping = True
             running = list(self._running)
         for job in running:
-            job.cancellation.cancel(_SHUTTING_DOWN)
+            job.cancellation.cancel(SHUTTING_DOWN)
         for _ in self._threads:
             self._jobs.put(None)
         for thread in self._threads:
@@ -83,7 +83,7 @@ class TurnExecutors:
                 self._running.append(job)
                 stopping = self._stopping
             if stopping:
-                job.cancellation.cancel(_SHUTTING_DOWN)
+                job.cancellation.cancel(SHUTTING_DOWN)
             try:
                 execute(self._llm, job, self._inbox.put)
             finally:

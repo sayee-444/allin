@@ -51,7 +51,7 @@ from allin.main.events import (
     WindowClosed,
     WindowConnected,
 )
-from allin.main.executors import TurnJob
+from allin.main.executors import SHUTTING_DOWN, TurnJob
 from allin.main.log import Log
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.sessions import Session, SessionStore
@@ -78,6 +78,8 @@ type WatchHealth = Callable[[], None]
 
 _PAUSED_TEXT = "queue paused: the LLM server cannot be reached, waiting for its /health"
 _RESUMED_TEXT = "queue resumed: the LLM server is back"
+_MAIN_DIED = "main stopped without closing it"
+_TURN_ENDINGS = ("turn_finished", "turn_failed", "turn_cancelled")
 
 
 @dataclass(frozen=True)
@@ -155,6 +157,7 @@ class Dispatcher:
         self._sysprompts = sysprompts
         self._watch_health = watch_health
         self._paused = False  # no Turn starts while the server cannot be reached
+        self._stopping = False  # nor once Main is shutting down
         self._windows: dict[str, WindowLink] = {}
         self._prompts = PromptQueue()
         self._running: dict[str, _RunningTurn] = {}
@@ -183,13 +186,51 @@ class Dispatcher:
         )
         if (warning := slots.warning()) is not None:
             self._report(None, "warning", f"warning {warning}", warning=warning)
+        self._close_left_open()
         while self._handle(self._inbox.get()):
             pass
+        self._stopping = True
+        self._take_turn_events()
+        self._stop_turns()
         for link in self._windows.values():
             link.send(Close())
         for link in self._windows.values():
             link.close()
         self._log_main("main_stopped", main_id=self._main_id)
+
+    def _take_turn_events(self) -> None:
+        """Handle what Turns reported before Main stopped, so a Turn that already ended is
+        saved instead of being cancelled; no command or Window event is taken any more."""
+        while True:
+            try:
+                event = self._inbox.get(block=False)
+            except queue.Empty:
+                return
+            if isinstance(event, TurnOutput | StepEnded | TurnEnded):
+                self._handle(event)
+
+    def _close_left_open(self) -> None:
+        """Mark closed the Sessions a Main killed outright left with an open Window or a Turn.
+
+        No Window outlives the Main that opened it and no Turn either, so on start every Session
+        is closed; their Logs only need saying so where the dead Main could not. A Turn left
+        unfinished also gets ``turn_failed`` (beyond what F1-11 asked), so its rebuilt Chat says
+        why its Prompt has no answer instead of showing it as if it were still waiting.
+        """
+        for session_id in self._sessions.ids():
+            try:
+                session = self._owned_session(session_id)
+                events = [entry.event for entry in self._sessions.read_log(session)]
+            except AllInError:
+                continue  # another Main's, or unreadable: /open reports it if it is ever asked for
+            if _last_index(events, "turn_started") > _last_index(events, *_TURN_ENDINGS):
+                # Whatever it streamed died with Main; its Prompt stays in the Chat.
+                error = str(TurnCrashed(reason=_MAIN_DIED))
+                fields = {"error": error, "reasoning": "", "answer": ""}
+                self._record(session.id, "turn_failed", f"turn failed: {error}", **fields)
+            if _last_index(events, "window_opened") > _last_index(events, "window_closed"):
+                shown = f"window closed: {_MAIN_DIED}"
+                self._record(session.id, "window_closed", shown, returncode=None)
 
     def _handle(self, event: MainEvent) -> bool:
         match event:
@@ -355,7 +396,7 @@ class Dispatcher:
 
     def _start_turns(self) -> None:
         """Hand ready Prompts to executors while the server has free slots (ADR-0004)."""
-        while not self._paused and len(self._running) < self._slots.count:
+        while not (self._paused or self._stopping) and len(self._running) < self._slots.count:
             prompt = self._prompts.pop_ready(active=self._running)
             if prompt is None:
                 return
@@ -399,13 +440,31 @@ class Dispatcher:
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
-        if dropped := self._prompts.drop(session_id):
-            texts = [prompt.text for prompt in dropped]
-            shown = dropped_entry(len(texts), reason).text
-            self._record(session_id, "prompts_dropped", shown, reason=reason, texts=texts)
+        self._drop_prompts(session_id, reason)
         running = self._running.get(session_id)
         if running is not None:
             running.cancellation.cancel(reason)
+
+    def _drop_prompts(self, session_id: str, reason: str) -> list[str]:
+        """Take a Session's Prompts out of the queue and return their texts, in their order."""
+        texts = [prompt.text for prompt in self._prompts.drop(session_id)]
+        if texts:
+            shown = dropped_entry(len(texts), reason).text
+            self._record(session_id, "prompts_dropped", shown, reason=reason, texts=texts)
+        return texts
+
+    def _stop_turns(self) -> None:
+        """On shutdown: cancel every running Turn and empty the queue.
+
+        The Turns are ended here, as cancelled, since no event is handled after this. No Prompt
+        goes back to an input: every Window is closed right after, so only the Log keeps them.
+        """
+        for running in self._running.values():
+            running.cancellation.cancel(SHUTTING_DOWN)
+            self._fail_turn(running, TurnCancelled(reason=SHUTTING_DOWN))
+        self._running.clear()
+        for session_id in self._prompts.session_ids():
+            self._drop_prompts(session_id, SHUTTING_DOWN)
 
     def _conversation(self, session: Session) -> Conversation:
         conversation = self._sessions.load_conversation(session)
@@ -499,6 +558,11 @@ class Dispatcher:
     def _send_turn_state(self, session_id: str) -> None:
         active = session_id in self._running or self._prompts.has(session_id)
         self._to_window(session_id, TurnState(active=active))
+
+
+def _last_index(events: list[str], *names: str) -> int:
+    """Where the last of ``names`` is in ``events``; -1 if none is."""
+    return max((index for index, event in enumerate(events) if event in names), default=-1)
 
 
 def _paused_entry() -> ChatAppend:

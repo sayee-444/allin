@@ -15,6 +15,7 @@ from allin.ipc.messages import (
     InputRestore,
     TurnState,
 )
+from allin.main.chat_rebuild import rebuild_chat
 from allin.main.conversation import Conversation, Step
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import (
@@ -64,6 +65,8 @@ class DrainingInbox(queue.Queue[MainEvent]):
         self._later = later
 
     def get(self, block: bool = True, timeout: float | None = None) -> MainEvent:
+        if not block:  # only Main stopping asks this way, to take what is left
+            return super().get(block=False)
         try:
             return super().get(block=False)
         except queue.Empty:
@@ -683,3 +686,68 @@ def test_a_turn_that_fails_for_another_reason_does_not_pause_the_queue(main: Mai
     chat = main.run(InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), settle=True)
     assert main.health_watches == 0
     assert turn_lines(chat)[-1] == f"[{b.id}] turn finished"
+
+
+@pytest.mark.parametrize("stop", [MainCommandEntered("/exit"), Shutdown()], ids=["exit", "signal"])
+def test_shutting_down_cancels_turns_and_drops_the_queue_before_closing_windows(
+    main: MainHarness, stop: MainEvent
+):
+    main.slots = resolve_slots(server_slots=2, parallel=None)
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}"),
+        InputReceived(a.id, "a1"),
+        InputReceived(a.id, "a2\nmore"),
+        InputReceived(b.id, "b1"),
+        stop,
+        settle=True,
+    )
+    assert [job.cancellation.reason for job in main.held] == ["main is shutting down"] * 2
+    [window_a], [window_b] = main.windows(a.id), main.windows(b.id)
+    for window in [window_a, window_b]:
+        assert window.sent[-1] == Close() and window.closed
+        assert not any(isinstance(message, InputRestore) for message in window.sent)
+    assert main.sessions.load_conversation(a) == Conversation(sysprompt="I am AllIn; you are ana.")
+    events = [entry.event for entry in main.session_log(a)]
+    assert events[-2:] == ["turn_cancelled", "prompts_dropped"]
+    [dropped] = [entry for entry in main.session_log(a) if entry.event == "prompts_dropped"]
+    assert dropped.fields["texts"] == ["a2\nmore"]
+    assert main.main_log()[-1].event == "main_stopped"
+
+
+def test_on_start_sessions_left_open_by_a_main_that_died_are_marked_closed(main: MainHarness):
+    crashed, clean, other = main.create_session(), main.create_session(), main.create_session()
+    for event in ["window_opened", "prompt", "turn_started"]:
+        main.sessions.log(crashed.id).append(event, text="hola")
+    for event in ["window_opened", "turn_started", "turn_finished", "window_closed"]:
+        main.sessions.log(clean.id).append(event, turn=0)
+    main.sessions.log(other.id).append("window_opened")
+    other_path = main.root / other.id / "session.json"
+    other_path.write_text(other.model_copy(update={"owner": MainId("other")}).model_dump_json())
+    main.run()
+    events = [entry.event for entry in main.session_log(crashed)]
+    assert events[-2:] == ["turn_failed", "window_closed"]
+    assert [entry.event for entry in main.session_log(clean)][-1] == "window_closed"
+    assert len(main.session_log(clean)) == 4
+    assert [entry.event for entry in main.session_log(other)] == ["window_opened"]
+    conversation = main.sessions.load_conversation(crashed)
+    assert conversation is not None
+    chat = rebuild_chat(conversation, main.session_log(crashed), crashed.settings)
+    assert chat[-1].role == "error" and "main" in chat[-1].text
+
+
+def test_a_turn_that_ended_just_before_shutdown_is_saved_not_given_back(main: MainHarness):
+    session = main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        MainCommandEntered("/exit"),
+        ended(session),  # its executor finished it while /exit waited in the inbox
+    )
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None and [turn.prompt for turn in conversation.turns] == ["hola"]
+    [window] = main.windows(session.id)
+    assert not any(isinstance(message, InputRestore) for message in window.sent)

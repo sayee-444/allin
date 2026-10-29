@@ -41,6 +41,13 @@ def create_fifo_pair(fifo_dir: Path, session_id: str) -> FifoPair:
     return pair
 
 
+def remove_stale_fifos(fifo_dir: Path) -> None:
+    """Remove the FIFOs a Main that died without closing its Windows left behind."""
+    for path in fifo_dir.glob("*.*"):
+        if path.suffix in (".in", ".out") and path.is_fifo():
+            path.unlink(missing_ok=True)
+
+
 class ChannelListener[In](Protocol):
     def on_message(self, message: In) -> None: ...
     def on_error(self, error: AllInError) -> None: ...

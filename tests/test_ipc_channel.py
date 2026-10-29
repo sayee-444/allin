@@ -2,7 +2,7 @@ import queue
 from pathlib import Path
 
 from allin.core.errors import AllInError, MalformedMessage
-from allin.ipc.channel import Channel, create_fifo_pair
+from allin.ipc.channel import Channel, create_fifo_pair, remove_stale_fifos
 from allin.ipc.messages import (
     ChatAppend,
     UserInput,
@@ -92,3 +92,10 @@ def test_fifo_pair_is_named_after_the_session(tmp_path: Path):
     assert pair.to_window.is_fifo() and pair.from_window.is_fifo()
     pair.remove()
     assert not pair.to_window.exists() and not pair.from_window.exists()
+
+
+def test_stale_fifos_are_removed_and_other_files_kept(tmp_path: Path):
+    create_fifo_pair(tmp_path, "abc123")
+    (tmp_path / "notes.in").write_text("not a fifo")
+    remove_stale_fifos(tmp_path)
+    assert [path.name for path in tmp_path.iterdir()] == ["notes.in"]

@@ -62,6 +62,12 @@ class SessionStore:
         except (OSError, ValidationError) as error:
             raise SessionUnreadable(session_id=session_id, reason=str(error)) from error
 
+    def ids(self) -> list[str]:
+        """The ids of every stored Session, in no particular order."""
+        if not self._root.is_dir():
+            return []
+        return [path.name for path in self._root.iterdir() if is_session_id(path.name)]
+
     def load_conversation(self, session: Session) -> Conversation | None:
         """``None`` for a Session created before Sessions had a Conversation."""
         return load_conversation(self._root / session.id)

@@ -57,7 +57,9 @@ class _MainListener:
         self._screen.inbox.put(ChatLine(str(error), "error", "error"))
 
     def on_eof(self) -> None:
+        # Nothing reaches Main any more: the Window stays read-only until it is closed.
         self._screen.inbox.put(ChatLine("Main disconnected", "info", "info"))
+        self._screen.inbox.put(InputLock(True))
 
 
 def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: Path) -> None:
