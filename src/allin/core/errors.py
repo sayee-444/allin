@@ -33,3 +33,45 @@ class ScreenTooSmall(AllInError):
     """The terminal has no room left for the Chat or the input."""
 
     code: ClassVar[str] = "screen_too_small"
+
+
+class SessionNotFound(AllInError):
+    """No Session has this id on disk."""
+
+    code: ClassVar[str] = "session_not_found"
+
+
+class SessionUnreadable(AllInError):
+    """A Session's folder exists but its metadata cannot be read."""
+
+    code: ClassVar[str] = "session_unreadable"
+
+
+class SessionStorageFailed(AllInError):
+    """A Session's folder or metadata could not be written."""
+
+    code: ClassVar[str] = "session_storage_failed"
+
+
+class SessionNotOwned(AllInError):
+    """The Session belongs to another Main, which is the only one that may open it."""
+
+    code: ClassVar[str] = "session_not_owned"
+
+
+class WindowAlreadyOpen(AllInError):
+    """A Session has at most one Window."""
+
+    code: ClassVar[str] = "window_already_open"
+
+
+class InvalidArguments(AllInError):
+    """A Command main was called with arguments it does not take; ``usage`` shows the right ones."""
+
+    code: ClassVar[str] = "invalid_arguments"
+
+
+class WindowLaunchFailed(AllInError):
+    """The Window's terminal could not be started."""
+
+    code: ClassVar[str] = "window_launch_failed"
