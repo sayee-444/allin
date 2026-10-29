@@ -44,6 +44,7 @@ from allin.main.executors import TurnJob
 from allin.main.log import Log
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.sessions import Session, SessionStore
+from allin.main.slots import Slots
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import OutputKind, TurnRequest
 
@@ -119,6 +120,7 @@ class Dispatcher:
         submit_turn: SubmitTurn,
         main_id: MainId,
         settings: MainSettings,
+        slots: Slots,
         sysprompts: Path,
     ) -> None:
         self._inbox = inbox
@@ -129,6 +131,7 @@ class Dispatcher:
         self._submit_turn = submit_turn
         self._main_id = main_id
         self._settings = settings
+        self._slots = slots
         self._sysprompts = sysprompts
         self._windows: dict[str, WindowLink] = {}
         self._prompts = PromptQueue()
@@ -146,7 +149,18 @@ class Dispatcher:
 
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""
-        self._log_main("main_started", main_id=self._main_id)
+        slots = self._slots
+        self._report(
+            None,
+            "main_started",
+            slots.describe(),
+            main_id=self._main_id,
+            slots=slots.count,
+            slots_source=slots.source,
+            server_slots=slots.server_slots,
+        )
+        if (warning := slots.warning()) is not None:
+            self._report(None, "warning", f"warning {warning}", warning=warning)
         while self._handle(self._inbox.get()):
             pass
         for link in self._windows.values():
@@ -307,7 +321,7 @@ class Dispatcher:
 
     def _start_turns(self) -> None:
         """Hand ready Prompts to executors while the server has free slots (ADR-0004)."""
-        while len(self._running) < self._settings.parallel:
+        while len(self._running) < self._slots.count:
             prompt = self._prompts.pop_ready(active=self._running)
             if prompt is None:
                 return

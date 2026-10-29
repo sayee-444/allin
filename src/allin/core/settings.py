@@ -27,5 +27,6 @@ class SessionSettings(BaseModel, frozen=True):
 
 class MainSettings(BaseModel, frozen=True):
     base_url: str = "http://127.0.0.1:9931/v1"
-    parallel: int = 1  # Turns at once: the server's slots (llama-server -np)
+    # Turns at once, set by hand; None takes the server's slots (llama-server -np) from /props.
+    parallel: int | None = Field(default=None, ge=1)
     session: SessionSettings = Field(default_factory=SessionSettings)  # copied by /new

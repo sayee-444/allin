@@ -8,7 +8,7 @@ from allin.core.errors import MalformedMessage
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings, Sampling, SessionSettings
 from allin.ipc.messages import ChatAppend, ChatDelta, Close, TurnState
-from allin.main.conversation import Conversation
+from allin.main.conversation import Conversation, Step
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import (
     ErrorOccurred,
@@ -16,11 +16,13 @@ from allin.main.events import (
     MainCommandEntered,
     MainEvent,
     Shutdown,
+    TurnEnded,
     WindowClosed,
 )
 from allin.main.executors import TurnJob, execute
 from allin.main.log import Log, LogEntry, read_log
 from allin.main.sessions import Session, SessionStore
+from allin.main.slots import resolve_slots
 from allin.ui.chat import Chat, Row
 from tests.llm_fakes import FakeLlm, answer, full_reply
 
@@ -62,7 +64,8 @@ class MainHarness:
     """A Dispatcher over a real SessionStore whose Windows are fakes and whose LLM is fake.
 
     Turns run synchronously on submit; their events reach the inbox after the ones already in
-    it, as they would from an executor thread.
+    it, as they would from an executor thread. With ``hold_turns`` they are only kept in
+    ``held``, and the test ends them by feeding ``TurnEnded`` itself.
     """
 
     def __init__(self, tmp_path: Path) -> None:
@@ -73,6 +76,9 @@ class MainHarness:
         (self.sysprompts / "default.txt").write_text("I am $assistant_name; you are $username.")
         self.llm = FakeLlm()
         self.settings = SETTINGS
+        self.slots = resolve_slots(server_slots=None, parallel=None)
+        self.hold_turns = False
+        self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
 
@@ -93,7 +99,10 @@ class MainHarness:
         inbox = DrainingInbox(list(events) if settle else [])
 
         def submit_turn(job: TurnJob) -> None:
-            execute(self.llm, job, inbox.put, lambda: False)
+            if self.hold_turns:
+                self.held.append(job)
+            else:
+                execute(self.llm, job, inbox.put, lambda: False)
 
         dispatcher = Dispatcher(
             inbox,
@@ -104,6 +113,7 @@ class MainHarness:
             submit_turn,
             ME,
             self.settings,
+            self.slots,
             self.sysprompts,
         )
         for event in [] if settle else events:
@@ -262,7 +272,7 @@ def test_text_from_a_window_reaches_the_llm_exactly_as_typed(main: MainHarness):
 
 
 def test_a_session_waits_for_its_own_turn_but_not_for_the_others(main: MainHarness):
-    main.settings = SETTINGS.model_copy(update={"parallel": 2})
+    main.slots = resolve_slots(server_slots=2, parallel=None)
     a, b = main.create_session(), main.create_session()
     main.llm = FakeLlm(*(full_reply("", str(n)) for n in range(3)))
     main.run(
@@ -403,7 +413,7 @@ def test_raw_on_shows_the_streams_raw_events_in_mains_chat_and_raw_off_hides_the
 
 
 def test_raw_on_with_a_sid_shows_only_that_sessions_raw_events(main: MainHarness):
-    main.settings = SETTINGS.model_copy(update={"parallel": 2})
+    main.slots = resolve_slots(server_slots=2, parallel=None)
     a, b = main.create_session(), main.create_session()
     main.llm = FakeLlm(full_reply("", "a"), full_reply("", "b"))
     chat = main.run(
@@ -452,3 +462,78 @@ def test_reopening_a_session_shows_the_same_chat_as_before_it_was_closed(main: M
     before, after = main.windows(session.id)
     assert shown_chat(after) == shown_chat(before)
     assert len(shown_chat(before)) >= 6
+
+
+def turn_lines(chat: list[str]) -> list[str]:
+    return [line for line in chat if line.endswith(("turn started", "turn finished"))]
+
+
+def ended(session: Session) -> TurnEnded:
+    return TurnEnded(session.id, steps=[Step(output=[])])
+
+
+def test_with_one_slot_two_sessions_are_served_in_arrival_order(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    chat = main.run(
+        InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), ended(a), ended(b), settle=True
+    )
+    assert turn_lines(chat) == [
+        f"[{a.id}] turn started",
+        f"[{a.id}] turn finished",
+        f"[{b.id}] turn started",
+        f"[{b.id}] turn finished",
+    ]
+
+
+def test_with_two_slots_two_sessions_are_served_at_once(main: MainHarness):
+    main.slots = resolve_slots(server_slots=2, parallel=None)
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    chat = main.run(
+        InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), ended(b), ended(a), settle=True
+    )
+    assert turn_lines(chat) == [
+        f"[{a.id}] turn started",
+        f"[{b.id}] turn started",
+        f"[{b.id}] turn finished",
+        f"[{a.id}] turn finished",
+    ]
+
+
+def test_two_prompts_of_one_session_never_run_at_once_nor_block_the_others(main: MainHarness):
+    main.slots = resolve_slots(server_slots=2, parallel=None)
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    chat = main.run(
+        MainCommandEntered(f"/send {a.id} a1"),
+        MainCommandEntered(f"/send {a.id} a2"),
+        MainCommandEntered(f"/send {b.id} b1"),
+        ended(a),
+        ended(b),
+        ended(a),
+        settle=True,
+    )
+    assert turn_lines(chat) == [
+        f"[{a.id}] turn started",
+        f"[{b.id}] turn started",
+        f"[{a.id}] turn finished",
+        f"[{a.id}] turn started",
+        f"[{b.id}] turn finished",
+        f"[{a.id}] turn finished",
+    ]
+    assert [job.request.input[-1]["content"] for job in main.held] == ["a1", "b1", "a2"]
+
+
+def test_main_says_how_many_turns_it_runs_at_once_and_where_that_came_from(main: MainHarness):
+    main.slots = resolve_slots(server_slots=4, parallel=None)
+    chat = main.run()
+    assert any("4" in line and "server" in line for line in chat)
+    [started] = [entry for entry in main.main_log() if entry.event == "main_started"]
+    assert started.fields["slots"] == 4 and started.fields["slots_source"] == "server"
+
+
+def test_parallel_above_the_servers_slots_is_warned_about_in_mains_chat(main: MainHarness):
+    main.slots = resolve_slots(server_slots=1, parallel=3)
+    chat = main.run()
+    assert any("warning" in line and "parallel=3" in line for line in chat)

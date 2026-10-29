@@ -13,6 +13,7 @@ from allin.main.events import MainCommandEntered, MainEvent, Shutdown
 from allin.main.executors import TurnExecutors
 from allin.main.log import Log
 from allin.main.sessions import SessionStore
+from allin.main.slots import fetch_total_slots, resolve_slots
 from allin.main.turn import OpenAiLlm
 from allin.main.windows import WindowOpener
 from allin.ui.screen import ChatScreen
@@ -31,7 +32,8 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
     log_dir = data_dir / "logs" / "main"
     log_dir.mkdir(parents=True, exist_ok=True)
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    executors = TurnExecutors(OpenAiLlm(settings.base_url), settings.parallel, inbox)
+    slots = resolve_slots(fetch_total_slots(settings.base_url), settings.parallel)
+    executors = TurnExecutors(OpenAiLlm(settings.base_url), slots.count, inbox)
     dispatcher = Dispatcher(
         inbox,
         screen.inbox.put,
@@ -41,6 +43,7 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
         executors.submit,
         ROOT_MAIN_ID,
         settings,
+        slots,
         sysprompts,
     )
 
