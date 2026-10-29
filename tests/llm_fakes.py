@@ -1,5 +1,6 @@
 """A fake LLM that replays Responses API stream events, built from the SDK's own types."""
 
+import threading
 from collections.abc import Iterator
 from typing import Any
 
@@ -86,16 +87,42 @@ class FakeStream:
         self.closed = True
 
 
+class HangingStream(FakeStream):
+    """Streams its events, then waits as if the server were still generating.
+
+    Closing it releases the reader: reading on fails, as with the SDK, or with ``ends_quietly``
+    the stream just ends, as an SSE reader may when its connection is closed.
+    """
+
+    def __init__(self, events: list[ResponseStreamEvent], ends_quietly: bool = False) -> None:
+        super().__init__(events)
+        self._ends_quietly = ends_quietly
+        self.waiting = threading.Event()  # set once every event has been read
+        self._released = threading.Event()
+
+    def __iter__(self) -> Iterator[ResponseStreamEvent]:
+        yield from super().__iter__()
+        self.waiting.set()
+        self._released.wait()
+        if not self._ends_quietly:
+            raise RuntimeError("read from a closed stream")
+
+    def close(self) -> None:
+        super().close()
+        self._released.set()
+
+
 class FakeLlm:
     """Answers each Step with the next scripted stream and records what it was asked."""
 
-    def __init__(self, *streams: list[ResponseStreamEvent] | Exception) -> None:
+    def __init__(self, *streams: list[ResponseStreamEvent] | Exception | FakeStream) -> None:
         self._streams = list(streams)
         self.requests: list[dict[str, Any]] = []
         self.opened: list[FakeStream] = []
 
     def stream(self, model: str, input: list[Item], params: dict[str, Any]) -> FakeStream:
         self.requests.append({"model": model, "input": input, **params})
-        stream = FakeStream(self._streams.pop(0))
+        script = self._streams.pop(0)
+        stream = script if isinstance(script, FakeStream) else FakeStream(script)
         self.opened.append(stream)
         return stream

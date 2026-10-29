@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from allin.core.errors import MalformedMessage
+from allin.core.errors import MalformedMessage, TurnCancelled
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings, Sampling, SessionSettings
 from allin.ipc.messages import ChatAppend, ChatDelta, Close, ContextUsage, TurnState
@@ -104,7 +104,7 @@ class MainHarness:
             if self.hold_turns:
                 self.held.append(job)
             else:
-                execute(self.llm, job, inbox.put, lambda: False)
+                execute(self.llm, job, inbox.put)
 
         dispatcher = Dispatcher(
             inbox,
@@ -570,3 +570,32 @@ def test_parallel_above_the_servers_slots_is_warned_about_in_mains_chat(main: Ma
     main.slots = resolve_slots(server_slots=1, parallel=3)
     chat = main.run()
     assert any("warning" in line and "parallel=3" in line for line in chat)
+
+
+def test_closing_a_window_cancels_its_turn_and_drops_its_queued_prompts_only(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1"),
+        InputReceived(a.id, "a2"),
+        InputReceived(b.id, "b1"),
+        WindowClosed(a.id, returncode=0),
+        TurnEnded(a.id, error=TurnCancelled(reason="window closed")),  # as its executor ends it
+        ended(b),
+        settle=True,
+    )
+    assert main.held[0].cancellation.reason == "window closed"
+    assert [job.request.input[-1]["content"] for job in main.held] == ["a1", "b1"]
+    assert turn_lines(chat)[-2:] == [f"[{b.id}] turn started", f"[{b.id}] turn finished"]
+    assert main.sessions.load_conversation(a) == Conversation(sysprompt="I am AllIn; you are ana.")
+    events = [entry.event for entry in main.session_log(a)]
+    assert events[-3:] == ["window_closed", "prompts_dropped", "turn_cancelled"]
+    [dropped] = [entry for entry in main.session_log(a) if entry.event == "prompts_dropped"]
+    assert dropped.fields["texts"] == ["a2"]
+
+
+def test_closing_a_window_with_no_turn_or_prompt_cancels_nothing(main: MainHarness):
+    session = main.create_session()
+    main.run(MainCommandEntered(f"/open {session.id}"), WindowClosed(session.id, returncode=0))
+    assert [entry.event for entry in main.session_log(session)][-1] == "window_closed"

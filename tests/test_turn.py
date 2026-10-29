@@ -1,11 +1,13 @@
+import threading
+
 import httpx2
 import openai
 import pytest
 
 from allin.core.errors import LlmRequestFailed, TurnCancelled
 from allin.main.conversation import Step
-from allin.main.turn import TurnRequest, run_turn
-from tests.llm_fakes import FakeLlm, answer, completed, failed, reasoning
+from allin.main.turn import Cancellation, TurnRequest, run_turn
+from tests.llm_fakes import FakeLlm, HangingStream, answer, completed, failed, reasoning
 
 REQUEST = TurnRequest(
     model="allin",
@@ -14,13 +16,15 @@ REQUEST = TurnRequest(
 )
 
 
-def run(llm: FakeLlm, cancelled: bool = False) -> tuple[list[Step], list[tuple[str, str]]]:
+def run(
+    llm: FakeLlm, cancellation: Cancellation | None = None
+) -> tuple[list[Step], list[tuple[str, str]]]:
     shown: list[tuple[str, str]] = []
     steps = run_turn(
         llm,
         REQUEST,
         lambda kind, text: shown.append((kind, text)),
-        lambda: cancelled,
+        cancellation or Cancellation(),
         lambda _raw: None,
         lambda _step: None,
     )
@@ -73,9 +77,35 @@ def test_a_step_that_does_not_complete_fails_the_turn_and_closes_its_stream(stre
 
 def test_a_cancelled_turn_stops_reading_and_closes_its_stream():
     llm = FakeLlm([answer("never shown"), completed("", "never")])
-    with pytest.raises(TurnCancelled):
-        run(llm, cancelled=True)
+    cancellation = Cancellation()
+    cancellation.cancel("main is shutting down")
+    with pytest.raises(TurnCancelled, match="main is shutting down"):
+        run(llm, cancellation)
     assert llm.opened[0].closed
+
+
+@pytest.mark.parametrize("ends_quietly", [False, True])
+def test_cancelling_from_another_thread_closes_a_stream_still_waiting_for_the_server(
+    ends_quietly: bool,
+):
+    stream = HangingStream([answer("half")], ends_quietly=ends_quietly)
+    cancellation = Cancellation()
+    outcome: list[BaseException] = []
+
+    def turn() -> None:
+        try:
+            run(FakeLlm(stream), cancellation)
+        except BaseException as error:  # noqa: BLE001 -- the test checks which one
+            outcome.append(error)
+
+    thread = threading.Thread(target=turn)
+    thread.start()
+    assert stream.waiting.wait(timeout=5)
+    cancellation.cancel("window closed")
+    thread.join(timeout=5)
+    assert not thread.is_alive() and stream.closed
+    [error] = outcome
+    assert isinstance(error, TurnCancelled) and "window closed" in str(error)
 
 
 def test_each_step_keeps_llama_cpps_timings_and_is_reported_as_soon_as_it_ends():
@@ -83,7 +113,7 @@ def test_each_step_keeps_llama_cpps_timings_and_is_reported_as_soon_as_it_ends()
     llm = FakeLlm([answer("ok"), completed("", "ok", timings=timings)])
     reported: list[Step] = []
     steps = run_turn(
-        llm, REQUEST, lambda *_: None, lambda: False, lambda _raw: None, reported.append
+        llm, REQUEST, lambda *_: None, Cancellation(), lambda _raw: None, reported.append
     )
     assert reported == steps
     assert steps[0].timings == timings

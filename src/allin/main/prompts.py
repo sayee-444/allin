@@ -27,5 +27,11 @@ class PromptQueue:
                 return self._prompts.pop(index)
         return None
 
+    def drop(self, session_id: str) -> list[Prompt]:
+        """Take a Session's Prompts out of the queue; return them in their order."""
+        dropped = [prompt for prompt in self._prompts if prompt.session_id == session_id]
+        self._prompts = [prompt for prompt in self._prompts if prompt.session_id != session_id]
+        return dropped
+
     def has(self, session_id: str) -> bool:
         return any(prompt.session_id == session_id for prompt in self._prompts)

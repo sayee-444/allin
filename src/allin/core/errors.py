@@ -90,7 +90,7 @@ class LlmRequestFailed(AllInError):
 
 
 class TurnCancelled(AllInError):
-    """A Turn was stopped before it finished, e.g. because Main is shutting down."""
+    """A Turn was stopped before it finished: its Window closed, or Main is shutting down."""
 
     code: ClassVar[str] = "turn_cancelled"
 

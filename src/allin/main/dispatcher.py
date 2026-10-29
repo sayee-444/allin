@@ -19,6 +19,7 @@ from allin.core.errors import (
     AllInError,
     InvalidArguments,
     SessionNotOwned,
+    TurnCancelled,
     TurnCrashed,
     UnknownCommand,
     WindowAlreadyOpen,
@@ -26,7 +27,7 @@ from allin.core.errors import (
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings
 from allin.ipc.messages import ChatAppend, ChatDelta, Close, ContextUsage, TurnState
-from allin.main.chat_rebuild import error_entry, rebuild_chat, tokens_entry
+from allin.main.chat_rebuild import dropped_entry, error_entry, rebuild_chat, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
 from allin.main.events import (
     ErrorOccurred,
@@ -47,7 +48,7 @@ from allin.main.prompts import Prompt, PromptQueue
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import Slots
 from allin.main.sysprompt import render_sysprompt
-from allin.main.turn import OutputKind, TurnRequest
+from allin.main.turn import Cancellation, OutputKind, TurnRequest
 from allin.main.usage import context_tokens, tokens_per_second
 
 
@@ -81,6 +82,7 @@ class _MainCommand:
 class _RunningTurn:
     prompt: Prompt
     session: Session
+    cancellation: Cancellation
     reasoning: str = ""  # streamed so far, shown again if its Window is reopened mid-Turn
     answer: str = ""
     steps: list[Step] = field(default_factory=list[Step])  # ended so far
@@ -194,6 +196,7 @@ class Dispatcher:
                     link.close()
                 text = f"window closed (exit code {returncode})"
                 self._record(session_id, "window_closed", text, returncode=returncode)
+                self._cancel(session_id, "window closed")
             case ErrorOccurred(error, session_id):
                 self._show_error(error, session_id)
             case MainCommandEntered(text):
@@ -342,14 +345,29 @@ class Dispatcher:
                 self._show_error(error, prompt.session_id)
                 self._send_turn_state(prompt.session_id)
                 continue
-            self._running[session.id] = _RunningTurn(prompt, session)
             request = TurnRequest(
                 model=session.settings.model,
                 input=conversation.request_input(prompt.text),
                 params=session.settings.sampling.request_params(),
             )
+            job = TurnJob(session.id, request)
+            self._running[session.id] = _RunningTurn(prompt, session, job.cancellation)
             self._record(session.id, "turn_started", "turn started")
-            self._submit_turn(TurnJob(session.id, request))
+            self._submit_turn(job)
+
+    def _cancel(self, session_id: str, reason: str) -> None:
+        """Drop a Session's queued Prompts and stop its running Turn.
+
+        The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
+        it had already finished; either way the Conversation only ever gets whole Turns.
+        """
+        if dropped := self._prompts.drop(session_id):
+            texts = [prompt.text for prompt in dropped]
+            shown = dropped_entry(len(texts), reason).text
+            self._record(session_id, "prompts_dropped", shown, reason=reason, texts=texts)
+        running = self._running.get(session_id)
+        if running is not None:
+            running.cancellation.cancel(reason)
 
     def _conversation(self, session: Session) -> Conversation:
         conversation = self._sessions.load_conversation(session)
@@ -421,7 +439,8 @@ class Dispatcher:
         session_id = running.session.id
         # What it streamed is in no Conversation, so the Log keeps it for the rebuilt Chat.
         fields = {"error": str(error), "reasoning": running.reasoning, "answer": running.answer}
-        self._record(session_id, "turn_failed", f"turn failed: {error}", **fields)
+        ending = "cancelled" if isinstance(error, TurnCancelled) else "failed"
+        self._record(session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields)
         self._to_window(session_id, error_entry(str(error)))
 
     def _save_turn(self, running: _RunningTurn, steps: list[Step]) -> int:

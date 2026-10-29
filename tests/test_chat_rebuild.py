@@ -54,6 +54,28 @@ def test_a_failed_turn_shows_what_it_streamed_and_its_error():
     ]
 
 
+def test_a_turn_cancelled_by_closing_its_window_shows_what_it_streamed_and_why_it_stopped():
+    log = [
+        entry("prompt", text="a1"),
+        entry("prompt", text="a2"),
+        entry("window_closed", returncode=0),
+        entry("prompts_dropped", reason="window closed", texts=["a2"]),
+        entry(
+            "turn_cancelled",
+            error="turn_cancelled: reason='window closed'",
+            reasoning="hm",
+            answer="",
+        ),
+    ]
+    assert rebuild_chat(Conversation(sysprompt="s"), log, SETTINGS) == [
+        ChatAppend(role="user", label="ana", text="a1"),
+        ChatAppend(role="user", label="ana", text="a2"),
+        ChatAppend(role="info", label="dropped", text="1 queued prompt(s) dropped: window closed"),
+        ChatAppend(role="reasoning", label="reasoning", text="hm"),
+        ChatAppend(role="error", label="error", text="turn_cancelled: reason='window closed'"),
+    ]
+
+
 def test_prompts_queued_before_their_turns_ran_keep_the_order_they_were_shown_in():
     conversation = Conversation(
         sysprompt="s", turns=[turn("a1", "", "first"), turn("a2", "", "second")]

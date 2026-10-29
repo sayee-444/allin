@@ -32,7 +32,9 @@ def rebuild_chat(
                 chat.append(_prompt(fields["text"], settings))
             case "turn_finished" if 0 <= fields["turn"] < len(conversation.turns):
                 chat += _turn_output(conversation.turns[fields["turn"]], settings)
-            case "turn_failed":
+            case "prompts_dropped":
+                chat.append(dropped_entry(len(fields["texts"]), fields["reason"]))
+            case "turn_failed" | "turn_cancelled":
                 chat += _output(fields["reasoning"], fields["answer"], settings)
                 chat.append(error_entry(fields["error"]))
             case "error":
@@ -79,6 +81,13 @@ def _text(item: Item, part_type: str) -> str:
 
 def error_entry(text: str) -> ChatAppend:
     return ChatAppend(role="error", label="error", text=text)
+
+
+def dropped_entry(count: int, reason: str) -> ChatAppend:
+    """Queued Prompts of a Session taken out of the queue before any Turn ran them."""
+    return ChatAppend(
+        role="info", label="dropped", text=f"{count} queued prompt(s) dropped: {reason}"
+    )
 
 
 def tokens_entry(steps: list[Step]) -> ChatAppend | None:
