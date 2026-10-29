@@ -18,7 +18,7 @@ def test_window_messages_round_trip():
 
 
 def test_main_messages_round_trip():
-    for message in (ChatAppend(role="echo", text="hola"), Close()):
+    for message in (ChatAppend(role="user", label="ana", text="hola"), Close()):
         assert decode_main_message(encode(message)) == message
 
 

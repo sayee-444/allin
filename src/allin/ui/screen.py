@@ -2,15 +2,17 @@
 
 Two ``newwin`` boxes only draw borders; the content lives in one pad per box (Chat and input),
 placed by ``compute_layout`` and scrolled through a ``Viewport``. Only the UI thread touches
-curses; other threads hand it lines through ``inbox``.
+curses; other threads hand it updates through ``inbox``.
 """
 
 import curses
 import queue
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from allin.core.errors import ScreenTooSmall
+from allin.ui.chat import Chat, Row
 from allin.ui.input_buffer import InputBuffer
 from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
 from allin.ui.layout import Layout, Rect, compute_layout
@@ -21,16 +23,54 @@ _POLL_MS = 50  # curses has no blocking wait on both keys and the inbox
 _BRACKETED_PASTE_ON = "\x1b[?2004h"
 _BRACKETED_PASTE_OFF = "\x1b[?2004l"
 _TOO_SMALL = "Terminal too small: please enlarge it"
+_LOCKED = " turn running: Enter is blocked "
+_ROLE_COLORS = {
+    "user": curses.COLOR_CYAN,
+    "reasoning": curses.COLOR_MAGENTA,
+    "answer": curses.COLOR_GREEN,
+    "info": curses.COLOR_YELLOW,
+    "error": curses.COLOR_RED,
+}
+
+
+@dataclass(frozen=True)
+class ChatLine:
+    """A whole entry for the Chat."""
+
+    text: str
+    role: str | None = None
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class ChatStream:
+    """Streamed text: extends the Chat's open entry of the same role and label."""
+
+    text: str
+    role: str
+    label: str
+
+
+@dataclass(frozen=True)
+class InputLock:
+    """Block or unblock Enter (the text being typed is kept); also closes the open entry."""
+
+    locked: bool
+
+
+# A plain str is a ChatLine with no role; None asks the screen to quit.
+type ScreenUpdate = str | ChatLine | ChatStream | InputLock | None
 
 
 class ChatScreen:
     def __init__(self, stdscr: curses.window, title: str) -> None:
         self._stdscr = stdscr
         self._title = title
-        self._chat: list[str] = []
-        self._chat_rows: list[str] = []  # self._chat wrapped to self._chat_width
-        self._chat_width = 0
+        self._chat = Chat()
+        self._chat_rows: list[Row] = []  # self._chat wrapped to the Chat pad's width
         self._chat_view = Viewport()
+        self._role_attrs: dict[str, int] = {}
+        self._locked = False
         self._input = InputBuffer()
         self._keys = KeyDecoder()
         self._layout: Layout | None = None
@@ -38,19 +78,18 @@ class ChatScreen:
         self._pads: tuple[curses.window, curses.window] | None = None
         self._dirty = True
         self._repaint = True  # repaint the whole terminal, not just what changed
-        # Lines to append from other threads; None asks the screen to quit.
-        self.inbox: queue.Queue[str | None] = queue.Queue()
+        self.inbox: queue.Queue[ScreenUpdate] = queue.Queue()
 
-    def append(self, line: str) -> None:
-        self._chat.append(line)
-        if self._chat_width:
-            self._chat_rows += wrap(line, self._chat_width)
+    def lock_input(self) -> None:
+        """Block Enter from the UI thread, e.g. right after a submit; ``InputLock`` undoes it."""
+        self._locked = True
         self._dirty = True
 
     def run(self, on_submit: Callable[[str], None]) -> None:
         """Run the UI loop until ``None`` arrives in the inbox."""
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
+        self._role_attrs = _role_attrs()
         _write_terminal(_BRACKETED_PASTE_ON)
         try:
             self._loop(on_submit)
@@ -81,7 +120,7 @@ class ChatScreen:
                 self._repaint = True
             case KeyChord(key=Key.ENTER, ctrl=True):
                 self._input.insert("\n")
-            case KeyChord(key=Key.ENTER):
+            case KeyChord(key=Key.ENTER) if not self._locked:
                 text = self._input.take()
                 if text.strip():
                     on_submit(text)
@@ -99,12 +138,22 @@ class ChatScreen:
     def _drain_inbox(self) -> bool:
         while True:
             try:
-                line = self.inbox.get_nowait()
+                update = self.inbox.get_nowait()
             except queue.Empty:
                 return True
-            if line is None:
-                return False
-            self.append(line)
+            match update:
+                case None:
+                    return False
+                case str() as text:
+                    self._chat.add(text)
+                case ChatLine(text, role, label):
+                    self._chat.add(text, role, label)
+                case ChatStream(text, role, label):
+                    self._chat.stream(text, role, label)
+                case InputLock(locked):
+                    self._locked = locked
+                    self._chat.end_stream()
+            self._dirty = True
 
     def _scroll_chat(self, pages: int) -> None:
         if self._layout is None:
@@ -138,11 +187,14 @@ class ChatScreen:
         chat_pad, input_pad = self._pads
         chat_box.addnstr(0, 2, f" {self._title} ", max(0, layout.chat_box.width - 4))
         chat_box.noutrefresh()
+        input_box.border()
+        if self._locked:
+            input_box.addnstr(0, 2, _LOCKED, max(0, layout.input_box.width - 4))
         input_box.noutrefresh()
 
         self._draw_chat(chat_pad, layout.chat_pad)
         input_top = max(0, len(input_rows) - layout.input_pad.height)
-        _paint(input_pad, input_rows[input_top:], layout.input_pad)
+        _paint(input_pad, [Row(None, row) for row in input_rows[input_top:]], layout.input_pad)
 
         last_row = input_rows[-1][:-1]
         cursor_y = layout.input_pad.top + len(input_rows) - 1 - input_top
@@ -151,11 +203,9 @@ class ChatScreen:
         curses.doupdate()
 
     def _draw_chat(self, pad: curses.window, area: Rect) -> None:
-        if area.width != self._chat_width:
-            self._chat_width = area.width
-            self._chat_rows = [row for line in self._chat for row in wrap(line, area.width)]
+        self._chat_rows = self._chat.rows(area.width)
         top = self._chat_view.top(len(self._chat_rows), area.height)
-        _paint(pad, self._chat_rows[top : top + area.height], area)
+        _paint(pad, self._chat_rows[top : top + area.height], area, self._role_attrs)
 
     def _draw_too_small(self, width: int) -> None:
         self._repaint = True
@@ -185,12 +235,33 @@ def _pad(area: Rect) -> curses.window:
     return curses.newpad(area.height, area.width + 1)
 
 
-def _paint(pad: curses.window, rows: list[str], area: Rect) -> None:
+def _role_attrs() -> dict[str, int]:
+    """The curses attribute that colours each Chat role; none on a terminal without colours."""
+    if not curses.has_colors():
+        return {}
+    curses.start_color()
+    try:
+        curses.use_default_colors()
+        background = -1  # the terminal's own
+    except curses.error:
+        background = curses.COLOR_BLACK
+    attrs: dict[str, int] = {}
+    for pair, (role, colour) in enumerate(_ROLE_COLORS.items(), start=1):
+        curses.init_pair(pair, colour, background)
+        attrs[role] = curses.color_pair(pair)
+    attrs["reasoning"] |= curses.A_DIM
+    return attrs
+
+
+def _paint(
+    pad: curses.window, rows: list[Row], area: Rect, role_attrs: dict[str, int] | None = None
+) -> None:
     """Show ``rows`` (already the visible slice) in ``area``."""
     pad.erase()
     for y, row in enumerate(rows[: area.height]):
+        attr = (role_attrs or {}).get(row.role or "", curses.A_NORMAL)
         try:
-            pad.addstr(y, 0, row)
+            pad.addstr(y, 0, row.text, attr)
         except curses.error:
             pass  # writing the very last cell fails after drawing it, e.g. a wide character
     bottom, right = area.top + area.height - 1, area.left + area.width - 1

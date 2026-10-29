@@ -9,28 +9,41 @@ from pathlib import Path
 
 from allin.core.errors import AllInError
 from allin.ipc.channel import Channel
-from allin.ipc.messages import ChatAppend, Close, UserInput, WindowReady, decode_main_message
-from allin.ui.screen import ChatScreen
+from allin.ipc.messages import (
+    ChatAppend,
+    ChatDelta,
+    Close,
+    MainToWindow,
+    TurnState,
+    UserInput,
+    WindowReady,
+    decode_main_message,
+)
+from allin.ui.screen import ChatLine, ChatScreen, ChatStream, InputLock
 
 
 class _MainListener:
-    """Turns what Main sends into lines for the Window's screen."""
+    """Turns what Main sends into updates for the Window's screen."""
 
     def __init__(self, screen: ChatScreen) -> None:
         self._screen = screen
 
-    def on_message(self, message: ChatAppend | Close) -> None:
+    def on_message(self, message: MainToWindow) -> None:
         match message:
-            case ChatAppend(role=role, text=text):
-                self._screen.inbox.put(f"[{role}] {text}")
+            case ChatAppend(role=role, label=label, text=text):
+                self._screen.inbox.put(ChatLine(text, role, label))
+            case ChatDelta(role=role, label=label, text=text):
+                self._screen.inbox.put(ChatStream(text, role, label))
+            case TurnState(active=active):
+                self._screen.inbox.put(InputLock(active))
             case Close():
                 self._screen.inbox.put(None)
 
     def on_error(self, error: AllInError) -> None:
-        self._screen.inbox.put(f"[error] {error}")
+        self._screen.inbox.put(ChatLine(str(error), "error", "error"))
 
     def on_eof(self) -> None:
-        self._screen.inbox.put("[info] Main disconnected")
+        self._screen.inbox.put(ChatLine("Main disconnected", "info", "info"))
 
 
 def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: Path) -> None:
@@ -40,7 +53,8 @@ def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: P
     channel.send(WindowReady())
 
     def submit(text: str) -> None:
-        screen.append(f"[user] {text}")
+        # Main shows the Prompt in the Chat and unblocks Enter when the Turn ends (TurnState).
+        screen.lock_input()
         channel.send(UserInput(text=text))
 
     try:

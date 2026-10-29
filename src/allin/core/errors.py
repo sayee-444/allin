@@ -75,3 +75,27 @@ class WindowLaunchFailed(AllInError):
     """The Window's terminal could not be started."""
 
     code: ClassVar[str] = "window_launch_failed"
+
+
+class SyspromptInvalid(AllInError):
+    """A Sysprompt file is missing, outside ``sysprompts/`` or not a valid template."""
+
+    code: ClassVar[str] = "sysprompt_invalid"
+
+
+class LlmRequestFailed(AllInError):
+    """A Step's call to the LLM failed or its stream ended without a response."""
+
+    code: ClassVar[str] = "llm_request_failed"
+
+
+class TurnCancelled(AllInError):
+    """A Turn was stopped before it finished, e.g. because Main is shutting down."""
+
+    code: ClassVar[str] = "turn_cancelled"
+
+
+class TurnCrashed(AllInError):
+    """A Turn hit an unexpected error; the executor survives it and reports it."""
+
+    code: ClassVar[str] = "turn_crashed"

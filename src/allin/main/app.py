@@ -1,4 +1,5 @@
-"""Main's process: curses UI thread, dispatcher thread, and one Window per open Session."""
+"""Main's process: curses UI thread, dispatcher thread, executor threads, and one Window per
+open Session."""
 
 import curses
 import queue
@@ -6,32 +7,44 @@ import threading
 from pathlib import Path
 
 from allin.core.ids import ROOT_MAIN_ID
+from allin.core.settings import MainSettings
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import MainCommandEntered, MainEvent, Shutdown
+from allin.main.executors import TurnExecutors
 from allin.main.sessions import SessionStore
+from allin.main.turn import OpenAiLlm
 from allin.main.windows import WindowOpener
 from allin.ui.screen import ChatScreen
 
-
-def run(data_dir: Path) -> None:
-    curses.wrapper(_run, data_dir)
+_SHUTDOWN_GRACE = 2.0
 
 
-def _run(stdscr: curses.window, data_dir: Path) -> None:
-    screen = ChatScreen(stdscr, "AllIn · Main  (/new, /open <sid>, /exit)")
+def run(data_dir: Path, sysprompts: Path) -> None:
+    curses.wrapper(_run, data_dir, sysprompts)
+
+
+def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
+    settings = MainSettings()
+    screen = ChatScreen(stdscr, "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /exit)")
     inbox: queue.Queue[MainEvent] = queue.Queue()
+    executors = TurnExecutors(OpenAiLlm(settings.base_url), settings.parallel, inbox)
     dispatcher = Dispatcher(
         inbox,
         screen.inbox.put,
         SessionStore(data_dir / "sessions"),
         WindowOpener(data_dir, inbox),
+        executors.submit,
         ROOT_MAIN_ID,
+        settings,
+        sysprompts,
     )
 
     def dispatch() -> None:
         dispatcher.run()  # closes every Window before returning
+        executors.shutdown(_SHUTDOWN_GRACE)  # running Turns are cancelled, never saved
         screen.inbox.put(None)
 
+    executors.start()
     dispatcher_thread = threading.Thread(target=dispatch, name="dispatcher")
     dispatcher_thread.start()
     try:

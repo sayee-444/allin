@@ -26,15 +26,33 @@ WindowMessage = Annotated[WindowReady | UserInput, Field(discriminator="type")]
 
 # Main -> Window
 
-type ChatRole = Literal["echo"]
+type ChatRole = Literal["user", "reasoning", "answer", "info", "error"]
 
 
 class ChatAppend(BaseModel):
-    """Append a line to the Window's Chat."""
+    """Append an entry to the Window's Chat, shown as ``[label] text`` in its role's colour."""
 
     type: Literal["chat_append"] = "chat_append"
     role: ChatRole
+    label: str
     text: str
+
+
+class ChatDelta(BaseModel):
+    """Stream text into the Window's Chat: it extends the last entry if that one has the same
+    role and label and is still streaming, else starts a new entry."""
+
+    type: Literal["chat_delta"] = "chat_delta"
+    role: ChatRole
+    label: str
+    text: str
+
+
+class TurnState(BaseModel):
+    """Whether the Session has a Turn running or waiting; Enter is blocked while it does."""
+
+    type: Literal["turn_state"] = "turn_state"
+    active: bool
 
 
 class Close(BaseModel):
@@ -43,10 +61,11 @@ class Close(BaseModel):
     type: Literal["close"] = "close"
 
 
-MainMessage = Annotated[ChatAppend | Close, Field(discriminator="type")]
+type MainToWindow = ChatAppend | ChatDelta | TurnState | Close
+MainMessage = Annotated[MainToWindow, Field(discriminator="type")]
 
 _window_adapter: TypeAdapter[WindowReady | UserInput] = TypeAdapter(WindowMessage)
-_main_adapter: TypeAdapter[ChatAppend | Close] = TypeAdapter(MainMessage)
+_main_adapter: TypeAdapter[MainToWindow] = TypeAdapter(MainMessage)
 
 
 def encode(message: BaseModel) -> str:
@@ -58,7 +77,7 @@ def decode_window_message(line: str) -> WindowReady | UserInput:
     return _decode(_window_adapter, line)
 
 
-def decode_main_message(line: str) -> ChatAppend | Close:
+def decode_main_message(line: str) -> MainToWindow:
     return _decode(_main_adapter, line)
 
 

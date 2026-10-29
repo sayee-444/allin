@@ -43,8 +43,8 @@ def test_main_and_window_exchange_messages(tmp_path: Path):
     window.send(UserInput(text="hola"))
     assert main_side.next() == UserInput(text="hola")
 
-    main.send(ChatAppend(role="echo", text="hola"))
-    assert window_side.next() == ChatAppend(role="echo", text="hola")
+    main.send(ChatAppend(role="user", label="ana", text="hola"))
+    assert window_side.next() == ChatAppend(role="user", label="ana", text="hola")
 
     window.close()
     assert main_side.next() == "eof"
