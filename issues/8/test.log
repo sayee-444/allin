@@ -1,0 +1,10 @@
+#8 — prueba manual, 2026-10-30
+Servidor: llama serve -m Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+Main: python -m allin --data-dir <carpeta temporal>, en xterm; teclas enviadas con XSendEvent; capturas con XGetImage.
+Código: main @ cd119de (código de #8 en ebee8f0). Suite: 245 passed; basedpyright 0 errores; ruff limpio.
+
+1. /new -> Sesión zrocmp.
+2. Prompt 1 desde la Ventana -> borde "context 198/131072 · 117.0 tok/s"; Chat "[tokens] 198 tokens this turn" (turn1.png, turn1-border.png).
+3. Prompt 2 -> borde "context 306/131072 · 114.4 tok/s"; Chat "[tokens] 107 tokens this turn" (turn2.png, turn2-border.png).
+   306 - 198 = 108 ~ tokens nuevos del Turno 2: el Contexto no suma input_tokens por Paso.
+Nota: el límite 131072 es el Ajuste fijo context_limit; el Servidor da 128000 por slot. Lo corrige #21.

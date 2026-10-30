@@ -1,0 +1,8 @@
+#9 — prueba manual, 2026-10-30 (mismo Servidor y Main que #8)
+1. /new -> Sesión B = c76mqr. Sesión A = zrocmp (2 Turnos en conversation.json, sha256 9dde8a11628a0bac…).
+2. Desde Main: /send zrocmp <historia de 600 palabras>; /send zrocmp <Prompt en cola de A>; /send c76mqr <B uno>; /send c76mqr <B dos>.
+3. Antes de cerrar: /slots -> slot 1 is_processing=True (Turno de A) (a-before-close.png, main-before-close.png).
+4. kill <pid de la xterm "AllIn · zrocmp"> (equivale a cerrar la Ventana).
+5. Después: /slots -> ningún slot procesando; Chat de Main: "window closed", "1 queued prompt(s) dropped: window closed",
+   "turn cancelled: reason='window closed'" (main-after-close.png). Los dos Prompts de B se atendieron.
+6. conversation.json de A: 2 Turnos y el mismo sha256 que antes del Turno cancelado.
