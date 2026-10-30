@@ -10,18 +10,28 @@ When the milestone "Pre-F2 · Pendientes de F1" starts, tell the user it is time
 
 ## Per issue
 
-1. Read the issue, `GLOSSARY.md` and the ADRs it names.
+1. Read the issue, `GLOSSARY.md` and the ADRs it names. Create its branch from an up-to-date `main` (**Branches and pull requests** below).
 2. Implement test-first (`tdd` skill). Code, comments and Log in English; docs and GitHub text in Spanish.
 3. Run the full suite, `basedpyright` and `ruff`; all must be clean.
 4. Test by hand against every acceptance criterion. For a real Server, follow **Testing with llama serve** below.
 5. Record evidence (below).
-6. Commit to `main` with `Refs #N` (never `Closes #N`), plus the attribution trailer. Push.
-7. Close the issue with a comment in Spanish: what was built, how each criterion was checked (test name or manual step), the commit, and the evidence images. If a criterion was not met or could not be tested, say so and leave the issue open.
+6. Commit to the issue's branch with `Refs #N` (never `Closes #N`), plus the attribution trailer. Push the branch and open its pull request.
+7. Merge the pull request once every criterion is checked and the evidence is uploaded. Then close the issue with a comment in Spanish: what was built, how each criterion was checked (test name or manual step), the pull request, and the evidence images. If a criterion was not met or could not be tested, say so and leave the issue open.
 8. If the issue was already closed by the user, still verify it and comment; don't reopen it unless a criterion fails.
 
-9. Mark the issue ✅ in `docs/roadmap.md` and update its **Dónde vamos** section (last done, next, open questions for the user), and commit that with the issue. A new session resumes from that section, so it must always be current.
+9. Mark the issue ✅ in `docs/roadmap.md` and update its **Dónde vamos** section (last done, next, open questions for the user), and commit that on the issue's branch before merging. A new session resumes from that section, so it must always be current.
 
 Never edit the body of a closed issue. If a decision changes during an issue, update the issue body, the glossary or the ADR first.
+
+## Branches and pull requests
+
+The user chose this on 2026-10-30: one short-lived branch and one pull request per issue, even while issues are done one after another, so each issue's change has its own page on GitHub.
+
+- Name: `<type>/<issue>-<short-description>` (Conventional Branch), lowercase, hyphens, no accents. Types: `feature/`, `fix/`, `refactor/`, `docs/`, `chore/`. Issues done together share one branch: `feature/21-17-servidor-en-caliente`. Work not tied to an issue drops the number: `docs/ramas-y-pull-requests`.
+- Branch from `main` after `git pull`; never commit to `main` directly.
+- Pull request: `gh pr create --base main`, title like the main commit, body in Spanish (`pr` skill) with `Refs #N`, never `Closes #N`, since the issue is closed by hand with its evidence.
+- Merge with `gh pr merge <n> --merge --delete-branch` (a merge commit groups the issue in `main`'s history), then `git switch main && git pull`.
+- The `evidence` branch stays orphan and never gets a pull request.
 
 ## Evidence
 
