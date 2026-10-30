@@ -1,0 +1,9 @@
+# Los Procesos adheridos viven con Main, tienen estado y se limpian como las Ventanas
+
+Un Proceso adherido es un proceso vivo que Main lanza a partir de una fscreen (un lienzo, un archivo compartido con su cursor…) y que sus Sesiones controlan con los métodos de esta. Main solo pone el mecanismo genérico: adherir, vigilar, llevar cada llamada a su proceso con timeout, Confirmación y Log, y soltarlo; lo que hace lo define el módulo. Así "abrir un archivo compartido" no es una función de Main sino una fscreen más.
+
+Es la excepción deliberada a ADR-0005: una tool corre en un proceso nuevo por llamada para no arrastrar estado, pero un Proceso adherido existe justo para guardarlo entre llamadas. Sigue aislado de Main: si se cuelga o muere, Main no. Atiende una llamada a la vez, así que varias Sesiones lo pueden compartir sin pisarse, como Main con su estado (ADR-0001).
+
+Por defecto muere con Main. Un hijo no muere solo cuando muere su padre, así que hacen falta dos capas. El propio proceso, al arrancar, pide al kernel `PR_SET_PDEATHSIG` y comprueba que su padre sigue vivo; no se pone desde Main con `preexec_fn`, porque ejecutar código entre `fork` y `exec` en un Main con threads es lo que ADR-0003 evita. El kernel avisa cuando muere el thread que lanzó el proceso, no el proceso entero, así que los lanza un thread que vive lo mismo que Main. Como red de seguridad, Main guarda su pid en el Estado de Main y al arrancar cierra los que sigan vivos, comprobando antes en `/proc/<pid>/cmdline` que son suyos, como con las Ventanas (ADR-0007). Su estado se pierde con él, salvo que la fscreen sepa guardarlo y restaurarlo, y lo perdido entra en el Informe de recuperación.
+
+Se descartó que sobrevivieran a Main por defecto, como el Supervisor: un proceso cuyo dueño murió no tiene quién atienda sus llamadas ni quién lo cierre.

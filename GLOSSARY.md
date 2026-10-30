@@ -25,7 +25,7 @@ El componente de Main que abre una Ventana: lanza xterm con `Popen` en una sesi�
 _Avoid_: hijo, worker
 
 **Ventana** (`Window`):
-El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión.
+El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrar la Ventana de una Sesión creada por el usuario cancela su Turno; la de una Sesión creada por otra Sesión es solo una mirilla y cerrarla no detiene su trabajo.
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
 
 **Servidor** (`Server`):
@@ -68,6 +68,22 @@ Lo que hay en el input de una Ventana sin enviar; la Ventana se lo manda a Main 
 Archivo de texto plantilla en `sysprompts/` que, renderizado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).
 _Avoid_: system prompt (como nombre del archivo)
 
+**Sesión coordinadora** (`coordinator`):
+Papel de una Sesión que reparte trabajo a otras con Encargos y decide con sus resultados; se lo dan su Sysprompt o su Molde, no es un tipo de Sesión aparte.
+_Avoid_: orquestador (es Main), maestro
+
+**Sesión trabajadora** (`worker`):
+Papel de una Sesión que recibe trabajo de una Sesión coordinadora; suele nacer de un Molde, sin Ventana.
+_Avoid_: esclava, subventana
+
+**Molde** (`Mold`):
+Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajustes, sus functions y, si se quiere, una tarea inicial. La usan el usuario, las fsources y los submains para crear Sesiones que a su vez pueden crear otras. No es un Perfil.
+_Avoid_: perfil, plantilla, preset
+
+**Informe de recuperación** (`RecoveryReport`):
+Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio: lo que quedó a medias (Turnos, Ventanas, Procesos adheridos, Encargos). Queda en el Log, se muestra al usuario como Aviso y llega a cada Sesión afectada como Notificación; dice qué quedó a medias, no por qué murió Main.
+_Avoid_: crash report, volcado
+
 **Ajustes** (`Settings`):
 Parámetros que gobiernan a Main o a una Sesión. Se heredan siempre por copia: lo ya creado no cambia cuando cambia el origen.
 _Avoid_: settings, config
@@ -99,11 +115,22 @@ Una petición al LLM para una Sesión, en espera en la cola de Main; siempre nac
 _Avoid_: /run
 
 **Turno** (`Turn`):
-La atención completa de un Prompt: empieza cuando Main lo saca de la cola y termina cuando un paso concluye sin llamadas a tools pendientes, o al cancelarse o fallar. Una Sesión tiene a lo sumo un Turno activo; Sesiones distintas pueden tener Turnos en paralelo hasta el número de slots del Servidor, que se reparten entre los Mains que lo comparten.
+La atención completa de un Prompt: empieza cuando Main lo saca de la cola y termina cuando un paso concluye sin llamadas a tools pendientes, o al cancelarse o fallar. Una Sesión tiene a lo sumo un Turno activo. Sesiones distintas pueden tener Turnos activos en paralelo, y sus Pasos corren a la vez hasta el número de slots del Servidor, que se reparten entre los Mains que lo comparten; un Turno cuyas tools corren no ocupa slot.
 _Avoid_: request, petición (para el ciclo completo)
 
 **Turno suspendido** (`suspended turn`):
-Turno que, al caer o reiniciarse el Servidor, no falla porque ya llamó a una Zombie: conserva su Conversación hasta la salida de la última Zombie terminada y continúa con un Paso nuevo, antes que cualquier Prompt de la cola, cuando el Servidor vuelve a estar listo.
+Turno que, al caer o reiniciarse el Servidor, no falla porque ya llamó a una Zombie: conserva su Conversación hasta la salida de la última Zombie terminada y continúa con un Paso nuevo cuando el Servidor vuelve a estar listo, como Continuación.
+
+**Continuación** (`Continuation`):
+Trabajo que retoma algo ya empezado: un Turno suspendido, el Paso siguiente de un Turno cuyas tools terminaron, o una Sesión que despierta de una Suscripción. Dentro de su Main va antes que los Prompts nuevos, salvo cuando ya pasaron varias seguidas y toca dejar pasar uno nuevo.
+
+**Suscripción** (`Subscription`):
+Petición de una Sesión de que un evento la despierte: cuando ocurre (responden otras Sesiones, un Proceso adherido dice algo que le interesa, pasa un tiempo…), Main le encola un Prompt con lo ocurrido. Mientras espera no tiene Turno activo ni ocupa slot, pero sus otros Prompts esperan detrás.
+_Avoid_: listener, hook, trigger
+
+**Encargo** (`Errand`):
+Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros.
+_Avoid_: job, barrera, tarea
 
 **Paso** (`Step`):
 Una sola llamada a `responses.create` dentro de un Turno; un Turno con tools tiene varios Pasos.
@@ -166,14 +193,18 @@ Function tool escrita por el usuario o por el LLM; se pasa explícitamente en `/
 _Avoid_: agent, function agent, agente
 
 **fscreen**:
-Clase cuyos métodos públicos se exponen como Function tools para controlar un proceso que corre en paralelo adherido a Main, que el usuario también puede manipular directamente. `screen.py` es solo un ejemplo de fscreen, sin estatus especial; su comportamiento lo definen sus métodos, no los Ajustes.
+Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. `screen.py` es solo un ejemplo de fscreen, sin estatus especial; su comportamiento lo definen sus métodos, no los Ajustes.
 _Avoid_: screen, function screen
+
+**Proceso adherido** (`Attachment`):
+Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main salvo que se indique otra cosa.
+_Avoid_: screen, plugin, servicio
 
 **Zombie** (`zombie`):
 Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.
 
 **Confirmación** (`Confirmation`):
-Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado y conserva su lugar: ningún otro Prompt lo adelanta ni ocupa su sitio. `-y` la salta para esa invocación y `--devastation` para todas; no se apaga desde los Ajustes.
+Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación y `--devastation` para todas; no se apaga desde los Ajustes.
 _Avoid_: aprobación, permiso
 
 **Aviso** (`Notice`):
