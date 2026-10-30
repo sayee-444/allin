@@ -38,6 +38,7 @@ Ya tienen código; verificados y comentados.
 1. #30 Perfiles 1/3: Perfil con nombre, `--profile`, `/profile new`, migración a `default`
 2. #31 Perfiles 2/3: `/profile switch`
 3. #32 Perfiles 3/3: compartir Sesiones
+4. #39 Perfiles 4/4: exportar e importar como copia o plantilla
 
 ## Pre-F2 · Pendientes de F1
 
