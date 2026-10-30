@@ -1,0 +1,15 @@
+# Main ofrece primitivas; las estructuras son composiciones
+
+La meta de AllIn es que las Sesiones, con las functions que tengan a mano, formen estructuras cada vez más complejas: una Sesión coordinadora que reparte trabajo a trabajadoras en submains con otros Supervisores, cadenas de pasos, vigilantes de un proceso. Si cada estructura fuera una funcionalidad propia de Main, Main crecería con cada idea nueva y el LLM solo podría hacer lo que alguien previó. Por eso Main ofrece pocas primitivas, todas como Command main (ADR-0001), y las estructuras se arman combinándolas desde fsources o a mano:
+
+- **Enviar**: un Prompt a una Sesión (`/send`).
+- **Crear**: una Sesión, desde un Molde o no, un Clon o un submain.
+- **Adherir**: un Proceso adherido con estado y métodos (ADR-0012).
+- **Suscribir**: que un evento despierte a una Sesión con un Prompt.
+- **Consultar**: el estado, en solo lectura (cola, Suscripciones, Procesos adheridos, Supervisores y su capacidad, el árbol de Mains), para que una Sesión descubra lo que tiene a su alcance.
+
+La Suscripción es la pieza que faltaba en el diseño: una Sesión solo pensaba cuando le llegaba un Prompt, y no había forma de esperar a otras sin violar ADR-0004. Con ella, la Sesión termina su Turno, duerme sin Turno activo ni slot, y despierta con lo ocurrido. `--reply-to` es una Suscripción a una respuesta; el Encargo, una a las respuestas de todas las Sesiones a las que se repartió trabajo (el empaquetado de peticiones a submains con salida en lista que pedía `spec.md` y que no había pasado a ningún ADR); una carrera, una que se cumple con la primera y cancela las demás; Goal, una que vuelve a despertar hasta cumplir su meta. Los Encargos forman un árbol (ninguno espera a su Sesión ni a sus ancestros), y por eso siempre terminan. Un hijo que falla se puede reintentar hasta un tope sin despertar a la Sesión que espera, que solo ve el resultado final con los intentos usados; reintentar con otro criterio es composición.
+
+Las primitivas se comportan igual esté la Sesión destino en el mismo Main o en otro del árbol: repartir el trabajo entre submains solo cambia la velocidad (un submain enlazado a otro Supervisor usa otro cerebro) y el aislamiento ante caídas. Cada Main sigue teniendo un único Enlace (ADR-0008); usar varios cerebros es repartir trabajo entre submains, y la Sesión coordinadora decide con lo que le muestra Consultar. La red de cerebros es de una sola máquina; varias serían otra fase con su propio canal y candados.
+
+Para que el LLM pueda componer, cada function se describe a sí misma y el estado que le afecta está en su Conversación (Notificaciones: "tienes un Encargo abierto, 2 de 3 respondieron"); el LLM no infiere lo que no ve. Cada despertar cuesta un Turno, así que las Suscripciones agrupan los eventos que llegan seguidos y tienen topes; una Sesión suscrita a su propia salida no puede despertarse sin fin.

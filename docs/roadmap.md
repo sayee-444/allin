@@ -53,11 +53,11 @@ Ya tienen código; verificados y comentados.
 
 ## F2 · Command sessions y fsource
 
-Sin issues todavía: Command sessions (`@…`, incluido `@server`), fsource, Notificaciones y Conversation logs, y los decoradores `@confirm` y `@zombie` (ADR-0009).
+Sin issues todavía: Command sessions (`@…`, incluido `@server`), fsource, Notificaciones y Conversation logs, y los decoradores `@confirm` y `@zombie` (ADR-0009). Del grilling del tejido de primitivas (ADR-0011, ADR-0012): Continuaciones con prioridad y candado por Paso (ADR-0004), Suscripción y Encargo con reintentos, Consultar, Moldes, Procesos adheridos (fscreen genérica, archivo compartido) e Informe de recuperación.
 
 ## F3 · Submains y Traspaso
 
-Submains, Traspaso de Sesiones dentro del árbol, y #18 (FIFOs huérfanas por Main).
+Submains, Traspaso de Sesiones dentro del árbol, y #18 (FIFOs huérfanas por Main). Antes, en su grilling: el protocolo entre Mains y las primitivas entre Mains del árbol (ADR-0011).
 
 ## Después
 
