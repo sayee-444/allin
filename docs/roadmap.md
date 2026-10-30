@@ -10,7 +10,7 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
 - **Último hecho:** #8–#12 verificados con el `llama serve` real; evidencia en la rama `evidence` y comentario en cada issue (2026-10-30).
 - **Siguiente:** #21 junto con #17.
-- **Pendiente de decidir con el usuario:** qué pasa cuando un texto vuelve al input y ya había algo escrito (hoy se suman en líneas; visto en la verificación de #12).
+- **Pendiente de decidir con el usuario:** cómo se muestran y se envían varios bloques en el input (#34, bug). En #17, `APITimeoutError` pasa a `llm_request_failed` sin pausar la cola (decidido).
 
 ## F1 · Cierre
 
@@ -49,6 +49,7 @@ Ya tienen código; verificados y comentados.
 6. #23 `/help` generado del registro de Command main
 7. #19 Lo que quede de la señal durante el arranque
 8. #33 Una Ventana desconectada sigue mandando Borradores (Broken pipe)
+9. #34 Los textos que vuelven al input se mezclan con lo escrito
 
 ## F2 · Command sessions y fsource
 
