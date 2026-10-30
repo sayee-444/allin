@@ -27,6 +27,10 @@ class PromptQueue:
                 return self._prompts.pop(index)
         return None
 
+    def ready(self, active: Container[str]) -> bool:
+        """Whether ``pop_ready`` would take a Prompt."""
+        return any(prompt.session_id not in active for prompt in self._prompts)
+
     def drop(self, session_id: str) -> list[Prompt]:
         """Take a Session's Prompts out of the queue; return them in their order."""
         dropped = [prompt for prompt in self._prompts if prompt.session_id == session_id]

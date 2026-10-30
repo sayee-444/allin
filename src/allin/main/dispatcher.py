@@ -42,10 +42,13 @@ from allin.main.events import (
     DraftReceived,
     ErrorOccurred,
     InputReceived,
-    LlmAvailable,
     MainCommandEntered,
     MainEvent,
+    ServerDown,
+    ServerLoading,
+    ServerReady,
     Shutdown,
+    SlotFreed,
     StepEnded,
     TurnEnded,
     TurnOutput,
@@ -57,7 +60,8 @@ from allin.main.executors import SHUTTING_DOWN, TurnJob
 from allin.main.log import Log
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.sessions import Session, SessionStore
-from allin.main.slots import Slots
+from allin.main.slot_locks import SlotLock, SlotLocks
+from allin.main.slots import ServerProps, capacity
 from allin.main.state import MainState, MainStateStore
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
@@ -84,10 +88,14 @@ type OpenWindow = Callable[[str], WindowLink]
 # whether there was one.
 type CloseOrphanWindow = Callable[[str, int], bool]
 type SubmitTurn = Callable[[TurnJob], None]
-# Starts watching the server's /health; once it is OK, ``LlmAvailable`` reaches the inbox.
-type WatchHealth = Callable[[], None]
+# Waits for one of the server's first N slot locks to be free; then ``SlotFreed`` reaches the
+# inbox.
+type WaitForSlot = Callable[[int], None]
+# Makes the Server watch report what it sees next, even if it looks unchanged.
+type RecheckServer = Callable[[], None]
 
 _PAUSED_TEXT = "queue paused: the LLM server cannot be reached, waiting for its /health"
+_LOADING_TEXT = "queue paused: the LLM server is loading its model"
 _STARTING_TEXT = "queue paused until the LLM server's /health is OK"
 _READY_TEXT = "queue resumed: the LLM server is ready"
 _RESUMED_TEXT = "queue resumed: the LLM server is back"
@@ -112,6 +120,7 @@ class _RunningTurn:
     prompt: Prompt
     session: Session
     cancellation: Cancellation
+    slot: SlotLock  # held while its Step runs; in F1 a Turn is one Step
     reasoning: str = ""  # streamed so far, shown again if its Window is reopened mid-Turn
     answer: str = ""
     steps: list[Step] = field(default_factory=list[Step])  # ended so far
@@ -154,11 +163,12 @@ class Dispatcher:
         submit_turn: SubmitTurn,
         main_id: MainId,
         settings: MainSettings,
-        slots: Slots,
         sysprompts: Path,
-        watch_health: WatchHealth,
         state: MainStateStore,
         close_orphan_window: CloseOrphanWindow,
+        slot_locks: SlotLocks,
+        wait_for_slot: WaitForSlot,
+        recheck_server: RecheckServer,
     ) -> None:
         self._inbox = inbox
         self._main_chat = main_chat
@@ -168,13 +178,15 @@ class Dispatcher:
         self._submit_turn = submit_turn
         self._main_id = main_id
         self._settings = settings
-        self._slots = slots
         self._sysprompts = sysprompts
-        self._watch_health = watch_health
         self._state = state
         self._close_orphan_window = close_orphan_window
+        self._slot_locks = slot_locks
+        self._wait_for_slot = wait_for_slot
+        self._recheck_server = recheck_server
+        self._server: ServerProps | None = None  # as the Server watch last said, once ready
         self._saved = MainState()  # what ``state`` holds now
-        self._paused = False  # no Turn starts while the server cannot be reached
+        self._paused = False  # no Turn starts while the server is not ready
         self._paused_text = _PAUSED_TEXT
         # Each Session's Draft, shown block first, as its Window last sent it.
         self._drafts: dict[str, list[str]] = {}
@@ -195,18 +207,7 @@ class Dispatcher:
 
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""
-        slots = self._slots
-        self._report(
-            None,
-            "main_started",
-            slots.describe(),
-            main_id=self._main_id,
-            slots=slots.count,
-            slots_source=slots.source,
-            server_slots=slots.server_slots,
-        )
-        if (warning := slots.warning()) is not None:
-            self._report(None, "warning", f"warning {warning}", warning=warning)
+        self._report(None, "main_started", "main started", main_id=self._main_id)
         self._close_left_open()
         self._restore()
         while self._handle(self._inbox.get()):
@@ -338,8 +339,14 @@ class Dispatcher:
                 self._cancel(session_id, "window closed")
             case ErrorOccurred(error, session_id):
                 self._show_error(error, session_id)
-            case LlmAvailable():
-                self._resume()
+            case ServerReady(props):
+                self._server_ready(props)
+            case ServerLoading():
+                self._pause(_LOADING_TEXT)
+            case ServerDown():
+                self._pause(_PAUSED_TEXT)
+            case SlotFreed():
+                self._start_turns()
             case MainCommandEntered(text):
                 return self._run_main_command(text)
             case Shutdown():
@@ -466,28 +473,75 @@ class Dispatcher:
             conversation, self._sessions.read_log(session), session.settings
         ):
             self._to_window(session.id, message)
+        self._send_context(session, self._last_steps(session.id, conversation))
         running = self._running.get(session.id)
-        if running is not None and running.steps:
-            last_steps = running.steps
-        else:
-            last_steps = conversation.turns[-1].steps if conversation.turns else []
-        self._send_context(session, last_steps)
         if running is not None:  # what the running Turn has streamed so far; it goes on streaming
             if running.reasoning:
                 self._to_window(session.id, self._delta(running, "reasoning", running.reasoning))
             if running.answer:
                 self._to_window(session.id, self._delta(running, "answer", running.answer))
 
+    def _last_steps(self, session_id: str, conversation: Conversation) -> list[Step]:
+        """The Steps whose Context the Window shows: the running Turn's, else the last Turn's."""
+        running = self._running.get(session_id)
+        if running is not None and running.steps:
+            return running.steps
+        return conversation.turns[-1].steps if conversation.turns else []
+
+    def _server_ready(self, props: ServerProps) -> None:
+        """Adapt to what the Server says of itself (ADR-0004), then go on with the queue."""
+        if props != self._server:
+            context_changed = (
+                self._server is None or props.slot_context != self._server.slot_context
+            )
+            self._server = props
+            turns = capacity(props, self._settings.parallel)
+            shown = (
+                f"LLM server ready: {turns} turn(s) at once, {props.slot_context} tokens of "
+                f"context per slot ({props.model_path})"
+            )
+            fields = {"capacity": turns, "parallel": self._settings.parallel}
+            self._report(None, "server_ready", shown, **vars(props), **fields)
+            if context_changed:
+                self._resend_context()
+        self._resume()
+        self._start_turns()  # there may be room for more Turns than before
+
+    def _resend_context(self) -> None:
+        """Show every open Window its Context against the Server's new limit."""
+        for session_id in list(self._windows):
+            try:
+                session = self._sessions.load(session_id)
+                conversation = self._sessions.load_conversation(session)
+            except AllInError as error:
+                self._show_error(error, session_id)
+                continue
+            conversation = conversation or Conversation(sysprompt="")
+            self._send_context(session, self._last_steps(session_id, conversation))
+
     def _start_turns(self) -> None:
-        """Hand ready Prompts to executors while the server has free slots (ADR-0004)."""
-        while not (self._paused or self._stopping) and len(self._running) < self._slots.count:
+        """Hand ready Prompts to executors while there is room on the server (ADR-0004).
+
+        Room is the capacity this Main allows itself and a free slot lock, which Mains sharing
+        the Server compete for (ADR-0008); without one, Prompts wait here until one is free.
+        """
+        while not (self._paused or self._stopping) and self._server is not None:
+            if len(self._running) >= capacity(self._server, self._settings.parallel):
+                return
+            slot = self._slot_locks.take(self._server.total_slots)
+            if slot is None:
+                if self._prompts.ready(active=self._running):
+                    self._wait_for_slot(self._server.total_slots)
+                return
             prompt = self._prompts.pop_ready(active=self._running)
             if prompt is None:
+                slot.release()
                 return
             try:
                 session = self._sessions.load(prompt.session_id)
                 conversation = self._conversation(session)
             except AllInError as error:
+                slot.release()
                 self._show_error(error, prompt.session_id)
                 self._send_turn_state(prompt.session_id)
                 continue
@@ -497,7 +551,7 @@ class Dispatcher:
                 params=session.settings.sampling.request_params(),
             )
             job = TurnJob(session.id, request)
-            self._running[session.id] = _RunningTurn(prompt, session, job.cancellation)
+            self._running[session.id] = _RunningTurn(prompt, session, job.cancellation, slot)
             self._record(session.id, "turn_started", "turn started")
             self._submit_turn(job)
 
@@ -510,7 +564,6 @@ class Dispatcher:
         self._report(None, "queue_paused", text)
         for session_id in self._prompts.session_ids():
             self._to_window(session_id, self._paused_entry())
-        self._watch_health()
 
     def _paused_entry(self) -> ChatAppend:
         return ChatAppend(role="info", label="queue", text=self._paused_text)
@@ -550,6 +603,7 @@ class Dispatcher:
         """
         for running in self._running.values():
             running.cancellation.cancel(SHUTTING_DOWN)
+            running.slot.release()
             self._fail_turn(running, TurnCancelled(reason=SHUTTING_DOWN))
         self._running.clear()
 
@@ -595,7 +649,7 @@ class Dispatcher:
         """Show the Window the Context ``steps`` leave and how fast the last one generated."""
         usage = ContextUsage(
             context=context_tokens(steps),
-            limit=session.settings.context_limit,
+            limit=None if self._server is None else self._server.slot_context,
             tokens_per_second=tokens_per_second(steps),
         )
         self._to_window(session.id, usage)
@@ -606,6 +660,7 @@ class Dispatcher:
         running = self._running.pop(session_id, None)
         if running is None:
             return
+        running.slot.release()
         try:
             if error is not None or steps is None:
                 raise error or TurnCrashed(reason="no steps")
@@ -614,6 +669,7 @@ class Dispatcher:
             self._fail_turn(running, failure)
             if isinstance(failure, LlmUnavailable):
                 self._pause()
+                self._recheck_server()  # it may have looked ready to the Server watch all along
                 if not self._prompts.has(session_id):  # else ``_pause`` or ``_send`` told it
                     self._to_window(session_id, self._paused_entry())
         else:

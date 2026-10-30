@@ -90,7 +90,8 @@ class LlmRequestFailed(AllInError):
 
 
 class LlmUnavailable(LlmRequestFailed):
-    """The LLM's server cannot be reached: it is down, or it died while a Step streamed."""
+    """The LLM's server cannot serve a Step: it is down, still loading its model (503), or it
+    died while a Step streamed."""
 
     code: ClassVar[str] = "llm_unavailable"
 

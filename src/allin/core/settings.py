@@ -23,12 +23,10 @@ class SessionSettings(BaseModel, frozen=True):
     sysprompt: str = "default.txt"  # a file in the sysprompts folder
     model: str = "allin"
     sampling: Sampling = Sampling()
-    # Tokens the Conversation may fill, as llama-server was started with (-c); only shown.
-    context_limit: int = Field(default=131072, ge=1)
 
 
 class MainSettings(BaseModel, frozen=True):
     base_url: str = "http://127.0.0.1:9931/v1"
-    # Turns at once, set by hand; None takes the server's slots (llama-server -np) from /props.
+    # Turns at once, set by hand; it can only lower the server's slots (llama-server -np).
     parallel: int | None = Field(default=None, ge=1)
     session: SessionSettings = Field(default_factory=SessionSettings)  # copied by /new

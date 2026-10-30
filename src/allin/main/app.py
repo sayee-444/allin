@@ -14,12 +14,13 @@ from allin.ipc.channel import remove_stale_fifos
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import MainCommandEntered, MainEvent, Shutdown
 from allin.main.executors import TurnExecutors
-from allin.main.health import HealthWatch
 from allin.main.lock import MainLock
 from allin.main.log import Log
+from allin.main.server_watch import ServerWatch
 from allin.main.sessions import SessionStore
 from allin.main.signals import ShutdownSignals
-from allin.main.slots import fetch_total_slots, resolve_slots
+from allin.main.slot_locks import SlotLocks, SlotWaiter
+from allin.main.slots import server_name
 from allin.main.state import MainStateStore
 from allin.main.turn import OpenAiLlm
 from allin.main.windows import WindowOpener, close_orphan_window
@@ -50,9 +51,11 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     inbox: queue.Queue[MainEvent] = queue.Queue()
     remove_stale_fifos(data_dir / "fifo")  # no Window outlives the Main that opened it
-    slots = resolve_slots(fetch_total_slots(settings.base_url), settings.parallel)
-    executors = TurnExecutors(OpenAiLlm(settings.base_url), slots.count, inbox)
-    health = HealthWatch(settings.base_url, inbox)
+    executors = TurnExecutors(OpenAiLlm(settings.base_url), inbox)
+    # Main starts without waiting for the Server: its queue stays paused until it is ready.
+    watch = ServerWatch(settings.base_url, inbox)
+    slot_locks = SlotLocks(data_dir / "servers", server_name(settings.base_url))
+    slot_waiter = SlotWaiter(slot_locks, inbox)
     dispatcher = Dispatcher(
         inbox,
         screen.inbox.put,
@@ -62,22 +65,24 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
         executors.submit,
         ROOT_MAIN_ID,
         settings,
-        slots,
         sysprompts,
-        health.start,
         MainStateStore(_state_dir(data_dir) / f"{ROOT_MAIN_ID}.json"),
         close_orphan_window,
+        slot_locks,
+        slot_waiter.start,
+        watch.recheck,
     )
 
     def dispatch() -> None:
         dispatcher.run()  # closes every Window before returning
         executors.shutdown(_SHUTDOWN_GRACE)  # running Turns are cancelled, never saved
-        health.stop()
+        watch.stop()
+        slot_waiter.stop()
         screen.inbox.put(None)
 
     shutdown_signals = ShutdownSignals(lambda: inbox.put(Shutdown()))
     shutdown_signals.install()
-    executors.start()
+    watch.start()
     dispatcher_thread = threading.Thread(target=dispatch, name="dispatcher")
     dispatcher_thread.start()
     try:

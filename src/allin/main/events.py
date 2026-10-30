@@ -5,6 +5,7 @@ from typing import Any
 
 from allin.core.errors import AllInError
 from allin.main.conversation import Step
+from allin.main.slots import ServerProps
 from allin.main.turn import OutputKind
 
 
@@ -81,8 +82,28 @@ class TurnEnded:
 
 
 @dataclass(frozen=True)
-class LlmAvailable:
-    """The LLM's server answers ``/health`` with OK again, after Main's queue paused for it."""
+class ServerDown:
+    """The Server does not answer, or does not look like llama-server."""
+
+
+@dataclass(frozen=True)
+class ServerLoading:
+    """The Server answers 503: it is loading its model."""
+
+
+@dataclass(frozen=True)
+class ServerReady:
+    """The Server is ready, with these props; said again when they change."""
+
+    props: ServerProps
+
+
+type ServerState = ServerDown | ServerLoading | ServerReady
+
+
+@dataclass(frozen=True)
+class SlotFreed:
+    """A slot lock another Main held is free, while Prompts here waited for one."""
 
 
 @dataclass(frozen=True)
@@ -101,6 +122,9 @@ type MainEvent = (
     | TurnRaw
     | StepEnded
     | TurnEnded
-    | LlmAvailable
+    | ServerDown
+    | ServerLoading
+    | ServerReady
+    | SlotFreed
     | Shutdown
 )

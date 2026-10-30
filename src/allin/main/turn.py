@@ -126,7 +126,8 @@ def run_turn(
 ) -> list[Step]:
     """Run the Turn's Steps; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early.
 
-    ``LlmUnavailable``, a kind of ``LlmRequestFailed``, means the server could not be reached.
+    ``LlmUnavailable``, a kind of ``LlmRequestFailed``, means the server could not be reached
+    or is still loading its model.
 
     ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams and
     ``on_step`` each Step as soon as it ends.
@@ -164,8 +165,14 @@ def _run_step(
                     case _:
                         pass
             cancellation.check()  # a stream closed by ``cancel`` may also just end
+    except openai.APITimeoutError as error:  # a slow server is up: only this Step fails
+        raise LlmRequestFailed(reason=str(error)) from error
     except openai.APIConnectionError as error:  # the SDK's own, also for a stream cut short
         raise LlmUnavailable(reason=str(error)) from error
+    except openai.APIStatusError as error:
+        if error.status_code == 503:  # llama-server is loading the model: as good as down
+            raise LlmUnavailable(reason=str(error)) from error
+        raise LlmRequestFailed(reason=str(error)) from error
     except openai.OpenAIError as error:
         raise LlmRequestFailed(reason=str(error)) from error
     raise LlmRequestFailed(reason="stream ended without a completed response")
