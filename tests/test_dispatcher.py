@@ -1,4 +1,5 @@
 import queue
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -23,10 +24,13 @@ from allin.main.events import (
     DraftReceived,
     ErrorOccurred,
     InputReceived,
-    LlmAvailable,
     MainCommandEntered,
     MainEvent,
+    ServerDown,
+    ServerLoading,
+    ServerReady,
     Shutdown,
+    SlotFreed,
     TurnEnded,
     WindowClosed,
 )
@@ -34,12 +38,28 @@ from allin.main.executors import TurnJob, execute
 from allin.main.log import Log, LogEntry, read_log
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
-from allin.main.slots import resolve_slots
+from allin.main.slot_locks import SlotLocks
+from allin.main.slots import ServerProps
 from allin.main.state import MainState, MainStateStore
 from allin.ui.chat import Chat, Row
-from tests.llm_fakes import DroppedStream, FakeLlm, Unreachable, answer, completed, full_reply
+from tests.llm_fakes import (
+    DroppedStream,
+    FakeLlm,
+    Unreachable,
+    answer,
+    completed,
+    full_reply,
+    status_error,
+)
 
 ME = MainId("root")
+
+
+def server(slots: int = 1, context: int = 131072) -> ServerProps:
+    """What the Server watch says of a ready llama-server."""
+    return ServerProps(total_slots=slots, slot_context=context, model_path="m.gguf")
+
+
 SETTINGS = MainSettings(session=SessionSettings(username="ana", assistant_name="AllIn"))
 # What a Window is first sent for a Session with no Turns: just its context limit.
 NOTHING_YET = ContextUsage(context=None, limit=131072, tokens_per_second=None)
@@ -106,12 +126,18 @@ class MainHarness:
         (self.sysprompts / "default.txt").write_text("I am $assistant_name; you are $username.")
         self.llm = FakeLlm()
         self.settings = SETTINGS
-        self.slots = resolve_slots(server_slots=None, parallel=None)
+        self.server = server()
+        self.slot_locks_dir = tmp_path / "servers"
+        self.slot_locks = SlotLocks(self.slot_locks_dir, "9931")
+        # Whether another Main could have taken a slot lock as each Turn was submitted.
+        self.slot_free_at_submit: list[bool] = []
+        self.slot_waits = 0  # times Main waited for a slot lock another Main held
+        self.on_slot_wait: Callable[[], None] = lambda: None
         self.hold_turns = False
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
-        self.health_watches = 0  # times Main asked to be told when the server is back
+        self.rechecks = 0  # times Main asked the Server watch to say again what it sees
         self.state = RecordingStateStore(tmp_path / "state" / "root.json")
         self.server_up = True  # the queue, paused on start, resumes before any event
         self.orphans: list[tuple[str, int]] = []  # Windows a dead Main left, as Main closed them
@@ -132,10 +158,14 @@ class MainHarness:
         """
         main_chat: list[str] = []
         if self.server_up:
-            events = (LlmAvailable(), *events)
+            events = (ServerReady(self.server), *events)
         inbox = DrainingInbox(list(events) if settle else [])
 
         def submit_turn(job: TurnJob) -> None:
+            other_main = SlotLocks(self.slot_locks_dir, "9931").take(self.server.total_slots)
+            self.slot_free_at_submit.append(other_main is not None)
+            if other_main is not None:
+                other_main.release()
             if self.hold_turns:
                 self.held.append(job)
             else:
@@ -150,11 +180,12 @@ class MainHarness:
             submit_turn,
             ME,
             self.settings,
-            self.slots,
             self.sysprompts,
-            self._watch_health,
             self.state,
             self._close_orphan,
+            self.slot_locks,
+            self._wait_for_slot,
+            self._recheck_server,
         )
         for event in [] if settle else events:
             inbox.put(event)
@@ -167,8 +198,13 @@ class MainHarness:
     def session_log(self, session: Session) -> list[LogEntry]:
         return read_log(self.root / session.id / "log.jsonl")
 
-    def _watch_health(self) -> None:
-        self.health_watches += 1
+    def _recheck_server(self) -> None:
+        self.rechecks += 1
+
+    def _wait_for_slot(self, slots: int) -> None:
+        assert slots == self.server.total_slots
+        self.slot_waits += 1
+        self.on_slot_wait()
 
     def _close_orphan(self, session_id: str, pid: int) -> bool:
         if pid not in self.live_orphans:
@@ -292,7 +328,8 @@ TIMINGS = {"cache_n": 190, "prompt_n": 10, "predicted_n": 200, "predicted_per_se
 def test_after_each_step_the_window_shows_the_context_and_speed_and_then_the_turns_tokens(
     main: MainHarness,
 ):
-    session = main.create_session(context_limit=8192)
+    main.server = server(context=8192)
+    session = main.create_session()
     main.llm = FakeLlm([answer("Hi"), completed("", "Hi", total_tokens=400, timings=TIMINGS)])
     main.run(MainCommandEntered(f"/open {session.id}"), InputReceived(session.id, "hola"))
     [window] = main.windows(session.id)
@@ -303,7 +340,8 @@ def test_after_each_step_the_window_shows_the_context_and_speed_and_then_the_tur
 
 
 def test_reopening_a_window_shows_the_context_its_last_turn_left(main: MainHarness):
-    session = main.create_session(context_limit=8192)
+    main.server = server(context=8192)
+    session = main.create_session()
     main.llm = FakeLlm([completed("", "Hi", total_tokens=400, timings=TIMINGS)])
     main.run(
         InputReceived(session.id, "hola"),
@@ -352,7 +390,7 @@ def test_text_from_a_window_reaches_the_llm_exactly_as_typed(main: MainHarness):
 
 
 def test_a_session_waits_for_its_own_turn_but_not_for_the_others(main: MainHarness):
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     a, b = main.create_session(), main.create_session()
     main.llm = FakeLlm(*(full_reply("", str(n)) for n in range(3)))
     main.run(
@@ -493,7 +531,7 @@ def test_raw_on_shows_the_streams_raw_events_in_mains_chat_and_raw_off_hides_the
 
 
 def test_raw_on_with_a_sid_shows_only_that_sessions_raw_events(main: MainHarness):
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     a, b = main.create_session(), main.create_session()
     main.llm = FakeLlm(full_reply("", "a"), full_reply("", "b"))
     chat = main.run(
@@ -567,7 +605,7 @@ def test_with_one_slot_two_sessions_are_served_in_arrival_order(main: MainHarnes
 
 
 def test_with_two_slots_two_sessions_are_served_at_once(main: MainHarness):
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     a, b = main.create_session(), main.create_session()
     main.hold_turns = True
     chat = main.run(
@@ -582,7 +620,7 @@ def test_with_two_slots_two_sessions_are_served_at_once(main: MainHarness):
 
 
 def test_two_prompts_of_one_session_never_run_at_once_nor_block_the_others(main: MainHarness):
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     a, b = main.create_session(), main.create_session()
     main.hold_turns = True
     chat = main.run(
@@ -605,18 +643,26 @@ def test_two_prompts_of_one_session_never_run_at_once_nor_block_the_others(main:
     assert [job.request.input[-1]["content"] for job in main.held] == ["a1", "b1", "a2"]
 
 
-def test_main_says_how_many_turns_it_runs_at_once_and_where_that_came_from(main: MainHarness):
-    main.slots = resolve_slots(server_slots=4, parallel=None)
+def test_main_says_what_the_server_offers_once_it_is_ready(main: MainHarness):
+    main.server = server(slots=4, context=64000)
     chat = main.run()
-    assert any("4" in line and "server" in line for line in chat)
-    [started] = [entry for entry in main.main_log() if entry.event == "main_started"]
-    assert started.fields["slots"] == 4 and started.fields["slots_source"] == "server"
+    assert any("ready: 4 turn(s) at once, 64000 tokens" in line for line in chat)
+    [ready] = [entry for entry in main.main_log() if entry.event == "server_ready"]
+    assert ready.fields["total_slots"] == 4 and ready.fields["capacity"] == 4
+    assert ready.fields["slot_context"] == 64000 and ready.fields["model_path"] == "m.gguf"
 
 
-def test_parallel_above_the_servers_slots_is_warned_about_in_mains_chat(main: MainHarness):
-    main.slots = resolve_slots(server_slots=1, parallel=3)
-    chat = main.run()
-    assert any("warning" in line and "parallel=3" in line for line in chat)
+def test_parallel_can_only_lower_how_many_turns_run_at_once(main: MainHarness):
+    sessions = [main.create_session() for _ in range(3)]
+    main.hold_turns = True
+    main.server = server(slots=2)
+    main.settings = SETTINGS.model_copy(update={"parallel": 1})
+    main.run(*(InputReceived(session.id, "hi") for session in sessions), settle=True)
+    assert len(main.held) == 1
+    main.held.clear()
+    main.settings = SETTINGS.model_copy(update={"parallel": 3})
+    main.run(*(InputReceived(session.id, "hi") for session in sessions), settle=True)
+    assert len(main.held) == 2
 
 
 def test_closing_a_window_cancels_its_turn_and_drops_its_queued_prompts_only(main: MainHarness):
@@ -674,16 +720,16 @@ def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
     main: MainHarness,
 ):
     a, b = main.create_session(), main.create_session()
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     main.llm = FakeLlm(DroppedStream([answer("half")]), full_reply("", "back"))
     chat = main.run(
         MainCommandEntered(f"/open {b.id}"),
         InputReceived(a.id, "a1"),
         InputReceived(b.id, "b1"),  # a free slot, but the queue is paused
-        LlmAvailable(),  # what the health watch says once /health is OK
+        ServerReady(main.server),  # what the Server watch says once it is back
         settle=True,
     )
-    assert main.health_watches == 2  # on start, then for the dead server
+    assert main.rechecks == 1  # for the dead server
     assert turn_lines(chat) == [
         f"[{a.id}] turn started",
         f"[{b.id}] turn started",
@@ -698,7 +744,7 @@ def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
 
 def test_turns_failing_at_once_on_a_dead_server_pause_the_queue_once(main: MainHarness):
     a, b = main.create_session(), main.create_session()
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     main.hold_turns = True
     main.run(
         InputReceived(a.id, "a1"),
@@ -707,7 +753,7 @@ def test_turns_failing_at_once_on_a_dead_server_pause_the_queue_once(main: MainH
         TurnEnded(b.id, error=LlmUnavailable(reason="Connection error.")),
         settle=True,
     )
-    assert main.health_watches == 2  # on start, then once for both
+    assert main.rechecks == 2  # once for each, though it paused only once
     assert [entry.event for entry in main.main_log()].count("queue_paused") == 2
 
 
@@ -715,7 +761,7 @@ def test_a_turn_that_fails_for_another_reason_does_not_pause_the_queue(main: Mai
     a, b = main.create_session(), main.create_session()
     main.llm = FakeLlm([answer("half")], full_reply("", "ok"))
     chat = main.run(InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), settle=True)
-    assert main.health_watches == 1  # only the one on start
+    assert main.rechecks == 0
     assert turn_lines(chat)[-1] == f"[{b.id}] turn finished"
 
 
@@ -723,7 +769,7 @@ def test_a_turn_that_fails_for_another_reason_does_not_pause_the_queue(main: Mai
 def test_shutting_down_cancels_turns_and_saves_the_queue_before_closing_windows(
     main: MainHarness, stop: MainEvent
 ):
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     a, b = main.create_session(), main.create_session()
     main.hold_turns = True
     main.run(
@@ -813,7 +859,7 @@ def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
 
 
 def test_restarting_main_puts_the_user_back_where_they_were(main: MainHarness):
-    main.slots = resolve_slots(server_slots=2, parallel=None)
+    main.server = server(slots=2)
     a, b, c = main.create_session(), main.create_session(), main.create_session()
     main.hold_turns = True
     main.run(
@@ -829,18 +875,17 @@ def test_restarting_main_puts_the_user_back_where_they_were(main: MainHarness):
         MainCommandEntered("/exit"),
         settle=True,
     )
-    started, watches = len(main.held), main.health_watches
+    started = len(main.held)
     main.server_up = False
     main.run(settle=True)
-    assert len(main.held) == started, "the queue waits for the server's /health"
-    assert main.health_watches == watches + 1
+    assert len(main.held) == started, "the queue waits for the Server to be ready"
     [_, window_a], [_, window_b] = main.windows(a.id), main.windows(b.id)
     assert len(main.windows(c.id)) == 1
     # Its Turn is reverted: its Prompt goes back to the input, shown ahead of the draft, unsent.
     assert restored(window_a) == ["a1", "typing"]
     assert restored(window_b) == ["b1"]
     assert main.sessions.load_conversation(a) == Conversation(sysprompt="I am AllIn; you are ana.")
-    main.run(LlmAvailable(), settle=True)
+    main.run(ServerReady(main.server), settle=True)
     assert [job.request.input[-1]["content"] for job in main.held[started:]] == ["a2", "b2"]
 
 
@@ -956,3 +1001,158 @@ def restored(window: FakeWindowLink) -> list[str]:
         if isinstance(message, InputRestore):
             blocks = put_back(blocks, message.text)
     return blocks
+
+
+def test_main_started_before_the_server_serves_two_sessions_at_once_once_it_is_ready(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    main.server_up = False
+    main.hold_turns = True
+    chat = main.run(
+        InputReceived(a.id, "a1"),
+        InputReceived(b.id, "b1"),
+        ServerDown(),
+        ServerLoading(),
+        settle=True,
+    )
+    assert main.held == [] and turn_lines(chat) == []
+    main.run(ServerReady(server(slots=2)), settle=True)
+    assert [job.session_id for job in main.held] == [a.id, b.id]
+
+
+def test_a_server_that_loads_its_model_or_goes_down_pauses_the_queue_until_it_is_ready(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.hold_turns = True
+    chat = main.run(
+        ServerLoading(),
+        InputReceived(session.id, "a1"),
+        ServerDown(),
+        ServerReady(main.server),
+        settle=True,
+    )
+    assert any("loading its model" in line for line in chat)
+    assert [entry.event for entry in main.main_log()].count("queue_paused") == 2
+    resumed = max(n for n, line in enumerate(chat) if "queue resumed" in line)
+    assert resumed < chat.index(f"[{session.id}] turn started")
+
+
+def test_more_slots_on_the_server_start_more_turns_without_restarting_main(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    main.run(
+        InputReceived(a.id, "a1"),
+        InputReceived(b.id, "b1"),
+        ServerReady(server(slots=2)),  # restarted from -np 1 to -np 2
+        settle=True,
+    )
+    assert [job.session_id for job in main.held] == [a.id, b.id]
+
+
+def test_fewer_slots_let_the_running_turns_finish_and_start_no_other_until_there_is_room(
+    main: MainHarness,
+):
+    a, b, c = main.create_session(), main.create_session(), main.create_session()
+    main.server = server(slots=2)
+    main.hold_turns = True
+    chat = main.run(
+        InputReceived(a.id, "a1"),
+        InputReceived(b.id, "b1"),
+        InputReceived(c.id, "c1"),
+        ServerReady(server(slots=1)),
+        ended(a),
+        ended(b),
+        settle=True,
+    )
+    assert turn_lines(chat) == [
+        f"[{a.id}] turn started",
+        f"[{b.id}] turn started",
+        f"[{a.id}] turn finished",
+        f"[{b.id}] turn finished",
+        f"[{c.id}] turn started",
+    ]
+
+
+def test_the_border_limit_follows_the_context_of_each_slot_the_server_reports(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.server = server(slots=2, context=64000)  # -c 128000 -np 2
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        ServerReady(server(slots=2, context=128000)),  # restarted with --kv-unified
+        ServerReady(server(slots=1, context=128000)),  # -np 1: the same limit, not sent again
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    usage = [m for m in window.sent if isinstance(m, ContextUsage)]
+    assert [m.limit for m in usage] == [64000, 128000]
+
+
+def test_a_window_opened_before_the_server_is_ready_does_not_know_its_limit(main: MainHarness):
+    session = main.create_session()
+    main.server_up = False
+    main.run(MainCommandEntered(f"/open {session.id}"), ServerReady(main.server), settle=True)
+    [window] = main.windows(session.id)
+    usage = [m.limit for m in window.sent if isinstance(m, ContextUsage)]
+    assert usage == [None, 131072]
+
+
+def test_a_prompt_waits_in_the_queue_while_another_main_holds_the_servers_slot(
+    main: MainHarness,
+):
+    session = main.create_session()
+    other_main = SlotLocks(main.slot_locks_dir, "9931").take(1)
+    assert other_main is not None
+    main.hold_turns = True
+    main.on_slot_wait = other_main.release  # its Step ends while this Main waits
+    # What the slot waiter says once the lock is free.
+    main.run(InputReceived(session.id, "a1"), SlotFreed(), settle=True)
+    assert main.slot_waits == 1
+    assert [job.request.input[-1]["content"] for job in main.held] == ["a1"]
+
+
+def test_a_turn_holds_a_slot_lock_while_it_runs_and_lets_go_when_it_ends(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.llm = FakeLlm(full_reply("", "one"), full_reply("", "two"))
+    main.run(InputReceived(a.id, "a1"), InputReceived(b.id, "b1"), settle=True)
+    assert main.slot_free_at_submit == [False, False]
+    assert main.slot_waits == 0  # b1 found the slot a1 let go of
+    assert SlotLocks(main.slot_locks_dir, "9931").take(1) is not None
+
+
+def test_turns_cancelled_on_shutdown_let_go_of_their_slot_locks(main: MainHarness):
+    session = main.create_session()
+    main.hold_turns = True
+    main.run(InputReceived(session.id, "a1"), settle=True)
+    assert len(main.held) == 1
+    assert SlotLocks(main.slot_locks_dir, "9931").take(1) is not None
+
+
+def test_a_turn_that_gets_503_while_the_model_loads_pauses_the_queue_and_gives_its_text_back(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    main.llm = FakeLlm(status_error(503), full_reply("", "loaded"))
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1"),
+        InputReceived(b.id, "b1"),  # waits: the queue paused
+        ServerLoading(),
+        ServerReady(main.server),  # /health OK: the queue resumes by itself
+        settle=True,
+    )
+    assert main.rechecks == 1
+    assert turn_lines(chat) == [
+        f"[{a.id}] turn started",
+        f"[{b.id}] turn started",
+        f"[{b.id}] turn finished",
+    ]
+    [failed] = [entry for entry in main.session_log(a) if entry.event == "turn_failed"]
+    assert "llm_unavailable" in failed.fields["error"] and "503" in failed.fields["error"]
+    paused = [n for n, line in enumerate(chat) if line.startswith("queue paused")]
+    assert paused and paused[-1] < chat.index(f"[{b.id}] turn started")
+    [window] = main.windows(a.id)
+    assert InputRestore(text="a1") in window.sent

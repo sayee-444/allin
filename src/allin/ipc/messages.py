@@ -70,7 +70,7 @@ class ContextUsage(BaseModel):
 
     type: Literal["context_usage"] = "context_usage"
     context: int | None
-    limit: int
+    limit: int | None  # the context of each of the Server's slots, as its /props says
     tokens_per_second: float | None
 
 

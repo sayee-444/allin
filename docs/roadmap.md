@@ -8,9 +8,9 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #34 (bloques del Borrador) verificado con el `llama serve` real; evidencia en `evidence/issues/34` (2026-10-30). Desde ahora cada issue va en su rama y su pull request (`docs/agents/issue-workflow.md`).
-- **Siguiente:** #21 junto con #17.
-- **Pendiente de decidir con el usuario:** nada. En #17, `APITimeoutError` pasa a `llm_request_failed` sin pausar la cola (decidido).
+- **Último hecho:** #21 junto con #17 (Servidor en caliente y 503 al cargar el modelo), verificados con el `llama serve` real; evidencia en `evidence/issues/21` (2026-10-30).
+- **Siguiente:** #20 Partir el Dispatcher (tiene la etiqueta `needs-triage`: revisar su alcance antes de empezar).
+- **Pendiente de decidir con el usuario:** nada. Bajar la capacidad con Turnos en curso solo se probó con tests: hoy solo baja reiniciando el Servidor, y `parallel` aún no cambia en caliente.
 
 ## F1 · Cierre
 
@@ -24,7 +24,7 @@ Ya tienen código; verificados y comentados.
 
 ## Pre-F2 · Servidor
 
-1. #21 Observar el Servidor en caliente, junto con #17 (503 al cargar el modelo)
+1. ✅ #21 Observar el Servidor en caliente, junto con #17 (503 al cargar el modelo)
 2. #20 Partir el Dispatcher
 3. #28 Recuadro de Aviso y Confirmación
 4. #24 Supervisor 1/4: Supervisor con nombre y Enlace

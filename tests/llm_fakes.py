@@ -76,6 +76,18 @@ def connection_lost() -> openai.APIConnectionError:
     return openai.APIConnectionError(request=httpx2.Request("POST", "http://127.0.0.1:9931/v1"))
 
 
+def status_error(status: int) -> openai.APIStatusError:
+    """What the SDK raises when llama-server answers with an HTTP error, e.g. 503 while it loads
+    the model."""
+    request = httpx2.Request("POST", "http://127.0.0.1:9931/v1/responses")
+    response = httpx2.Response(status, request=request)
+    return openai.APIStatusError(f"Error code: {status}", response=response, body=None)
+
+
+def timed_out() -> openai.APITimeoutError:
+    return openai.APITimeoutError(request=httpx2.Request("POST", "http://127.0.0.1:9931/v1"))
+
+
 def full_reply(thinking: str, text: str) -> list[ResponseStreamEvent]:
     return [reasoning(thinking), answer(text), completed(thinking, text)]
 

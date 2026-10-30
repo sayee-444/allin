@@ -15,6 +15,8 @@ from tests.llm_fakes import (
     connection_lost,
     failed,
     reasoning,
+    status_error,
+    timed_out,
 )
 
 REQUEST = TurnRequest(
@@ -142,3 +144,17 @@ def test_a_server_that_cannot_be_reached_makes_the_llm_unavailable(stream):
 def test_an_unreachable_server_is_unavailable_even_before_a_stream_opens():
     with pytest.raises(LlmUnavailable):
         run(FakeLlm(Unreachable()))
+
+
+def test_a_server_still_loading_its_model_is_unavailable():
+    with pytest.raises(LlmUnavailable):
+        run(FakeLlm(status_error(503)))
+
+
+@pytest.mark.parametrize(
+    "error", [status_error(400), status_error(500), timed_out()], ids=["400", "500", "timeout"]
+)
+def test_other_http_errors_and_a_slow_server_only_fail_the_step(error):
+    with pytest.raises(LlmRequestFailed) as raised:
+        run(FakeLlm(error))
+    assert not isinstance(raised.value, LlmUnavailable)

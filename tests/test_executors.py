@@ -16,21 +16,20 @@ def turn_end(inbox: queue.Queue[MainEvent], session_id: str) -> TurnEnded:
             return event
 
 
-def test_cancelling_a_job_ends_its_turn_as_cancelled_and_frees_the_executor():
+def test_each_turn_runs_on_its_own_thread_so_none_waits_for_another():
     hanging = HangingStream([answer("half")])
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    executors = TurnExecutors(FakeLlm(hanging, full_reply("", "next")), 1, inbox)
-    executors.start()
+    executors = TurnExecutors(FakeLlm(hanging, full_reply("", "next")), inbox)
     try:
         cancelled = TurnJob("aaaaaa", REQUEST)
         executors.submit(cancelled)
         assert hanging.waiting.wait(timeout=5)
+        executors.submit(TurnJob("bbbbbb", REQUEST))  # no fixed pool: it does not wait
+        assert turn_end(inbox, "bbbbbb").steps is not None
+
         cancelled.cancellation.cancel("window closed")
         end = turn_end(inbox, "aaaaaa")
         assert isinstance(end.error, TurnCancelled) and hanging.closed
-
-        executors.submit(TurnJob("bbbbbb", REQUEST))  # the only executor takes it
-        assert turn_end(inbox, "bbbbbb").steps is not None
     finally:
         executors.shutdown(timeout=5)
 
@@ -38,10 +37,17 @@ def test_cancelling_a_job_ends_its_turn_as_cancelled_and_frees_the_executor():
 def test_shutdown_cancels_the_turns_that_are_running():
     hanging = HangingStream([answer("half")])
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    executors = TurnExecutors(FakeLlm(hanging), 1, inbox)
-    executors.start()
+    executors = TurnExecutors(FakeLlm(hanging), inbox)
     executors.submit(TurnJob("aaaaaa", REQUEST))
     assert hanging.waiting.wait(timeout=5)
     executors.shutdown(timeout=5)
     end = turn_end(inbox, "aaaaaa")
     assert isinstance(end.error, TurnCancelled) and "shutting down" in str(end.error)
+
+
+def test_a_turn_submitted_while_main_shuts_down_is_cancelled():
+    inbox: queue.Queue[MainEvent] = queue.Queue()
+    executors = TurnExecutors(FakeLlm(full_reply("", "late")), inbox)
+    executors.shutdown(timeout=5)
+    executors.submit(TurnJob("aaaaaa", REQUEST))
+    assert isinstance(turn_end(inbox, "aaaaaa").error, TurnCancelled)
