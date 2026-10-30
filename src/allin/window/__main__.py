@@ -75,7 +75,7 @@ def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: P
         channel.send(UserInput(text=text))
 
     try:
-        screen.run(submit, lambda text: channel.send(InputDraft(text=text)))
+        screen.run(submit, lambda blocks: channel.send(InputDraft(blocks=list(blocks))))
     except KeyboardInterrupt:
         pass
     finally:

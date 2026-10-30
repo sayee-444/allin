@@ -69,11 +69,41 @@ def test_take_returns_the_text_and_empties_the_input():
     assert buffer.text == ""
 
 
-def test_a_restored_prompt_goes_before_what_was_typed_meanwhile():
-    buffer = InputBuffer()
+def test_a_restored_prompt_is_shown_and_what_was_typed_waits():
+    buffer = typed("y otra")
     buffer.restore("hola\nadiós")
     assert buffer.text == "hola\nadiós"
-    buffer.take()
-    buffer.insert("y otra")
-    buffer.restore("hola")
-    assert buffer.text == "hola\ny otra"
+    assert buffer.waiting == ["y otra"]
+    assert buffer.blocks == ("hola\nadiós", "y otra")
+
+
+def test_prompts_restored_one_after_another_stay_apart():
+    buffer = typed("typing")
+    buffer.restore("a1")
+    buffer.restore("a2")
+    assert buffer.blocks == ("a2", "a1", "typing")
+
+
+def test_a_prompt_restored_twice_is_not_repeated():
+    buffer = typed("typing")
+    buffer.restore("a1")
+    buffer.restore("a1")
+    assert buffer.blocks == ("a1", "typing")
+
+
+def test_take_sends_only_the_shown_block_and_shows_the_next():
+    buffer = typed("typing")
+    buffer.restore("a1")
+    assert buffer.take() == "a1"
+    assert buffer.text == "typing"
+    assert buffer.waiting == []
+
+
+def test_an_empty_shown_block_is_left_out_of_the_draft():
+    buffer = typed("typing")
+    buffer.restore("a1")
+    for _ in "a1":
+        buffer.backspace()
+    assert buffer.blocks == ("typing",)
+    assert buffer.take() == ""
+    assert buffer.text == "typing"

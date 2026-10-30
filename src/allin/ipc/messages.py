@@ -23,11 +23,11 @@ class UserInput(BaseModel):
 
 
 class InputDraft(BaseModel):
-    """What the input holds, sent once the user stops typing for a moment, so a restarted
-    Main can give it back."""
+    """The input's Draft, shown block first (``core.drafts``), sent once the user stops typing
+    for a moment, so a restarted Main can give it back."""
 
     type: Literal["input_draft"] = "input_draft"
-    text: str
+    blocks: list[str]
 
 
 type WindowToMain = WindowReady | UserInput | InputDraft
@@ -75,7 +75,8 @@ class ContextUsage(BaseModel):
 
 
 class InputRestore(BaseModel):
-    """Put a Prompt that never reached the Conversation back in the Window's input."""
+    """Show a Prompt that never reached the Conversation, or a Draft block, in the Window's
+    input; what was there waits behind it."""
 
     type: Literal["input_restore"] = "input_restore"
     text: str

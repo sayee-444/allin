@@ -62,7 +62,7 @@ Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json`, par
 _Avoid_: snapshot, sesión de Main
 
 **Borrador** (`draft`):
-Lo que hay escrito en el input de una Ventana sin enviar; la Ventana se lo manda a Main cuando el usuario deja de teclear un momento, y vuelve al input al reabrirla o al reiniciar Main.
+Lo que hay en el input de una Ventana sin enviar; la Ventana se lo manda a Main cuando el usuario deja de teclear un momento, y vuelve al input al reabrirla o al reiniciar Main. Es una lista de bloques: el que se ve en el input y los que esperan detrás (el borde dice `+N waiting`). Un Prompt que vuelve al input (Turno fallido o interrumpido) se muestra como bloque propio y lo que había pasa a esperar; nunca se mezclan ni se repiten. Enter envía solo el bloque que se ve y muestra el siguiente.
 
 **Sysprompt** (`Sysprompt`):
 Archivo de texto plantilla en `sysprompts/` que, renderizado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).

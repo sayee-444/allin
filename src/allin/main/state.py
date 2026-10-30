@@ -5,8 +5,9 @@ Saved after every change, so it survives a Main killed outright. Sessions keep t
 """
 
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from allin.core.errors import MainStateStorageFailed, MainStateUnreadable
 from allin.core.files import write_atomically
@@ -16,9 +17,21 @@ from allin.main.prompts import Prompt
 class MainState(BaseModel, frozen=True):
     # Open Windows, in the order they opened, with their xterm's pid (ADR-0007).
     windows: dict[str, int] = Field(default_factory=dict[str, int])
-    drafts: dict[str, str] = Field(default_factory=dict[str, str])  # each Session's input
+    # Each Session's Draft, shown block first (``core.drafts``).
+    drafts: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
     queue: list[Prompt] = Field(default_factory=list[Prompt])  # waiting, in queue order
     running: list[Prompt] = Field(default_factory=list[Prompt])  # their Turns had started
+
+    @field_validator("drafts", mode="before")
+    @classmethod
+    def _drafts_saved_as_text(cls, drafts: Any) -> Any:
+        """A Main from before Drafts had blocks saved each one as a single text."""
+        if not isinstance(drafts, dict):
+            return drafts
+        return {
+            session_id: [draft] if isinstance(draft, str) else draft
+            for session_id, draft in drafts.items()  # pyright: ignore[reportUnknownVariableType]
+        }
 
 
 class MainStateStore:
