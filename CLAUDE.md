@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Los issues se registran en GitHub Issues (sayee-444/neva) con el CLI `gh`. See `docs/agents/issue-tracker.md`.
+Los issues se registran en GitHub Issues (sayee-444/allin) con el CLI `gh`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
