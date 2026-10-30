@@ -8,9 +8,9 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #8–#12 verificados con el `llama serve` real; evidencia en la rama `evidence` y comentario en cada issue (2026-10-30).
+- **Último hecho:** #34 (bloques del Borrador) verificado con el `llama serve` real; evidencia en `evidence/issues/34` (2026-10-30). Desde ahora cada issue va en su rama y su pull request (`docs/agents/issue-workflow.md`).
 - **Siguiente:** #21 junto con #17.
-- **Pendiente de decidir con el usuario:** cómo se muestran y se envían varios bloques en el input (#34, bug). En #17, `APITimeoutError` pasa a `llm_request_failed` sin pausar la cola (decidido).
+- **Pendiente de decidir con el usuario:** nada. En #17, `APITimeoutError` pasa a `llm_request_failed` sin pausar la cola (decidido).
 
 ## F1 · Cierre
 
@@ -49,7 +49,7 @@ Ya tienen código; verificados y comentados.
 6. #23 `/help` generado del registro de Command main
 7. #19 Lo que quede de la señal durante el arranque
 8. #33 Una Ventana desconectada sigue mandando Borradores (Broken pipe)
-9. #34 Los textos que vuelven al input se mezclan con lo escrito
+9. ✅ #34 Los textos que vuelven al input se mezclan con lo escrito
 
 ## F2 · Command sessions y fsource
 
