@@ -1,0 +1,9 @@
+#11 — prueba manual, 2026-10-30 (mismo entorno). Código de #11 en cdef6e5; probado sobre main @ cd119de.
+/exit: 2 Turnos en curso (zrocmp, c76mqr) + 2 Prompts en cola. Antes: 3 xterm (Main + 2 Ventanas), 4 FIFOs.
+  Después: Main terminado, 0 xterm, 0 FIFOs; state/root.json guarda la cola y los 2 Turnos interrumpidos (main-before-exit.png).
+Señales (signals.log): con un Turno en curso, SIGTERM, SIGINT y SIGHUP a Main -> Main termina, 0 xterm, 0 FIFOs, Turno guardado. Igual que /exit.
+kill -9 con un Turno en curso: las dos Ventanas muestran "[info] Main disconnected" y siguen respondiendo al teclado (a-after-kill9.png, b-after-kill9.png).
+FIFOs huérfanas (fifo-cleanup.log): tras kill -9 quedan las 4 FIFOs; se añade una FIFO falsa ghost1.*; al arrancar Main se borran todas
+  (ghost1 desaparece, las de las Sesiones se recrean con inodos nuevos).
+DEFECTO encontrado: tras "Main disconnected", escribir en la Ventana hace que intente mandar el Borrador y el Chat muestra
+  "[error] channel_broken: path=…/zrocmp.out, reason='[Errno 32] Broken pipe'" (a-after-kill9.png).

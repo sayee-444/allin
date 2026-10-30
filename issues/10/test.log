@@ -1,0 +1,8 @@
+#10 — prueba manual, 2026-10-30 (Servidor Q6 -c 128000 --kv-unified -np 2 en 9931; Main en xterm con carpeta temporal)
+1. Sesión B = c76mqr con 2 Turnos. Prompt largo desde la Ventana; /slots -> slot 0 procesando.
+2. kill -9 al llama serve a mitad del Turno.
+   Ventana: "[error] llm_unavailable: reason='Connection error.'", "queue paused: the LLM server cannot be reached, waiting for its /health";
+   el texto del Prompt vuelve al input (window-after-kill.png). conversation.json de B: sigue con 2 Turnos (revertido).
+3. Con el Servidor caído: /send c76mqr "Queued while server is down." -> queda en cola, sin ejecutarse (main-after-kill.png).
+4. Se relanza llama serve. Al responder /health, la cola se reanuda sola y ese Prompt se atiende (window-after-resume.png).
+Observación: el texto parcial del Turno fallido queda visible en el Chat de la Ventana abierta (la Conversación sí se revierte).

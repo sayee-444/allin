@@ -1,0 +1,10 @@
+#12 — prueba manual, 2026-10-30 (mismo entorno). Código de #12 en cc79b4d.
+Tras /exit (estado: 2 Ventanas, Borrador en c76mqr, cola [hello, goodbye], 2 Turnos interrumpidos), se arranca Main:
+  - Se reabren las 2 Ventanas; cada input trae el texto de su Turno interrumpido (a-restored.png).
+  - La cola arranca pausada hasta /health OK y luego corre en orden: "Hello." y después "Goodbye." (b-queue-ran.png).
+  - En c76mqr el input trae juntos el texto del Turno interrumpido y el Borrador anterior, en líneas separadas.
+Segundo Main con la misma carpeta: sale con main_already_running (rc=1).
+kill -9 con Turno en curso y un Borrador nuevo (" DRAFT-AFTER-KILL") en zrocmp, luego arranque:
+  - Las xterm viejas (pids 19989, 19993) se cierran; queda 1 Ventana por Sesión.
+  - zrocmp recupera el Borrador; c76mqr muestra "turn_crashed: reason='main stopped without closing it'" y el Prompt vuelve al input (b-after-kill9-restart.png).
+Observación: los textos devueltos se acumulan en el input (c76mqr llegó a 3 líneas tras varios reinicios).

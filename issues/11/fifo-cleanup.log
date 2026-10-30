@@ -1,0 +1,12 @@
+after kill -9 (+ ghost1 fake orphan):
+1835 c76mqr.in
+1836 c76mqr.out
+1842 ghost1.in
+1843 ghost1.out
+1837 zrocmp.in
+1838 zrocmp.out
+after restart:
+1845 c76mqr.in
+1846 c76mqr.out
+1847 zrocmp.in
+1848 zrocmp.out

@@ -1,0 +1,3 @@
+SIGTERM: main=20210 xterms_before=3 main_alive_after=no xterms_after=0 fifos_after=0 running_saved=['Write a 600-word story about a TERM sign']
+SIGINT: main=20350 xterms_before=3 main_alive_after=no xterms_after=0 fifos_after=0 running_saved=['Write a 600-word story about a INT signa']
+SIGHUP: main=20422 xterms_before=3 main_alive_after=no xterms_after=0 fifos_after=0 running_saved=['Write a 600-word story about a HUP signa']
