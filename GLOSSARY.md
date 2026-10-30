@@ -9,8 +9,16 @@ Orquestador de terminal para conversar con un LLM local (vía OpenAI SDK) desde 
 ## Procesos
 
 **Main**:
-El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único del estado de todas las Sesiones y de la cola de Turnos. Solo corre uno por id y carpeta de datos (ADR-0007).
-_Avoid_: abuelo, padre, proceso principal
+El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único del estado de las Sesiones que orquesta y de su cola de Turnos. Por carpeta de datos corre un solo Main raíz, con un Perfil a la vez; sus submains corren aparte, cada uno con su id (ADR-0007).
+_Avoid_: abuelo, padre, proceso principal, servidor (el Servidor es `llama serve`)
+
+**Perfil** (`Profile`):
+Identidad con nombre de un Main raíz, guardada como archivos modulares: sus Ajustes de Main (con el Enlace), las Sesiones que le pertenecen, sus submains y su Estado de Main. Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar Main con ese nombre como id; trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta.
+_Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
+
+**Traspaso** (`Handover`):
+Pasar una Sesión de un Main a otro dentro del mismo árbol (main → submain, submain → main, submain → submain): desde ese momento sus Prompts entran en la cola del nuevo Main y él ordena sus Turnos. No se prohíbe: se avisa. Compartir una Sesión entre Perfiles no es un Traspaso.
+_Avoid_: mover, migrar
 
 **Lanzador** (`Launcher`):
 El componente de Main que abre una Ventana: lanza xterm con `Popen` en una sesión nueva (`setsid`) y un thread vigía espera su terminación (ADR-0003). No hay proceso intermedio.
@@ -165,5 +173,9 @@ _Avoid_: screen, function screen
 Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.
 
 **Confirmación** (`Confirmation`):
-Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando); si la rechaza, el LLM recibe el rechazo como salida de la tool. `-y` la salta para esa invocación y `--devastation` para todas.
+Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado y conserva su lugar: ningún otro Prompt lo adelanta ni ocupa su sitio. `-y` la salta para esa invocación y `--devastation` para todas; no se apaga desde los Ajustes.
 _Avoid_: aprobación, permiso
+
+**Aviso** (`Notice`):
+Recuadro superpuesto en una Ventana (y en el Chat de Main) que informa algo sin pedir decisión: se cierra con una tecla y nunca bloquea un Turno. Cada tipo de Aviso se declara con un decorador y tiene sus propios Ajustes: encendido, título y texto en todos, y los que su tipo necesite (el de Contexto, un umbral), así que su lectura no tiene que ser de alarma; el de Contexto sale al cruzar un umbral del límite. No es una Notificación: no entra en la Conversación.
+_Avoid_: advertencia (como nombre del concepto), alerta, popup

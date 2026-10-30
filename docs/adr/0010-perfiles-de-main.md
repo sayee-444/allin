@@ -1,0 +1,9 @@
+# Main cambia de Perfil sin terminar; las Sesiones se comparten por lista
+
+Hace falta poder dejar un proyecto a medias y trabajar en otro sin cerrar y reabrir Ventanas a mano ni perder cola, Borradores o Ajustes. La solución es el Perfil: la identidad con nombre de un Main raíz (Ajustes de Main con su Enlace, lista de Sesiones, submains y Estado de Main), guardada en archivos modulares como los Sysprompts.
+
+Se descartó correr varios Mains raíz a la vez, uno por Perfil. Main es singleton por carpeta de datos (ADR-0007), y dos raíces no pueden comunicar sus Sesiones entre sí. En su lugar, un mismo proceso Main cambia de Perfil con `/profile switch <nombre> [--now]`. Guarda el Estado del Perfil saliente con su cola pausada, espera a que terminen sus Turnos (con `--now` los cancela y el Prompt vuelve al input, como en F1-09), apaga sus submains y cierra las Ventanas de Sesiones que no pertenecen al Perfil entrante. Después carga el Estado del entrante y reabre sus Ventanas. Las Ventanas de Sesiones compartidas por ambos Perfiles no se cierran.
+
+Las Sesiones siguen todas en `sessions/` y cada Perfil guarda solo la lista de ids que le pertenecen. Compartir una Sesión es que aparezca en dos listas, sin copiar ni mover nada. Como solo corre un Main raíz, compartir no cambia quién la orquesta. Abrir desde un Perfil una Sesión de otro no se prohíbe: se avisa y se añade a la lista. El Traspaso (main ↔ submain ↔ submain) es otra cosa: cambia qué cola ordena los Turnos de la Sesión.
+
+Un Perfil solo se crea con `/profile new <nombre>` (letras, números y guiones, 3–32 caracteres; sin nombre se genera un id de 8). Nombrar uno que no existe, en `--profile` o en `/profile switch`, es un error y nunca lo crea, para que una errata no deje Perfiles vacíos. Sin `--profile`, Main abre el último Perfil usado. Lo que había antes de los Perfiles pasa a ser el Perfil `default`.
