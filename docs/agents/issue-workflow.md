@@ -49,5 +49,6 @@ The binary is `llama` (`llama serve …`). Models are in `models/` (gitignored);
 - Check `nvidia-smi` first. If the user's own `llama` processes hold the GPU, don't kill them; ask.
 - **One Server, or testing functions in depth**: `Qwen3.8-27B-Uncensored-Q6_K.gguf` with `mmproj-Qwen3.8-27B-Uncensored-f16.gguf`, `-ctk q8_0 -ctv q8_0 -c 128000`. Only one fits.
 - **Two Servers at once**: `Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf` (12.3 GB) with `mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf`, `-ctk q4_0 -ctv q4_0`, e.g. `-c 64000` and `-c 32000`.
+- **Three Servers, or testing only the mechanics** (queues, slot locks, several brains): `Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf` (8.9 GB), two comfortably, three only with a small `-c` and no `--mmproj` (measure with `nvidia-smi`). It reasons noticeably worse: never judge a coordinator Session's behaviour with it.
 - Common flags: `-ngl all -fa on --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp`. Change `-np`, `-c` and `--kv-unified` as the test needs.
 - Port 9931 is usually the user's own Server. Main can only reach 9931 until the Supervisor's Enlace exists (#24), so use it only when it is free; for raw `llama serve` probes use 9932+. Shut down every Server you started when done.
