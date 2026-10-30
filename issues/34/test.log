@@ -1,0 +1,22 @@
+#34 — prueba manual, 2026-10-30. Código en la rama fix/34-bloques-del-borrador (4328da3).
+Servidor: llama serve -m Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data, Sesión 6dpyko.
+
+1. Turno fallido con texto escrito (camino con Main vivo)
+   - Se manda "Write a very long story about a lighthouse keeper"; mientras corre se escribe "borrador escrito".
+   - Se mata llama serve a mitad de Turno: llm_unavailable, cola pausada.
+   - El input muestra solo el Prompt devuelto y el borde dice "+1 waiting" (a-turn-failed.png).
+   - state/root.json: drafts = ["Write a very long story about a lighthouse keeper", "borrador escrito"].
+
+2. Reinicio de Main con un Turno interrumpido (camino de #12, tres bloques)
+   - /exit. Se añade a state/root.json un Turno en curso de la misma Sesión, "Say hello in one word", como el estado visto en #12 (state-before-restart.json).
+   - Al arrancar Main, el input muestra "Say hello in one word" y el borde "+2 waiting" (b-restart-three-blocks.png).
+   - drafts = ["Say hello in one word", "Write a very long story about a lighthouse keeper", "borrador escrito"]: tres bloques, sin mezclarse ni repetirse.
+
+3. Enter envía solo el bloque que se ve
+   - Con llama serve de nuevo listo, Enter: el Chat muestra "[sayee] Say hello in one word" solo, y la respuesta "Hello" (c-enter-sends-one.png).
+   - El input pasa al siguiente bloque, con "+1 waiting".
+   - 1 s después de Enter, state/root.json ya guarda los dos bloques restantes (envío inmediato del Borrador).
+
+Cubierto solo por tests: un Prompt devuelto dos veces no se repite (test_a_prompt_given_back_again_is_not_repeated_in_the_draft, test_a_prompt_restored_twice_is_not_repeated); Enter con el bloque vacío lo descarta (test_an_empty_shown_block_is_left_out_of_the_draft); un MainState viejo con Borradores de texto se carga (test_a_state_saved_with_drafts_as_text_is_still_loaded).
+Suite: 257 passed; basedpyright 0 errores; ruff limpio.
