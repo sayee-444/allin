@@ -1,0 +1,5 @@
+Main B en Paso: 2 turn_started, 1 turn_finished
+antes del kill: slot0 tomado
+tras kill -9 de Main B: slot0 libre
+{"ts": "2026-10-30T06:29:02.331944-06:00", "event": "turn_started", "sid": "1m39ef"}
+{"ts": "2026-10-30T06:29:03.277734-06:00", "event": "turn_finished", "sid": "1m39ef", "turn": 3}

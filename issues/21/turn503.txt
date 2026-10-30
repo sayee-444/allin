@@ -1,0 +1,1 @@
+LlmUnavailable llm_unavailable: reason="Error code: 503 - {'error': {'message': 'Loading model', 'type': 'unavailable_error', 'code': 503}}"

@@ -1,0 +1,6 @@
+Main A:
+{"ts": "2026-10-30T06:27:55.992924-06:00", "event": "turn_started", "sid": "ur0zl7"}
+{"ts": "2026-10-30T06:28:19.819231-06:00", "event": "turn_finished", "sid": "ur0zl7", "turn": 3}
+Main B:
+{"ts": "2026-10-30T06:27:44.542943-06:00", "event": "server_ready", "total_slots": 1, "slot_context": 128000, "model_path": "Qwen3.8-27B-Uncensored-Q6
+{"ts": "2026-10-30T06:28:19.861641-06:00", "event": "turn_started", "sid": "pnl7k6"}

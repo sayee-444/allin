@@ -1,0 +1,37 @@
+#21 + #17 — prueba manual, 2026-10-30. Código en la rama feature/21-17-servidor-en-caliente.
+Modelo: Qwen3.8-27B-Uncensored-Q6_K.gguf con mmproj-Qwen3.8-27B-Uncensored-f16.gguf, puerto 9931.
+Flags comunes: -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --spec-type draft-mtp
+Main A: ./venv/bin/python -m allin --data-dir <scratch>/a (Sesiones 1m39ef y ur0zl7).
+Main B: ./venv/bin/python -m allin --data-dir <scratch>/b, con <scratch>/b/servers enlazado a <scratch>/a/servers (Sesión pnl7k6).
+
+1. Main antes que el Servidor (criterio 1)
+   - Main A arranca sin Servidor: "queue paused until the LLM server's /health is OK" (main0.png).
+   - Se manda un Prompt en cada Ventana con la cola pausada.
+   - Se lanza llama serve -np 2 (sin --kv-unified). Main: "LLM server ready: 2 turn(s) at once, 64000 tokens of context per slot",
+     y los dos Turnos empiezan a la vez (06:25:11.505 y 06:25:11.506) antes de que termine ninguno (a-main-np2.png).
+   - Borde: "context 403 / 64k" (a-win-np2.png)  -> criterio 3, sin --kv-unified.
+
+2. 503 mientras carga el modelo (#17)
+   - Se mata llama serve y se lanza con --kv-unified -np 1; en cuanto /health dice 503 se pulsa Enter con "Say hello in one word.".
+   - Turno fallido: llm_unavailable "Error code: 503 ... Loading model", cola pausada, el texto vuelve al input (b-main-loading.png, b-win-loading.png).
+   - El mismo momento, con el OpenAiLlm real: turn503.txt (LlmUnavailable).
+   - Al terminar de cargar: "LLM server ready: 1 turn(s) at once, 128000 tokens" y "queue resumed: the LLM server is back", sin reiniciar Main (c-main-np1.png).
+   - Borde: "/ 128k" (c-win-np1.png).
+
+3. Capacidad en caliente (criterio 2)
+   - Con -np 1, un Prompt en cada Ventana: ur0zl7 empieza solo cuando 1m39ef termina (d-main-np1-two.png).
+   - Reinicio a --kv-unified -np 2: "2 turn(s) at once, 128000 tokens" y los dos Turnos van en paralelo otra vez (e-main-np2-kvu.png);
+     borde "/ 128k" con -np 2 y --kv-unified (e-win-np2-kvu.png)  -> criterio 3, con --kv-unified.
+
+4. Dos Mains, -np 1 (criterio 5)
+   - Prompt a la vez en ur0zl7 (Main A) y pnl7k6 (Main B). Main B espera con su Prompt en la cola (f-mainB-waiting.png; slot0 tomado por A).
+   - A termina a las 06:28:19.819 y B empieza a las 06:28:19.861 (two-mains.txt, f-mainB-after.png): nunca dos Pasos a la vez.
+
+5. Main muerto a mitad de Paso (criterio 6)
+   - Con un Turno de Main B en curso (slot0 tomado), kill -9 de Main B: slot0 queda libre en 1 s, y Main A corre un Turno enseguida (kill.txt).
+
+Cubierto solo por tests: bajar la capacidad con dos Turnos en curso deja terminar a los dos y no lanza un tercero
+(test_fewer_slots_let_the_running_turns_finish_and_start_no_other_until_there_is_room). En la realidad la capacidad solo baja
+reiniciando el Servidor, que falla los Turnos en curso, o con el Ajuste parallel, que aún no se puede cambiar en caliente.
+400/500 siguen siendo llm_request_failed y el timeout también (test_other_http_errors_and_a_slow_server_only_fail_the_step).
+Suite: 284 passed in 0.88s; basedpyright 0 errors, 0 warnings, 0 notes; ruff limpio.
