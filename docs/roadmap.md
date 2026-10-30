@@ -9,8 +9,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
 - **Último hecho:** #21 junto con #17 (Servidor en caliente y 503 al cargar el modelo), verificados con el `llama serve` real; evidencia en `evidence/issues/21` (2026-10-30).
-- **Siguiente:** #20 Partir el Dispatcher (tiene la etiqueta `needs-triage`: revisar su alcance antes de empezar).
-- **Pendiente de decidir con el usuario:** nada. Bajar la capacidad con Turnos en curso solo se probó con tests: hoy solo baja reiniciando el Servidor, y `parallel` aún no cambia en caliente.
+- **Siguiente:** seguir el grilling del tejido de primitivas (ADR-0011, ADR-0012, ADR-0004) hasta que la teoría sea sólida y sus reglas se apliquen sobre sí mismas; después, #20 Partir el Dispatcher.
+- **Pendiente de decidir con el usuario (grilling del tejido):**
+  1. Que una fsource no pueda saltarse la Confirmación: quién puede usar `-y` y `--devastation`.
+  2. Inyección entre Sesiones: el resultado de una Sesión trabajadora que trae instrucciones maliciosas sube a su coordinadora.
+  3. Qué pasa con las Sesiones trabajadoras y su Encargo si la Sesión coordinadora falla, se cancela o se cierra.
+  4. Actualizaciones perdidas en un Proceso adherido compartido (leer, pensar y escribir entre dos Sesiones).
+  5. Para después, el hueco más grande: gestión del contexto de Conversaciones largas (compactar o resumir). No se trata en este grilling.
 
 ## F1 · Cierre
 
