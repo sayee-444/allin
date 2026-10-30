@@ -8,7 +8,7 @@ from allin.main.state import MainState, MainStateStore
 
 STATE = MainState(
     windows={"bbbbbb": 4242, "aaaaaa": 4243},
-    drafts={"aaaaaa": "half\nwritten"},
+    drafts={"aaaaaa": ["half\nwritten", "a0"]},
     queue=[Prompt("aaaaaa", "a2"), Prompt("bbbbbb", "b1"), Prompt("aaaaaa", "a3")],
     running=[Prompt("aaaaaa", "a1")],
 )
@@ -28,3 +28,8 @@ def test_a_broken_state_cannot_be_loaded(tmp_path: Path):
     (tmp_path / "root.json").write_text("{not json")
     with pytest.raises(MainStateUnreadable):
         MainStateStore(tmp_path / "root.json").load()
+
+
+def test_a_state_saved_with_drafts_as_text_is_still_loaded(tmp_path: Path):
+    (tmp_path / "root.json").write_text('{"drafts": {"aaaaaa": "half\\nwritten"}}')
+    assert MainStateStore(tmp_path / "root.json").load().drafts == {"aaaaaa": ["half\nwritten"]}

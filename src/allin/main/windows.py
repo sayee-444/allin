@@ -46,8 +46,8 @@ class _WindowListener:
                 self._inbox.put(WindowConnected(self._session_id))
             case UserInput(text=text):
                 self._inbox.put(InputReceived(self._session_id, text))
-            case InputDraft(text=text):
-                self._inbox.put(DraftReceived(self._session_id, text))
+            case InputDraft(blocks=blocks):
+                self._inbox.put(DraftReceived(self._session_id, tuple(blocks)))
 
     def on_error(self, error: AllInError) -> None:
         self._inbox.put(ErrorOccurred(error, self._session_id))

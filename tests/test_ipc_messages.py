@@ -14,7 +14,7 @@ from allin.ipc.messages import (
 
 
 def test_window_messages_round_trip():
-    for message in (UserInput(text="hola\nmundo"), WindowReady(), InputDraft(text="a\nb")):
+    for message in (UserInput(text="hola\nmundo"), WindowReady(), InputDraft(blocks=["a\nb", "c"])):
         assert decode_window_message(encode(message)) == message
 
 

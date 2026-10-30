@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+from allin.core.drafts import put_back
 from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId
 from allin.core.settings import MainSettings, Sampling, SessionSettings
@@ -797,7 +798,7 @@ def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
     main.hold_turns = True
     main.run(
         MainCommandEntered(f"/open {sid}"),
-        DraftReceived(sid, "hal"),
+        DraftReceived(sid, ("hal",)),
         InputReceived(sid, "a1"),
         InputReceived(sid, "a2"),
         settle=True,
@@ -805,7 +806,7 @@ def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
     windows = {sid: 1000}  # its xterm's pid
     assert main.state.saved == [
         MainState(windows=windows),
-        MainState(windows=windows, drafts={sid: "hal"}),
+        MainState(windows=windows, drafts={sid: ["hal"]}),
         MainState(windows=windows, running=[Prompt(sid, "a1")]),
         MainState(windows=windows, queue=[Prompt(sid, "a2")], running=[Prompt(sid, "a1")]),
     ]
@@ -824,7 +825,7 @@ def test_restarting_main_puts_the_user_back_where_they_were(main: MainHarness):
         InputReceived(a.id, "a2"),
         InputReceived(b.id, "b1"),
         InputReceived(b.id, "b2"),
-        DraftReceived(a.id, "typing"),
+        DraftReceived(a.id, ("typing",)),
         MainCommandEntered("/exit"),
         settle=True,
     )
@@ -835,9 +836,9 @@ def test_restarting_main_puts_the_user_back_where_they_were(main: MainHarness):
     assert main.health_watches == watches + 1
     [_, window_a], [_, window_b] = main.windows(a.id), main.windows(b.id)
     assert len(main.windows(c.id)) == 1
-    # Its Turn is reverted: its Prompt goes back to the input, before the draft, unsent.
-    assert InputRestore(text="a1\ntyping") in window_a.sent
-    assert InputRestore(text="b1") in window_b.sent
+    # Its Turn is reverted: its Prompt goes back to the input, shown ahead of the draft, unsent.
+    assert restored(window_a) == ["a1", "typing"]
+    assert restored(window_b) == ["b1"]
     assert main.sessions.load_conversation(a) == Conversation(sysprompt="I am AllIn; you are ana.")
     main.run(LlmAvailable(), settle=True)
     assert [job.request.input[-1]["content"] for job in main.held[started:]] == ["a2", "b2"]
@@ -848,14 +849,43 @@ def test_a_main_killed_mid_turn_gives_the_turns_prompt_back_on_start(main: MainH
     main.state.save(
         MainState(
             windows={session.id: 4242},
-            drafts={session.id: "typing"},
+            drafts={session.id: ["typing"]},
             running=[Prompt(session.id, "a1")],
         )
     )
     main.run()
     [window] = main.windows(session.id)
-    assert InputRestore(text="a1\ntyping") in window.sent
+    assert restored(window) == ["a1", "typing"]
     assert main.llm.requests == []
+
+
+def test_prompts_given_back_by_restart_after_restart_stay_apart(main: MainHarness):
+    session = main.create_session()
+    main.state.save(
+        MainState(
+            windows={session.id: 4242},
+            drafts={session.id: ["a1", "typing"]},
+            running=[Prompt(session.id, "a2")],
+        )
+    )
+    main.run()
+    [window] = main.windows(session.id)
+    assert restored(window) == ["a2", "a1", "typing"]
+    assert main.state.load().drafts == {session.id: ["a2", "a1", "typing"]}
+
+
+def test_a_prompt_given_back_again_is_not_repeated_in_the_draft(main: MainHarness):
+    session = main.create_session()
+    main.state.save(
+        MainState(
+            windows={session.id: 4242},
+            drafts={session.id: ["typing", "a1"]},
+            running=[Prompt(session.id, "a1")],
+        )
+    )
+    main.run()
+    [window] = main.windows(session.id)
+    assert restored(window) == ["a1", "typing"]
 
 
 def test_on_start_the_windows_a_killed_main_left_open_are_closed_before_reopening(
@@ -875,7 +905,7 @@ def test_a_draft_comes_back_when_its_sessions_window_is_opened_again(main: MainH
     session = main.create_session()
     main.run(
         MainCommandEntered(f"/open {session.id}"),
-        DraftReceived(session.id, "typing"),
+        DraftReceived(session.id, ("typing",)),
         WindowClosed(session.id, returncode=0),
         MainCommandEntered(f"/open {session.id}"),
         settle=True,
@@ -905,9 +935,9 @@ def test_a_draft_that_arrived_just_before_shutdown_is_kept(main: MainHarness):
     main.run(
         MainCommandEntered(f"/open {session.id}"),
         MainCommandEntered("/exit"),
-        DraftReceived(session.id, "typing"),  # sent while /exit waited in the inbox
+        DraftReceived(session.id, ("typing",)),  # sent while /exit waited in the inbox
     )
-    assert main.state.load().drafts == {session.id: "typing"}
+    assert main.state.load().drafts == {session.id: ["typing"]}
 
 
 def test_a_restored_window_with_queued_prompts_says_why_they_wait(main: MainHarness):
@@ -917,3 +947,12 @@ def test_a_restored_window_with_queued_prompts_says_why_they_wait(main: MainHarn
     main.run()
     [window] = main.windows(session.id)
     assert any(isinstance(m, ChatAppend) and "/health" in m.text for m in window.sent)
+
+
+def restored(window: FakeWindowLink) -> list[str]:
+    """The Window's input as the InputRestores it got leave it: shown block first."""
+    blocks: list[str] = []
+    for message in window.sent:
+        if isinstance(message, InputRestore):
+            blocks = put_back(blocks, message.text)
+    return blocks

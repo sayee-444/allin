@@ -26,6 +26,7 @@ _BRACKETED_PASTE_ON = "\x1b[?2004h"
 _BRACKETED_PASTE_OFF = "\x1b[?2004l"
 _TOO_SMALL = "Terminal too small: please enlarge it"
 _LOCKED = " turn running: Enter is blocked "
+_WAITING = " +{} waiting "  # Draft blocks behind the shown one
 _ROLE_COLORS = {
     "user": curses.COLOR_CYAN,
     "reasoning": curses.COLOR_MAGENTA,
@@ -69,7 +70,7 @@ class BorderStatus:
 
 @dataclass(frozen=True)
 class InputText:
-    """Text put back in the input, before whatever is being typed."""
+    """A Prompt put back in the input: shown, while whatever was there waits behind it."""
 
     text: str
 
@@ -103,11 +104,14 @@ class ChatScreen:
         self._dirty = True
 
     def run(
-        self, on_submit: Callable[[str], None], on_draft: Callable[[str], None] | None = None
+        self,
+        on_submit: Callable[[str], None],
+        on_draft: Callable[[tuple[str, ...]], None] | None = None,
     ) -> None:
         """Run the UI loop until ``None`` arrives in the inbox.
 
-        ``on_draft`` gets the input's text once the user stops typing for a moment.
+        ``on_draft`` gets the input's Draft once the user stops typing for a moment, and at
+        once when a block is sent while others wait.
         """
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
@@ -123,7 +127,7 @@ class ChatScreen:
             if not self._drain_inbox():
                 return
             if draft is not None:
-                draft.update(self._input.text, time.monotonic())
+                draft.update(self._input.blocks, time.monotonic())
             if self._dirty:
                 self._draw()
             try:
@@ -133,9 +137,11 @@ class ChatScreen:
                 continue
             for chord in self._keys.feed(key):
                 self._dirty = True
-                self._handle(chord, on_submit)
+                self._handle(chord, on_submit, draft)
 
-    def _handle(self, chord: KeyEvent, on_submit: Callable[[str], None]) -> None:
+    def _handle(
+        self, chord: KeyEvent, on_submit: Callable[[str], None], draft: DraftReporter | None
+    ) -> None:
         match chord:
             case Paste(text=text):
                 self._input.insert(text)
@@ -145,9 +151,12 @@ class ChatScreen:
             case KeyChord(key=Key.ENTER, ctrl=True):
                 self._input.insert("\n")
             case KeyChord(key=Key.ENTER) if not self._locked:
-                text = self._input.take()
+                text = self._input.take()  # an empty block is dropped: the next one shows
                 if text.strip():
                     on_submit(text)
+                    if draft is not None and self._input.blocks:
+                        # So a Main that dies right after keeps the blocks still waiting.
+                        draft.report_now(self._input.blocks, time.monotonic())
             case KeyChord(key=Key.BACKSPACE, ctrl=True):
                 self._input.delete_word()
             case KeyChord(key=Key.BACKSPACE):
@@ -221,6 +230,10 @@ class ChatScreen:
         input_box.border()
         if self._locked:
             input_box.addnstr(0, 2, _LOCKED, max(0, layout.input_box.width - 4))
+        if self._input.waiting:
+            waiting = _WAITING.format(len(self._input.waiting))
+            x = max(2, layout.input_box.width - 2 - len(waiting))
+            input_box.addnstr(0, x, waiting, max(0, layout.input_box.width - 2 - x))
         input_box.noutrefresh()
 
         self._draw_chat(chat_pad, layout.chat_pad)

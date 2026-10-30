@@ -21,10 +21,10 @@ class InputReceived:
 
 @dataclass(frozen=True)
 class DraftReceived:
-    """What a Window's input holds, once the user stopped typing for a moment."""
+    """A Window's Draft, shown block first, once the user stopped typing for a moment."""
 
     session_id: str
-    text: str
+    blocks: tuple[str, ...]
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,7 @@ Text is stored as the pad draws it (see ``wrap.printable``), so what is shown an
 never differ.
 """
 
+from allin.core.drafts import put_back
 from allin.ui.wrap import printable
 
 _DELIMITERS = frozenset(".[](){}\n")
@@ -11,24 +12,29 @@ _BLANKS = " "
 
 
 class InputBuffer:
+    """``text`` is the block being shown and edited; ``waiting`` the Draft's blocks behind it."""
+
     def __init__(self) -> None:
         self.text = ""
+        self.waiting: list[str] = []
+
+    @property
+    def blocks(self) -> tuple[str, ...]:
+        """The whole Draft, shown block first; an emptied shown block is left out."""
+        return tuple(block for block in (self.text, *self.waiting) if block)
 
     def insert(self, text: str) -> None:
-        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        self.text += "\n".join(printable(line) for line in lines)
+        self.text += _printable(text)
 
     def take(self) -> str:
-        """Empty the input and return what it held (Enter)."""
-        text, self.text = self.text, ""
+        """Return the shown block and show the next waiting one, if any (Enter)."""
+        text = self.text
+        self.text = self.waiting.pop(0) if self.waiting else ""
         return text
 
     def restore(self, text: str) -> None:
-        """Put a Prompt back before what was typed meanwhile, on a line of its own."""
-        typed, self.text = self.text, ""
-        self.insert(text)
-        if typed:
-            self.text += "\n" + typed
+        """Show a Prompt that came back; what was there waits behind it (``put_back``)."""
+        self.text, *self.waiting = put_back(self.blocks, _printable(text)) or [""]
 
     def backspace(self) -> None:
         self.text = self.text[:-1]
@@ -46,6 +52,11 @@ class InputBuffer:
             while text and not _is_delimiter(text[-1]):
                 text = text[:-1]
         self.text = text
+
+
+def _printable(text: str) -> str:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n".join(printable(line) for line in lines)
 
 
 def _is_delimiter(char: str) -> bool:

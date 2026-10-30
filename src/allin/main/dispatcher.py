@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
+from allin.core.drafts import put_back
 from allin.core.errors import (
     AllInError,
     InvalidArguments,
@@ -175,7 +176,8 @@ class Dispatcher:
         self._saved = MainState()  # what ``state`` holds now
         self._paused = False  # no Turn starts while the server cannot be reached
         self._paused_text = _PAUSED_TEXT
-        self._drafts: dict[str, str] = {}  # each Session's input, as its Window last sent it
+        # Each Session's Draft, shown block first, as its Window last sent it.
+        self._drafts: dict[str, list[str]] = {}
         self._stopping = False  # nor once Main is shutting down
         self._windows: dict[str, WindowLink] = {}
         self._prompts = PromptQueue()
@@ -237,7 +239,8 @@ class Dispatcher:
         """Put the user back where they were when Main last stopped, however it stopped.
 
         A Turn that was running is reverted (only whole Turns reach a Conversation): its Prompt
-        goes back to its Window's input, before the draft, and is not sent again by itself.
+        goes back to its Window's input, shown ahead of the Draft, and is not sent again by
+        itself.
         The queue waits for the server's ``/health``, which may still be loading the model.
         """
         try:
@@ -247,8 +250,8 @@ class Dispatcher:
         saved = self._saved
         self._drafts = dict(saved.drafts)
         for prompt in saved.running:
-            draft = self._drafts.get(prompt.session_id)
-            self._drafts[prompt.session_id] = "\n".join(filter(None, [prompt.text, draft]))
+            draft = self._drafts.get(prompt.session_id, [])
+            self._drafts[prompt.session_id] = put_back(draft, prompt.text)
         for prompt in saved.queue:
             self._prompts.push(prompt)
         for session_id, pid in saved.windows.items():
@@ -266,7 +269,7 @@ class Dispatcher:
     def _save_state(self) -> None:
         state = MainState(
             windows={session_id: link.pid for session_id, link in self._windows.items()},
-            drafts={session_id: text for session_id, text in self._drafts.items() if text},
+            drafts={session_id: draft for session_id, draft in self._drafts.items() if draft},
             queue=self._prompts.all(),
             # A Turn cancelled because its Window closed must not come back as a draft.
             running=[
@@ -316,8 +319,8 @@ class Dispatcher:
                 self._drafts.pop(session_id, None)  # the Window's input is empty now
                 self._run_main_command(f"/send {session_id} {text}")
                 self._send_turn_state(session_id)  # unblocks Enter if /send failed
-            case DraftReceived(session_id, text):
-                self._drafts[session_id] = text
+            case DraftReceived(session_id, blocks):
+                self._drafts[session_id] = list(blocks)
             case TurnOutput(session_id, kind, text):
                 self._show_output(session_id, kind, text)
             case TurnRaw(session_id, raw):
@@ -452,8 +455,9 @@ class Dispatcher:
             self._send_chat(session)
         except AllInError as error:
             self._show_error(error, session.id)
-        if draft := self._drafts.get(session.id):
-            self._to_window(session.id, InputRestore(text=draft))
+        # Last block first: each one shown pushes the one before it back to wait.
+        for block in reversed(self._drafts.get(session.id, [])):
+            self._to_window(session.id, InputRestore(text=block))
 
     def _send_chat(self, session: Session) -> None:
         """Show a Window the Session's Chat so far, rebuilt from its Conversation and Log."""
