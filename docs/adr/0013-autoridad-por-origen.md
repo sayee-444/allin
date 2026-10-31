@@ -14,4 +14,4 @@ Como Main no lee comandos en el texto de una Sesión, `/send` acepta la forma es
 
 Cada Prompt que despierta una Suscripción lleva en su Origen la cadena de Suscripciones que lo causó. Si la misma Suscripción se repite en la cadena más veces que su tope, la cadena se corta con una Notificación. Una Suscripción hecha para repetirse declara el suyo (un Goal, su `max_rounds`); las demás usan un Ajuste. Así los ciclos buscados siguen hasta su tope, y los accidentales (A despierta a B, que despierta a A) terminan solos.
 
-Queda un riesgo aceptado: sin aislamiento de procesos, una tool aprobada puede escribir los archivos de estado de Main y romper ADR-0001 desde fuera. Los hashes protegen las piezas, no el estado.
+Queda un riesgo aceptado: sin aislamiento de procesos, una tool aprobada puede escribir los archivos de estado de Main y romper ADR-0001 desde fuera. Los hashes protegen las piezas, no el estado. Lo cierra la fase de Aislamiento (F4 en `docs/roadmap.md`), antes de que lleguen fagent del LLM y functions de Kits ajenos.

@@ -62,6 +62,12 @@ Sin issues todavía: Command sessions (`@…`, incluido `@server`), fsource, Not
 
 Submains, Traspaso de Sesiones dentro del árbol, y #18 (FIFOs huérfanas por Main). Antes, en su grilling: el protocolo entre Mains y las primitivas entre Mains del árbol (ADR-0011).
 
+## F4 · Aislamiento
+
+Antes de que llegue código que el usuario no escribió (fagent del LLM, functions de Kits ajenos). Cada proceso de tool y de Proceso adherido corre encerrado: solo escribe en las carpetas que se le permitan (la de trabajo de su Sesión), nunca en `state/`, `functions/` ni el resto de la carpeta de datos, y la red se abre o se cierra por tool. Así ADR-0001 y la cuarentena por hashes (ADR-0013) se cumplen por fuerza y no por buena conducta del código. En su grilling: el mecanismo (Landlock, `bubblewrap` u otro, sin root), qué declara cada function y qué pasa en un kernel que no lo soporte.
+
 ## Después
 
-Sin fecha ni orden fijo: fagent y packages, fscreen, encadenar functions, Clon y Goal. Kits, segunda parte: functions con cuarentena, Moldes, Planos, historial inicial y entrada (ADR-0014). Restablecer (`/session reset`) y `/reset --all` (ADR-0015). Aislamiento de procesos de tools (sandbox), para que nada aprobado escriba el estado de Main (riesgo aceptado en ADR-0013).
+Lo que trae código ajeno (fagent del LLM y Kits, segunda parte) va después de F4.
+
+Sin fecha ni orden fijo: fagent y packages, fscreen, encadenar functions, Clon y Goal. Kits, segunda parte: functions con cuarentena, Moldes, Planos, historial inicial y entrada (ADR-0014). Restablecer (`/session reset`) y `/reset --all` (ADR-0015).
