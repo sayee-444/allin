@@ -12,6 +12,6 @@ Sin aislamiento, una tool aprobada puede escribir un `.py` en la carpeta de func
 
 Como Main no lee comandos en el texto de una Sesión, `/send` acepta la forma estructurada de cada Command prompt (adjuntos y parámetros del Turno): el LLM tiene el mismo poder que el humano, sin que Main interprete su texto.
 
-Cada Prompt que despierta una Suscripción lleva en su Origen la cadena de Suscripciones que lo causó. Si la misma Suscripción se repite en la cadena más veces que un tope (Ajuste), la cadena se corta con una Notificación: los ciclos buscados, como un Goal o un vigilante, siguen, y los accidentales (A despierta a B, que despierta a A) terminan solos.
+Cada Prompt que despierta una Suscripción lleva en su Origen la cadena de Suscripciones que lo causó. Si la misma Suscripción se repite en la cadena más veces que su tope, la cadena se corta con una Notificación. Una Suscripción hecha para repetirse declara el suyo (un Goal, su `max_rounds`); las demás usan un Ajuste. Así los ciclos buscados siguen hasta su tope, y los accidentales (A despierta a B, que despierta a A) terminan solos.
 
 Queda un riesgo aceptado: sin aislamiento de procesos, una tool aprobada puede escribir los archivos de estado de Main y romper ADR-0001 desde fuera. Los hashes protegen las piezas, no el estado.
