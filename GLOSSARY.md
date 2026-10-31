@@ -17,7 +17,7 @@ Identidad con nombre de un Main raíz, guardada como archivos modulares: sus Aju
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
 
 **Kit** (`Kit`):
-Receta portable y versionada de un entorno de trabajo (Sysprompts, Moldes, functions, Goals y composiciones, Temas, parte de los Ajustes de Main y Ajustes del Servidor sugeridos) que se exporta desde un Perfil y se carga en otro, de esta máquina o de otro usuario. Nunca lleva Sesiones ni nada de ejecución. Cargarlo copia sus piezas, y cada una recuerda de qué Kit y versión vino; un Perfil puede cargar varios. Cargarlo no ejecuta nada, y sus functions esperan en cuarentena hasta que un humano las aprueba.
+Receta portable y versionada de un entorno de trabajo (Sysprompts, Moldes, functions, Goals y composiciones, Temas, parte de los Ajustes de Main y Ajustes del Servidor sugeridos) que se exporta desde un Perfil y se carga en otro, de esta máquina o de otro usuario. Nunca lleva Sesiones ni nada de ejecución. Cargarlo copia sus piezas, y cada una recuerda de qué Kit y versión vino; un Perfil puede cargar varios. Cargarlo no ejecuta nada con efectos, y sus piezas (functions, Sysprompts, Moldes, Planos e historiales iniciales) esperan en cuarentena hasta que un humano las aprueba.
 _Avoid_: plantilla, paquete, perfil (para lo que se comparte)
 
 **Traspaso** (`Handover`):
@@ -73,7 +73,7 @@ _Avoid_: snapshot, sesión de Main
 Lo que hay en el input de una Ventana sin enviar; la Ventana se lo manda a Main cuando el usuario deja de teclear un momento, y vuelve al input al reabrirla o al reiniciar Main. Es una lista de bloques: el que se ve en el input y los que esperan detrás (el borde dice `+N waiting`). Un Prompt que vuelve al input (Turno fallido o interrumpido) se muestra como bloque propio y lo que había pasa a esperar; nunca se mezclan ni se repiten. Enter envía solo el bloque que se ve y muestra el siguiente.
 
 **Sysprompt** (`Sysprompt`):
-Archivo de texto plantilla en `sysprompts/` que, renderizado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).
+Archivo de texto plantilla en `sysprompts/`, dentro de la carpeta de datos, que, renderizado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).
 _Avoid_: system prompt (como nombre del archivo)
 
 **Sesión coordinadora** (`coordinator`):
@@ -123,7 +123,7 @@ _Avoid_: skin, estilo
 ## Ejecución
 
 **Prompt**:
-Una petición al LLM para una Sesión, en espera en la cola de Main; siempre nace del Command main `/send` (lo que el usuario envía con Enter es `/send` a su propia Sesión).
+Una petición al LLM para una Sesión, en espera en la cola de Main, siempre con su Origen. Nace del Command main `/send` (lo que el usuario envía con Enter es `/send` a su propia Sesión) o de una Suscripción que despierta.
 _Avoid_: /run
 
 **Turno** (`Turn`):
@@ -137,7 +137,7 @@ Turno que, al caer o reiniciarse el Servidor, no falla porque ya llamó a una Zo
 Trabajo que retoma algo ya empezado: un Turno suspendido, el Paso siguiente de un Turno cuyas tools terminaron, o una Sesión que despierta de una Suscripción. Dentro de su Main va antes que los Prompts nuevos, salvo cuando ya pasaron varias seguidas y toca dejar pasar uno nuevo.
 
 **Suscripción** (`Subscription`):
-Petición de una Sesión de que un evento la despierte: cuando ocurre (responden otras Sesiones, un Proceso adherido dice algo que le interesa, pasa un tiempo…), Main le encola un Prompt con lo ocurrido. Mientras espera no tiene Turno activo ni ocupa slot, pero sus otros Prompts esperan detrás.
+Petición de una Sesión de que un evento la despierte: cuando ocurre (responden otras Sesiones, un Proceso adherido dice algo que le interesa, pasa un tiempo…), Main le encola un Prompt con lo ocurrido. Mientras espera no tiene Turno activo ni ocupa slot, y no bloquea a su Sesión: esta atiende sus Prompts con normalidad, y el del evento entra como Continuación en cuanto la Sesión no tenga Turno activo.
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
@@ -165,7 +165,7 @@ _Avoid_: comsession (salvo como nombre de carpeta)
 Directiva escrita con `@` en cualquier posición de un input que lanza un Turno; solo afecta a ese Turno y nunca cambia los Ajustes. Hoy existen dos: Referencia a archivo y Sobrescritura de parámetro.
 
 **Referencia a archivo** (`FileReference`):
-Command prompt `@<ruta>` (empieza con `/`, `~` o `./`, precedido de espacio o inicio) que adjunta un archivo al Prompt.
+Command prompt `@<ruta>` (empieza con `/`, `~` o `./`, precedido de espacio o inicio) que adjunta un archivo al Prompt; Main lo copia a la Carpeta de trabajo de la Sesión para que sus tools lo lean (ADR-0016).
 _Avoid_: @path (como nombre del concepto)
 
 **Sobrescritura de parámetro** (`ParamOverride`):
@@ -175,7 +175,7 @@ Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro
 De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen; lo que llega de otra Sesión es dato, nunca orden. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
 
 **Notificación** (`Notification`):
-Línea que un Command session o fsource deja pendiente para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`. Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
+Línea que un Command session o fsource deja pendiente para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
 _Avoid_: log (una Notificación se deriva del Log, pero no es el Log)
 
 **Conversation logs**:
@@ -183,14 +183,14 @@ Ajuste de la Sesión que decide, por cada comando o fsource, si sus Notificacion
 _Avoid_: @logs
 
 **Rewind** (`Rewind`):
-Retroceder una Sesión N Prompts del usuario: trunca la Conversación hasta antes de ese Prompt y devuelve su texto al input para reeditarlo; `n=0` no hace nada. Nunca va más atrás del inicio de la Sesión (Sysprompt e historial inicial). Solo existe como Command main.
+Retroceder una Sesión N Prompts, de cualquier Origen: trunca la Conversación hasta antes de ese Prompt y, si su Origen es humano, devuelve su texto al input para reeditarlo (si no, queda en el Log); `n=0` no hace nada. Nunca va más atrás del inicio de la Sesión (Sysprompt e historial inicial). Solo existe como Command main.
 
 **Restablecer** (`SessionReset`):
 Devolver Sesiones existentes a su receta de nacimiento (el Molde y versión, o la plantilla de Sesión copiada al crearla: Sysprompt, historial inicial, Ajustes, functions), sin cerrar nada: es un Rewind hasta el nacimiento que además repone los Ajustes. Con `/session reset`, a una, a todas las de un Main o a las del árbol. Cerrar todo además de restablecer es `/reset --all`. Un Clon hereda la receta de su original. La Conversación anterior se archiva, no se borra.
 _Avoid_: clear, reset (a secas: `/reset` es de los Ajustes de Main), fábrica
 
 **Clon** (`Clone`):
-Sesión nueva creada como copia de otra en su último estado consistente (Conversación, Ajustes, functions); tiene id y Log propios. Se crea con `/session clone` o `@clone`.
+Sesión nueva creada como copia de otra en su último estado consistente (Conversación, Ajustes, functions y Carpeta de trabajo, que comparte si apunta a una ruta del usuario); tiene id y Log propios. Se crea con `/session clone` o `@clone`.
 _Avoid_: fork, copia
 
 **Goal** _(experimental)_:
@@ -216,7 +216,7 @@ Clase cuyos métodos públicos se exponen como Function tools para controlar un 
 _Avoid_: screen, function screen
 
 **Proceso adherido** (`Attachment`):
-Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main salvo que se indique otra cosa. Main rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta.
+Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main, y al cambiar de Perfil se cierran los del saliente. Main rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta.
 _Avoid_: screen, plugin, servicio
 
 **Alcance** (`reach`):
@@ -227,7 +227,7 @@ _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.
 
 **Confirmación** (`Confirmation`):
-Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación y `--devastation` para todas, pero solo con Origen humano; no se apaga desde los Ajustes. Crear o modificar una function desde una Sesión siempre la pide.
+Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación y `--devastation` para todas, pero solo con Origen humano; no se apaga desde los Ajustes. Crear o modificar una function, un Sysprompt, un Molde o un Plano desde una Sesión siempre la pide.
 _Avoid_: aprobación, permiso
 
 **Aviso** (`Notice`):
