@@ -29,7 +29,7 @@ El componente de Main que abre una Ventana: lanza xterm con `Popen` en una sesi�
 _Avoid_: hijo, worker
 
 **Ventana** (`Window`):
-El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrar la Ventana de una Sesión creada por el usuario cancela su Turno; la de una Sesión creada por otra Sesión es solo una mirilla y cerrarla no detiene su trabajo.
+El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrarla cancela el Turno de su Sesión solo si el Prompt de ese Turno tiene Origen humano; para cualquier otro Turno es una mirilla, y cerrarla no detiene el trabajo.
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
 
 **Servidor** (`Server`):
@@ -50,7 +50,7 @@ Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, 
 _Avoid_: ventana, chat
 
 **Carpeta de trabajo** (`workspace`):
-La carpeta donde las tools de una Sesión pueden escribir sin declarar nada más: `<carpeta de datos>/workspaces/<id>/`, aparte de la carpeta de la Sesión, que guarda su estado. Solo un humano la puede apuntar a otra ruta. Entre Sesiones no se comparte por defecto: los archivos viajan como adjuntos de `/send` (ADR-0016).
+La carpeta donde las tools de una Sesión pueden escribir sin declarar nada más: `<carpeta de datos>/workspaces/<id>/`, aparte de la carpeta de la Sesión, que guarda su estado. Solo un humano la puede apuntar a otra ruta, que no es un Ajuste y nunca viaja en plantillas, Moldes ni Kits. Entre Sesiones no se comparte por defecto: los archivos viajan como adjuntos de `/send` (ADR-0016).
 _Avoid_: carpeta de la Sesión, workdir, sandbox
 
 **Chat** (`Chat`):
@@ -141,7 +141,7 @@ Petición de una Sesión de que un evento la despierte: cuando ocurre (responden
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
-Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él.
+Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida. Es del Perfil en que se abrió.
 _Avoid_: job, barrera, tarea
 
 **Paso** (`Step`):
@@ -165,7 +165,7 @@ _Avoid_: comsession (salvo como nombre de carpeta)
 Directiva escrita con `@` en cualquier posición de un input que lanza un Turno; solo afecta a ese Turno y nunca cambia los Ajustes. Hoy existen dos: Referencia a archivo y Sobrescritura de parámetro.
 
 **Referencia a archivo** (`FileReference`):
-Command prompt `@<ruta>` (empieza con `/`, `~` o `./`, precedido de espacio o inicio) que adjunta un archivo al Prompt; Main lo copia a la Carpeta de trabajo de la Sesión para que sus tools lo lean (ADR-0016).
+Command prompt `@<ruta>` (empieza con `/`, `~` o `./`, precedido de espacio o inicio) que adjunta un archivo al Prompt; Main lo copia a la Carpeta de trabajo de la Sesión, como instantánea, para que sus tools lo lean; si ya está dentro, no se copia (ADR-0016).
 _Avoid_: @path (como nombre del concepto)
 
 **Sobrescritura de parámetro** (`ParamOverride`):
@@ -175,7 +175,7 @@ Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro
 De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen; lo que llega de otra Sesión es dato, nunca orden. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
 
 **Notificación** (`Notification`):
-Línea que un Command session o fsource deja pendiente para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
+Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
 _Avoid_: log (una Notificación se deriva del Log, pero no es el Log)
 
 **Conversation logs**:
@@ -220,7 +220,7 @@ Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesio
 _Avoid_: screen, plugin, servicio
 
 **Alcance** (`reach`):
-Lo que el proceso de una Function tool o de un Proceso adherido puede tocar, declarado con el decorador `@reach` (qué carpetas lee y escribe, qué puertos de red, si abre una ventana gráfica) y forzado por el kernel con Landlock. Sin decorador es el mínimo: su Carpeta de trabajo, leer el sistema y sin red. Nunca incluye la carpeta de datos, ni dentro de un Alcance amplio como `home`. Es parte del código aprobado: ampliarlo devuelve la function a cuarentena, y al aprobarla se puede reducir (ADR-0016).
+Lo que el proceso de una Function tool o de un Proceso adherido puede tocar, declarado con el decorador `@reach` (qué carpetas lee y escribe, qué puertos de red, si abre una ventana gráfica) y forzado por el kernel con Landlock. Sin decorador es el mínimo: su Carpeta de trabajo, leer el sistema y sin red. Nunca incluye nada de AllIn, ni dentro de un Alcance amplio como `home`: ni la carpeta de datos (salvo la Carpeta de trabajo y su propio módulo), ni la instalación (solo lectura), ni los puertos de sus Servidores. Es parte del código aprobado: ampliarlo devuelve la function a cuarentena, y al aprobarla se puede reducir (ADR-0016).
 _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 
 **Zombie** (`zombie`):
