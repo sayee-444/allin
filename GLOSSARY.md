@@ -168,7 +168,7 @@ _Avoid_: @path (como nombre del concepto)
 Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro del LLM solo para ese Turno.
 
 **Origen** (`origin`):
-De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen; lo que llega de otra Sesión es dato, nunca orden.
+De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen; lo que llega de otra Sesión es dato, nunca orden. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
 
 **Notificación** (`Notification`):
 Línea que un Command session o fsource deja pendiente para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`. Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
