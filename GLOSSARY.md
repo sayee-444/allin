@@ -49,6 +49,10 @@ Ajuste de Main que nombra el único Supervisor al que manda sus Turnos. Al arran
 Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana.
 _Avoid_: ventana, chat
 
+**Carpeta de trabajo** (`workspace`):
+La carpeta donde las tools de una Sesión pueden escribir sin declarar nada más: `<carpeta de datos>/workspaces/<id>/`, aparte de la carpeta de la Sesión, que guarda su estado. Solo un humano la puede apuntar a otra ruta. Entre Sesiones no se comparte por defecto: los archivos viajan como adjuntos de `/send` (ADR-0016).
+_Avoid_: carpeta de la Sesión, workdir, sandbox
+
 **Chat** (`Chat`):
 Lo que se dibuja en el pad de chat de una Ventana o de Main: mensajes, etiquetas, errores y salidas de comandos. Se reconstruye a partir de Conversación + Log.
 _Avoid_: historial, conversación
@@ -214,6 +218,10 @@ _Avoid_: screen, function screen
 **Proceso adherido** (`Attachment`):
 Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main salvo que se indique otra cosa. Main rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta.
 _Avoid_: screen, plugin, servicio
+
+**Alcance** (`reach`):
+Lo que el proceso de una Function tool o de un Proceso adherido puede tocar, declarado con el decorador `@reach` (qué carpetas lee y escribe, qué puertos de red, si abre una ventana gráfica) y forzado por el kernel con Landlock. Sin decorador es el mínimo: su Carpeta de trabajo, leer el sistema y sin red. Nunca incluye la carpeta de datos, ni dentro de un Alcance amplio como `home`. Es parte del código aprobado: ampliarlo devuelve la function a cuarentena, y al aprobarla se puede reducir (ADR-0016).
+_Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 
 **Zombie** (`zombie`):
 Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.

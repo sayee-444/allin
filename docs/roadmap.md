@@ -9,9 +9,10 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
 - **Último hecho:** #21 junto con #17 (Servidor en caliente y 503 al cargar el modelo), verificados con el `llama serve` real; evidencia en `evidence/issues/21` (2026-10-30).
-- **Siguiente:** seguir el grilling del tejido de primitivas (ADR-0011, ADR-0012, ADR-0004) hasta que la teoría sea sólida y sus reglas se apliquen sobre sí mismas; después, #20 Partir el Dispatcher.
+- **Siguiente:** #20 Partir el Dispatcher.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
+- **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
 - **Pendiente para después:** gestión del contexto de Conversaciones largas (compactar o resumir).
 
 ## F1 · Cierre
@@ -56,18 +57,14 @@ Ya tienen código; verificados y comentados.
 
 ## F2 · Command sessions y fsource
 
-Sin issues todavía: Command sessions (`@…`, incluido `@server`), fsource, Notificaciones y Conversation logs, y los decoradores `@confirm` y `@zombie` (ADR-0009). Del grilling del tejido de primitivas (ADR-0011, ADR-0012): Continuaciones con prioridad y candado por Paso (ADR-0004), Suscripción y Encargo con reintentos, Consultar, Moldes, Procesos adheridos (fscreen genérica, archivo compartido) e Informe de recuperación. Del grilling del tejido, rondas 1–5: Origen en cada Prompt y comando, resultados entre Sesiones como datos y `/send` con adjuntos y parámetros estructurados (ADR-0013); cuarentena por hashes aprobados de functions, Sysprompts, Moldes y Planos, y Crear que abarca Moldes y Planos (ADR-0013); corte de ciclos de Suscripciones por la cadena de Origen; vida del Encargo si su coordinadora falla (ADR-0011); revisión con `@writes` en Procesos adheridos (ADR-0012); Rewind y Restablecer como eventos suscribibles, con el id del Prompt visible para las tools (ADR-0015).
+Sin issues todavía. Lo primero, antes de que corra ninguna tool: el encierro (ADR-0016). Un prototipo que pruebe Landlock y seccomp en este kernel con `multiprocessing` spawn y su `Queue`; después, el lanzador de tools ya encerrado, `@reach` con su Alcance mínimo, la Carpeta de trabajo, el recorte de la carpeta de datos, el subreaper que no deja procesos vivos y el Aviso de kernel sin soporte. Al implementarlo, el README explica el Alcance y el recorte de la carpeta de datos con el ejemplo de ADR-0016. Después: Command sessions (`@…`, incluido `@server`), fsource, Notificaciones y Conversation logs, y los decoradores `@confirm` y `@zombie` (ADR-0009). Del grilling del tejido de primitivas (ADR-0011, ADR-0012): Continuaciones con prioridad y candado por Paso (ADR-0004), Suscripción y Encargo con reintentos, Consultar, Moldes, Procesos adheridos (fscreen genérica, archivo compartido) e Informe de recuperación; los Procesos adheridos se encierran como las tools, con su archivo compartido elegido antes de lanzarlos (ADR-0016). Del grilling del tejido, rondas 1–5: Origen en cada Prompt y comando, resultados entre Sesiones como datos y `/send` con adjuntos y parámetros estructurados (ADR-0013); cuarentena por hashes aprobados de functions, Sysprompts, Moldes y Planos, y Crear que abarca Moldes y Planos y es la única vía para escribir piezas (ADR-0013, ADR-0016); corte de ciclos de Suscripciones por la cadena de Origen; vida del Encargo si su coordinadora falla (ADR-0011); revisión con `@writes` en Procesos adheridos (ADR-0012); Rewind y Restablecer como eventos suscribibles, con el id del Prompt visible para las tools (ADR-0015).
 
 ## F3 · Submains y Traspaso
 
 Submains, Traspaso de Sesiones dentro del árbol, y #18 (FIFOs huérfanas por Main). Antes, en su grilling: el protocolo entre Mains y las primitivas entre Mains del árbol (ADR-0011).
 
-## F4 · Aislamiento
-
-Antes de que llegue código que el usuario no escribió (fagent del LLM, functions de Kits ajenos). Cada proceso de tool y de Proceso adherido corre encerrado: solo escribe en las carpetas que se le permitan (la de trabajo de su Sesión), nunca en `state/`, `functions/` ni el resto de la carpeta de datos, y la red se abre o se cierra por tool. Así ADR-0001 y la cuarentena por hashes (ADR-0013) se cumplen por fuerza y no por buena conducta del código. En su grilling: el mecanismo (Landlock, `bubblewrap` u otro, sin root), qué declara cada function y qué pasa en un kernel que no lo soporte.
-
 ## Después
 
-Lo que trae código ajeno (fagent del LLM y Kits, segunda parte) va después de F4.
+Lo que trae código ajeno (fagent del LLM y Kits, segunda parte) ya llega con el encierro de F2: sus functions corren con el Alcance aprobado, y en un kernel sin Landlock no corren (ADR-0016).
 
 Sin fecha ni orden fijo: fagent y packages, fscreen, encadenar functions, Clon y Goal. Kits, segunda parte: functions con cuarentena, Moldes, Planos, historial inicial y entrada (ADR-0014). Restablecer (`/session reset`) y `/reset --all` (ADR-0015).
