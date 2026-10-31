@@ -17,6 +17,7 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 - **Segunda revisión de coherencia (2026-10-30):** encierro de descripción, timeout sin las esperas a Main, `display` como actuar por el usuario, puertos del Servidor fuera de todo Alcance, UDP con lista de puertos, Referencia a archivo como instantánea, ruta de la Carpeta de trabajo fuera de los Ajustes, procedencia, Avisos y Command sessions como parte de Main, plazo vencido que cancela, Ventana según el Origen del Prompt y Encargos del Perfil que los abrió.
 - **Tercera revisión (2026-10-30), con el diagrama del tejido:** un proceso encerrado salía por los sockets unix con ruta (D-Bus → `systemd --user`, X11, agente SSH), comprobado en este kernel; lo cierra el filtro seccomp, junto con io_uring y `TIOCSTI`, y el proceso de una tool nace sin la terminal, el entorno ni las rutas de importación de Main. Además: tres puertas (Confirmación, Aprobación, Encierro); Main y el Supervisor nunca tocan rutas ni red por una Sesión más allá de sus tools; package entero y sin `.pyc`; recorte de toda ruta concedida; escribir donde el usuario ejecuta como `display`; caracteres de control y de dirección neutralizados en pantalla; la respuesta de un Prompt al final de su cadena; ADR-0004 con el modelo de Pasos; Carpeta de trabajo como directorio actual, y una propia para cada Proceso adherido; Rewind que cancela lo abierto después; solo el Origen humano vuelve al input; el Perfil como frontera de `/send`; piezas por Perfil; y una batería de fugas antes de la primera tool.
 - **Decidido en el grilling de la Compactación (2026-10-30):** una Conversación larga se compacta a mano (`/session compact`) o sola al 85 % del límite del slot, archivando lo resumido y con el resumen como dato; nunca se trunca en silencio, y `--context-shift` no se admite (ADR-0017). La primera parte es #46, tras #29; la poda y lo que depende de las tools, en F2.
+- **Decidido en el grilling de los Temas (2026-10-31):** cada Ventana y el Chat de Main se ven según un Tema (letra, colores, borde, tamaño y caracteres especiales), que la Sesión guarda por nombre y que se aplica en vivo, sin cerrar la Ventana; el borde toma por defecto un color distinto por Sesión, y un Tema solo admite valores con forma fija (ADR-0018). Es #47, el último de los pendientes de F1. Al verificarlo contra el código salió que, desde F1-01, el xterm de las Ventanas acepta preguntas (`allowWindowOps`) con las que un texto puede hacer pasar el título o el portapapeles por algo tecleado; lo apaga #28.
 
 ## F1 · Cierre
 
@@ -58,6 +59,7 @@ Ya tienen código; verificados y comentados.
 7. #19 Lo que quede de la señal durante el arranque
 8. #33 Una Ventana desconectada sigue mandando Borradores (Broken pipe)
 9. ✅ #34 Los textos que vuelven al input se mezclan con lo escrito
+10. #47 Temas en las Ventanas y el Chat de Main, por nombre y en vivo
 
 ## F2 · Command sessions y fsource
 
