@@ -182,7 +182,7 @@ _Avoid_: @logs
 Retroceder una Sesión N Prompts del usuario: trunca la Conversación hasta antes de ese Prompt y devuelve su texto al input para reeditarlo; `n=0` no hace nada. Nunca va más atrás del inicio de la Sesión (Sysprompt e historial inicial). Solo existe como Command main.
 
 **Restablecer** (`SessionReset`):
-Devolver Sesiones existentes a su receta de nacimiento (el Molde y versión, o la plantilla de Sesión copiada al crearla: Sysprompt, historial inicial, Ajustes, functions), sin cerrar nada: es un Rewind hasta el nacimiento que además repone los Ajustes. Con `/session reset`, a una, a todas las de un Main o a las del árbol. Un Clon hereda la receta de su original. La Conversación anterior se archiva, no se borra.
+Devolver Sesiones existentes a su receta de nacimiento (el Molde y versión, o la plantilla de Sesión copiada al crearla: Sysprompt, historial inicial, Ajustes, functions), sin cerrar nada: es un Rewind hasta el nacimiento que además repone los Ajustes. Con `/session reset`, a una, a todas las de un Main o a las del árbol. Cerrar todo además de restablecer es `/reset --all`. Un Clon hereda la receta de su original. La Conversación anterior se archiva, no se borra.
 _Avoid_: clear, reset (a secas: `/reset` es de los Ajustes de Main), fábrica
 
 **Clon** (`Clone`):

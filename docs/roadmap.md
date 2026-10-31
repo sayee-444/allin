@@ -11,10 +11,8 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 - **Último hecho:** #21 junto con #17 (Servidor en caliente y 503 al cargar el modelo), verificados con el `llama serve` real; evidencia en `evidence/issues/21` (2026-10-30).
 - **Siguiente:** seguir el grilling del tejido de primitivas (ADR-0011, ADR-0012, ADR-0004) hasta que la teoría sea sólida y sus reglas se apliquen sobre sí mismas; después, #20 Partir el Dispatcher.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
-- **Pendiente de decidir con el usuario (grilling del tejido):**
-  1. Confianza en functions de otros usuarios que llegan en un Kit.
-  2. Fusión de Kits: qué se conserva cuando dos definen la misma pieza, y Ajustes del Servidor de otra máquina.
-  3. Para después, el hueco más grande: gestión del contexto de Conversaciones largas (compactar o resumir). No se trata en este grilling.
+- **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
+- **Pendiente para después:** gestión del contexto de Conversaciones largas (compactar o resumir).
 
 ## F1 · Cierre
 
