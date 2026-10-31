@@ -97,11 +97,11 @@ Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio: lo que 
 _Avoid_: crash report, volcado
 
 **Ajustes** (`Settings`):
-Parámetros que gobiernan a Main o a una Sesión. Se heredan siempre por copia: lo ya creado no cambia cuando cambia el origen.
+Parámetros que gobiernan a Main o a una Sesión. Se heredan por copia: lo ya creado no cambia cuando cambia el origen. La excepción es el Tema, del que se copia el nombre y que se lee en vivo (ADR-0018).
 _Avoid_: settings, config
 
 **Ajustes de Main** (`MainSettings`):
-Los que Main usa para sí mismo (su idioma, sus colores, el Enlace, `parallel`…); no se comparten con las Sesiones.
+Los que Main usa para sí mismo (su idioma, su Tema, el Enlace, `parallel`…); no se comparten con las Sesiones.
 
 **Ajustes de Sesión** (`SessionSettings`):
 Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que solo almacena, no usa, y que se copian a la Sesión en `/new`; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
@@ -117,7 +117,7 @@ Los parámetros de carga con los que arranca el Servidor (modelo, contexto, slot
 Los **en curso** son con los que corre el Servidor ahora (los informa el Supervisor); los **pendientes** son los que se aplicarán en su próximo arranque, sea por reinicio pedido o por caída.
 
 **Tema** (`Theme`):
-Conjunto con nombre de Ajustes visuales (fuente, tamaño, geometría, colores por rol) en `themes/<nombre>.toml`, dentro de la carpeta de su Perfil; las claves sueltas sobrescritas tienen prioridad sobre él. Es dato y no pasa por cuarentena.
+Conjunto con nombre de Ajustes visuales (letra, colores por tipo de línea, borde, tamaño de la Ventana y caracteres especiales) en `themes/<nombre>.toml`, dentro de la carpeta de su Perfil. Lo usan las Ventanas y el Chat de Main. Una Sesión guarda su nombre, no una copia, así que editarlo cambia al momento todas las Ventanas que lo usan; las claves sueltas sobrescritas tienen prioridad sobre él. Es dato y no pasa por cuarentena, pero solo admite valores con forma fija (ADR-0018).
 _Avoid_: skin, estilo
 
 ## Ejecución
