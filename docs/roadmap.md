@@ -40,7 +40,7 @@ Ya tienen código; verificados y comentados.
 1. #30 Perfiles 1/3: Perfil con nombre, `--profile`, `/profile new`, migración a `default`
 2. #31 Perfiles 2/3: `/profile switch`
 3. #32 Perfiles 3/3: compartir Sesiones
-4. #39 Perfiles 4/4: exportar e importar como copia o plantilla
+4. #39 Perfiles 4/4: exportar un Perfil como copia, y Kits (primera parte)
 
 ## Pre-F2 · Pendientes de F1
 
@@ -56,7 +56,7 @@ Ya tienen código; verificados y comentados.
 
 ## F2 · Command sessions y fsource
 
-Sin issues todavía: Command sessions (`@…`, incluido `@server`), fsource, Notificaciones y Conversation logs, y los decoradores `@confirm` y `@zombie` (ADR-0009). Del grilling del tejido de primitivas (ADR-0011, ADR-0012): Continuaciones con prioridad y candado por Paso (ADR-0004), Suscripción y Encargo con reintentos, Consultar, Moldes, Procesos adheridos (fscreen genérica, archivo compartido) e Informe de recuperación.
+Sin issues todavía: Command sessions (`@…`, incluido `@server`), fsource, Notificaciones y Conversation logs, y los decoradores `@confirm` y `@zombie` (ADR-0009). Del grilling del tejido de primitivas (ADR-0011, ADR-0012): Continuaciones con prioridad y candado por Paso (ADR-0004), Suscripción y Encargo con reintentos, Consultar, Moldes, Procesos adheridos (fscreen genérica, archivo compartido) e Informe de recuperación. Del grilling del tejido, rondas 1–5: Origen en cada Prompt y comando, resultados entre Sesiones como datos y `/send` con adjuntos y parámetros estructurados (ADR-0013); cuarentena por hashes aprobados de functions, Sysprompts, Moldes y Planos, y Crear que abarca Moldes y Planos (ADR-0013); corte de ciclos de Suscripciones por la cadena de Origen; vida del Encargo si su coordinadora falla (ADR-0011); revisión con `@writes` en Procesos adheridos (ADR-0012); Rewind y Restablecer como eventos suscribibles, con el id del Prompt visible para las tools (ADR-0015).
 
 ## F3 · Submains y Traspaso
 
@@ -64,4 +64,4 @@ Submains, Traspaso de Sesiones dentro del árbol, y #18 (FIFOs huérfanas por Ma
 
 ## Después
 
-Sin fecha ni orden fijo: fagent y packages, fscreen, encadenar functions, Clon y Goal.
+Sin fecha ni orden fijo: fagent y packages, fscreen, encadenar functions, Clon y Goal. Kits, segunda parte: functions con cuarentena, Moldes, Planos, historial inicial y entrada (ADR-0014). Restablecer (`/session reset`) y `/reset --all` (ADR-0015). Aislamiento de procesos de tools (sandbox), para que nada aprobado escriba el estado de Main (riesgo aceptado en ADR-0013).
