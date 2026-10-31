@@ -149,8 +149,12 @@ Una sola llamada a `responses.create` dentro de un Turno; un Turno con tools tie
 _Avoid_: ronda, iteración
 
 **Contexto** (`Context`):
-Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten las Sesiones con Turno activo.
+Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten las Sesiones con Turno activo. Cuando una Sesión se acerca a su límite, se compacta.
 _Avoid_: tokens gastados (ambiguo)
+
+**Compactación** (`Compaction`):
+Reemplazar la parte vieja de la Conversación de una Sesión por un resumen que escribe el LLM, archivando lo reemplazado, para que siga cabiendo en su Contexto. Se hace a mano (`/session compact`, `@compact`) o sola, al pasar un umbral del límite del slot (`compact.auto`, encendida por defecto). Quedan literales el Sysprompt, el historial inicial, el Prompt actual y los Turnos recientes. El resumen entra como `user`, nunca como `developer`, y un Rewind a antes del corte recupera lo archivado. Nunca se trunca en silencio (ADR-0017).
+_Avoid_: truncar, context shift, resumen (es lo que produce)
 
 ## Comandos
 
@@ -183,7 +187,7 @@ Ajuste de la Sesión que decide, por cada comando o fsource, si sus Notificacion
 _Avoid_: @logs
 
 **Rewind** (`Rewind`):
-Retroceder una Sesión N Prompts, de cualquier Origen: trunca la Conversación hasta antes de ese Prompt y, si su Origen es humano, devuelve su texto al input para reeditarlo (si no, queda en el Log); `n=0` no hace nada. Nunca va más atrás del inicio de la Sesión (Sysprompt e historial inicial). Cancela los Encargos y Suscripciones abiertos después de ese punto y olvida las revisiones de Procesos adheridos vistas desde entonces (ADR-0015). Solo existe como Command main.
+Retroceder una Sesión N Prompts, de cualquier Origen: trunca la Conversación hasta antes de ese Prompt y, si su Origen es humano, devuelve su texto al input para reeditarlo (si no, queda en el Log); `n=0` no hace nada. Nunca va más atrás del inicio de la Sesión (Sysprompt e historial inicial), pero sí a antes de una Compactación: recupera lo archivado y quita el resumen. Cancela los Encargos y Suscripciones abiertos después de ese punto y olvida las revisiones de Procesos adheridos vistas desde entonces (ADR-0015). Solo existe como Command main.
 
 **Restablecer** (`SessionReset`):
 Devolver Sesiones existentes a su receta de nacimiento (el Molde y versión, o la plantilla de Sesión copiada al crearla: Sysprompt, historial inicial, Ajustes, functions), sin cerrar nada: es un Rewind hasta el nacimiento que además repone los Ajustes. Con `/session reset`, a una, a todas las de un Main o a las del árbol. Cerrar todo además de restablecer es `/reset --all`. Un Clon hereda la receta de su original. La Conversación anterior se archiva, no se borra.
