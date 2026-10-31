@@ -17,7 +17,7 @@ Identidad con nombre de un Main raíz, guardada como archivos modulares: sus Aju
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
 
 **Kit** (`Kit`):
-Receta portable y versionada de un entorno de trabajo (Sysprompts, Moldes, functions, Goals y composiciones, Temas, parte de los Ajustes de Main y Ajustes del Servidor sugeridos) que se exporta desde un Perfil y se carga en otro, de esta máquina o de otro usuario. Nunca lleva Sesiones ni nada de ejecución. Cargarlo copia sus piezas, y cada una recuerda de qué Kit y versión vino; un Perfil puede cargar varios.
+Receta portable y versionada de un entorno de trabajo (Sysprompts, Moldes, functions, Goals y composiciones, Temas, parte de los Ajustes de Main y Ajustes del Servidor sugeridos) que se exporta desde un Perfil y se carga en otro, de esta máquina o de otro usuario. Nunca lleva Sesiones ni nada de ejecución. Cargarlo copia sus piezas, y cada una recuerda de qué Kit y versión vino; un Perfil puede cargar varios. Cargarlo no ejecuta nada, y sus functions esperan en cuarentena hasta que un humano las aprueba.
 _Avoid_: plantilla, paquete, perfil (para lo que se comparte)
 
 **Traspaso** (`Handover`):
