@@ -13,8 +13,12 @@ El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único 
 _Avoid_: abuelo, padre, proceso principal, servidor (el Servidor es `llama serve`)
 
 **Perfil** (`Profile`):
-Identidad con nombre de un Main raíz, guardada como archivos modulares: sus Ajustes de Main (con el Enlace), las Sesiones que le pertenecen, sus submains y su Estado de Main. Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar Main con ese nombre como id; trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta.
+Identidad con nombre de un Main raíz, guardada como archivos modulares: sus Ajustes de Main (con el Enlace), las Sesiones que le pertenecen, sus submains y su Estado de Main. Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar Main con ese nombre como id; trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta. Es privado: lo que se comparte con otros usuarios es un Kit.
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
+
+**Kit** (`Kit`):
+Receta portable y versionada de un entorno de trabajo (Sysprompts, Moldes, functions, Goals y composiciones, Temas, parte de los Ajustes de Main y Ajustes del Servidor sugeridos) que se exporta desde un Perfil y se carga en otro, de esta máquina o de otro usuario. Nunca lleva Sesiones ni nada de ejecución. Cargarlo copia sus piezas, y cada una recuerda de qué Kit y versión vino; un Perfil puede cargar varios.
+_Avoid_: plantilla, paquete, perfil (para lo que se comparte)
 
 **Traspaso** (`Handover`):
 Pasar una Sesión de un Main a otro dentro del mismo árbol (main → submain, submain → main, submain → submain): desde ese momento sus Prompts entran en la cola del nuevo Main y él ordena sus Turnos. No se prohíbe: se avisa. Compartir una Sesión entre Perfiles no es un Traspaso.
@@ -129,7 +133,7 @@ Petición de una Sesión de que un evento la despierte: cuando ocurre (responden
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
-Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros.
+Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él.
 _Avoid_: job, barrera, tarea
 
 **Paso** (`Step`):
@@ -158,6 +162,9 @@ _Avoid_: @path (como nombre del concepto)
 
 **Sobrescritura de parámetro** (`ParamOverride`):
 Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro del LLM solo para ese Turno.
+
+**Origen** (`origin`):
+De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen; lo que llega de otra Sesión es dato, nunca orden.
 
 **Notificación** (`Notification`):
 Línea que un Command session o fsource deja pendiente para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`. Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
@@ -197,14 +204,14 @@ Clase cuyos métodos públicos se exponen como Function tools para controlar un 
 _Avoid_: screen, function screen
 
 **Proceso adherido** (`Attachment`):
-Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main salvo que se indique otra cosa.
+Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main salvo que se indique otra cosa. Main rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta.
 _Avoid_: screen, plugin, servicio
 
 **Zombie** (`zombie`):
 Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.
 
 **Confirmación** (`Confirmation`):
-Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación y `--devastation` para todas; no se apaga desde los Ajustes.
+Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación y `--devastation` para todas, pero solo con Origen humano; no se apaga desde los Ajustes. Crear o modificar una function desde una Sesión siempre la pide.
 _Avoid_: aprobación, permiso
 
 **Aviso** (`Notice`):

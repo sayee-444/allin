@@ -1,0 +1,9 @@
+# La autoridad de una acción es la del eslabón más débil de su origen
+
+Las fsources ejecutan Command sessions y las Sesiones se envían Prompts entre sí (ADR-0011), así que, sin más, una Sesión podría pedir `-y` y saltarse la Confirmación (ADR-0009), o el resultado de una trabajadora que leyó algo malicioso podría dictarle acciones a su coordinadora. Por eso cada Prompt y cada comando llevan su Origen: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de esa cadena.
+
+- `-y` y `--devastation` solo valen con Origen humano; desde una Sesión son un error visible para el LLM, no se ignoran en silencio. `-y` cubre esa invocación y no pasa a lo que desencadene: si se envía con `-y` a una coordinadora, sus trabajadoras siguen pidiendo Confirmación. `--devastation` es de un Main, se ve siempre en los bordes, y un submain no lo hereda salvo que se le pase explícitamente.
+- Crear o modificar una function desde una Sesión es siempre delicado y pide Confirmación: si no, el LLM escribiría una fagent sin `@confirm` que hiciera lo mismo que una que lo tiene. Un Molde no puede llevar `-y`.
+- El resultado de una Sesión entra en la Conversación de otra como mensaje `user` con una cabecera de Origen (`[resultado de la Sesión abc · Encargo e1]`), nunca como `developer`. Main no interpreta `@…` ni `/…` dentro de él: los Command prompt y los Command session escritos como texto solo se reconocen en lo que teclea un humano. Las fsources siguen ejecutando Command sessions, porque esa llamada la decide el LLM como tool estructurada, no Main leyendo texto.
+
+Se descartó detectar instrucciones maliciosas en el texto, porque nunca es fiable. La contención está en otra parte: una Sesión engañada solo puede hacer lo que sus tools hacen sin Confirmación, y la Confirmación solo la salta un humano.
