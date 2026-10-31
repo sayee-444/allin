@@ -16,7 +16,7 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 - **Revisión de coherencia (2026-10-30):** corregidas 14 contradicciones entre ADR-0016 y el resto del tejido: descripción de functions sin importarlas en Main, recorte también de la instalación, procedencia frente a Origen, Referencia a archivo, canal de vuelta, muerte de tools con Main, Suscripción no bloqueante, Rewind por Origen, cambio de Perfil con Encargos vivos, Clon y Carpeta de trabajo.
 - **Segunda revisión de coherencia (2026-10-30):** encierro de descripción, timeout sin las esperas a Main, `display` como actuar por el usuario, puertos del Servidor fuera de todo Alcance, UDP con lista de puertos, Referencia a archivo como instantánea, ruta de la Carpeta de trabajo fuera de los Ajustes, procedencia, Avisos y Command sessions como parte de Main, plazo vencido que cancela, Ventana según el Origen del Prompt y Encargos del Perfil que los abrió.
 - **Tercera revisión (2026-10-30), con el diagrama del tejido:** un proceso encerrado salía por los sockets unix con ruta (D-Bus → `systemd --user`, X11, agente SSH), comprobado en este kernel; lo cierra el filtro seccomp, junto con io_uring y `TIOCSTI`, y el proceso de una tool nace sin la terminal, el entorno ni las rutas de importación de Main. Además: tres puertas (Confirmación, Aprobación, Encierro); Main y el Supervisor nunca tocan rutas ni red por una Sesión más allá de sus tools; package entero y sin `.pyc`; recorte de toda ruta concedida; escribir donde el usuario ejecuta como `display`; caracteres de control y de dirección neutralizados en pantalla; la respuesta de un Prompt al final de su cadena; ADR-0004 con el modelo de Pasos; Carpeta de trabajo como directorio actual, y una propia para cada Proceso adherido; Rewind que cancela lo abierto después; solo el Origen humano vuelve al input; el Perfil como frontera de `/send`; piezas por Perfil; y una batería de fugas antes de la primera tool.
-- **Decidido en el grilling de la Compactación (2026-10-30):** una Conversación larga se compacta a mano (`/session compact`) o sola al 85 % del límite del slot, archivando lo resumido y con el resumen como dato; nunca se trunca en silencio, y `--context-shift` no se admite (ADR-0017). La primera parte va tras #29; la poda y lo que depende de las tools, en F2.
+- **Decidido en el grilling de la Compactación (2026-10-30):** una Conversación larga se compacta a mano (`/session compact`) o sola al 85 % del límite del slot, archivando lo resumido y con el resumen como dato; nunca se trunca en silencio, y `--context-shift` no se admite (ADR-0017). La primera parte es #46, tras #29; la poda y lo que depende de las tools, en F2.
 
 ## F1 · Cierre
 
@@ -38,7 +38,7 @@ Ya tienen código; verificados y comentados.
 6. #26 Supervisor 3/4: `/server …` e investigación de Ajustes del Servidor
 7. #27 Supervisor 4/4: cambiar el Enlace en caliente
 8. #29 Admisión al pool con `--kv-unified` y Aviso de Contexto
-9. Compactación del Contexto: `/session compact` y automática entre Turnos (ADR-0017; issue en camino)
+9. #46 Compactación del Contexto: `/session compact` y automática entre Turnos
 
 ## Pre-F2 · Perfiles
 
