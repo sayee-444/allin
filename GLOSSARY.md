@@ -81,8 +81,12 @@ Papel de una Sesión que recibe trabajo de una Sesión coordinadora; suele nacer
 _Avoid_: esclava, subventana
 
 **Molde** (`Mold`):
-Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajustes, sus functions y, si se quiere, una tarea inicial. La usan el usuario, las fsources y los submains para crear Sesiones que a su vez pueden crear otras. No es un Perfil.
+Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajustes, sus functions y, si se quiere, un historial inicial (mensajes que cuentan como inicio de la Conversación, no como Turnos) y una tarea inicial. La usan el usuario, las fsources y los submains para crear Sesiones que a su vez pueden crear otras. No es un Perfil.
 _Avoid_: perfil, plantilla, preset
+
+**Plano** (`Blueprint`):
+Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde qué Moldes, cuáles abren Ventana y cuál coordina. Viaja en un Kit; crear desde un Plano solo añade, nunca toca lo que ya existe.
+_Avoid_: topología, red, estructura (como nombre del concepto)
 
 **Informe de recuperación** (`RecoveryReport`):
 Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio: lo que quedó a medias (Turnos, Ventanas, Procesos adheridos, Encargos). Queda en el Log, se muestra al usuario como Aviso y llega a cada Sesión afectada como Notificación; dice qué quedó a medias, no por qué murió Main.
@@ -175,7 +179,11 @@ Ajuste de la Sesión que decide, por cada comando o fsource, si sus Notificacion
 _Avoid_: @logs
 
 **Rewind** (`Rewind`):
-Retroceder una Sesión N Prompts del usuario: trunca la Conversación hasta antes de ese Prompt y devuelve su texto al input para reeditarlo; `n=0` no hace nada. Solo existe como Command main.
+Retroceder una Sesión N Prompts del usuario: trunca la Conversación hasta antes de ese Prompt y devuelve su texto al input para reeditarlo; `n=0` no hace nada. Nunca va más atrás del inicio de la Sesión (Sysprompt e historial inicial). Solo existe como Command main.
+
+**Restablecer** (`SessionReset`):
+Devolver Sesiones existentes a su receta de nacimiento (el Molde y versión, o la plantilla de Sesión copiada al crearla: Sysprompt, historial inicial, Ajustes, functions), sin cerrar nada: es un Rewind hasta el nacimiento que además repone los Ajustes. Con `/session reset`, a una, a todas las de un Main o a las del árbol. Un Clon hereda la receta de su original. La Conversación anterior se archiva, no se borra.
+_Avoid_: clear, reset (a secas: `/reset` es de los Ajustes de Main), fábrica
 
 **Clon** (`Clone`):
 Sesión nueva creada como copia de otra en su último estado consistente (Conversación, Ajustes, functions); tiene id y Log propios. Se crea con `/session clone` o `@clone`.
