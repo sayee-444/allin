@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from allin.core.errors import HumanOnly, InvalidArguments, InvalidSetting, SyspromptLocked
+from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
 from allin.core.ids import MainId
 from allin.core.origin import HUMAN, Origin
 from allin.core.settings import (
@@ -22,6 +22,7 @@ from allin.core.settings import (
 )
 from allin.main.conversation import Conversation
 from allin.main.devastation import Devastation
+from allin.main.links import LinkResolver
 from allin.main.notices import NoticeTypes
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
@@ -79,7 +80,9 @@ class SettingsCommands:
         sysprompts: Path,
         devastation: Devastation,
         notices: NoticeTypes,
+        links: LinkResolver,
     ) -> None:
+        self._links = links
         self._devastation = devastation
         self._notices = notices
         self._reporter = reporter
@@ -111,11 +114,17 @@ class SettingsCommands:
         changed = apply_settings(target, assignments, extra)
         if changed.session.sysprompt != target.session.sysprompt:
             render_sysprompt(self._sysprompts, changed.session)  # the file must be there
+        # The default Enlace moves no Session: only those /new makes from now on (ADR-0022).
+        link = None
+        if changed.session.server != target.session.server:
+            link = self._links.resolve(changed.session)  # its Supervisor must have Settings
         if to_default:
             self._files.save_default(changed)
             self._default = changed
         else:
             self._use(changed)
+            if link is not None:  # its state is known, and told, before /new uses it
+                self._turns.watch(link)
         return True
 
     def reset(self) -> bool:
@@ -136,12 +145,15 @@ class SettingsCommands:
             self._show(session.id, session.settings, extra)
             return True
         _check_authority(assignments, origin)
-        if "server" in assignments:  # atomic, waiting for the new Supervisor: #27 (ADR-0022)
-            raise InvalidSetting(key="server", reason="a Session's Enlace cannot change yet")
         changed = apply_settings(session.settings, assignments, extra)
-        self._save_session(session, changed)
+        # The Enlace changes on its own once the new Server is ready (ADR-0022); checked here,
+        # with the rest, before anything is written.
+        link = self._links.resolve(changed) if "server" in assignments else None
+        self._save_session(session, changed.model_copy(update={"server": session.settings.server}))
         if changed.exempt != session.settings.exempt:
             self._devastation.mark(session.id)
+        if link is not None:
+            self._turns.change_link(self._sessions.load(session.id), link)
         return True
 
     def _use(self, settings: MainSettings) -> None:

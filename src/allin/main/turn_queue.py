@@ -47,6 +47,7 @@ from allin.main.events import (
     ServerState,
 )
 from allin.main.executors import SHUTTING_DOWN, TurnJob
+from allin.main.link_changes import LinkChange, failure_text, judge
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
 from allin.main.open_windows import OpenWindows, Streamed
@@ -204,6 +205,9 @@ class TurnQueue:
         self._stopping = False  # nor once Main is shutting down
         self._prompts = PromptQueue()
         self._running: dict[SessionId, _RunningTurn] = {}
+        # Each Session's Enlace asked to change, until it does or fails (ADR-0022): its new
+        # Prompts wait for it, so none starts on the old Server meanwhile.
+        self._changes: dict[SessionId, LinkChange] = {}
 
     def push(self, session: Session, prompt: Prompt) -> None:
         """Queue a Prompt the user sent, show it in its Window and start it if there is room."""
@@ -226,6 +230,27 @@ class TurnQueue:
     def watch(self, link: Link) -> None:
         """Watch a Server even before any Session needs it: Main's default Enlace."""
         self._watch(link)
+
+    def change_link(self, session: Session, link: Link) -> None:
+        """Move the Session's Enlace to ``link`` once its Server is ready and the Session has no
+        active Turn; if that Server cannot start, it stays where it is (ADR-0022). Asking again
+        replaces the change, and asking for the current Enlace drops it."""
+        session_id = session.id
+        dropped = self._changes.pop(session_id, None)
+        if link == self._link_or_none(session):
+            if dropped is not None:
+                shown = f"Enlace change to {dropped.to.describe()} dropped"
+                self._tell_session(session_id, "link_change_dropped", shown)
+            else:
+                self._reporter.show(session_id, f"already linked to {link.describe()}")
+            return
+        self._changes[session_id] = LinkChange(session_id, link, self._clock())
+        self._watch(link)
+        shown = f"Enlace changes to {link.describe()} once it is ready and no Turn is active"
+        self._tell_session(session_id, "link_change_asked", shown, server=link.key)
+        if link.supervisor is not None and not self._ready(link.key):
+            self._wake(link.supervisor)
+        self._start_turns()
 
     def window_connected(self, session_id: SessionId) -> None:
         """Tell a Window that just connected its Turn state; its Server is watched from now on,
@@ -258,6 +283,8 @@ class TurnQueue:
             in_step = running.slot is not None and running.cancellation.reason is None
             if in_step and now - running.progress_at >= self._stall:
                 running.cancellation.cancel(STALLED)
+        if self._changes:  # a change waiting on what a Supervisor said before it ran
+            self._start_turns()
 
     def set_stall(self, stall: float) -> None:
         self._stall = stall
@@ -425,6 +452,7 @@ class TurnQueue:
         lock, which Mains sharing it compete for (ADR-0008). A Server that is not ready, or full,
         holds back only its own Sessions.
         """
+        self._judge_changes()
         while not self._stopping and self._room_in_main() and self._start_one():
             pass
 
@@ -440,7 +468,9 @@ class TurnQueue:
             if slot is not None:  # an answered Turn goes on before any new Prompt
                 self._resume_turn(running, slot)
                 return True
-        for prompt in self._prompts.waiting(active=self._running):
+        # A Session whose Enlace changes waits for it, but a suspended Turn repeats its Step.
+        held = self._changes.keys() - self._falls.keys()
+        for prompt in self._prompts.waiting(active=self._running.keys() | held):
             try:
                 session = self._sessions.load(prompt.session_id)
                 link = self._links.resolve(session.settings)
@@ -653,11 +683,9 @@ class TurnQueue:
     def _watched_link(self, session: Session) -> Link | None:
         """The Session's Enlace, watched from now on; ``None`` if it cannot be resolved, which
         its Prompt tells when it would start."""
-        try:
-            link = self._links.resolve(session.settings)
-        except AllInError:
-            return None
-        self._watch(link)
+        link = self._link_or_none(session)
+        if link is not None:
+            self._watch(link)
         return link
 
     def _watched_link_of(self, session_id: SessionId) -> Link | None:
@@ -676,7 +704,62 @@ class TurnQueue:
 
     def _has_work(self, server: ServerKey) -> bool:
         continuing = any(running.link.key == server for running in self._continuations())
-        return continuing or bool(self._sessions_on(server))
+        changing = any(change.to.key == server for change in self._changes.values())
+        return continuing or changing or bool(self._sessions_on(server))
+
+    def _judge_changes(self) -> None:
+        """Apply or drop each pending Enlace change that can be decided now."""
+        now = self._clock()
+        for session_id, change in list(self._changes.items()):
+            state = self._states.get(change.to.key)
+            # A Turn suspended to repeat its Step is still active: it repeats on the old model.
+            busy = session_id in self._running or session_id in self._falls
+            verdict, self._changes[session_id] = judge(change, state, busy, now)
+            if verdict == "wait":
+                continue
+            del self._changes[session_id]
+            try:
+                session = self._sessions.load(session_id)
+                match verdict:
+                    case "apply":
+                        self._apply_change(session, change.to)
+                    case "fail":
+                        shown = failure_text(change, state, self._link_or_none(session))
+                        self._tell_session(session_id, "link_change_failed", shown)
+            except AllInError as error:
+                self._windows.show_error(error, session_id)
+
+    def _apply_change(self, session: Session, link: Link) -> None:
+        """Save the Session's new Enlace, show its Window the new limit, and give the Notice
+        if its Context no longer fits (ADR-0022)."""
+        settings = session.settings.model_copy(update={"server": link.supervisor})
+        saved = self._sessions.save_settings(session, settings)
+        shown = f"Enlace changed to {link.describe()}"
+        self._tell_session(saved.id, "link_changed", shown, server=link.key)
+        conversation = self._sessions.load_conversation(saved)
+        steps = conversation.turns[-1].steps if conversation and conversation.turns else []
+        self._windows.show_context(saved, steps)
+        state = self._states.get(link.key)
+        context = context_tokens(steps)
+        if isinstance(state, ServerReady) and context is not None:
+            limit = state.props.slot_context
+            if context > limit:
+                title = f"{link.describe()}: context limit is {limit} tokens"
+                text = f"the Conversation already holds {context}: over the limit"
+                self._boxes.notify(saved.id, title, text, "context_limit")
+
+    def _link_or_none(self, session: Session) -> Link | None:
+        try:
+            return self._links.resolve(session.settings)
+        except AllInError:
+            return None
+
+    def _tell_session(
+        self, session_id: SessionId, event: str, shown: str, **fields: JsonValue
+    ) -> None:
+        """Tell Main's Chat, the Logs and the Session's Window."""
+        self._reporter.record(session_id, event, shown, **fields)
+        self._windows.send(session_id, ChatAppend(role="info", label="server", text=shown))
 
     def _continuations(self) -> list[_RunningTurn]:
         """The answered Turns still waiting for a slot, in the order they started."""
