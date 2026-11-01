@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from allin.core.errors import AllInError, TurnCrashed
 from allin.core.ids import SessionId
+from allin.main.confirmation import ConfirmationGate
 from allin.main.events import MainEvent, StepEnded, TurnEnded, TurnOutput, TurnRaw
 from allin.main.turn import Cancellation, Llm, TurnRequest, run_turn
 
@@ -23,10 +24,13 @@ class TurnJob:
     request: TurnRequest
     # The dispatcher keeps it to stop the Turn, e.g. when its Window closes.
     cancellation: Cancellation = field(default_factory=Cancellation)
+    # How the Turn asks for a Confirmation; the dispatcher resumes it through this.
+    confirmation: ConfirmationGate = field(default_factory=ConfirmationGate)
 
 
 def execute(llm: Llm, job: TurnJob, emit: Callable[[MainEvent], None]) -> None:
     """Run one Turn, reporting its output and its end through ``emit``."""
+    job.confirmation.connect(job.session_id, job.cancellation, emit)
     try:
         steps = run_turn(
             llm,

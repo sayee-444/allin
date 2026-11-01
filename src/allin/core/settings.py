@@ -60,6 +60,11 @@ class SessionSettings(BaseModel, frozen=True):
     )
     model: str = Field(default="allin", min_length=1, description="model name sent to the Server")
     sampling: Sampling = Sampling()
+    exempt: bool = Field(
+        default=True,
+        description="its Confirmations go up to Main, which answers them under --devastation;"
+        " only a human changes it",
+    )
 
 
 class MainSettings(BaseModel, frozen=True):

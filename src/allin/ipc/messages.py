@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from allin.core.errors import MalformedMessage
+from allin.core.ids import BoxId
+from allin.ui.boxes import BoxKind
 
 # Window -> Main
 
@@ -30,7 +32,15 @@ class InputDraft(BaseModel):
     blocks: list[str]
 
 
-type WindowToMain = WindowReady | UserInput | InputDraft
+class BoxAnswer(BaseModel):
+    """The user answered a box: yes or no to a Confirmation, ``None`` for a Notice closed."""
+
+    type: Literal["box_answer"] = "box_answer"
+    box_id: BoxId
+    answer: bool | None
+
+
+type WindowToMain = WindowReady | UserInput | InputDraft | BoxAnswer
 WindowMessage = Annotated[WindowToMain, Field(discriminator="type")]
 
 # Main -> Window
@@ -88,7 +98,42 @@ class Close(BaseModel):
     type: Literal["close"] = "close"
 
 
-type MainToWindow = ChatAppend | ChatDelta | TurnState | ContextUsage | InputRestore | Close
+class BoxShow(BaseModel):
+    """Show a Notice or a Confirmation over the Window's Chat."""
+
+    type: Literal["box_show"] = "box_show"
+    box_id: BoxId
+    kind: BoxKind
+    title: str
+    text: str
+
+
+class Coverage(BaseModel):
+    """Whether Main answers this Session's Confirmations itself (``--devastation`` and its
+    Exemption); the Window marks it on its border."""
+
+    type: Literal["coverage"] = "coverage"
+    covered: bool
+
+
+class BoxHide(BaseModel):
+    """Drop a box answered elsewhere or no longer valid."""
+
+    type: Literal["box_hide"] = "box_hide"
+    box_id: BoxId
+
+
+type MainToWindow = (
+    ChatAppend
+    | ChatDelta
+    | TurnState
+    | ContextUsage
+    | InputRestore
+    | BoxShow
+    | BoxHide
+    | Coverage
+    | Close
+)
 MainMessage = Annotated[MainToWindow, Field(discriminator="type")]
 
 _window_adapter: TypeAdapter[WindowToMain] = TypeAdapter(WindowMessage)

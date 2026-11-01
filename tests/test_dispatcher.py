@@ -43,6 +43,7 @@ from allin.main.slot_locks import SlotLocks
 from allin.main.slots import ServerProps
 from allin.main.state import MainState, MainStateStore
 from allin.ui.chat import Chat, Row
+from allin.ui.screen import ScreenUpdate
 from tests.llm_fakes import (
     DroppedStream,
     FakeLlm,
@@ -137,6 +138,8 @@ class MainHarness:
         self.slot_waits = 0  # times Main waited for a slot lock another Main held
         self.on_slot_wait: Callable[[], None] = lambda: None
         self.hold_turns = False
+        self.main_screen: list[ScreenUpdate] = []  # boxes and marks of Main's Chat, in order
+        self.devastation = False  # lit on the command line
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
@@ -179,6 +182,7 @@ class MainHarness:
             if other_main is not None:
                 other_main.release()
             if self.hold_turns:
+                job.confirmation.connect(job.session_id, job.cancellation, inbox.put)
                 self.held.append(job)
             else:
                 execute(self.llm, job, inbox.put)
@@ -199,6 +203,8 @@ class MainHarness:
             self.slot_locks,
             self._wait_for_slot,
             self._recheck_server,
+            self.main_screen.append,
+            self.devastation,
         )
         for event in () if settle else events:
             inbox.put(event)

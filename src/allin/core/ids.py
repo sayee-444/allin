@@ -21,3 +21,7 @@ def new_session_id() -> SessionId:
 def parse_session_id(text: str) -> SessionId | None:
     """``text`` as a Session id if it has the shape of one (so it is safe as a folder name)."""
     return SessionId(text) if _SESSION_ID.fullmatch(text) is not None else None
+
+
+# A Notice or Confirmation on screen, made by Main; its Window answers by it.
+BoxId = NewType("BoxId", str)

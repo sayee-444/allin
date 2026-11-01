@@ -180,3 +180,9 @@ class SyspromptLocked(AllInError):
     """A Session's Sysprompt is fixed once its Conversation has a Turn."""
 
     code: ClassVar[str] = "sysprompt_locked"
+
+
+class HumanOnly(AllInError):
+    """Only a human may do this (``-y``, ``--devastation``, the Exemption: ADR-0013)."""
+
+    code: ClassVar[str] = "human_only"

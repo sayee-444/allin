@@ -13,6 +13,7 @@ from allin.core.errors import AllInError, WindowLaunchFailed
 from allin.core.ids import SessionId
 from allin.ipc.channel import Channel, FifoPair, create_fifo_pair
 from allin.ipc.messages import (
+    BoxAnswer,
     InputDraft,
     UserInput,
     WindowReady,
@@ -20,6 +21,7 @@ from allin.ipc.messages import (
     decode_window_message,
 )
 from allin.main.events import (
+    BoxAnswered,
     DraftReceived,
     ErrorOccurred,
     InputReceived,
@@ -49,6 +51,8 @@ class _WindowListener:
                 self._inbox.put(InputReceived(self._session_id, text))
             case InputDraft(blocks=blocks):
                 self._inbox.put(DraftReceived(self._session_id, tuple(blocks)))
+            case BoxAnswer(box_id=box_id, answer=answer):
+                self._inbox.put(BoxAnswered(box_id, answer))
 
     def on_error(self, error: AllInError) -> None:
         self._inbox.put(ErrorOccurred(error, self._session_id))

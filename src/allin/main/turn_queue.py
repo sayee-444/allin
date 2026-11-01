@@ -19,10 +19,12 @@ from typing import Literal
 from pydantic import JsonValue
 
 from allin.core.errors import AllInError, LlmUnavailable, TurnCancelled, TurnCrashed
-from allin.core.ids import SessionId
+from allin.core.ids import BoxId, SessionId
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
+from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
+from allin.main.devastation import Devastation
 from allin.main.executors import SHUTTING_DOWN, TurnJob
 from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import Prompt, PromptQueue
@@ -56,8 +58,20 @@ class _RunningTurn:
     prompt: Prompt
     session: Session
     cancellation: Cancellation
-    slot: SlotLock  # held while its Step runs; in F1 a Turn is one Step
+    job: TurnJob
+    # Held while its Steps run; ``None`` while it waits for a Confirmation's answer.
+    slot: SlotLock | None
+    # Whether Main answers its Confirmations itself: ``--devastation`` and the Session's
+    # Exemption as they were when it started, so changing them only reaches the next Turn.
+    auto_confirm: bool
     streamed: Streamed = field(default_factory=Streamed)
+    asking: BoxId | None = None  # the Confirmation it waits on, if any
+    answer: bool | None = None  # its answer, while it waits for a slot to go on
+
+    def release_slot(self) -> None:
+        if self.slot is not None:
+            self.slot.release()
+            self.slot = None
 
 
 class TurnQueue:
@@ -72,7 +86,11 @@ class TurnQueue:
         slot_locks: SlotLocks,
         wait_for_slot: WaitForSlot,
         recheck_server: RecheckServer,
+        boxes: MainBoxes,
+        devastation: Devastation,
     ) -> None:
+        self._boxes = boxes
+        self._devastation = devastation
         self._reporter = reporter
         self._windows = windows
         self._sessions = sessions
@@ -128,7 +146,8 @@ class TurnQueue:
         running = self._running.pop(session_id, None)
         if running is None:
             return
-        running.slot.release()
+        running.release_slot()
+        self._withdraw(running)
         try:
             if error is not None or steps is None:
                 raise error or TurnCrashed(reason="no steps")
@@ -160,6 +179,29 @@ class TurnQueue:
         running = self._running.get(session_id)
         if running is not None:
             running.cancellation.cancel(reason)
+            self._withdraw(running)
+
+    def confirmation_requested(self, session_id: SessionId, title: str, text: str) -> None:
+        """A running Turn asks yes or no: it gives its slot back while it waits (ADR-0009)."""
+        running = self._running.get(session_id)
+        if running is None or running.cancellation.reason is not None:
+            return
+        running.release_slot()
+        if running.auto_confirm:
+            fields = {"title": title, "text": text, "answer": True}
+            shown = f"confirmation answered by --devastation: {title}"
+            self._reporter.record(session_id, "confirmation_auto_answered", shown, **fields)
+            self._answered(running, True)
+            return
+        self._reporter.record(session_id, "confirmation_asked", f"confirmation: {title}")
+
+        def on_answer(answer: bool) -> None:
+            self._reporter.record(
+                session_id, "confirmation_answered", f"confirmation: {answer}", answer=answer
+            )
+            self._answered(running, answer)
+
+        running.asking = self._boxes.confirm(session_id, title, text, on_answer)
 
     def server_ready(self, props: ServerProps) -> None:
         """Adapt to what the Server says of itself (ADR-0004), then go on with the queue."""
@@ -212,7 +254,8 @@ class TurnQueue:
         """
         for running in self._running.values():
             running.cancellation.cancel(SHUTTING_DOWN)
-            running.slot.release()
+            running.release_slot()
+            self._withdraw(running)
             self._fail_turn(running, TurnCancelled(reason=SHUTTING_DOWN))
         self._running.clear()
 
@@ -246,13 +289,19 @@ class TurnQueue:
         the Server compete for (ADR-0008); without one, Prompts wait here until one is free.
         """
         while not (self._paused or self._stopping) and self._server is not None:
-            if len(self._running) >= capacity(self._server, self._parallel):
+            holding = sum(running.slot is not None for running in self._running.values())
+            if holding >= capacity(self._server, self._parallel):
+                return
+            continuation = self._next_continuation()
+            if continuation is None and not self._prompts.ready(active=self._running):
                 return
             slot = self._slot_locks.take(self._server.total_slots)
             if slot is None:
-                if self._prompts.ready(active=self._running):
-                    self._wait_for_slot(self._server.total_slots)
+                self._wait_for_slot(self._server.total_slots)
                 return
+            if continuation is not None:  # an answered Turn goes on before any new Prompt
+                self._resume_turn(continuation, slot)
+                continue
             prompt = self._prompts.pop_ready(active=self._running)
             if prompt is None:
                 slot.release()
@@ -271,9 +320,36 @@ class TurnQueue:
                 params=session.settings.sampling.request_params(),
             )
             job = TurnJob(session.id, request)
-            self._running[session.id] = _RunningTurn(prompt, session, job.cancellation, slot)
+            auto_confirm = self._devastation.on and session.settings.exempt
+            self._running[session.id] = _RunningTurn(
+                prompt, session, job.cancellation, job, slot, auto_confirm
+            )
             self._reporter.record(session.id, "turn_started", "turn started")
             self._submit_turn(job)
+
+    def _answered(self, running: _RunningTurn, answer: bool) -> None:
+        running.asking = None
+        running.answer = answer
+        self._start_turns()
+
+    def _next_continuation(self) -> _RunningTurn | None:
+        """The first answered Turn still waiting for a slot, in the order they started."""
+        for running in self._running.values():
+            waiting = running.slot is None and running.answer is not None
+            if waiting and running.cancellation.reason is None:
+                return running
+        return None
+
+    def _resume_turn(self, running: _RunningTurn, slot: SlotLock) -> None:
+        answer, running.answer, running.slot = running.answer, None, slot
+        assert answer is not None
+        running.job.confirmation.resume(answer)
+
+    def _withdraw(self, running: _RunningTurn) -> None:
+        """Its Confirmation is no longer valid: nobody answers it."""
+        if running.asking is not None:
+            self._boxes.withdraw(running.asking)
+            running.asking = None
 
     def _resume(self) -> None:
         if not self._paused:

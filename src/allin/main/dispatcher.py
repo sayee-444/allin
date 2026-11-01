@@ -11,8 +11,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 from allin.core.ids import MainId
+from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
+from allin.main.devastation import Devastation
 from allin.main.events import (
+    BoxAnswered,
+    ConfirmationRequested,
     DraftReceived,
     ErrorOccurred,
     InputReceived,
@@ -40,6 +44,7 @@ from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.slot_locks import SlotLocks
 from allin.main.state import MainStateStore
 from allin.main.turn_queue import RecheckServer, SubmitTurn, TurnQueue, WaitForSlot
+from allin.ui.screen import ScreenUpdate
 
 
 class Dispatcher:
@@ -60,11 +65,19 @@ class Dispatcher:
         slot_locks: SlotLocks,
         wait_for_slot: WaitForSlot,
         recheck_server: RecheckServer,
+        main_screen: Callable[[ScreenUpdate], None],
+        devastation: bool,
     ) -> None:
+        """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
+        ``devastation`` is whether a human lit it on the command line."""
         self._inbox = inbox
         self._main_id = main_id
         self._reporter = Reporter(main_chat, main_log, sessions)
         self._windows = OpenWindows(open_window, self._reporter, sessions)
+        self._boxes = MainBoxes(main_screen, self._windows)
+        self._devastation = Devastation(
+            devastation, main_screen, self._windows, sessions, self._boxes, self._reporter, main_id
+        )
         self._turns = TurnQueue(
             self._reporter,
             self._windows,
@@ -75,6 +88,8 @@ class Dispatcher:
             slot_locks,
             wait_for_slot,
             recheck_server,
+            self._boxes,
+            self._devastation,
         )
         self._recovery = Recovery(
             self._reporter,
@@ -87,7 +102,14 @@ class Dispatcher:
         )
         self._settings_problems = settings.problems
         settings_commands = SettingsCommands(
-            self._reporter, self._turns, sessions, main_id, settings, settings_files, sysprompts
+            self._reporter,
+            self._turns,
+            sessions,
+            main_id,
+            settings,
+            settings_files,
+            sysprompts,
+            self._devastation,
         )
         self._commands = MainCommands(
             self._reporter,
@@ -97,6 +119,8 @@ class Dispatcher:
             main_id,
             settings_commands,
             sysprompts,
+            self._boxes,
+            self._devastation,
         )
 
     def run(self) -> None:
@@ -104,6 +128,7 @@ class Dispatcher:
         self._reporter.report(None, "main_started", "main started", main_id=self._main_id)
         for problem in self._settings_problems:  # Main runs on with the defaults
             self._reporter.error(problem)
+        self._devastation.start()
         self._recovery.close_left_open()
         self._recovery.restore()
         while self._handle(self._inbox.get()):
@@ -133,6 +158,8 @@ class Dispatcher:
             case WindowConnected(session_id):
                 self._reporter.record(session_id, "window_connected", "window connected")
                 self._turns.send_turn_state(session_id)
+                self._boxes.window_opened(session_id)
+                self._devastation.mark(session_id)
             case InputReceived(session_id, text):
                 self._windows.clear_draft(session_id)  # the Window's input is empty now
                 self._commands.run(f"/send {session_id} {text}")
@@ -160,8 +187,12 @@ class Dispatcher:
                 self._turns.pause("down")
             case SlotFreed():
                 self._turns.slot_freed()
-            case MainCommandEntered(text):
-                return self._commands.run(text)
+            case ConfirmationRequested(session_id, title, text):
+                self._turns.confirmation_requested(session_id, title, text)
+            case BoxAnswered(box_id, answer):
+                self._boxes.answered(box_id, answer)
+            case MainCommandEntered(text, origin):
+                return self._commands.run(text, origin)
             case Shutdown():
                 return False
         return True

@@ -10,10 +10,14 @@ from pathlib import Path
 from allin.core.errors import AllInError
 from allin.ipc.channel import Channel
 from allin.ipc.messages import (
+    BoxAnswer,
+    BoxHide,
+    BoxShow,
     ChatAppend,
     ChatDelta,
     Close,
     ContextUsage,
+    Coverage,
     InputDraft,
     InputRestore,
     MainToWindow,
@@ -22,13 +26,18 @@ from allin.ipc.messages import (
     WindowReady,
     decode_main_message,
 )
+from allin.ui.boxes import Box, BoxClosed
+from allin.ui.marks import DEVASTATION_MARK
 from allin.ui.screen import (
     BorderStatus,
     ChatLine,
     ChatScreen,
     ChatStream,
+    HideBox,
     InputLock,
     InputText,
+    ShowBox,
+    TitleMark,
 )
 from allin.ui.status import context_status
 
@@ -51,6 +60,12 @@ class _MainListener:
                 self._screen.inbox.put(BorderStatus(context_status(context, limit, speed)))
             case InputRestore(text=text):
                 self._screen.inbox.put(InputText(text))
+            case BoxShow(box_id=box_id, kind=kind, title=title, text=text):
+                self._screen.inbox.put(ShowBox(Box(box_id, kind, title, text)))
+            case BoxHide(box_id=box_id):
+                self._screen.inbox.put(HideBox(box_id))
+            case Coverage(covered=covered):
+                self._screen.inbox.put(TitleMark(DEVASTATION_MARK if covered else ""))
             case Close():
                 self._screen.inbox.put(None)
 
@@ -74,8 +89,11 @@ def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: P
         screen.lock_input()
         channel.send(UserInput(text=text))
 
+    def box_closed(closed: BoxClosed) -> None:
+        channel.send(BoxAnswer(box_id=closed.box_id, answer=closed.answer))
+
     try:
-        screen.run(submit, lambda blocks: channel.send(InputDraft(blocks=list(blocks))))
+        screen.run(submit, lambda blocks: channel.send(InputDraft(blocks=list(blocks))), box_closed)
     except KeyboardInterrupt:
         pass
     finally:

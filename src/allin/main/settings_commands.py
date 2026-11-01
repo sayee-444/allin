@@ -4,19 +4,23 @@ Main's current Settings and its defaults live here, as their files last had them
 is checked whole before anything is written, so a bad key or value changes nothing.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from allin.core.errors import InvalidArguments, SyspromptLocked
+from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
 from allin.core.ids import MainId
+from allin.core.origin import HUMAN, Origin
 from allin.core.settings import (
     MainSettings,
     SessionSettings,
+    SettingName,
     apply_settings,
     parse_assignments,
     shown_settings,
 )
 from allin.main.conversation import Conversation
+from allin.main.devastation import Devastation
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
@@ -24,6 +28,7 @@ from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
 _DEFAULT_FLAG = "--default"
+_HUMAN_ONLY = frozenset({SettingName("exempt"), SettingName("session.exempt")})
 # What a Sysprompt is rendered from, so changing one renders it again.
 _SYSPROMPT_KEYS = ("sysprompt", "assistant_name", "username")
 _RESTART_NOTE = "base_url takes effect when Main restarts"
@@ -53,6 +58,13 @@ def parse_session_command(args: list[str]) -> SessionCommand | None:
     return SessionCommand(words[0], words[1] if len(words) > 1 else "")
 
 
+def _check_authority(assignments: Mapping[SettingName, str], origin: Origin) -> None:
+    """Only a human gives or takes away the Exemption (ADR-0013)."""
+    for name in assignments:
+        if name in _HUMAN_ONLY and origin != HUMAN:
+            raise HumanOnly(key=name, origin=origin)
+
+
 class SettingsCommands:
     def __init__(
         self,
@@ -63,7 +75,9 @@ class SettingsCommands:
         loaded: LoadedSettings,
         files: MainSettingsFiles,
         sysprompts: Path,
+        devastation: Devastation,
     ) -> None:
+        self._devastation = devastation
         self._reporter = reporter
         self._turns = turns
         self._sessions = sessions
@@ -77,7 +91,7 @@ class SettingsCommands:
     def current(self) -> MainSettings:
         return self._current
 
-    def set(self, text: str = "") -> bool:
+    def set(self, text: str = "", origin: Origin = HUMAN) -> bool:
         """``/set [--default] [key=value…]``: change Main's current or default Settings, or
         show them when no key is given."""
         words = text.split(maxsplit=1)
@@ -88,6 +102,7 @@ class SettingsCommands:
         if not assignments:
             self._show(None, target)
             return True
+        _check_authority(assignments, origin)
         changed = apply_settings(target, assignments)
         if changed.session.sysprompt != target.session.sysprompt:
             render_sysprompt(self._sysprompts, changed.session)  # the file must be there
@@ -103,7 +118,7 @@ class SettingsCommands:
         self._use(self._default)
         return True
 
-    def session(self, first: str, rest: str = "") -> bool:
+    def session(self, first: str, rest: str = "", origin: Origin = HUMAN) -> bool:
         """``/session <sid>`` shows a Session's Settings; ``/session set <sid> key=value…``
         changes them."""
         target = parse_session_command([first, rest] if rest else [first])
@@ -114,7 +129,11 @@ class SettingsCommands:
         if not assignments:
             self._show(session.id, session.settings)
             return True
-        self._save_session(session, apply_settings(session.settings, assignments))
+        _check_authority(assignments, origin)
+        changed = apply_settings(session.settings, assignments)
+        self._save_session(session, changed)
+        if changed.exempt != session.settings.exempt:
+            self._devastation.mark(session.id)
         return True
 
     def _use(self, settings: MainSettings) -> None:

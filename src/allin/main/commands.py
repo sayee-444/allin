@@ -5,8 +5,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from allin.core.errors import AllInError, InvalidArguments, UnknownCommand, WindowAlreadyOpen
+from allin.core.errors import (
+    AllInError,
+    HumanOnly,
+    InvalidArguments,
+    UnknownCommand,
+    WindowAlreadyOpen,
+)
 from allin.core.ids import MainId
+from allin.core.origin import HUMAN, Origin
+from allin.main.boxes import MainBoxes
+from allin.main.devastation import Devastation
 from allin.main.open_windows import OpenWindows
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
@@ -24,6 +33,9 @@ class _MainCommand:
     optional: tuple[str, ...] = ()  # params after ``params`` that may be left out
     # The Session it concerns, from its arguments; by default its ``sid`` param.
     session_of: Callable[[list[str]], str | None] | None = None
+    confirm: bool = False  # delicate: asks a Confirmation first, which ``-y`` skips (ADR-0009)
+    human_only: bool = False  # any other Origin is an error (ADR-0013)
+    takes_origin: bool = False  # ``run`` also gets the Origin, as ``origin=``
 
     def usage(self, name: str) -> str:
         words = [name, *(f"<{param}>" for param in self.params)]
@@ -40,7 +52,11 @@ class MainCommands:
         main_id: MainId,
         settings: SettingsCommands,
         sysprompts: Path,
+        boxes: MainBoxes,
+        devastation: Devastation,
     ) -> None:
+        self._boxes = boxes
+        self._devastation = devastation
         self._reporter = reporter
         self._windows = windows
         self._turns = turns
@@ -55,22 +71,34 @@ class MainCommands:
             # The only Command main that queues Prompts; Enter in a Window is /send to its own.
             "/send": _MainCommand(("sid", "text"), self._send, rest=True),
             "/raw": _MainCommand(("state",), self._set_raw, optional=("sid",)),
-            "/set": _MainCommand((), settings.set, rest=True, optional=("key=value",)),
-            "/reset": _MainCommand((), settings.reset),
+            "/set": _MainCommand(
+                (), settings.set, rest=True, optional=("key=value",), takes_origin=True
+            ),
+            # Delicate: the current Settings are lost unless they were also the defaults.
+            "/reset": _MainCommand((), settings.reset, confirm=True),
             "/session": _MainCommand(
                 ("sid",),
                 settings.session,
                 rest=True,
                 optional=("key=value",),
                 session_of=_session_of_session_command,
+                takes_origin=True,
             ),
+            "/devastation": _MainCommand(("state",), self._switch_devastation, human_only=True),
             "/exit": _MainCommand((), lambda: False),
         }
 
-    def run(self, text: str) -> bool:
-        """Run a Command main and report how it went; return whether Main keeps running."""
+    def run(self, text: str, origin: Origin = HUMAN) -> bool:
+        """Run a Command main and report how it went; return whether Main keeps running.
+
+        A delicate one first asks a Confirmation, unless ``-y`` (only from a human) or
+        ``--devastation`` answers it; it then runs when the answer comes.
+        """
         name = (text.split(maxsplit=1) or [""])[0]
         command = self._commands.get(name)
+        yes = False
+        if command is not None and command.confirm:
+            yes, text = _take_yes(text)
         args = text.split()[1:]
         if command is not None and command.rest:
             args = _split_rest(text, len(command.params) + len(command.optional))
@@ -87,12 +115,45 @@ class MainCommands:
             )
             if not len(command.params) <= len(args) <= len(names):
                 raise InvalidArguments(usage=command.usage(name))
-            keep_running = command.run(*args)
+            if (yes or command.human_only) and origin != HUMAN:
+                raise HumanOnly(command=name, origin=origin)
+            if command.confirm and not yes and not self._devastation.on:
+                self._ask(command, args, text, session_id)
+                return True
+            if command.confirm and not yes:
+                shown = f"{_summary(text)}: confirmation answered by --devastation"
+                self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
+            keep_running = self._call(command, args, origin)
         except AllInError as error:
             self._report(session_id, text, error)
         else:
             self._report(session_id, text, None)
         return keep_running
+
+    def _call(self, command: _MainCommand, args: list[str], origin: Origin) -> bool:
+        if command.takes_origin:
+            return command.run(*args, origin=origin)
+        return command.run(*args)
+
+    def _ask(
+        self, command: _MainCommand, args: list[str], text: str, session_id: str | None
+    ) -> None:
+        """Ask before a delicate command; it runs, as a human asked it, once answered yes."""
+
+        def on_answer(answer: bool) -> None:
+            if not answer:
+                self._reporter.report(session_id, "command", f"{_summary(text)}: rejected")
+                return
+            try:
+                self._call(command, args, HUMAN)
+            except AllInError as error:
+                self._report(session_id, text, error)
+            else:
+                self._report(session_id, text, None)
+
+        shown = f"{_summary(text)}: waiting for confirmation"
+        self._reporter.report(session_id, "confirmation_asked", shown, command=text)
+        self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
 
     def _report(self, session_id: str | None, text: str, error: AllInError | None) -> None:
         result = "ok" if error is None else f"error {error}"
@@ -119,6 +180,12 @@ class MainCommands:
         self._turns.push(session, Prompt(session.id, text))
         return True
 
+    def _switch_devastation(self, state: str) -> bool:
+        if state not in ("on", "off"):
+            raise InvalidArguments(usage=self._commands["/devastation"].usage("/devastation"))
+        self._devastation.switch(on=state == "on")
+        return True
+
     def _set_raw(self, state: str, session_id: str | None = None) -> bool:
         if state not in ("on", "off"):
             raise InvalidArguments(usage=self._commands["/raw"].usage("/raw"))
@@ -126,6 +193,14 @@ class MainCommands:
             session_id = self._sessions.load_owned(session_id, self._main_id).id
         self._reporter.show_raw(state == "on", session_id)
         return True
+
+
+def _take_yes(text: str) -> tuple[bool, str]:
+    """Whether ``-y`` follows the command's name, and the command without it."""
+    words = text.split(maxsplit=2)
+    if len(words) < 2 or words[1] != "-y":
+        return False, text
+    return True, " ".join([words[0], *words[2:]])
 
 
 def _session_of_session_command(args: list[str]) -> str | None:
