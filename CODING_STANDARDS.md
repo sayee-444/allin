@@ -11,7 +11,7 @@ Every value has a type that says what it means in the domain, and data from outs
   - pydantic `BaseModel`, `frozen=True`: anything serialized (Conversation, Logs, state, IPC messages).
   - `@dataclass(frozen=True)`: values that stay in the process (Main's events, `ServerProps`, `Prompt`).
   - `dict[str, Any]` behind a named `type` alias (`Item`, `Step.usage`): only for JSON kept verbatim from an outside API. Read its keys into annotated locals (`cached: int = details.get(...)`), so `Any` stops at that line.
-- **Domain concepts get their own type**: `Literal` for a closed set of strings (`ChatRole`, `PauseReason`), `NewType` for ids (`MainId`), a `type` alias to name a union or a callback (`SubmitTurn`). A bare `str` or `int` standing in for a concept is a review finding (Primitive Obsession).
+- **Domain concepts get their own type**: `Literal` for a closed set of strings (`ChatRole`, `PauseReason`), `NewType` for ids (`MainId`, `SessionId`), a `type` alias to name a union or a callback (`SubmitTurn`). A bare `str` or `int` standing in for a concept is a review finding (Primitive Obsession).
 - **Messages are discriminated unions**: each model has a `type: Literal[...]` field, and code branches on it with `match`.
 - **Seams are `Protocol`s**: a module depends on the smallest protocol it uses (`LlmStream`, `WindowLink`), so tests pass plain fakes.
 - **Unknown input is `object`**, narrowed with `isinstance` or parsed by a model. What is written as JSON is `JsonValue` (Log fields, error fields).
