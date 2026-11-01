@@ -1,0 +1,35 @@
+#24 Supervisor 1/4 — prueba a mano, 2026-11-01
+Main real en su xterm, --data-dir <scratch>/data (desechable); default.json con session.username=ana y session.server=a.
+Supervisores (servers/*.toml, copiados aquí): a (IQ2_XXS, puerto 9932) y b (IQ2_XXS, 9933), -c 16000 -np 1 q4_0 draft-mtp;
+big (Q6_K, 9934, -c 128000 q8_0, --fit off) para no caber en VRAM junto a a y b. GPU: RTX 5090 32 GB, libre al empezar.
+
+1. Arranque: Main vigila el Enlace por defecto (a) sin despertarlo. /new -> Sesión tmtqu3 (server=a).
+   "Responde solo: hola" -> "waking Supervisor a", la Ventana dice "asleep", luego "loading its model", y el Turno corre
+   cuando a está listo (a-despierta-*.png). a.json: starting -> ready, con pid, server_pid y argumentos.
+2. /exit de Main: siguen vivos el Supervisor a y su llama serve (pid 52684). Un Main nuevo dice "Supervisor a ready" al
+   momento, con el mismo server_pid: se adhiere sin recargar (b-segundo-main.png).
+3. /set session.server=b, /new -> u2zs4h (server=b): el Prompt despierta b. Las dos Sesiones cuentan del 1 al 200 a la
+   vez, cada una en su llama serve: nvidia-smi muestra dos procesos de 9816 MiB (c-a-la-vez-*.png).
+4. kill -9 al llama serve de a. FALLO ENCONTRADO: el Supervisor quedó failed/port_in_use "used by unknown": el bind de
+   prueba del puerto, sin SO_REUSEADDR, chocaba con las conexiones en TIME_WAIT del Servidor muerto. Arreglado
+   (supervisor/ports.py) con tests/test_ports.py, que falla sin el arreglo. Reinicio de Main, /send a tmtqu3: despierta.
+   Otra vez kill -9 (server_pid 53562): la Ventana de a dice "cannot be reached" y "loading"; u2zs4h (b) corre "sigo" en
+   ese momento; el Supervisor relanza llama (server_pid 53713) y "vuelvo" corre solo (d-caida-*.png, e-main.png,
+   a-lanzamientos.txt: tres lanzamientos de a).
+5. python -m allin.supervisor a con a activo -> "supervisor_already_running: lock='a.lock': Supervisor a already runs",
+   código 1, a.json idéntico (sha256) y los dos llama siguen.
+6. /set session.server=big, /new -> ytr2s9, Prompt: big.json queda failed, failure "vram", reason con
+   "cudaMalloc failed: out of memory" (big-vram.json, big-server-log.txt). Aviso en Main: "Supervisor big does not fit
+   in VRAM / the GPU is held by Supervisor a, b" (f-vram-*.png). Main no duerme a nadie.
+7. SIGTERM a los Supervisores a y b (aún no hay /server sleep: #26): quedan asleep, Main vuelve a intentar big, carga
+   (25752 MiB) y "grande" corre (g-reintento-*.png).
+Al final: SIGTERM a big y /exit; ningún llama ni Supervisor corriendo, GPU en 875 MiB.
+Rutas de la máquina sustituidas por <repo> y <scratch> en los textos y tapadas en las capturas.
+
+Solo con tests:
+  - Supervisor con llama falso (tests/fake_llama.py): listo, relanzado tras kill -9, 5 caídas -> failed, VRAM, puerto
+    ocupado con su dueño, nombre repetido, dormir (tests/test_supervisor.py).
+  - Lo que dice un Supervisor dormido, fallido o arrancando, y que lo que contesta en su puerto sin él no es su Servidor
+    (tests/test_server_links.py); despertar real en su propia sesión y el siguiente Main lo encuentra despierto.
+  - Espera por Supervisor, parallel sumando Supervisores, límite de contexto por Ventana, Aviso de VRAM y reintento
+    (tests/test_links.py).

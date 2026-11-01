@@ -1,0 +1,7 @@
+model = "models/Qwen3.8-27B-Uncensored-Q6_K.gguf"
+context = 128000
+parallel = 1
+cache_type_k = "q8_0"
+cache_type_v = "q8_0"
+port = 9934
+extra = ["--jinja", "--fit", "off"]

@@ -1,0 +1,3 @@
+--- 2026-11-01T06:06:04 llama serve -m <repo>/models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -c 16000 -np 1 -ngl all -fa on --port 9932 -ctk q4_0 -ctv q4_0 --spec-type draft-mtp --jinja
+--- 2026-11-01T06:08:25 llama serve -m <repo>/models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -c 16000 -np 1 -ngl all -fa on --port 9932 -ctk q4_0 -ctv q4_0 --spec-type draft-mtp --jinja
+--- 2026-11-01T06:08:47 llama serve -m <repo>/models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -c 16000 -np 1 -ngl all -fa on --port 9932 -ctk q4_0 -ctv q4_0 --spec-type draft-mtp --jinja

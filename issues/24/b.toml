@@ -1,0 +1,8 @@
+model = "models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf"
+context = 16000
+parallel = 1
+cache_type_k = "q4_0"
+cache_type_v = "q4_0"
+spec_type = "draft-mtp"
+port = 9933
+extra = ["--jinja"]

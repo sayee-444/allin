@@ -1,0 +1,33 @@
+{
+  "status": "asleep",
+  "pid": null,
+  "server_pid": null,
+  "arguments": [
+    "llama",
+    "serve",
+    "-m",
+    "models/Qwen3.8-27B-Uncensored-Q6_K.gguf",
+    "-c",
+    "128000",
+    "-np",
+    "1",
+    "-ngl",
+    "all",
+    "-fa",
+    "on",
+    "--port",
+    "9934",
+    "-ctk",
+    "q8_0",
+    "-ctv",
+    "q8_0",
+    "--jinja",
+    "--fit",
+    "off"
+  ],
+  "port": 9934,
+  "slept_by_human": false,
+  "last_exit_code": null,
+  "failure": null,
+  "reason": null
+}
