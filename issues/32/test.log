@@ -1,0 +1,23 @@
+#32 Perfiles 3/3: compartir Sesiones — prueba a mano (2026-11-01)
+Código: rama feature/32-compartir-sesiones. Servidor: el mismo IQ3_XXS de #31 en 9931.
+Main: python -m allin --data-dir <scratch>/d32.
+
+1. /profile new tesis; /new → yi4odu (default).
+   Nota: por un error de mi script mandé «/exit» como Prompt a la Ventana de yi4odu; corrió un Turno normal.
+   No tiene que ver con lo que se prueba, pero por eso la primera comparación de la carpeta no vale y se repitió.
+2. /profile share yi4odu tesis → «yi4odu shared with profile tesis».
+   /profile → «default (active): yi4odu» y «tesis: yi4odu». /session yi4odu → «profiles=default, tesis».
+   /profile switch tesis → «profile tesis active» sin «window closed» para yi4odu: su Ventana sigue abierta
+   (a-compartir-y-cambiar.png).
+3. Compartir y dejar de compartir solo cambian las listas. Con Main en tesis y ningún Turno:
+   md5 de sessions/yi4odu/* antes; /profile unshare yi4odu default → profiles/default/sessions.json = [];
+   /profile share yi4odu default → [yi4odu]; md5 después: iguales (diff vacío).
+     0f0d4bc7720c6948bebb641ece12ff1c  conversation.json
+     c4ed89cffa034c4d27b5eb6ae094040e  log.jsonl
+     a1cb853e44ef53ce67c89bfb1b6bef19  session.json
+4. En tesis, /new → i2y1aj (solo en tesis). /profile switch default (se cierra su Ventana).
+   /open i2y1aj → Aviso «Session shared: i2y1aj belongs to profile tesis; added to default too» (b-aviso-open.png).
+   /profile → «default (active): yi4odu, i2y1aj», «tesis: yi4odu, i2y1aj» (c-listas.png).
+5. Tests: tests/test_profile_commands.py (share/unshare, Sesión sin Perfil, errores, Aviso, /session y /profile,
+   cambio tras compartir). 777 tests, basedpyright y ruff limpios.
+Al final: /exit en Main.
