@@ -1,6 +1,6 @@
 # Coding standards
 
-How code in AllIn is written: read before implementing and when reviewing (`code-review`). Tooling already enforces the mechanical rules (basedpyright `strict`, ruff with `ANN` and `UP`; see `pyproject.toml`), so this file holds only the judgement calls.
+How code in AllIn is written: read before implementing and when reviewing (`code-review`). Tooling already enforces the mechanical rules (basedpyright `strict`, and the ruff families chosen in `pyproject.toml`, each with its reason), so this file holds only the judgement calls.
 
 ## Types
 
@@ -13,12 +13,23 @@ Every value has a type that says what it means in the domain, and data from outs
   - `dict[str, Any]` behind a named `type` alias (`Item`, `Step.usage`): only for JSON kept verbatim from an outside API. Read its keys into annotated locals (`cached: int = details.get(...)`), so `Any` stops at that line.
 - **Domain concepts get their own type**: `Literal` for a closed set of strings (`ChatRole`, `PauseReason`), `NewType` for ids (`MainId`, `SessionId`), a `type` alias to name a union or a callback (`SubmitTurn`). A bare `str` or `int` standing in for a concept is a review finding (Primitive Obsession).
 - **Messages are discriminated unions**: each model has a `type: Literal[...]` field, and code branches on it with `match`.
-- **Seams are `Protocol`s**: a module depends on the smallest protocol it uses (`LlmStream`, `WindowLink`), so tests pass plain fakes.
+- **A `Protocol` where there are two adapters**: the real one and a test fake count (`Llm`, `LlmStream`, `WindowLink`, `ChannelListener`). With a single implementation, depend on the class itself.
 - **Unknown input is `object`**, narrowed with `isinstance` or parsed by a model. What is written as JSON is `JsonValue` (Log fields, error fields).
 - **Escapes are named**: `cast` and `# pyright: ignore[<rule>]` carry the rule and a comment saying why the checker cannot see it.
+
+## Errors
+
+- **Every error is an `AllInError`** subclass with a stable `code` and its facts as keyword fields (`SessionNotFound(session_id=...)`), never a message string: Windows and Logs render it from the fields. Re-raise with `from error`.
+- **A broad `except Exception`** lives only where a thread must survive anything (a Turn's executor), with a `noqa: BLE001` comment saying why.
+
+## Concurrency
+
+- **Threads with blocking I/O, never `asyncio`** (ADR-0002): each FIFO end, the Server watch and each Turn has its own thread, and they talk to Main's single Dispatcher thread through a `queue.Queue`. Only Main writes state (ADR-0001).
+- **Code that tools run goes in a spawned process** (ADR-0005), never a thread or a persistent pool.
 
 ## Readability
 
 - **Names come from `GLOSSARY.md`.** A new domain term enters the glossary in the same change, and code uses it with the same meaning.
 - **Docstrings say what in domain words**, one line when it fits; comments say why, next to the line they explain.
+- **Code, comments and the Log are in English**; docs and GitHub text in Spanish.
 - **One function, one level of abstraction**: a function reads as steps in the domain's words, and the details sit in helpers named after what they do.

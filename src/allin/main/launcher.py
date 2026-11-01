@@ -35,7 +35,7 @@ class Launcher:
     def start(self) -> None:
         """Spawn the process (fork+exec done safely by Popen) and a watcher thread."""
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._log_path, "ab") as log:
+        with self._log_path.open("ab") as log:
             self._process = subprocess.Popen(
                 self._command,
                 stdin=subprocess.DEVNULL,
