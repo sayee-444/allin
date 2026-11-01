@@ -59,6 +59,10 @@ class Reporter:
         self.log_main(event, **({"sid": session_id} if session_id else {}), **fields)
         self._main_chat(f"[{session_id}] {shown}" if session_id else shown)
 
+    def show(self, session_id: str | None, shown: str) -> None:
+        """Show a line in Main's Chat that is no event, such as what ``/set`` lists."""
+        self._main_chat(f"[{session_id}] {shown}" if session_id else shown)
+
     def record(self, session_id: SessionId, event: str, shown: str, **fields: JsonValue) -> None:
         """A high-level event of a Session: its Log, Main's Log and Main's Chat."""
         self.log_session(session_id, event, **fields)

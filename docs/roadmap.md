@@ -8,8 +8,8 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #49 Fijar el estilo de Python: basedpyright en `strict` para `src/` y `tests/` (PR #62, con `SessionId` como tipo propio), 34 familias de ruff elegidas una a una con su motivo en `pyproject.toml`, y `CODING_STANDARDS.md` en la raíz (tipos, errores, threads, salida y nombres), que lee `code-review`. Un pre-commit en `.githooks/` corre las comprobaciones; su arreglo para revisar solo lo que se commitea está en el PR #63, pendiente de fusionar (2026-11-01).
-- **Siguiente:** #55 Ajustes: archivo, `/set`, `/set --default`, `/reset`, `/session set` y `/session`.
+- **Último hecho:** #55 Ajustes: los de Main en `settings/current.json` y `settings/default.json` de la carpeta de datos, los de cada Sesión en su `session.json`; `/set`, `/set --default`, `/reset`, `/session <sid>` y `/session set <sid>`, con un registro de claves sacado de los modelos de `core/settings.py` (tipo, valor por defecto, validación, ámbito y descripción, de donde sacará #23 la ayuda). `parallel` cambia en caliente; `base_url`, al reiniciar Main. El Sysprompt de una Sesión se vuelve a rellenar si cambian su archivo o los nombres mientras no tiene Turnos, y no se deja cambiar después (2026-11-01).
+- **Siguiente:** #28 Recuadro de Aviso y Confirmación.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -38,7 +38,7 @@ Ya tienen código; verificados y comentados.
 1. ✅ #21 Observar el Servidor en caliente, junto con #17 (503 al cargar el modelo)
 2. ✅ #20 Partir el Dispatcher
 3. ✅ #49 Fijar el estilo de Python con ruff y basedpyright
-4. #55 Ajustes: archivo, `/set`, `/set --default`, `/reset`, `/session set` y `/session`
+4. ✅ #55 Ajustes: archivo, `/set`, `/set --default`, `/reset`, `/session set` y `/session`
 5. #28 Recuadro de Aviso y Confirmación
 6. #24 Supervisor 1/4: Supervisor con nombre, Enlace de cada Sesión y despertar con trabajo (ADR-0022)
 7. #25 Supervisor 2/4: reinicio ordenado, drenado y una sola regla para las caídas (ADR-0023)

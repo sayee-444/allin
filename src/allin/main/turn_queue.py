@@ -195,6 +195,11 @@ class TurnQueue:
         """A slot lock another Main held may be free now."""
         self._start_turns()
 
+    def set_parallel(self, parallel: int | None) -> None:
+        """How many Turns this Main may run at once from now on; running ones go on."""
+        self._parallel = parallel
+        self._start_turns()
+
     def stop(self) -> None:
         """Main is shutting down: no Turn starts any more."""
         self._stopping = True

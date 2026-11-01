@@ -119,10 +119,10 @@ Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se compa
 Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que se copian a la Sesión en `/new` y que no usa, salvo el Enlace por defecto para sus propios Pasos; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
 
 **Ajustes actuales** (`current settings`):
-La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains.
+La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains. Se guardan en `settings/current.json` de la carpeta de datos (en la del Perfil desde #30); si ese archivo no es válido, Main dice qué clave falla y arranca con los por defecto. `/set` a secas los muestra.
 
 **Ajustes por defecto** (`default settings`):
-La versión con la que Main arranca tras un `/reset`; se cambia con `/set --default`.
+La versión con la que Main arranca tras un `/reset`; se cambia con `/set --default` y se guarda en `settings/default.json`.
 
 **Ajustes del Servidor** (`ServerSettings`):
 Los parámetros de carga con los que arranca el Servidor (modelo, contexto, slots, caché KV, GPU…); solo cambian reiniciándolo. No son los parámetros de muestreo, que viajan en cada Paso desde los Ajustes de Sesión.

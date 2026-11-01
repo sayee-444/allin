@@ -38,6 +38,7 @@ from allin.main.executors import TurnJob, execute
 from allin.main.log import Log, LogEntry, read_log
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
+from allin.main.settings_files import MainSettingsFiles
 from allin.main.slot_locks import SlotLocks
 from allin.main.slots import ServerProps
 from allin.main.state import MainState, MainStateStore
@@ -125,6 +126,8 @@ class MainHarness:
         self.sysprompts.mkdir()
         (self.sysprompts / "default.txt").write_text("I am $assistant_name; you are $username.")
         self.llm = FakeLlm()
+        self.settings_dir = tmp_path / "settings"
+        self.settings_files = MainSettingsFiles(self.settings_dir)
         self.settings = SETTINGS
         self.server = server()
         self.slot_locks_dir = tmp_path / "servers"
@@ -142,6 +145,15 @@ class MainHarness:
         self.server_up = True  # the queue, paused on start, resumes before any event
         self.orphans: list[tuple[str, int]] = []  # Windows a dead Main left, as Main closed them
         self.live_orphans: set[int] = set()  # their pids; any other pid is gone or not a Window
+
+    @property
+    def settings(self) -> MainSettings:
+        return self.settings_files.load().current
+
+    @settings.setter
+    def settings(self, settings: MainSettings) -> None:
+        """Main's current Settings file, as the next run reads it."""
+        self.settings_files.save_current(settings)
 
     def create_session(self, owner: MainId = ME, **settings: object) -> Session:
         session_settings = SETTINGS.session.model_copy(update=settings)
@@ -179,7 +191,8 @@ class MainHarness:
             self._open_window,
             submit_turn,
             ME,
-            self.settings,
+            self.settings_files.load(),
+            self.settings_files,
             self.sysprompts,
             self.state,
             self._close_orphan,
