@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from allin.core.errors import SessionNotFound, SessionStorageFailed, SessionUnreadable
+from allin.core.errors import (
+    SessionNotFound,
+    SessionNotOwned,
+    SessionStorageFailed,
+    SessionUnreadable,
+)
 from allin.core.ids import MainId
 from allin.core.settings import SessionSettings
 from allin.main.conversation import Conversation
@@ -32,6 +37,19 @@ def test_a_session_is_loaded_back_with_its_metadata(tmp_path: Path):
     loaded = SessionStore(tmp_path).load(created.id)
     assert loaded == created
     assert loaded.owner == OWNER and loaded.created_by == OWNER
+
+
+def test_a_main_loads_a_session_it_owns(tmp_path: Path):
+    store = SessionStore(tmp_path)
+    session = store.create(OWNER, SETTINGS, "sysprompt")
+    assert store.load_owned(session.id, OWNER) == session
+
+
+def test_a_main_cannot_load_a_session_another_main_owns(tmp_path: Path):
+    store = SessionStore(tmp_path)
+    session = store.create(MainId("other"), SETTINGS, "sysprompt")
+    with pytest.raises(SessionNotOwned):
+        store.load_owned(session.id, OWNER)
 
 
 def test_loading_an_unknown_session_fails(tmp_path: Path):

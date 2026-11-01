@@ -10,7 +10,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
-from allin.core.errors import SessionNotFound, SessionStorageFailed, SessionUnreadable
+from allin.core.errors import (
+    SessionNotFound,
+    SessionNotOwned,
+    SessionStorageFailed,
+    SessionUnreadable,
+)
 from allin.core.files import write_atomically
 from allin.core.ids import MainId, is_session_id, new_session_id
 from allin.core.settings import SessionSettings
@@ -61,6 +66,13 @@ class SessionStore:
             return Session.model_validate_json(path.read_bytes())
         except (OSError, ValidationError) as error:
             raise SessionUnreadable(session_id=session_id, reason=str(error)) from error
+
+    def load_owned(self, session_id: str, main_id: MainId) -> Session:
+        """Load a Session only ``main_id`` may use: the Main that owns it."""
+        session = self.load(session_id)
+        if session.owner != main_id:
+            raise SessionNotOwned(session_id=session.id, owner=session.owner)
+        return session
 
     def ids(self) -> list[str]:
         """The ids of every stored Session, in no particular order."""
