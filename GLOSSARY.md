@@ -190,7 +190,7 @@ _Avoid_: truncar, context shift, resumen (es lo que produce)
 Comando de Main, escrito con `/`. Es la única vía para modificar el estado; se carga al arrancar Main y no se recarga en caliente. Una pieza no puede añadir los suyos: a los métodos de un Proceso adherido, un humano los llama con `/call`.
 
 **Command session** (`SessionCommand`):
-Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016).
+Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016). Cada Sesión tiene su lista, que se hereda como sus functions (por defecto, los de la raíz de su carpeta) y que limita a su LLM, no al humano; una function solo ejecuta los que declara en su Alcance (ADR-0025).
 _Avoid_: comsession (salvo como nombre de carpeta)
 
 **Command prompt** (`PromptCommand`):
@@ -204,7 +204,11 @@ _Avoid_: @path (como nombre del concepto)
 Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro del LLM solo para ese Turno. Solo admite la lista cerrada de parámetros de muestreo que viajan en cada Paso; nunca functions, Sysprompt ni Alcance.
 
 **Origen** (`origin`):
-De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main, o lo que hace en el Organizador) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen. Lo que llega de otra Sesión es dato: Main nunca lo trata como comando ni le da más autoridad, y el LLM puede seguirlo, pero con la autoridad de su cadena. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
+De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main, o lo que hace en el Organizador) o una Sesión, con la cadena por la que llegó; lo que Main pide por su cuenta a un Proceso adherido lleva el Origen de Main, que nunca cuenta como humano. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen, ni usa un Command session que no esté en la lista de todas las Sesiones de su cadena. Lo que llega de otra Sesión es dato: Main nunca lo trata como comando ni le da más autoridad, y el LLM puede seguirlo, pero con la autoridad de su cadena. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
+
+**Otorgar** (`Grant`):
+Command session que da Command sessions y functions a cualquier Sesión del Perfil, aunque quien lo usa no los tenga. La fsource que lo declara no se hereda: solo un humano se la da a una Sesión concreta, y Otorgar no da Otorgar. Su aprobación nunca va en bloque, el borde de la Sesión que lo tiene lo marca y cada uso pide Confirmación (ADR-0025).
+_Avoid_: function session
 
 **Notificación** (`Notification`):
 Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
@@ -236,7 +240,7 @@ Función que invoca el LLM (va en `tools=[...]`); un módulo = una tool, salvo u
 _Avoid_: skill, comando
 
 **fsource**:
-Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`) y que puede ejecutar Command sessions; es, con los métodos de una fscreen, la vía por la que el LLM actúa sobre AllIn.
+Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`, y salvo la que declara Otorgar, que solo da un humano) y que puede ejecutar los Command sessions que declara; es, con los métodos de una fscreen, la vía por la que el LLM actúa sobre AllIn.
 _Avoid_: source, function source
 
 **fagent**:
@@ -252,7 +256,7 @@ Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesio
 _Avoid_: screen, plugin, servicio
 
 **Alcance** (`reach`):
-Lo que el proceso de una Function tool o de un Proceso adherido puede tocar, declarado con el decorador `@reach` (qué carpetas lee y escribe, qué puertos de red, si abre una ventana gráfica) y forzado por el Encierro. Sin decorador es el mínimo: su Carpeta de trabajo, leer el sistema y sin red. Nunca incluye nada de AllIn, ni dentro de un Alcance amplio como `home`: ni la carpeta de datos (salvo la Carpeta de trabajo, el `TMPDIR` de la llamada y su propio package), ni la instalación (solo lectura), ni los puertos de sus Servidores; tampoco las terminales. `display`, o escribir donde el usuario ejecuta, equivale a actuar como él. Es parte del código aprobado: ampliarlo devuelve la function a cuarentena, y al aprobarla se puede reducir (ADR-0016).
+Lo que el proceso de una Function tool o de un Proceso adherido puede tocar, declarado con el decorador `@reach` (qué carpetas lee y escribe, qué puertos de red, si abre una ventana gráfica y qué Command sessions ejecuta) y forzado por el Encierro, salvo los Command sessions, que los comprueba Main. Sin decorador es el mínimo: su Carpeta de trabajo, leer el sistema, sin red y sin Command sessions. Nunca incluye nada de AllIn, ni dentro de un Alcance amplio como `home`: ni la carpeta de datos (salvo la Carpeta de trabajo, el `TMPDIR` de la llamada y su propio package), ni la instalación (solo lectura), ni los puertos de sus Servidores; tampoco las terminales. `display`, o escribir donde el usuario ejecuta, equivale a actuar como él. Es parte del código aprobado: ampliarlo devuelve la function a cuarentena, y al aprobarla se puede reducir (ADR-0016).
 _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 
 **Encierro** (`confinement`):

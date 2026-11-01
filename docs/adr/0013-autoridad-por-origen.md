@@ -23,3 +23,5 @@ Cada Prompt que despierta una Suscripción lleva en su Origen la cadena de Suscr
 Los hashes protegen las piezas, no el estado: sin aislamiento, una tool aprobada podría escribir los archivos de estado de Main y romper ADR-0001 desde fuera. Ese riesgo lo cierra el encierro de cada proceso de tool (ADR-0016), que llega en F2 con las primeras tools.
 
 **Enmienda (2026-11-01).** Un Atajo (`/key`) ejecuta su comando con Origen humano, porque lo pulsa un humano. Por eso solo un humano los cambia, y ningún Kit los trae: si un LLM pudiera asignarle a Enter un `/reset --all`, el humano lo ejecutaría con su autoridad sin saberlo. Lo que el humano escribe durante un Turno entra en él sin cambiar su Origen (ADR-0024).
+
+**Enmienda (2026-11-01, ADR-0025).** El eslabón más débil vale también para los Command sessions: cada Sesión tiene su lista, y lo que llega por una cadena solo usa lo que está en la lista de todas sus Sesiones. Lo que Main pide por su cuenta a un Proceso adherido lleva el Origen de Main, que nunca cuenta como humano. Otorgar desde una Sesión es siempre delicado, como Crear: pide Confirmación, y solo `--devastation` la salta.
