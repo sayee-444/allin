@@ -112,10 +112,11 @@ class ProfileSwitch:
         if self._asked is None:
             self._reporter.show(None, f"profile {profile.name} is already active")
             return
-        shown = f"profile switch to {self._asked.profile.name} dropped"
+        dropped = self._asked.profile.name
         self._asked = None
         self._turns.resume()
-        self._reporter.report(None, "profile_switch_dropped", shown, profile=profile.name)
+        shown = f"profile switch to {dropped} dropped"
+        self._reporter.report(None, "profile_switch_dropped", shown, profile=dropped)
 
 
 def _turns(count: int) -> str:

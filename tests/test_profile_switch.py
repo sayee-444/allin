@@ -259,6 +259,28 @@ def test_now_given_while_waiting_cancels_what_runs(main: MainHarness):
     assert main.profiles.open(None).name == "tesis"
 
 
+def test_asking_for_the_active_profile_while_waiting_drops_the_switch(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    other_profile(main)
+    main.hold_turns = True
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}"),
+        InputReceived(a.id, "a1"),
+        switch("tesis"),
+        InputReceived(b.id, "b1"),  # waits: no Turn starts while the switch is asked
+        switch("default"),
+        ended(a),
+        settle=True,
+    )
+    assert any("profile switch to tesis dropped" in line for line in chat)
+    assert prompts(main) == ["a1", "b1"]
+    assert switched_out(main, a.id) == 0
+    assert main.profiles.open(None).name == "default"
+    [dropped] = [entry for entry in main.main_log() if entry.event == "profile_switch_dropped"]
+    assert dropped.fields["profile"] == "tesis"
+
+
 def test_entering_a_profile_with_another_default_enlace_moves_no_session(main: MainHarness):
     shared, mine = main.create_session(), main.create_session()
     tesis = other_profile(main)
