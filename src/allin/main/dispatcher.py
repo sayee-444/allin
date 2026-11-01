@@ -122,6 +122,7 @@ class Dispatcher:
             sysprompts,
             self._devastation,
             notices.types,
+            links,
         )
         self._server_commands = ServerCommands(
             servers,

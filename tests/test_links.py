@@ -6,6 +6,7 @@ import pytest
 
 from allin.core.ids import ServerKey, SupervisorName
 from allin.ipc.messages import ChatAppend, ContextUsage
+from allin.main.conversation import Step
 from allin.main.events import (
     InputReceived,
     MainCommandEntered,
@@ -15,6 +16,8 @@ from allin.main.events import (
     ServerFailed,
     ServerLoading,
     ServerReady,
+    Tick,
+    TurnEnded,
     WindowConnected,
 )
 from allin.ui.screen import ShowBox
@@ -181,11 +184,36 @@ def test_a_supervisor_that_failed_otherwise_is_a_notice_saying_why(main: MainHar
     assert "port_in_use" in box.title and box.text == reason
 
 
-def test_a_sessions_enlace_cannot_change_until_it_can_change_atomically(main: MainHarness):
+def change(session_id: str, name: str) -> MainCommandEntered:
+    return MainCommandEntered(f"/session set {session_id} server={name}")
+
+
+def test_changing_the_enlace_mid_turn_lets_the_turn_end_on_the_old_one_and_the_next_go_to_the_new(
+    main: MainHarness,
+):
     session = main.create_session(server="gpu")
-    chat = main.run(MainCommandEntered(f"/session set {session.id} server=cpu"))
-    assert any("invalid_setting" in line for line in chat)
-    assert main.sessions.load(session.id).settings.server == "gpu"
+    linked: list[str | None] = []
+
+    def look() -> None:
+        linked.append(main.sessions.load(session.id).settings.server)
+
+    main.run(
+        InputReceived(session.id, "one"),
+        ready(GPU),
+        change(session.id, "cpu"),
+        ready(CPU),
+        InputReceived(session.id, "two"),
+        look,  # the second waits for the first, and the change with it
+        TurnEnded(session.id, steps=[Step(output=[])]),
+        look,
+        settle=True,
+    )
+    assert linked == ["gpu", "cpu"]
+    assert [job.base_url for job in main.held] == [
+        "http://127.0.0.1:9101/v1",
+        "http://127.0.0.1:9102/v1",
+    ]
+    assert main.servers.slept == []  # the old Supervisor goes on
 
 
 def test_once_the_supervisor_holding_the_gpu_falls_asleep_main_tries_again(main: MainHarness):
@@ -218,3 +246,124 @@ def test_each_window_shows_the_context_limit_of_its_own_supervisor(main: MainHar
 
     assert limits(on_gpu.id)[-1] == 4096 and 2048 not in limits(on_gpu.id)
     assert limits(on_cpu.id)[-1] == 2048 and 4096 not in limits(on_cpu.id)
+
+
+def test_changing_the_default_enlace_moves_no_session_and_the_next_new_uses_it(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    main.run(MainCommandEntered("/set session.server=cpu"), MainCommandEntered("/new"))
+    [(new_id, _)] = main.opened
+    assert main.sessions.load(session.id).settings.server == "gpu"
+    assert main.sessions.load(new_id).settings.server == "cpu"
+
+
+def test_the_default_enlace_cannot_name_a_supervisor_with_no_settings(main: MainHarness):
+    chat = main.run(MainCommandEntered("/set session.server=nowhere"))
+    assert any("server_settings_invalid" in line for line in chat)
+    assert main.settings.session.server is None
+
+
+def test_a_supervisor_that_does_not_fit_in_vram_leaves_the_enlace_where_it_was_and_says_why(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    holder = (SupervisorName("gpu"),)
+    chat = main.run(
+        change(session.id, "cpu"),
+        ServerChanged(CPU, ServerLoading()),
+        ServerChanged(CPU, ServerFailed("vram", "cudaMalloc failed: out of memory", holder)),
+        settle=True,
+    )
+    assert main.sessions.load(session.id).settings.server == "gpu"
+    [failed] = [line for line in chat if "Enlace not changed" in line]
+    assert "does not fit in VRAM" in failed and "/server sleep gpu" in failed
+    assert "stays on Supervisor gpu" in failed
+    assert main.servers.woken == ["cpu"] and main.servers.slept == []
+
+
+def test_moving_a_session_to_a_supervisor_with_less_context_than_its_conversation_gives_a_notice(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    usage = {"input_tokens": 5000, "output_tokens": 1000, "total_tokens": 6000}
+    main.run(
+        InputReceived(session.id, "long"),
+        ServerChanged(GPU, ServerReady(server(context=8192))),
+        TurnEnded(session.id, steps=[Step(output=[], usage=usage)]),
+        change(session.id, "cpu"),
+        ServerChanged(CPU, ServerReady(server(context=4096))),
+        settle=True,
+    )
+    assert main.sessions.load(session.id).settings.server == "cpu"
+    [box] = [update.box for update in main.main_screen if isinstance(update, ShowBox)]
+    assert "4096" in box.title and "6000" in box.text
+
+
+def test_a_change_to_a_supervisor_a_human_put_to_sleep_fails_at_once_saying_how_to_wake_it(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    chat = main.run(
+        change(session.id, "cpu"),
+        ServerChanged(CPU, ServerAsleep(slept_by_human=True)),
+        settle=True,
+    )
+    assert main.sessions.load(session.id).settings.server == "gpu"
+    assert any("/server wake cpu" in line for line in chat)
+
+
+def test_a_failure_the_supervisor_told_before_it_was_woken_ends_the_change_only_once_stale(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+
+    def later() -> None:
+        main.now += 11
+
+    chat = main.run(
+        change(session.id, "cpu"),
+        ServerChanged(CPU, ServerFailed("port_in_use", "port 9102 is used")),  # its last run
+        Tick(),
+        later,
+        Tick(),
+        settle=True,
+    )
+    failed = [line for line in chat if "Enlace not changed" in line]
+    assert len(failed) == 1 and "port_in_use" in failed[0]
+
+
+def test_while_its_enlace_changes_a_sessions_prompts_wait_and_then_go_to_the_new_one(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    main.run(
+        ready(GPU),
+        change(session.id, "cpu"),
+        InputReceived(session.id, "hi"),
+        ServerChanged(CPU, ServerLoading()),
+        ready(CPU),
+        settle=True,
+    )
+    assert [job.base_url for job in main.held] == ["http://127.0.0.1:9102/v1"]
+
+
+def test_asking_for_the_current_enlace_drops_a_pending_change(main: MainHarness):
+    session = main.create_session(server="gpu")
+    chat = main.run(
+        change(session.id, "cpu"),
+        change(session.id, "gpu"),
+        InputReceived(session.id, "hi"),
+        ready(CPU),
+        ready(GPU),
+        settle=True,
+    )
+    assert main.sessions.load(session.id).settings.server == "gpu"
+    assert any("dropped" in line for line in chat)
+    assert [job.base_url for job in main.held] == ["http://127.0.0.1:9101/v1"]
+
+
+def test_a_session_can_move_to_the_server_at_mains_base_url(main: MainHarness):
+    session = main.create_session(server="gpu")
+    main.run(change(session.id, ""), settle=True)  # the harness's Server at 9931 is ready
+    assert main.sessions.load(session.id).settings.server is None
