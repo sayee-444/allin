@@ -63,7 +63,8 @@ def _check(event: NoticeEvent, params: dict[str, JsonValue]) -> Mapping[str, obj
             why = f"the Conversation filled the slot's {event.limit} tokens of context"
             # Asking it to go on does not fit either: the full Conversation is sent again.
             how = (
-                f"link the Session to a Server with more context (/session set {sid} server=<name>)"
+                f"compact it (/session compact {sid}) or link the Session to a Server with more"
+                f" context (/session set {sid} server=<name>)"
             )
     return {"why": why, "how": how}
 
