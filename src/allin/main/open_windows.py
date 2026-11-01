@@ -6,6 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from allin.core.drafts import put_back
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
 from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore, PoolShared
@@ -67,6 +68,8 @@ class OpenWindows:
         # whether each open Window was last told another one uses its pool.
         self._in_course: dict[ServerKey, frozenset[SessionId]] = {}
         self._shared: dict[SessionId, bool] = {}
+        # Windows Main closed itself whose xterm has not said it is gone yet, by Session.
+        self._closing: dict[SessionId, int] = {}
 
     def open(self, session: Session, streamed: Streamed | None) -> None:
         """Open the Session's Window and show it its Chat so far and its Draft.
@@ -166,13 +169,30 @@ class OpenWindows:
         if session_id is not None:
             self.send(session_id, error_entry(str(error)))
 
-    def closed(self, session_id: SessionId, returncode: int | None) -> None:
-        """The Window is gone: release Main's end of it."""
+    def closed(self, session_id: SessionId, returncode: int | None) -> bool:
+        """The Window is gone: release Main's end of it. ``False`` if it was one Main had
+        closed itself (``close``), which is told already and changes nothing now."""
+        if self._closing.get(session_id, 0) > 0:
+            self._closing[session_id] -= 1
+            return False
         link = self._links.pop(session_id, None)
         if link is not None:
             link.close()
         text = f"window closed (exit code {returncode})"
         self._reporter.record(session_id, "window_closed", text, returncode=returncode)
+        return True
+
+    def close(self, session_id: SessionId, reason: str) -> None:
+        """Ask a Window to close and release it, keeping its Draft: its Session goes on."""
+        link = self._links.pop(session_id, None)
+        if link is None:
+            return
+        link.send(Close())
+        link.close()
+        self._closing[session_id] = self._closing.get(session_id, 0) + 1
+        self._shared.pop(session_id, None)
+        shown = f"window closed: {reason}"
+        self._reporter.record(session_id, "window_closed", shown, returncode=None, reason=reason)
 
     def close_all(self) -> None:
         """On shutdown: ask every Window to close, then release them."""
@@ -193,6 +213,26 @@ class OpenWindows:
     def keep_draft(self, session_id: SessionId, blocks: Sequence[str]) -> None:
         """What a Session's Window holds in its input now, shown block first."""
         self._drafts[session_id] = list(blocks)
+
+    def put_back(self, session_id: SessionId, text: str) -> None:
+        """A Prompt that did not run goes back to its input, ahead of the Draft."""
+        self._drafts[session_id] = put_back(self._drafts.get(session_id, []), text)
+        self.send(session_id, InputRestore(text=text))
+
+    def replace_drafts(self, drafts: Mapping[SessionId, Sequence[str]]) -> None:
+        """Every Draft becomes the one in ``drafts``. An open Window keeps what its input
+        holds, and the blocks of ``drafts`` it lacks come back ahead of them, so nothing typed
+        is lost."""
+        replaced = {sid: list(draft) for sid, draft in drafts.items() if sid not in self._links}
+        for session_id in self._links:
+            blocks = self._drafts.get(session_id, [])
+            missing = [block for block in drafts.get(session_id, []) if block not in blocks]
+            for block in reversed(missing):  # each one shown pushes the one before it back
+                blocks = put_back(blocks, block)
+                self.send(session_id, InputRestore(text=block))
+            if blocks:
+                replaced[session_id] = blocks
+        self._drafts = replaced
 
     def clear_draft(self, session_id: SessionId) -> None:
         """The Window sent its input, which is empty now."""

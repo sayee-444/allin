@@ -74,6 +74,16 @@ class Recovery:
         itself.
         The queue waits for the server's ``/health``, which may still be loading the model.
         """
+        self._put_back()
+
+    def enter(self, state: MainStateStore) -> None:
+        """Put back the MainState of the Profile Main just entered (``/profile switch``): the
+        Windows Main kept open, those of Sessions both Profiles share, stay as they are."""
+        self._state = state
+        self._saved = MainState()
+        self._put_back()
+
+    def _put_back(self) -> None:
         try:
             self._saved = self._state.load()
         except AllInError as error:
@@ -83,10 +93,11 @@ class Recovery:
         for prompt in saved.running:
             draft = drafts.get(prompt.session_id, [])
             drafts[prompt.session_id] = put_back(draft, prompt.text)
-        for session_id, blocks in drafts.items():
-            self._windows.keep_draft(session_id, blocks)
+        self._windows.replace_drafts(drafts)
         self._turns.requeue(saved.queue)
         for session_id, pid in saved.windows.items():
+            if self._windows.is_open(session_id):
+                continue
             # Only one Main of this id runs (ADR-0007), so a Window of its still up is an orphan.
             if self._close_orphan_window(session_id, pid):
                 shown = "window left open by the last main closed"

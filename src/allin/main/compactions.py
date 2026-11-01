@@ -91,6 +91,10 @@ class Compactions:
         # Sessions whose next Prompt already had its automatic Compaction.
         self._tried: set[SessionId] = set()
 
+    def use_sysprompts(self, sysprompts: Path) -> None:
+        """The active Profile's, once Main switched to another."""
+        self._sysprompts = sysprompts
+
     def tried(self, session_id: SessionId) -> bool:
         return session_id in self._tried
 

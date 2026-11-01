@@ -166,9 +166,20 @@ class SettingsCommands:
             self._turns.change_link(self._sessions.load(session.id), link)
         return True
 
+    def enter(self, loaded: LoadedSettings, files: MainSettingsFiles, sysprompts: Path) -> None:
+        """The Settings and Sysprompts of the Profile Main just entered (``/profile switch``):
+        what changes goes on in the running Main, and its default Enlace only reaches the
+        Sessions ``/new`` makes from now on (ADR-0022)."""
+        self._files, self._default, self._sysprompts = files, loaded.default, sysprompts
+        self._apply(loaded.current)
+
     def _use(self, settings: MainSettings) -> None:
         """Make ``settings`` the current ones, on disk and in the running Main."""
         self._files.save_current(settings)
+        self._apply(settings)
+
+    def _apply(self, settings: MainSettings) -> None:
+        """Make ``settings`` the current ones in the running Main."""
         before, self._current = self._current, settings
         if settings.parallel != before.parallel:
             self._turns.set_parallel(settings.parallel)
