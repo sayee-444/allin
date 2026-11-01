@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pydantic import JsonValue
 
 from allin.core.ids import SessionId
+from allin.main.conversation import CutReason
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,8 @@ class NoticeEvent:
     session_id: SessionId
     context: int | None  # tokens the Session's Context fills now
     limit: int | None  # each slot's context, once the Server said it
+    cut: CutReason | None = None  # why the Step was cut, if it was (ADR-0004)
+    output_cap: int | None = None  # the most it could generate
 
 
 # Gets what happened and the Session's Settings of the type; gives the variables of its text,

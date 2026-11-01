@@ -4,7 +4,7 @@ Saved as ``conversation.json`` in the Session's folder once per finished Turn, a
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -14,6 +14,8 @@ from allin.core.files import write_atomically
 _FILE = "conversation.json"
 
 type Item = dict[str, Any]  # a Responses API input/output item, as JSON
+# Why a Turn was cut (ADR-0004): its last Step reached its Output cap, or the slot's limit.
+type CutReason = Literal["output_cap", "slot_limit"]
 
 
 class Step(BaseModel, frozen=True):
@@ -28,6 +30,7 @@ class Step(BaseModel, frozen=True):
 class Turn(BaseModel, frozen=True):
     prompt: str
     steps: list[Step]
+    cut: CutReason | None = None  # a cut Turn keeps what it generated, marked
 
 
 class Conversation(BaseModel, frozen=True):

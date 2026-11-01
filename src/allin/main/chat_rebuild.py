@@ -9,7 +9,8 @@ from collections.abc import Iterable
 
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
-from allin.main.conversation import Conversation, Item, Step, Turn
+from allin.main.conversation import Conversation, CutReason, Item, Step, Turn
+from allin.main.cut_turns import cut_mark
 from allin.main.log import LogEntry
 from allin.main.usage import turn_tokens
 
@@ -62,6 +63,8 @@ def _turn_output(turn: Turn, settings: SessionSettings) -> list[ChatAppend]:
                 pass
     if (tokens := tokens_entry(turn.steps)) is not None:
         chat.append(tokens)
+    if turn.cut is not None:
+        chat.append(cut_entry(turn.cut))
     return chat
 
 
@@ -90,6 +93,11 @@ def dropped_entry(count: int, reason: str) -> ChatAppend:
     return ChatAppend(
         role="info", label="dropped", text=f"{count} queued prompt(s) dropped: {reason}"
     )
+
+
+def cut_entry(reason: CutReason) -> ChatAppend:
+    """The mark of a cut Turn, after its output and what it cost (ADR-0004)."""
+    return ChatAppend(role="info", label="cut", text=cut_mark(reason))
 
 
 def tokens_entry(steps: list[Step]) -> ChatAppend | None:

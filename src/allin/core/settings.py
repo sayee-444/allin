@@ -36,7 +36,10 @@ class Sampling(BaseModel, frozen=True):
         default=None, ge=0, le=1, description="nucleus sampling; empty: the Server's"
     )
     max_output_tokens: int | None = Field(
-        default=None, ge=1, description="most tokens a Step may generate; empty: the Server's"
+        default=None,
+        ge=1,
+        description="most tokens a Step may generate; empty: 16384, or a quarter of the slot if"
+        " smaller",
     )
 
     def request_params(self) -> dict[str, Any]:

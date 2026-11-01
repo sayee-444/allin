@@ -457,7 +457,7 @@ def test_a_turn_that_fails_half_way_leaves_the_conversation_as_it_was(main: Main
     assert any("llm_request_failed" in line for line in chat)
 
 
-def test_send_from_main_keeps_the_whole_text_and_sends_only_the_sampling_params_set(
+def test_send_from_main_keeps_the_whole_text_and_sends_the_sampling_params_set_and_the_cap(
     main: MainHarness,
 ):
     session = main.create_session(sampling=Sampling(temperature=0.3))
@@ -466,7 +466,7 @@ def test_send_from_main_keeps_the_whole_text_and_sends_only_the_sampling_params_
     [request] = main.llm.requests
     assert request["input"][-1] == {"role": "user", "content": "two words\nand a line"}
     assert request["model"] == "allin" and request["temperature"] == 0.3
-    assert "top_p" not in request and "max_output_tokens" not in request
+    assert "top_p" not in request and request["max_output_tokens"] == 16384
 
 
 def test_text_from_a_window_reaches_the_llm_exactly_as_typed(main: MainHarness):
