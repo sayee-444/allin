@@ -177,6 +177,20 @@ class ProfileStore:
         except OSError as error:
             raise ProfileStorageFailed(path=str(profile.folder), reason=str(error)) from error
 
+    def remove_session(self, profile: Profile, session_id: SessionId) -> None:
+        """Take a Session out of ``profile``'s list; the Session itself stays in ``sessions/``."""
+        listed = self.sessions(profile)
+        if session_id not in listed:
+            return
+        try:
+            _write_sessions(profile.folder, [sid for sid in listed if sid != session_id])
+        except OSError as error:
+            raise ProfileStorageFailed(path=str(profile.folder), reason=str(error)) from error
+
+    def profiles_of(self, session_id: SessionId) -> list[ProfileName]:
+        """The Profiles whose list has the Session, sorted."""
+        return [name for name in self.names() if session_id in self.sessions(self._profile(name))]
+
     def _chosen(self, name: str | None) -> ProfileName:
         """The Profile ``name`` names, the last one used if ``None``; a name that is not one
         is never turned into a path."""

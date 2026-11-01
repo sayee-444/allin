@@ -8,8 +8,8 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #31 Perfiles 2/3, `/profile switch <nombre> [--now]` (2026-11-01). Main cambia de Perfil sin reiniciarse. Al pedirlo, la cola se pausa y ningún Turno empieza. Sin `--now` espera a que terminen los Turnos en curso (uno que espera Confirmación cuenta) y lo dice en el Chat de Main; con `--now` los cancela y su Prompt vuelve al input. Después el Perfil saliente guarda su Estado de Main con la cola, se cierran las Ventanas de las Sesiones que el entrante no tiene, y entran sus Ajustes (con su Enlace por defecto, solo para sus `/new`), sus Sysprompts, Borradores, cola y Ventanas. Ninguna Sesión cambia de Enlace. Una Sesión compartida sigue como estaba: su Ventana sigue abierta, sus Prompts en cola siguen en la cola, y su input conserva lo que tiene y recupera delante los bloques que el Perfil había guardado, para no perder nada. Pedir el Perfil activo mientras se espera abandona el cambio. Probado a mano con IQ3_XXS: la espera, la Ventana compartida, el Enlace de `tesis` frente al de `default`, `--now` y un nombre que no existe. Métricas: 766 tests, cobertura 89 %, mutación 95 %, 8 escapes, CFR 3 %. Antes: #46 Compactación del Contexto, #30 Perfiles 1/3 y #29 Admisión al pool.
-- **Siguiente:** #32 Perfiles 3/3, compartir Sesiones. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente.
+- **Último hecho:** #32 Perfiles 3/3, compartir Sesiones (2026-11-01). `/profile share <sid> <perfil>` y `/profile unshare <sid> [perfil]` solo cambian las listas de los Perfiles; la carpeta de la Sesión no se toca, y una Sesión sin Perfil sigue en `sessions/` y se vuelve a abrir. `/open` de una Sesión que solo es de otros Perfiles muestra un Aviso y la añade al activo. `/profile` lista cada Perfil con sus Sesiones y `/session <sid>` dice en qué Perfiles está. Tras compartir, `/profile switch` deja abierta su Ventana. Antes: #31 `/profile switch` (una Sesión compartida sigue como estaba al cambiar, con su Ventana, su cola y su input), #46 Compactación y #30 Perfiles 1/3.
+- **Siguiente:** #39 Perfiles 4/4, exportar un Perfil como copia, y Kits (primera parte). Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -52,7 +52,7 @@ Ya tienen código; verificados y comentados.
 
 1. ✅ #30 Perfiles 1/3: Perfil con nombre, `--profile`, `/profile new`, piezas por Perfil, migración a `default`
 2. ✅ #31 Perfiles 2/3: `/profile switch`
-3. #32 Perfiles 3/3: compartir Sesiones
+3. ✅ #32 Perfiles 3/3: compartir Sesiones
 4. #39 Perfiles 4/4: exportar un Perfil como copia, y Kits (primera parte)
 
 ## Pre-F2 · Pendientes de F1

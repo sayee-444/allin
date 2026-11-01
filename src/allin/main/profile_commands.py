@@ -1,24 +1,42 @@
-"""``/profile``: the Profiles there are, making a new one and switching to another
-(ADR-0010)."""
+"""``/profile``: the Profiles there are, making a new one, switching to another and sharing
+Sessions between them (ADR-0010)."""
 
 from allin.core.errors import InvalidArguments
-from allin.core.ids import SessionId
+from allin.core.ids import MainId, SessionId
+from allin.main.boxes import MainBoxes
 from allin.main.profile_switch import ProfileSwitch
-from allin.main.profiles import ProfileStore
+from allin.main.profiles import Profile, ProfileStore
 from allin.main.reporting import Reporter
+from allin.main.sessions import SessionStore
 
-_USAGE = "/profile [new [name] | switch <name> [--now]]"
+_USAGE = (
+    "/profile [new [name] | switch <name> [--now] | share <sid> <profile>"
+    " | unshare <sid> [profile]]"
+)
 
 
 class ProfileCommands:
-    def __init__(self, reporter: Reporter, profiles: ProfileStore, switch: ProfileSwitch) -> None:
+    def __init__(
+        self,
+        reporter: Reporter,
+        profiles: ProfileStore,
+        switch: ProfileSwitch,
+        sessions: SessionStore,
+        main_id: MainId,
+        boxes: MainBoxes,
+    ) -> None:
         self._reporter = reporter
         self._profiles = profiles
         self._switch = switch
+        self._sessions = sessions
+        self._main_id = main_id
+        self._boxes = boxes
 
     def run(self, text: str = "") -> bool:
-        """``/profile`` lists the Profiles; ``/profile new [name]`` makes one; ``/profile switch
-        <name> [--now]`` makes Main use another."""
+        """``/profile`` lists the Profiles with their Sessions; ``/profile new [name]`` makes one;
+        ``/profile switch <name> [--now]`` makes Main use another; ``/profile share <sid>
+        <profile>`` and ``/profile unshare <sid> [profile]`` put a Session in a Profile's list or
+        take it out (the active one's by default)."""
         match text.split():
             case []:
                 self._list()
@@ -30,21 +48,64 @@ class ProfileCommands:
                 self._switch.ask(name, now=False)
             case ["switch", name, "--now"]:
                 self._switch.ask(name, now=True)
+            case ["share", session_id, name]:
+                self._share(session_id, name)
+            case ["unshare", session_id]:
+                self._unshare(session_id, None)
+            case ["unshare", session_id, name]:
+                self._unshare(session_id, name)
             case _:
                 raise InvalidArguments(usage=_USAGE)
         return True
 
-    def joined(self, session_id: SessionId) -> None:
-        """A Session the active Profile created or opened: it belongs to it from now on."""
+    def created(self, session_id: SessionId) -> None:
+        """A Session ``/new`` made: it belongs to the active Profile."""
         self._profiles.add_session(self._switch.active, session_id)
+
+    def opened(self, session_id: SessionId) -> None:
+        """A Session a human opened: it belongs to the active Profile from now on, and if it
+        was only another Profile's, a Notice says so, since a Profile is private."""
+        active = self._switch.active
+        owners = self._profiles.profiles_of(session_id)
+        if owners and active.name not in owners:
+            text = (
+                f"{session_id} belongs to profile {', '.join(owners)}; added to {active.name} too"
+            )
+            self._boxes.notify(None, "Session shared", text)
+            self._reporter.log_main("session_shared", session=session_id, profile=active.name)
+        self._profiles.add_session(active, session_id)
+
+    def profiles_of(self, session_id: SessionId) -> list[str]:
+        return list(self._profiles.profiles_of(session_id))
 
     def _list(self) -> None:
         active = self._switch.active.name
         for name in self._profiles.names():
-            self._reporter.show(None, f"{name} (active)" if name == active else name)
+            shown = f"{name} (active)" if name == active else name
+            sessions = self._profiles.sessions(self._profiles.find(name))
+            self._reporter.show(None, f"{shown}: {', '.join(sessions)}" if sessions else shown)
 
     def _new(self, name: str | None) -> None:
         # It copies the active Profile's Settings with its pieces, because they name them.
         created = self._profiles.create(name, self._switch.active)
         shown = f"profile {created.name} created"
         self._reporter.report(None, "profile_created", shown, profile=created.name)
+
+    def _share(self, session_id: str, name: str) -> None:
+        """Only the lists change: sharing is no Traspaso, and the Session's folder stays."""
+        session = self._sessions.load_owned(session_id, self._main_id)
+        profile = self._profiles.find(name)
+        self._profiles.add_session(profile, session.id)
+        shown = f"{session.id} shared with profile {profile.name}"
+        self._reporter.report(
+            None, "session_shared", shown, session=session.id, profile=profile.name
+        )
+
+    def _unshare(self, session_id: str, name: str | None) -> None:
+        session = self._sessions.load_owned(session_id, self._main_id)
+        profile: Profile = self._switch.active if name is None else self._profiles.find(name)
+        self._profiles.remove_session(profile, session.id)
+        shown = f"{session.id} no longer in profile {profile.name}"
+        self._reporter.report(
+            None, "session_unshared", shown, session=session.id, profile=profile.name
+        )

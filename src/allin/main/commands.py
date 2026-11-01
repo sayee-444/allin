@@ -207,7 +207,7 @@ class MainCommands:
         sysprompt = render_sysprompt(self._sysprompts, settings)
         session = self._sessions.create(self._main_id, settings, sysprompt)
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
-        self._profiles.joined(session.id)
+        self._profiles.created(session.id)
         self._windows.open(session, self._turns.streamed(session.id))
         return True
 
@@ -215,7 +215,7 @@ class MainCommands:
         session = self._sessions.load_owned(session_id, self._main_id)
         if self._windows.is_open(session.id):
             raise WindowAlreadyOpen(session_id=session.id)
-        self._profiles.joined(session.id)  # opening another Profile's Session shares it
+        self._profiles.opened(session.id)  # opening another Profile's Session shares it
         self._windows.open(session, self._turns.streamed(session.id))
         return True
 
