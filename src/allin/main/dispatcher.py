@@ -153,6 +153,10 @@ class Dispatcher:
             profile,
             self._enter,
         )
+        self._profile_commands = ProfileCommands(
+            self._reporter, profiles, self._switch, sessions, main_id, self._boxes
+        )
+        settings_commands.show_profiles(self._profile_commands.profiles_of)
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -164,7 +168,7 @@ class Dispatcher:
             self._boxes,
             self._devastation,
             self._server_commands,
-            ProfileCommands(self._reporter, profiles, self._switch),
+            self._profile_commands,
         )
 
     def run(self) -> None:

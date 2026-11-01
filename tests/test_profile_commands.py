@@ -4,10 +4,11 @@ import pytest
 
 from allin.core.ids import ROOT_MAIN_ID, SessionId
 from allin.core.settings import SessionSettings
-from allin.main.events import MainCommandEntered
+from allin.main.events import MainCommandEntered, WindowClosed
 from allin.main.prompts import Prompt
 from allin.main.sessions import SessionStore
 from allin.main.state import MainState, MainStateStore
+from allin.ui.screen import ShowBox
 from tests.test_dispatcher import MainHarness, restored
 
 
@@ -114,3 +115,110 @@ def test_after_the_migration_a_new_session_is_born_as_before(main: MainHarness):
     # The installation's template, now a copy in the Profile's folder, with the same Settings.
     assert conversation.sysprompt == "I am AllIn; you are ana."
     assert (main.profile.sysprompts / "default.txt").is_file()
+
+
+def session_folder(main: MainHarness, session_id: SessionId) -> dict[str, bytes]:
+    folder = main.root / session_id
+    return {path.name: path.read_bytes() for path in sorted(folder.iterdir())}
+
+
+def test_share_and_unshare_change_only_the_lists(main: MainHarness):
+    session = main.create_session()
+    tesis = main.profiles.create("tesis", main.profile)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        WindowClosed(session.id, returncode=0),
+        settle=True,
+    )
+    before = session_folder(main, session.id)
+    main.run(MainCommandEntered(f"/profile share {session.id} tesis"))
+    assert main.profiles.sessions(tesis) == [session.id]
+    assert main.profiles.sessions(main.profile) == [session.id]
+    main.run(MainCommandEntered(f"/profile unshare {session.id}"))
+    assert main.profiles.sessions(main.profile) == []
+    main.run(MainCommandEntered(f"/profile unshare {session.id} tesis"))
+    assert main.profiles.sessions(tesis) == []
+    assert session_folder(main, session.id) == before
+
+
+def test_a_session_in_no_profile_can_be_opened_again(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        WindowClosed(session.id, returncode=0),
+        MainCommandEntered(f"/profile unshare {session.id}"),
+        settle=True,
+    )
+    assert main.profiles.sessions(main.profile) == []
+    chat = main.run(MainCommandEntered(f"/open {session.id}"))
+    assert any(f"/open {session.id}: ok" in line for line in chat)
+    assert main.profiles.sessions(main.profile) == [session.id]
+
+
+@pytest.mark.parametrize(
+    ("command", "code"),
+    [
+        ("/profile share zzzzzz tesis", "session_not_found"),
+        ("/profile share {sid} nadie", "profile_not_found"),
+        ("/profile unshare {sid} nadie", "profile_not_found"),
+        ("/profile share {sid}", "invalid_arguments"),
+    ],
+)
+def test_sharing_with_what_does_not_exist_is_an_error_and_changes_nothing(
+    main: MainHarness, command: str, code: str
+):
+    session = main.create_session()
+    tesis = main.profiles.create("tesis", main.profile)
+    chat = main.run(MainCommandEntered(command.format(sid=session.id)))
+    assert any(code in line for line in chat)
+    assert main.profiles.sessions(tesis) == []
+    assert main.profiles.sessions(main.profile) == []
+
+
+def test_opening_another_profiles_session_tells_whose_it_is_and_adds_it(main: MainHarness):
+    session = main.create_session()
+    tesis = main.profiles.create("tesis", main.profile)
+    main.profiles.add_session(tesis, session.id)
+    main.run(MainCommandEntered(f"/open {session.id}"), settle=True)
+    [notice] = [update for update in main.main_screen if isinstance(update, ShowBox)]
+    assert notice.box.kind == "notice"
+    assert f"{session.id} belongs to profile tesis" in notice.box.text
+    assert "added to default too" in notice.box.text
+    assert main.profiles.sessions(main.profile) == [session.id]
+
+
+def test_opening_a_session_of_no_profile_or_the_active_one_tells_nothing(main: MainHarness):
+    alone = main.create_session()
+    main.run(MainCommandEntered(f"/open {alone.id}"), settle=True)
+    main.run(MainCommandEntered(f"/open {alone.id}"), settle=True)  # already the active one's
+    assert not [update for update in main.main_screen if isinstance(update, ShowBox)]
+
+
+def test_session_and_profile_show_which_profiles_each_session_belongs_to(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    tesis = main.profiles.create("tesis", main.profile)
+    main.profiles.add_session(main.profile, a.id)
+    main.profiles.add_session(main.profile, b.id)
+    main.profiles.add_session(tesis, a.id)
+    chat = main.run(MainCommandEntered(f"/session {a.id}"), MainCommandEntered("/profile"))
+    assert f"[{a.id}] profiles=default, tesis" in chat
+    assert f"default (active): {a.id}, {b.id}" in chat
+    assert f"tesis: {a.id}" in chat
+
+
+def test_after_sharing_a_switch_keeps_the_shared_window_open(main: MainHarness):
+    session = main.create_session()
+    main.profiles.create("tesis", main.profile)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/profile share {session.id} tesis"),
+        MainCommandEntered("/profile switch tesis"),
+        settle=True,
+    )
+    closed = [
+        entry
+        for entry in main.session_log(session)
+        if entry.event == "window_closed" and entry.fields.get("reason") == "profile switched"
+    ]
+    assert closed == []
+    assert main.profiles.open(None).name == "tesis"

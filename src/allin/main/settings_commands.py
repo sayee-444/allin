@@ -4,12 +4,12 @@ Main's current Settings and its defaults live here, as their files last had them
 is checked whole before anything is written, so a bad key or value changes nothing.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SessionId
 from allin.core.origin import HUMAN, Origin
 from allin.core.settings import (
     MainSettings,
@@ -99,6 +99,11 @@ class SettingsCommands:
         self._default = loaded.default
         self._files = files
         self._sysprompts = sysprompts
+        self._profiles_of: Callable[[SessionId], list[str]] = lambda _: []
+
+    def show_profiles(self, profiles_of: Callable[[SessionId], list[str]]) -> None:
+        """``/session <sid>`` also shows the Profiles the Session belongs to (ADR-0010)."""
+        self._profiles_of = profiles_of
 
     @property
     def current(self) -> MainSettings:
@@ -153,6 +158,7 @@ class SettingsCommands:
         extra = self._notices.setting_keys()
         if not assignments:
             self._show(session.id, session.settings, extra)
+            self._reporter.show(session.id, f"profiles={', '.join(self._profiles_of(session.id))}")
             return True
         _check_authority(assignments, origin)
         changed = apply_settings(session.settings, assignments, extra)
