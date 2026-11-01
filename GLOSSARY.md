@@ -112,6 +112,10 @@ _Avoid_: crash report, volcado
 Parámetros que gobiernan a Main o a una Sesión. Se heredan por copia: lo ya creado no cambia cuando cambia el origen. La excepción es el Tema, del que se copia el nombre y que se lee en vivo (ADR-0018).
 _Avoid_: settings, config
 
+**Clave** (`SettingName`, `SettingKey`):
+Nombre con puntos de un Ajuste suelto, tal como lo toman `/set` y `/session set` (`session.sampling.temperature`, o `sampling.temperature` en una Sesión). Cada Clave declara en el registro de Claves su tipo, su valor por defecto, su validación, si es de Main o de Sesión y para qué sirve; de ahí saldrá la ayuda (#23). Una Clave desconocida o un valor que su tipo no admite son un error y no cambian nada. Un valor vacío deja sin fijar una Clave que lo admite (el muestreo, `parallel`).
+_Avoid_: opción, campo
+
 **Ajustes de Main** (`MainSettings`):
 Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se comparten con las Sesiones.
 
@@ -119,10 +123,10 @@ Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se compa
 Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que se copian a la Sesión en `/new` y que no usa, salvo el Enlace por defecto para sus propios Pasos; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
 
 **Ajustes actuales** (`current settings`):
-La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains.
+La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains. Se guardan en `settings/current.json` de la carpeta de datos (en la del Perfil desde #30); si ese archivo no es válido, Main dice qué clave falla y arranca con los por defecto. `/set` a secas los muestra.
 
 **Ajustes por defecto** (`default settings`):
-La versión con la que Main arranca tras un `/reset`; se cambia con `/set --default`.
+La versión con la que Main arranca tras un `/reset`; se cambia con `/set --default` y se guarda en `settings/default.json`.
 
 **Ajustes del Servidor** (`ServerSettings`):
 Los parámetros de carga con los que arranca el Servidor (modelo, contexto, slots, caché KV, GPU…); solo cambian reiniciándolo. No son los parámetros de muestreo, que viajan en cada Paso desde los Ajustes de Sesión.

@@ -9,7 +9,6 @@ from pathlib import Path
 
 from allin.core.errors import MainAlreadyRunning
 from allin.core.ids import ROOT_MAIN_ID
-from allin.core.settings import MainSettings
 from allin.ipc.channel import remove_stale_fifos
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import MainCommandEntered, MainEvent, Shutdown
@@ -18,6 +17,7 @@ from allin.main.lock import MainLock
 from allin.main.log import Log
 from allin.main.server_watch import ServerWatch
 from allin.main.sessions import SessionStore
+from allin.main.settings_files import MainSettingsFiles
 from allin.main.signals import ShutdownSignals
 from allin.main.slot_locks import SlotLocks, SlotWaiter
 from allin.main.slots import server_name
@@ -44,8 +44,10 @@ def _state_dir(data_dir: Path) -> Path:
 
 
 def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
-    settings = MainSettings()
-    title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /raw on|off [sid], /exit)"
+    settings_files = MainSettingsFiles(data_dir / "settings")
+    loaded = settings_files.load()  # a broken file is told by the Dispatcher, on start
+    settings = loaded.current
+    title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /raw on|off [sid], /set, /session <sid>, /exit)"
     screen = ChatScreen(stdscr, title)
     log_dir = data_dir / "logs" / "main"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +66,8 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
         WindowOpener(data_dir, inbox),
         executors.submit,
         ROOT_MAIN_ID,
-        settings,
+        loaded,
+        settings_files,
         sysprompts,
         MainStateStore(_state_dir(data_dir) / f"{ROOT_MAIN_ID}.json"),
         close_orphan_window,

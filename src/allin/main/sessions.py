@@ -69,6 +69,15 @@ class SessionStore:
         except (OSError, ValidationError) as error:
             raise SessionUnreadable(session_id=session_id, reason=str(error)) from error
 
+    def save_settings(self, session: Session, settings: SessionSettings) -> Session:
+        """The Session with new Settings, already on disk."""
+        changed = session.model_copy(update={"settings": settings})
+        try:
+            write_atomically(self._root / session.id / _METADATA, changed.model_dump_json(indent=2))
+        except OSError as error:
+            raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
+        return changed
+
     def load_owned(self, text: str, main_id: MainId) -> Session:
         """Load a Session only ``main_id`` may use: the Main that owns it."""
         session = self.load(text)

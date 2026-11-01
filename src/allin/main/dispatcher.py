@@ -11,7 +11,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 from allin.core.ids import MainId
-from allin.core.settings import MainSettings
 from allin.main.commands import MainCommands
 from allin.main.events import (
     DraftReceived,
@@ -36,6 +35,8 @@ from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
+from allin.main.settings_commands import SettingsCommands
+from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.slot_locks import SlotLocks
 from allin.main.state import MainStateStore
 from allin.main.turn_queue import RecheckServer, SubmitTurn, TurnQueue, WaitForSlot
@@ -51,7 +52,8 @@ class Dispatcher:
         open_window: OpenWindow,
         submit_turn: SubmitTurn,
         main_id: MainId,
-        settings: MainSettings,
+        settings: LoadedSettings,
+        settings_files: MainSettingsFiles,
         sysprompts: Path,
         state: MainStateStore,
         close_orphan_window: CloseOrphanWindow,
@@ -68,7 +70,7 @@ class Dispatcher:
             self._windows,
             sessions,
             sysprompts,
-            settings.parallel,
+            settings.current.parallel,
             submit_turn,
             slot_locks,
             wait_for_slot,
@@ -83,13 +85,25 @@ class Dispatcher:
             state,
             close_orphan_window,
         )
+        self._settings_problems = settings.problems
+        settings_commands = SettingsCommands(
+            self._reporter, self._turns, sessions, main_id, settings, settings_files, sysprompts
+        )
         self._commands = MainCommands(
-            self._reporter, self._windows, self._turns, sessions, main_id, settings, sysprompts
+            self._reporter,
+            self._windows,
+            self._turns,
+            sessions,
+            main_id,
+            settings_commands,
+            sysprompts,
         )
 
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""
         self._reporter.report(None, "main_started", "main started", main_id=self._main_id)
+        for problem in self._settings_problems:  # Main runs on with the defaults
+            self._reporter.error(problem)
         self._recovery.close_left_open()
         self._recovery.restore()
         while self._handle(self._inbox.get()):

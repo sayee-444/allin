@@ -144,3 +144,39 @@ class MainAlreadyRunning(AllInError):
     """Another Main with the same id and data dir is running; only one may (ADR-0007)."""
 
     code: ClassVar[str] = "main_already_running"
+
+
+class UnknownSetting(AllInError):
+    """No Setting has this key."""
+
+    code: ClassVar[str] = "unknown_setting"
+
+
+class InvalidSetting(AllInError):
+    """A Setting was given a value its key does not take."""
+
+    code: ClassVar[str] = "invalid_setting"
+
+
+class MalformedAssignment(AllInError):
+    """Settings are given as ``key=value`` words; ``text`` is not one."""
+
+    code: ClassVar[str] = "malformed_assignment"
+
+
+class SettingsFileInvalid(AllInError):
+    """A Settings file cannot be read or holds a bad key; Main uses the defaults instead."""
+
+    code: ClassVar[str] = "settings_file_invalid"
+
+
+class SettingsStorageFailed(AllInError):
+    """A Settings file could not be written."""
+
+    code: ClassVar[str] = "settings_storage_failed"
+
+
+class SyspromptLocked(AllInError):
+    """A Session's Sysprompt is fixed once its Conversation has a Turn."""
+
+    code: ClassVar[str] = "sysprompt_locked"

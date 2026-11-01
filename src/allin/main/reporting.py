@@ -57,6 +57,11 @@ class Reporter:
         """Show a high-level event in Main's Chat and keep it in Main's Log. ``session_id`` is
         as given: a Command may name a Session that does not exist."""
         self.log_main(event, **({"sid": session_id} if session_id else {}), **fields)
+        self.show(session_id, shown)
+
+    def show(self, session_id: str | None, shown: str) -> None:
+        # ``str``: like ``report``, a Command may name a Session that does not exist.
+        """Show a line in Main's Chat that is no event, such as what ``/set`` lists."""
         self._main_chat(f"[{session_id}] {shown}" if session_id else shown)
 
     def record(self, session_id: SessionId, event: str, shown: str, **fields: JsonValue) -> None:
