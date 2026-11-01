@@ -4,7 +4,7 @@ La meta de AllIn es que las Sesiones, con las functions que tengan a mano, forme
 
 - **Enviar**: un Prompt a una Sesión (`/send`).
 - **Crear**: una Sesión (desde un Molde o no), un Clon, un submain o una pieza (ADR-0013). Crear desde un Molde envía su tarea inicial como un `/send` con el Origen de quien crea.
-- **Adherir**: un Proceso adherido con estado y métodos (ADR-0012).
+- **Adherir**: un Proceso adherido con estado y métodos (ADR-0012), que recibe la Sesión que lo adhiere y que un humano llama con `/call` (ADR-0021).
 - **Suscribir**: que un evento despierte a la propia Sesión con un Prompt.
 - **Consultar**: el estado, en solo lectura (cola, Suscripciones, Procesos adheridos, Supervisores y su capacidad, el árbol de Mains), para que una Sesión descubra lo que tiene a su alcance.
 
