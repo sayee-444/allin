@@ -283,6 +283,10 @@ _Avoid_: Confirmación, permiso
 Estado de una pieza nueva o cambiada (function, Sysprompt, Molde, Plano, historial inicial) hasta su Aprobación: Main la muestra, pero no la ofrece al LLM ni la usa. De una function cuenta su package entero: cambiar cualquier archivo devuelve a cuarentena todas sus functions (ADR-0013).
 _Avoid_: pendiente, bloqueo
 
+**Recuadro** (`Box`):
+Lo que Main superpone en el Chat de Main y en la Ventana de la Sesión a la que concierne para hablar con el humano sin pasar por el Chat: un Aviso o una Confirmación. Se contesta desde cualquiera de los dos y desaparece de ambos; mientras está, se lleva las teclas, salvo las que solo mueven la vista. Uno que llega con la Ventana cerrada sale al reabrirla, si sigue vigente. Su texto se dibuja saneado, como toda pantalla de AllIn (ADR-0013).
+_Avoid_: popup, diálogo
+
 **Aviso** (`Notice`):
 Recuadro superpuesto en una Ventana (y en el Chat de Main) que informa algo sin pedir decisión: se cierra con una tecla y nunca bloquea un Turno. Cada tipo de Aviso es un módulo de `notices/`, parte de Main y común a todos los Perfiles, que se declara con un decorador y tiene sus propios Ajustes: encendido, título y texto en todos, y los que su tipo necesite (el de Contexto, un umbral), así que su lectura no tiene que ser de alarma; el de Contexto sale al cruzar un umbral del límite. No es una Notificación: no entra en la Conversación.
 _Avoid_: advertencia (como nombre del concepto), alerta, popup

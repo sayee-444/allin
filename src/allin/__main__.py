@@ -15,8 +15,14 @@ def main() -> None:
         default=Path.cwd() / "sysprompts",
         help="Sysprompt templates (default: ./sysprompts)",
     )
+    parser.add_argument(
+        "--devastation",
+        action="store_true",
+        help="Main answers by itself the Confirmations of its Chat and of its exempt Sessions,"
+        " for this start only",
+    )
     args = parser.parse_args()
-    run(args.data_dir.resolve(), args.sysprompts_dir.resolve())
+    run(args.data_dir.resolve(), args.sysprompts_dir.resolve(), args.devastation)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from allin.core.errors import AllInError
-from allin.core.ids import SessionId
+from allin.core.ids import BoxId, SessionId
+from allin.core.origin import HUMAN, Origin
 from allin.main.conversation import Step
 from allin.main.slots import ServerProps
 from allin.main.turn import OutputKind
@@ -43,9 +44,11 @@ class ErrorOccurred:
 
 @dataclass(frozen=True)
 class MainCommandEntered:
-    """A line the user typed in Main's own input, parsed as a Command main."""
+    """A line typed in Main's own input, parsed as a Command main; F2's Command sessions
+    arrive the same way, with their Origin."""
 
     text: str
+    origin: Origin = HUMAN
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,23 @@ class SlotFreed:
 
 
 @dataclass(frozen=True)
+class ConfirmationRequested:
+    """A running Turn asks the user yes or no; it waits, without its slot, for the answer."""
+
+    session_id: SessionId
+    title: str
+    text: str
+
+
+@dataclass(frozen=True)
+class BoxAnswered:
+    """A Notice or Confirmation was answered, in Main's Chat or in a Window."""
+
+    box_id: BoxId
+    answer: bool | None
+
+
+@dataclass(frozen=True)
 class Shutdown:
     pass
 
@@ -127,5 +147,7 @@ type MainEvent = (
     | ServerLoading
     | ServerReady
     | SlotFreed
+    | ConfirmationRequested
+    | BoxAnswered
     | Shutdown
 )

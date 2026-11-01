@@ -67,7 +67,7 @@ def test_set_default_then_reset_leaves_the_current_equal_to_the_defaults(main: M
     main.run(
         MainCommandEntered("/set session.model=other parallel=1"),
         MainCommandEntered("/set --default session.username=bea"),
-        MainCommandEntered("/reset"),
+        MainCommandEntered("/reset -y"),
     )
     loaded = files(main).load()
     assert loaded.current == loaded.default

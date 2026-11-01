@@ -7,9 +7,9 @@ it sits in. ``setting_keys`` lists them by the dotted name ``/set`` takes.
 
 import getpass
 import shlex
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, NewType
+from typing import Any, Literal, NewType, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import ErrorDetails
@@ -60,6 +60,16 @@ class SessionSettings(BaseModel, frozen=True):
     )
     model: str = Field(default="allin", min_length=1, description="model name sent to the Server")
     sampling: Sampling = Sampling()
+    # Each Notice type's Settings, by type and key, as far as they differ from what its module
+    # declares (ADR-0009); their keys, ``notices.<type>.<key>``, come from the loaded modules.
+    notices: dict[str, dict[str, JsonValue]] = Field(
+        default_factory=dict[str, dict[str, JsonValue]]
+    )
+    exempt: bool = Field(
+        default=True,
+        description="its Confirmations go up to Main, which answers them under --devastation;"
+        " only a human changes it",
+    )
 
 
 class MainSettings(BaseModel, frozen=True):
@@ -91,15 +101,21 @@ class SettingKey:
     description: str
 
 
-def setting_keys(model: type[BaseModel] = MainSettings) -> list[SettingKey]:
-    """Every key of ``model``'s Settings, in the order they are declared."""
-    return list(_keys(model, "", "session" if model is SessionSettings else "main"))
+def setting_keys(
+    model: type[BaseModel] = MainSettings, extra: Sequence[SettingKey] = ()
+) -> list[SettingKey]:
+    """Every key of ``model``'s Settings, in the order they are declared, then ``extra``: keys
+    declared elsewhere, such as each Notice type's."""
+    scope: SettingScope = "session" if model is SessionSettings else "main"
+    return [*_keys(model, "", scope), *extra]
 
 
-def apply_settings[M: BaseModel](settings: M, assignments: Mapping[SettingName, str]) -> M:
+def apply_settings[M: BaseModel](
+    settings: M, assignments: Mapping[SettingName, str], extra: Sequence[SettingKey] = ()
+) -> M:
     """A copy of ``settings`` with each key set to its value as typed; nothing changes if any
     key is unknown or any value invalid."""
-    keys = {key.name: key for key in setting_keys(type(settings))}
+    keys = {key.name: key for key in setting_keys(type(settings), extra)}
     data = settings.model_dump()
     for name, raw in assignments.items():
         key = keys.get(name)
@@ -128,15 +144,12 @@ def parse_assignments(text: str) -> dict[SettingName, str]:
     return assignments
 
 
-def shown_settings(settings: BaseModel) -> list[str]:
+def shown_settings(settings: BaseModel, extra: Sequence[SettingKey] = ()) -> list[str]:
     """Each key as ``key=value``, in the registry's order; an unset key shows nothing after ``=``."""
     data = settings.model_dump()
     lines: list[str] = []
-    for key in setting_keys(type(settings)):
-        value: object = data
-        for part in key.name.split("."):
-            assert isinstance(value, dict)
-            value = value[part]  # pyright: ignore[reportUnknownVariableType] - model_dump's dicts
+    for key in setting_keys(type(settings), extra):
+        value = _value_at(data, key)
         lines.append(f"{key.name}={'' if value is None else value}")
     return lines
 
@@ -149,6 +162,8 @@ def failing_key(failure: ErrorDetails) -> SettingName | None:
 def _keys(model: type[BaseModel], prefix: str, scope: SettingScope) -> Iterator[SettingKey]:
     for name, field in model.model_fields.items():
         annotation = field.annotation
+        if get_origin(annotation) is dict:  # a group whose keys are declared elsewhere
+            continue
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             inner: SettingScope = "session" if annotation is SessionSettings else scope
             yield from _keys(annotation, f"{prefix}{name}.", inner)
@@ -174,10 +189,21 @@ def _parse_value(key: SettingKey, raw: str) -> object:
         raise InvalidSetting(key=key.name, reason=error.errors()[0]["msg"]) from error
 
 
+def _value_at(data: SettingsData, key: SettingKey) -> object:
+    """The key's value in ``data``; its default while it, or its group, was never set."""
+    value: object = data
+    for part in key.name.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return key.default
+        group: SettingsData = value  # pyright: ignore[reportUnknownVariableType] - model_dump's
+        value = group[part]
+    return value
+
+
 def _set_path(data: SettingsData, path: list[str], value: object) -> None:
     *groups, last = path
     for group in groups:
-        data = data[group]
+        data = data.setdefault(group, {})  # a key declared elsewhere may be its group's first
     data[last] = value
 
 

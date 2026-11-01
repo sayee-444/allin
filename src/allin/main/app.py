@@ -11,10 +11,11 @@ from allin.core.errors import MainAlreadyRunning
 from allin.core.ids import ROOT_MAIN_ID
 from allin.ipc.channel import remove_stale_fifos
 from allin.main.dispatcher import Dispatcher
-from allin.main.events import MainCommandEntered, MainEvent, Shutdown
+from allin.main.events import BoxAnswered, MainCommandEntered, MainEvent, Shutdown
 from allin.main.executors import TurnExecutors
 from allin.main.lock import MainLock
 from allin.main.log import Log
+from allin.main.notices import load_notice_types
 from allin.main.server_watch import ServerWatch
 from allin.main.sessions import SessionStore
 from allin.main.settings_files import MainSettingsFiles
@@ -29,13 +30,13 @@ from allin.ui.screen import ChatScreen
 _SHUTDOWN_GRACE = 2.0
 
 
-def run(data_dir: Path, sysprompts: Path) -> None:
+def run(data_dir: Path, sysprompts: Path, devastation: bool = False) -> None:
     lock = MainLock(_state_dir(data_dir) / f"{ROOT_MAIN_ID}.lock")  # held until the process ends
     try:  # before anything touches the state another Main may be using (ADR-0007)
         lock.acquire()
     except MainAlreadyRunning as error:
         sys.exit(f"{error}: another Main with this id already runs on {data_dir}")
-    curses.wrapper(_run, data_dir, sysprompts)
+    curses.wrapper(_run, data_dir, sysprompts, devastation)
 
 
 def _state_dir(data_dir: Path) -> Path:
@@ -43,7 +44,7 @@ def _state_dir(data_dir: Path) -> Path:
     return data_dir / "state"
 
 
-def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
+def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: bool) -> None:
     settings_files = MainSettingsFiles(data_dir / "settings")
     loaded = settings_files.load()  # a broken file is told by the Dispatcher, on start
     settings = loaded.current
@@ -74,6 +75,9 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
         slot_locks,
         slot_waiter.start,
         watch.recheck,
+        screen.inbox.put,
+        devastation,
+        load_notice_types(data_dir / "notices"),  # part of Main: loaded once, here (ADR-0016)
     )
 
     def dispatch() -> None:
@@ -89,7 +93,10 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
     dispatcher_thread = threading.Thread(target=dispatch, name="dispatcher")
     dispatcher_thread.start()
     try:
-        screen.run(lambda text: inbox.put(MainCommandEntered(text)))
+        screen.run(
+            lambda text: inbox.put(MainCommandEntered(text)),
+            on_box_closed=lambda closed: inbox.put(BoxAnswered(closed.box_id, closed.answer)),
+        )
     except KeyboardInterrupt:
         pass
     finally:
