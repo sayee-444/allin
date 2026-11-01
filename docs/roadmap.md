@@ -8,8 +8,8 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #20 Partir el Dispatcher: el Dispatcher queda como el hilo único que reparte cada evento a `Reporter`, `OpenWindows`, `TurnQueue`, `Recovery` y `MainCommands`, sin cambiar el comportamiento ni tocar los tests. Verificado con el `llama serve` real, con un Main muerto a mitad de Turno; evidencia en `evidence/issues/20` (2026-11-01).
-- **Siguiente:** #49 Fijar el estilo de Python con ruff y basedpyright.
+- **Último hecho:** #49 Fijar el estilo de Python: basedpyright en `strict` para `src/` y `tests/` (PR #62, con `SessionId` como tipo propio), 34 familias de ruff elegidas una a una con su motivo en `pyproject.toml`, y `CODING_STANDARDS.md` en la raíz (tipos, errores, threads, salida y nombres), que lee `code-review`. Un pre-commit en `.githooks/` corre las comprobaciones; su arreglo para revisar solo lo que se commitea está en el PR #63, pendiente de fusionar (2026-11-01).
+- **Siguiente:** #55 Ajustes: archivo, `/set`, `/set --default`, `/reset`, `/session set` y `/session`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -37,7 +37,7 @@ Ya tienen código; verificados y comentados.
 
 1. ✅ #21 Observar el Servidor en caliente, junto con #17 (503 al cargar el modelo)
 2. ✅ #20 Partir el Dispatcher
-3. #49 Fijar el estilo de Python con ruff y basedpyright
+3. ✅ #49 Fijar el estilo de Python con ruff y basedpyright
 4. #55 Ajustes: archivo, `/set`, `/set --default`, `/reset`, `/session set` y `/session`
 5. #28 Recuadro de Aviso y Confirmación
 6. #24 Supervisor 1/4: Supervisor con nombre, Enlace de cada Sesión y despertar con trabajo (ADR-0022)

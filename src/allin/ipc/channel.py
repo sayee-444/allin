@@ -91,7 +91,7 @@ class Channel[In]:
 
     def _read_loop(self) -> None:
         try:
-            with open(self._read_path, "rb") as fifo:
+            with self._read_path.open("rb") as fifo:
                 for raw in fifo:
                     try:
                         self._listener.on_message(self._decode(_decode_utf8(raw)))
@@ -108,7 +108,7 @@ class Channel[In]:
         if message is None:
             return
         try:
-            with open(self._write_path, "w", encoding="utf-8") as fifo:
+            with self._write_path.open("w", encoding="utf-8") as fifo:
                 while message is not None:
                     fifo.write(encode(message))
                     fifo.flush()

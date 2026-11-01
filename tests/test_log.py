@@ -43,7 +43,7 @@ def test_a_missing_log_reads_as_empty(tmp_path: Path):
 
 def test_a_line_cut_by_a_crash_is_skipped(tmp_path: Path):
     Log(tmp_path / "log.jsonl").append("whole")
-    with open(tmp_path / "log.jsonl", "a") as file:
+    with (tmp_path / "log.jsonl").open("a") as file:
         file.write('{"ts": "2026-10-28T20:00:00+00:00", "ev')
     assert [entry.event for entry in read_log(tmp_path / "log.jsonl")] == ["whole"]
 

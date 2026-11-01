@@ -10,6 +10,7 @@ import queue
 import sys
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 
 from allin.core.errors import ScreenTooSmall
@@ -254,10 +255,8 @@ class ChatScreen:
     def _draw_too_small(self, width: int) -> None:
         self._repaint = True
         self._stdscr.erase()
-        try:
+        with suppress(curses.error):
             self._stdscr.addnstr(0, 0, _TOO_SMALL, max(0, width - 1))
-        except curses.error:
-            pass
         self._stdscr.refresh()
 
 
@@ -304,9 +303,8 @@ def _paint(
     pad.erase()
     for y, row in enumerate(rows[: area.height]):
         attr = (role_attrs or {}).get(row.role or "", curses.A_NORMAL)
-        try:
+        # Writing the very last cell fails after drawing it, e.g. a wide character.
+        with suppress(curses.error):
             pad.addstr(y, 0, row.text, attr)
-        except curses.error:
-            pass  # writing the very last cell fails after drawing it, e.g. a wide character
     bottom, right = area.top + area.height - 1, area.left + area.width - 1
     pad.noutrefresh(0, 0, area.top, area.left, bottom, right)

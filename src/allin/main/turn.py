@@ -49,13 +49,12 @@ class OpenAiLlm:
         )
 
     def stream(self, model: str, input: list[Item], params: dict[str, Any]) -> LlmStream:
-        stream = self._client.responses.create(
+        return self._client.responses.create(
             model=model,
             input=cast(ResponseInputParam, input),
             stream=True,
             **params,
         )
-        return stream
 
 
 class Cancellation:

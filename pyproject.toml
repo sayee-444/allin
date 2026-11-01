@@ -30,9 +30,61 @@ venv = "venv"
 line-length = 100
 
 [tool.ruff.lint]
-# ANN: every function says its types, and never `Any` in a signature; UP: today's typing syntax.
-extend-select = ["ANN", "UP"]
+# Each family is chosen on purpose (#49); single rules left out, and why, are listed below.
+extend-select = [
+    "ANN",   # every function says its types; no `Any` in a signature
+    "UP",    # today's syntax (PEP 604/695), never Optional/List/TypeVar
+    "I",     # import order
+    "B",     # bugbear: mutable defaults, loop variables caught in closures, unchained re-raises
+    "C4",    # comprehensions over list()/dict() calls
+    "PIE",   # needless pass, duplicate class fields
+    "PERF",  # loops that build lists the slow way
+    "FURB",  # modern standard-library idioms
+    "SIM",   # simpler forms, e.g. contextlib.suppress over try/except/pass
+    "RET",   # returns without a needless variable or else
+    "RUF",   # ruff's own checks, among them unused `noqa`
+    "PTH",   # pathlib over os.path and open(); paths are `Path` everywhere
+    "T20",   # no print: everything goes to the Log
+    "DTZ",   # datetimes always carry a timezone
+    "ERA",   # no commented-out code
+    "BLE",   # no `except Exception` that swallows the error without a `noqa` saying why
+    "TRY",   # raise and re-raise patterns (tryceratops)
+    "EM",    # exception messages are not inline literals
+    "ARG",   # unused arguments
+    "N",     # PEP 8 names
+    "PT",    # pytest idioms
+    "A",     # no shadowed builtins
+    "S",     # bandit security checks
+    "PLC",   # pylint conventions
+    "PLE",   # pylint errors
+    "PLW",   # pylint warnings
+    "PGH",   # `# type: ignore` and `noqa` always name their rule
+    "FLY",   # f-strings over "".join of a few literals
+    "G",     # logging calls (none today; keeps any that come lazy)
+    "LOG",   # logging module misuse
+    "RSE",   # `raise` without needless parentheses
+    "PYI",   # stub and typing idioms
+    "SLF",   # no reaching into another object's private members
+    "TID",   # tidy imports
+]
+ignore = [
+    "N818",   # errors are named after what happened (TurnCancelled, SessionNotFound), not "...Error"
+    "PT018",  # splitting `assert a and b` would rewrite the suite's asserts for no new check
+    "A002",   # `input` mirrors the OpenAI parameter that Llm.stream wraps
+    "S101",   # asserts state invariants for the type checker in src, and are the checks in tests
+    "S603",   # the Launcher runs fixed commands built by Main, never shell text
+    "S310",   # the Server watch opens Main's own base_url; isolation is decided in ADR-0016
+]
+# Families left out on purpose:
+# - FBT: on/off flags read clearly at their call sites (`show_raw(on, ...)`, `InputLock(True)`),
+#   and curses' API takes positional booleans (`keypad(True)`).
+# - PLR (2004, 0913, 0917, 0912): magic numbers in tests read best literal, and the Dispatcher
+#   takes its collaborators by design (#20); a count of arguments is no measure here.
+# - D: docstrings are written where they say something the name does not, not on every function.
+# - COM, Q, ISC: the formatter owns commas, quotes and string joins.
+# - C90: complexity is judged in review (codebase-design), not by a number.
 
 [tool.ruff.lint.per-file-ignores]
 # Test functions return nothing; basedpyright strict still checks their parameters.
-"tests/**" = ["ANN201"]
+# Fakes keep the signatures they stand in for, and raise plain errors with their message.
+"tests/**" = ["ANN201", "ARG", "TRY003", "EM101"]

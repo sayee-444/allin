@@ -61,7 +61,7 @@ def test_malformed_line_is_reported_and_reader_keeps_going(tmp_path: Path):
     main = Channel(pair.from_window, pair.to_window, decode_window_message, listener)
     main.start()
 
-    with open(pair.from_window, "w", encoding="utf-8") as peer:
+    with pair.from_window.open("w", encoding="utf-8") as peer:
         peer.write("garbage\n")
         peer.write('{"type":"user_input","text":"after"}\n')
 
@@ -79,7 +79,7 @@ def test_invalid_utf8_is_reported_as_malformed_and_reader_keeps_going(tmp_path: 
     main = Channel(pair.from_window, pair.to_window, decode_window_message, listener)
     main.start()
 
-    with open(pair.from_window, "wb") as peer:
+    with pair.from_window.open("wb") as peer:
         peer.write(b'{"type":"user_input","text":"\xff\xfe"}\n')
         peer.write(b'{"type":"user_input","text":"after"}\n')
 

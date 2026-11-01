@@ -5,6 +5,7 @@ them (ADR-0001).
 """
 
 import json
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,7 @@ class Log:
     def append(self, event: str, **fields: JsonValue) -> None:
         line = {"ts": datetime.now().astimezone().isoformat(), "event": event, **fields}
         try:
-            with open(self.path, "a", encoding="utf-8") as file:
+            with self.path.open("a", encoding="utf-8") as file:
                 file.write(json.dumps(line, ensure_ascii=False) + "\n")
         except OSError as error:
             raise LogWriteFailed(path=str(self.path), reason=str(error)) from error
@@ -49,8 +50,6 @@ def read_log(path: Path) -> list[LogEntry]:
         raise LogUnreadable(path=str(path), reason=str(error)) from error
     entries: list[LogEntry] = []
     for line in lines:
-        try:
+        with suppress(ValidationError):  # a line cut short by a crash while it was being written
             entries.append(LogEntry.model_validate_json(line))
-        except ValidationError:
-            pass  # a line cut short by a crash while it was being written
     return entries
