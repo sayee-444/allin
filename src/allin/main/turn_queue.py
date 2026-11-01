@@ -18,7 +18,7 @@ Prompt back to the input, only for a human one).
 import itertools
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -575,10 +575,11 @@ class TurnQueue:
                 stopped.append(running.prompt)
         return stopped
 
-    def take_queue(self) -> list[Prompt]:
-        """Take every waiting Prompt out, as they are: the Profile Main leaves keeps them."""
-        taken = self._prompts.all()
-        for session_id in self._prompts.session_ids():
+    def take_queue(self, keep: Container[SessionId]) -> list[Prompt]:
+        """Take out the waiting Prompts of every Session but those in ``keep``, as they are:
+        the Profile Main leaves keeps them, and a Session both Profiles share goes on."""
+        taken = [prompt for prompt in self._prompts.all() if prompt.session_id not in keep]
+        for session_id in dict.fromkeys(prompt.session_id for prompt in taken):
             self._prompts.drop(session_id)
             self._measures.pop(session_id, None)
             self._since.pop(session_id, None)

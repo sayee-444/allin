@@ -140,6 +140,24 @@ def test_a_shared_windows_draft_keeps_what_it_holds_and_gets_back_what_the_profi
     assert saved.drafts == {shared.id: ["from default", "from tesis"]}
 
 
+def test_a_shared_sessions_queued_prompts_stay_in_the_queue(main: MainHarness):
+    shared, mine = main.create_session(), main.create_session()
+    tesis = other_profile(main)
+    main.profiles.add_session(tesis, shared.id)
+    main.server_up = False
+    main.run(
+        MainCommandEntered(f"/open {shared.id}"),
+        MainCommandEntered(f"/open {mine.id}"),
+        InputReceived(shared.id, "shared one"),
+        InputReceived(mine.id, "mine"),
+        switch("tesis"),
+        settle=True,
+    )
+    left = MainStateStore(main.profile.state).load()
+    assert [prompt.text for prompt in left.queue] == ["mine"]
+    assert [prompt.text for prompt in MainStateStore(tesis.state).load().queue] == ["shared one"]
+
+
 def test_without_now_a_running_turn_ends_before_the_switch(main: MainHarness):
     a = main.create_session()
     other_profile(main)

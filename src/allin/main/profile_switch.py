@@ -100,10 +100,9 @@ class ProfileSwitch:
         self._reporter.report(None, "profile_switched", shown, profile=entered.name)
 
     def _leave(self, kept: Container[SessionId]) -> None:
-        """The outgoing Profile keeps its MainState, queue included, and the Windows of its
-        Sessions that ``kept`` does not have close."""
-        self._recovery.save()
-        self._turns.take_queue()
+        """The outgoing Profile keeps its MainState with the queue of its Sessions, and the
+        Windows of those ``kept`` does not have close; a Session both share goes on as it is."""
+        self._recovery.leave(self._turns.take_queue(kept))
         for session_id in self._windows.pids():
             if session_id not in kept:
                 self._windows.close(session_id, SWITCHED)

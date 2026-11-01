@@ -10,6 +10,7 @@ from allin.core.drafts import put_back
 from allin.core.errors import AllInError, TurnCrashed
 from allin.core.ids import MainId, SessionId
 from allin.main.open_windows import OpenWindows
+from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
 from allin.main.state import MainState, MainStateStore
@@ -109,6 +110,15 @@ class Recovery:
                 self._windows.show_error(error, session_id)
         self._turns.tell_waiting()  # once the Windows are open
         self.save()
+
+    def leave(self, queue: list[Prompt]) -> None:
+        """Keep the MainState of the Profile Main leaves (``/profile switch``): its Windows and
+        Drafts as they are, and ``queue``, the Prompts it takes with it; no Turn runs."""
+        state = MainState(windows=self._windows.pids(), drafts=self._windows.drafts(), queue=queue)
+        try:
+            self._state.save(state)
+        except AllInError as error:
+            self._windows.show_error(error)
 
     def save(self) -> None:
         """Keep MainState as it is now, if it changed."""
