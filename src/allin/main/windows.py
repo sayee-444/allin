@@ -18,7 +18,6 @@ from allin.ipc.messages import (
     WindowToMain,
     decode_window_message,
 )
-from allin.main.dispatcher import WindowLink
 from allin.main.events import (
     DraftReceived,
     ErrorOccurred,
@@ -28,6 +27,7 @@ from allin.main.events import (
     WindowConnected,
 )
 from allin.main.launcher import Launcher, xterm_command
+from allin.main.open_windows import WindowLink
 
 _CLOSE_GRACE = 2.0
 _ORPHAN_GRACE = 2.0
