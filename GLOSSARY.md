@@ -33,7 +33,7 @@ El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y rec
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
 
 **Servidor** (`Server`):
-El proceso `llama serve` que atiende los Pasos de los Turnos de los Mains que apuntan a él. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa.
+El proceso `llama serve` que atiende los Pasos de los Turnos de los Mains que apuntan a él. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa. Los de los modelos del RAG no atienden Pasos: calculan embeddings o reordenan para él.
 _Avoid_: deploy, LLM (como nombre del proceso)
 
 **Supervisor** (`Supervisor`):
@@ -41,7 +41,7 @@ Entidad con nombre y sus propios Ajustes del Servidor que, cuando está **activo
 _Avoid_: singleton, el script que ejecuta llama, servidor por defecto
 
 **Enlace** (`server` link):
-Ajuste de Main que nombra el único Supervisor al que manda sus Turnos. Al arrancar, Main despierta a ese Supervisor (o se adhiere a él si ya está activo) y a ningún otro. Un submain lo hereda por copia.
+Ajuste de Main que nombra el único Supervisor al que manda sus Turnos. Al arrancar, Main despierta a ese Supervisor (o se adhiere a él si ya está activo) y a ningún otro, salvo los de los modelos del RAG si está encendido (ADR-0019). Un submain lo hereda por copia.
 
 ## Sesiones y registros
 
@@ -133,6 +133,10 @@ _Avoid_: request, petición (para el ciclo completo)
 **Turno suspendido** (`suspended turn`):
 Turno que, al caer o reiniciarse el Servidor, no falla porque ya llamó a una Zombie: conserva su Conversación hasta la salida de la última Zombie terminada y continúa con un Paso nuevo cuando el Servidor vuelve a estar listo, como Continuación.
 
+**Turno cortado** (`cut turn`):
+Turno cuyo último Paso terminó porque llegó a su Tope de salida o al límite del slot, no porque el LLM acabara. Se guarda con lo generado, marcado, y se lo dicen al humano un Aviso y al LLM una Notificación; no es un Turno fallido (ADR-0004).
+_Avoid_: truncado (es lo que hace `--context-shift`), incompleto
+
 **Continuación** (`Continuation`):
 Trabajo que retoma algo ya empezado: un Turno suspendido, el Paso siguiente de un Turno cuyas tools terminaron, o una Sesión que despierta de una Suscripción. Dentro de su Main va antes que los Prompts nuevos, salvo cuando ya pasaron varias seguidas y toca dejar pasar uno nuevo.
 
@@ -141,7 +145,7 @@ Petición de una Sesión de que un evento la despierte: cuando ocurre (responden
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
-Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida, y ese plazo solo corre mientras su Perfil está activo en un Main vivo. Es del Perfil en que se abrió.
+Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Con un quórum `k`, la despierta cuando `k` terminan bien y cancela las demás; una carrera es `k=1`. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida, y ese plazo solo corre mientras su Perfil está activo en un Main vivo. Es del Perfil en que se abrió.
 _Avoid_: job, barrera, tarea
 
 **Paso** (`Step`):
@@ -151,6 +155,10 @@ _Avoid_: ronda, iteración
 **Contexto** (`Context`):
 Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten las Sesiones con Turno activo. Cuando una Sesión se acerca a su límite, se compacta.
 _Avoid_: tokens gastados (ambiguo)
+
+**Tope de salida** (`max_output_tokens`):
+Ajuste de Sesión: lo más que el LLM puede generar en un Paso. Es también la reserva con que se admite un Paso y se decide compactar; por defecto 16 384, o un cuarto del límite del slot si es menor (ADR-0004).
+_Avoid_: max tokens, límite de salida
 
 **Compactación** (`Compaction`):
 Reemplazar la parte vieja de la Conversación de una Sesión por un resumen que escribe el LLM, archivando lo reemplazado, para que siga cabiendo en su Contexto. Se hace a mano (`/session compact`, `@compact`) o sola, al pasar un umbral del límite del slot (`compact.auto`, encendida por defecto). Quedan literales el Sysprompt, el historial inicial, el Prompt actual y los Turnos recientes. El resumen entra como `user`, nunca como `developer`, y un Rewind a antes del corte recupera lo archivado. Nunca se trunca en silencio (ADR-0017).
@@ -249,3 +257,25 @@ _Avoid_: pendiente, bloqueo
 **Aviso** (`Notice`):
 Recuadro superpuesto en una Ventana (y en el Chat de Main) que informa algo sin pedir decisión: se cierra con una tecla y nunca bloquea un Turno. Cada tipo de Aviso es un módulo de `notices/`, parte de Main y común a todos los Perfiles, que se declara con un decorador y tiene sus propios Ajustes: encendido, título y texto en todos, y los que su tipo necesite (el de Contexto, un umbral), así que su lectura no tiene que ser de alarma; el de Contexto sale al cruzar un umbral del límite. No es una Notificación: no entra en la Conversación.
 _Avoid_: advertencia (como nombre del concepto), alerta, popup
+
+## Memoria
+
+**RAG** (`Rag`):
+La memoria de consulta de un Perfil: un Proceso adherido que guarda, con fecha y procedencia, documentos, el historial de las Sesiones y lo que AllIn sabe de sí mismo, y devuelve como dato los pocos fragmentos que mejor responden. No decide por el LLM ni le da tools o permisos (ADR-0019).
+_Avoid_: memoria (a secas), base de conocimiento, personalidad
+
+**Corpus** (`Corpus`):
+Conjunto con nombre de carpetas de documentos que un humano da al RAG de un Perfil.
+_Avoid_: colección, biblioteca
+
+**Segmento** (`Segment`):
+Parte del RAG que se da o se quita entera a una Sesión: un Corpus, el historial de una Sesión, el historial del Perfil o lo de AllIn sobre sí mismo. Lo que una Sesión ve del RAG es su lista de Segmentos, y solo un humano la amplía.
+_Avoid_: índice, scope, colección
+
+**Ficha** (`Card`):
+Un fragmento recuperado tal como lo recibe el LLM: su texto con fecha, fuente, Segmento, Origen e id, en formato fijo.
+_Avoid_: chunk, resultado, recuerdo
+
+**Pista** (`Hint`):
+Notificación de una línea que Main añade antes de un Prompt cuando el RAG encontró algo muy relevante para él: fecha, fuente, inicio e id del fragmento, sin su contenido, que el LLM pide con `leer` si le sirve.
+_Avoid_: sugerencia, recuerdo
