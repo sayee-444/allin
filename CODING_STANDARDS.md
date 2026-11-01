@@ -20,12 +20,16 @@ Every value has a type that says what it means in the domain, and data from outs
 ## Errors
 
 - **Every error is an `AllInError`** subclass with a stable `code` and its facts as keyword fields (`SessionNotFound(session_id=...)`), never a message string: Windows and Logs render it from the fields. Re-raise with `from error`.
-- **A broad `except Exception`** lives only where a thread must survive anything (a Turn's executor), with a `noqa: BLE001` comment saying why.
+- **A broad `except Exception` that swallows the error** lives only where a thread must survive anything (a Turn's executor), with a `noqa: BLE001` comment saying why. One that only adds context and re-raises (`Cancellation.watching`) needs no exemption.
 
 ## Concurrency
 
-- **Threads with blocking I/O, never `asyncio`** (ADR-0002): each FIFO end, the Server watch and each Turn has its own thread, and they talk to Main's single Dispatcher thread through a `queue.Queue`. Only Main writes state (ADR-0001).
+- **Threads with blocking I/O** (ADR-0002 prefers them over `select`; the same reasoning keeps `asyncio` out): each long-lived job, such as a FIFO end, the Server watch, a Turn or the Launcher's watcher, has its own thread and talks to Main's single Dispatcher thread through a `queue.Queue`. Only Main writes state (ADR-0001).
 - **Code that tools run goes in a spawned process** (ADR-0005), never a thread or a persistent pool.
+
+## Output
+
+- **Nothing is printed**: what happens goes to the Log, and what the user should see goes to a Chat (`Reporter`). ruff's `T20` enforces the first half.
 
 ## Readability
 

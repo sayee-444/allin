@@ -14,7 +14,7 @@ Etiquetas por defecto: needs-triage, needs-info, ready-for-agent, ready-for-huma
 
 ### Coding standards
 
-Al escribir o revisar código: tipos, fronteras (parsear con pydantic), nombres. See `CODING_STANDARDS.md`.
+Al escribir o revisar código: tipos, fronteras (parsear con pydantic), errores, threads, salida y nombres. See `CODING_STANDARDS.md`.
 
 ### Domain docs
 
