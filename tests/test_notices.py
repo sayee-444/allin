@@ -28,7 +28,7 @@ CUT_TURN_KEYS = {
     "notices.cut_turn.text": "{why}; {how}",
     "notices.context.enabled": True,
     "notices.context.title": "Context",
-    "notices.context.text": "{what} is at {pct}% of {limit} tokens",
+    "notices.context.text": "{what} is at {pct}% of {limit} tokens{hint}",
     "notices.context.threshold": 0.8,
 }
 EVENT = NoticeEvent(SessionId("abc123"), context=10, limit=100)

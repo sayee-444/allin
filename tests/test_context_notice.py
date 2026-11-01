@@ -8,8 +8,18 @@ from allin.notices import NoticeEvent
 PARAMS: dict[str, JsonValue] = {"threshold": 0.8}
 
 
-def event(used: int | None, before: int | None, shared: bool = False) -> NoticeEvent:
-    return NoticeEvent(SessionId("s1"), used, 1000, used=used, used_before=before, shared=shared)
+def event(
+    used: int | None, before: int | None, shared: bool = False, compacts: bool = True
+) -> NoticeEvent:
+    return NoticeEvent(
+        SessionId("s1"),
+        used,
+        1000,
+        used=used,
+        used_before=before,
+        shared=shared,
+        compacts=compacts,
+    )
 
 
 def test_it_shows_when_the_context_crosses_the_threshold() -> None:
@@ -17,7 +27,13 @@ def test_it_shows_when_the_context_crosses_the_threshold() -> None:
         "what": "the Context",
         "pct": 85,
         "limit": 1000,
+        "hint": "",
     }
+
+
+def test_with_compact_auto_off_it_suggests_compacting_by_hand() -> None:
+    shown = CONTEXT.check(event(850, 700, compacts=False), PARAMS)
+    assert shown is not None and shown["hint"] == "; /session compact s1 makes room"
 
 
 @pytest.mark.parametrize(("used", "before"), [(700, 600), (850, 820), (900, 800), (None, 100)])
@@ -42,7 +58,7 @@ def test_its_settings_are_like_a_modules() -> None:
     assert CONTEXT.defaults() == {
         "enabled": True,
         "title": "Context",
-        "text": "{what} is at {pct}% of {limit} tokens",
+        "text": "{what} is at {pct}% of {limit} tokens{hint}",
         "threshold": 0.8,
     }
 

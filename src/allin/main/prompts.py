@@ -5,14 +5,20 @@ Only the dispatcher touches it, so it needs no locking.
 
 from collections.abc import Container
 from dataclasses import dataclass
+from typing import Literal
 
 from allin.core.ids import SessionId
+
+# What a queue entry asks: a Turn for its text, a Compaction asked with ``/session compact``
+# (its text: the human's instructions) or one Main starts before a Turn that needs it.
+type PromptKind = Literal["prompt", "compact", "auto_compact"]
 
 
 @dataclass(frozen=True)
 class Prompt:
     session_id: SessionId
     text: str
+    kind: PromptKind = "prompt"
 
 
 class PromptQueue:
@@ -25,6 +31,10 @@ class PromptQueue:
     def push_front(self, prompt: Prompt) -> None:
         """Put a Prompt back first: a Step a Server left half-done goes before the rest."""
         self._prompts.insert(0, prompt)
+
+    def insert_before(self, prompt: Prompt, entry: Prompt) -> None:
+        """Put ``entry`` just before the first Prompt equal to ``prompt``."""
+        self._prompts.insert(self._prompts.index(prompt), entry)
 
     def waiting(self, active: Container[str]) -> list[Prompt]:
         """The Prompts whose Session has no active Turn, in queue order."""

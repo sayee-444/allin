@@ -100,6 +100,8 @@ class FakeServers:
         # What the Server counts in each Session's input, as it measures it (ADR-0004).
         self.input_tokens: dict[str, int | None] = {}
         self.default_input_tokens: int | None = 100
+        # Counts the tokens of whatever is measured, when set, instead of the two above.
+        self.tokens_of: Callable[[list[Item]], int | None] | None = None
         self.measured: list[str] = []  # each Session whose input Main had measured
         self.inbox: queue.Queue[MainEvent] | None = None  # where measures go, once Main runs
 
@@ -123,10 +125,11 @@ class FakeServers:
     def measure(
         self, server: ServerKey, session_id: SessionId, ticket: int, items: list[Item]
     ) -> None:
-        del items
         assert self.inbox is not None
         self.measured.append(session_id)
         tokens = self.input_tokens.get(session_id, self.default_input_tokens)
+        if self.tokens_of is not None:
+            tokens = self.tokens_of(items)
         self.inbox.put(InputMeasured(server, session_id, ticket, tokens))
 
     def recheck(self, server: ServerKey) -> None:

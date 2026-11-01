@@ -1,11 +1,13 @@
 """Rebuilding a Session's Chat from its Conversation and its Log.
 
 The Chat is never stored on its own: the Log says what was shown and in which order (Prompts,
-errors, how each Turn ended) and the Conversation holds what finished Turns said. A Session
-from before it had a Log shows only its Conversation's Turns.
+errors, how each Turn ended) and the Conversation holds what finished Turns said; the Turns a
+Compaction replaced are in its archives, so the Chat still shows them, with a cut line and the
+summary where it happened (ADR-0017). A Session from before it had a Log shows only its
+Conversation's Turns.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from allin.core.cut import CutReason
 from allin.core.settings import SessionSettings
@@ -17,8 +19,12 @@ from allin.main.usage import turn_tokens
 
 
 def rebuild_chat(
-    conversation: Conversation, log: Iterable[LogEntry], settings: SessionSettings
+    conversation: Conversation,
+    log: Iterable[LogEntry],
+    settings: SessionSettings,
+    archived: Sequence[Conversation] = (),
 ) -> list[ChatAppend]:
+    """``archived``: the Conversations its Compactions archived, oldest first."""
     log = list(log)
     if not log:
         return [
@@ -26,6 +32,7 @@ def rebuild_chat(
             for turn in conversation.turns
             for entry in [_prompt(turn.prompt, settings), *_turn_output(turn, settings)]
         ]
+    turns = _every_turn([*archived, conversation])
     chat: list[ChatAppend] = []
     for entry in log:
         fields = entry.fields
@@ -34,8 +41,8 @@ def rebuild_chat(
                 chat.append(_prompt(fields["text"], settings))
             case "turn_finished":
                 index: int = fields["turn"]
-                if 0 <= index < len(conversation.turns):
-                    chat += _turn_output(conversation.turns[index], settings)
+                if index in turns:
+                    chat += _turn_output(turns[index], settings)
             case "prompts_dropped":
                 chat.append(dropped_entry(len(fields["texts"]), fields["reason"]))
             case "turn_failed" | "turn_cancelled":
@@ -43,9 +50,22 @@ def rebuild_chat(
                 chat.append(error_entry(fields["error"]))
             case "error":
                 chat.append(error_entry(fields["error"]))
+            case "compacted":
+                chat += compacted_entries(fields["summarized"], fields["summary"])
+            case "compaction_failed":
+                chat.append(compaction_failed_entry(fields["error"]))
             case _:
                 pass  # events that never reach the Window's Chat
     return chat
+
+
+def _every_turn(conversations: Iterable[Conversation]) -> dict[int, Turn]:
+    """Each Turn the Session had, by its number; later Conversations hold the same Turns."""
+    return {
+        conversation.summarized + offset: turn
+        for conversation in conversations
+        for offset, turn in enumerate(conversation.turns)
+    }
 
 
 def _prompt(text: str, settings: SessionSettings) -> ChatAppend:
@@ -106,3 +126,18 @@ def tokens_entry(steps: list[Step]) -> ChatAppend | None:
     if all(step.usage is None for step in steps):
         return None
     return ChatAppend(role="info", label="tokens", text=f"{turn_tokens(steps)} tokens this turn")
+
+
+def compacted_entries(summarized: int, summary: str) -> list[ChatAppend]:
+    """Where a Compaction cut the Conversation and what the LLM remembers instead."""
+    cut = f"── Prompts 1\N{EN DASH}{summarized} summarized and archived; the LLM now reads this summary ──"
+    return [
+        ChatAppend(role="info", label="compacted", text=cut),
+        ChatAppend(role="info", label="summary", text=summary),
+    ]
+
+
+def compaction_failed_entry(error: str) -> ChatAppend:
+    return ChatAppend(
+        role="info", label="compacted", text=f"compaction failed, nothing changed: {error}"
+    )

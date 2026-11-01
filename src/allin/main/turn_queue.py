@@ -41,6 +41,8 @@ from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.admission import Waiting, admit, server_waiting
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import cut_entry, dropped_entry, error_entry, tokens_entry
+from allin.main.compaction import wants_compaction
+from allin.main.compactions import Compactions
 from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
@@ -270,6 +272,17 @@ class TurnQueue:
         # Each Session's Enlace asked to change, until it does or fails (ADR-0022): its new
         # Prompts wait for it, so none starts on the old Server meanwhile.
         self._changes: dict[SessionId, LinkChange] = {}
+        # Each Session's Compaction under way, a queue entry of its own (ADR-0017).
+        self._compactions = Compactions(
+            reporter,
+            windows,
+            boxes,
+            sessions,
+            sysprompts,
+            servers.measure,
+            self._tickets,
+            self._conversation,
+        )
 
     def push(self, session: Session, prompt: Prompt) -> None:
         """Queue a Prompt the user sent, show it in its Window and start it if there is room."""
@@ -287,6 +300,15 @@ class TurnQueue:
             vram = isinstance(state, ServerFailed) and state.failure == "vram"
             if link.supervisor is not None and not vram:
                 self._wake(link.supervisor)
+        self._start_turns()
+
+    def compact(self, session: Session, instructions: str) -> None:
+        """Queue a Compaction of the Session's Conversation (``/session compact``): it waits
+        its turn after the Session's queued Prompts, and none of them starts while it lasts."""
+        self._prompts.push(Prompt(session.id, instructions, "compact"))
+        shown = "compaction queued"
+        self._reporter.record(session.id, "compaction_asked", shown, instructions=instructions)
+        self.send_turn_state(session.id)
         self._start_turns()
 
     def watch(self, link: Link) -> None:
@@ -358,7 +380,11 @@ class TurnQueue:
     def measured(
         self, server: ServerKey, session_id: SessionId, ticket: int, tokens: int | None
     ) -> None:
-        """The Server measured the input of a Session's next Prompt."""
+        """The Server measured the input of a Session's next Prompt, or something its
+        Compaction asked."""
+        if self._compactions.owns(session_id, ticket):
+            self._compaction_measured(session_id, ticket, tokens)
+            return
         measure = self._measures.get(session_id)
         if measure is None or measure.ticket != ticket or measure.server != server:
             return  # a stale measure: the Prompt or its Server changed since
@@ -373,6 +399,8 @@ class TurnQueue:
         if running is None:
             return
         running.progress_at = self._clock()
+        if _compacting(running):  # its summary is shown once it is saved
+            return
         if kind == "reasoning":
             running.streamed.reasoning += text
         else:
@@ -385,6 +413,8 @@ class TurnQueue:
             return
         running.streamed.steps.append(step)
         running.cut = cut_reason(step, running.output_cap, running.slot_context)
+        if _compacting(running):  # the Session's Context is not what its summary Step read
+            return
         self._windows.show_context(running.session, running.streamed.steps)
         self._tell_notices(running)
 
@@ -397,10 +427,15 @@ class TurnQueue:
         self._release(running)
         self._measures.pop(session_id, None)  # its Conversation changed
         self._withdraw(running)
+        turn: int | None = None  # where it was saved, unless it was a summary Step
         try:
             if error is not None or steps is None:
                 raise error or TurnCrashed(reason="no steps")
-            turn = self._save_turn(running, steps)
+            if _compacting(running):  # its next part, or its check, goes first again
+                self._compactions.step_done(session_id, steps, running.cut)
+                self._prompts.push_front(running.prompt)
+            else:
+                turn = self._save_turn(running, steps)
         except AllInError as failure:
             if _reason(failure) == STALLED:
                 self._stalled(running)
@@ -416,7 +451,8 @@ class TurnQueue:
                     self._windows.send(session_id, self._waiting_entry(running.link))
         else:
             self._falls.pop(session_id, None)
-            self._turn_finished(running, turn, steps)
+            if turn is not None:
+                self._turn_finished(running, turn, steps)
         self.send_turn_state(session_id)
         self._start_turns()
 
@@ -441,6 +477,7 @@ class TurnQueue:
         self._falls.pop(session_id, None)
         self._measures.pop(session_id, None)
         self._since.pop(session_id, None)
+        self._compactions.drop(session_id)
         texts: list[JsonValue] = [prompt.text for prompt in self._prompts.drop(session_id)]
         if texts:
             shown = dropped_entry(len(texts), reason).text
@@ -520,6 +557,8 @@ class TurnQueue:
         Step waits, if it does."""
         active = session_id in self._running or self._prompts.has(session_id)
         waiting = self._shown_waiting.get(session_id) if active else None
+        if waiting is None and self._compactions.busy(session_id):
+            waiting = "compacting…"
         self._windows.send(session_id, TurnState(active=active, waiting=waiting))
 
     def streamed(self, session_id: SessionId) -> Streamed | None:
@@ -528,8 +567,10 @@ class TurnQueue:
         return None if running is None else running.streamed
 
     def queued(self) -> list[Prompt]:
-        """Every waiting Prompt, in queue order."""
-        return self._prompts.all()
+        """Every waiting Prompt, in queue order; a Compaction whose summary Step runs is
+        first, so a restart does it again."""
+        running = [r.prompt for r in self._running.values() if _compacting(r)]
+        return [*running, *self._prompts.all()]
 
     def running_prompts(self) -> list[Prompt]:
         """The Prompts of the running Turns that a restart should give back."""
@@ -537,7 +578,7 @@ class TurnQueue:
         return [
             running.prompt
             for running in self._running.values()
-            if running.cancellation.reason is None
+            if running.cancellation.reason is None and not _compacting(running)
         ]
 
     def _start_turns(self) -> None:
@@ -632,19 +673,29 @@ class TurnQueue:
         if not isinstance(state, ServerReady):
             waiting[session_id] = self._server_waiting(link.key)
             return None
-        need = self._need(prompt, session, link, state.props.slot_context)
+        slot_context = state.props.slot_context
+        need = self._need(prompt, session, link, slot_context)
         if need is None:  # measured in a moment: nothing to tell meanwhile
             return None
-        if need > state.props.slot_context:
-            raise PromptTooBig(need=need, limit=state.props.slot_context)
-        kind: WaitClass = "continuation" if session_id in self._falls else "prompt"
+        if self._compacts_first(prompt, session, need, slot_context):
+            entry = Prompt(session_id, "", "auto_compact")
+            self._prompts.insert_before(prompt, entry)
+            return self._prompt_candidate(entry, waiting)
+        if need > slot_context:
+            raise PromptTooBig(need=need, limit=slot_context)
+        repeats = session_id in self._falls or self._compactions.continuing(session_id)
+        kind: WaitClass = "continuation" if repeats else "prompt"
         since = self._since.setdefault(session_id, self._wall())
         waiter = self._waiter(session_id, kind, since, need)
         return _Candidate(waiter, link, prompt=prompt, session=session)
 
     def _need(self, prompt: Prompt, session: Session, link: Link, slot_context: int) -> int | None:
         """What the Prompt's first Step needs: its input, as the Server measures it, plus its
-        Output cap; ``None`` until measured, which this asks for."""
+        Output cap; ``None`` until measured, which this asks for. For a Compaction, what its
+        next summary Step needs."""
+        if prompt.kind != "prompt":
+            cap = output_cap(session.settings.sampling, slot_context)
+            return self._compactions.need(prompt, session, link.key, slot_context, cap)
         measure = self._measures.get(session.id)
         if measure is None or measure.prompt != prompt or measure.server != link.key:
             items = self._conversation(session).request_input(prompt.text)
@@ -655,6 +706,25 @@ class TurnQueue:
         if not measure.done:
             return None
         return (measure.tokens or 0) + output_cap(session.settings.sampling, slot_context)
+
+    def _compacts_first(
+        self, prompt: Prompt, session: Session, need: int, slot_context: int
+    ) -> bool:
+        """Whether the Prompt's Turn compacts first, as its first Step: it needs more than
+        ``compact.threshold`` of the slot, never counting what other Sessions take of a pool,
+        and it was not tried for it yet (ADR-0017)."""
+        if prompt.kind != "prompt" or self._compactions.tried(session.id):
+            return False
+        compact = session.settings.compact
+        return wants_compaction(compact, need, slot_context) and self._conversation(session).started
+
+    def _compacts_alone(self, session_id: SessionId) -> bool:
+        """Whether the Session has ``compact.auto`` on; else ``/session compact`` is up to a
+        human, which a Prompt too big is told."""
+        try:
+            return self._sessions.load(session_id).settings.compact.auto
+        except AllInError:
+            return True
 
     def _waiter(self, session_id: SessionId, kind: WaitClass, since: float, need: int) -> Waiter:
         return Waiter(
@@ -673,10 +743,18 @@ class TurnQueue:
         session_id = prompt.session_id
         self._prompts.remove(prompt)
         self._measures.pop(session_id, None)
+        if prompt.kind != "prompt":  # its Prompt, if it compacted for one, goes on
+            self._compactions.failed(prompt, error)
+            self.send_turn_state(session_id)
+            return
         self._since.pop(session_id, None)
+        self._compactions.forget(session_id)
         self._windows.show_error(error, session_id)
         if isinstance(error, PromptTooBig):
             self._windows.send(session_id, InputRestore(text=prompt.text))
+            if not self._compacts_alone(session_id):
+                hint = f"/session compact {session_id} may make room for it"
+                self._windows.send(session_id, ChatAppend(role="info", label="context", text=hint))
         self.send_turn_state(session_id)
 
     def _publish(self, candidates: list[_Candidate]) -> dict[ServerKey, WaitListView]:
@@ -728,7 +806,9 @@ class TurnQueue:
         assert candidate.prompt is not None and candidate.session is not None
         self._prompts.remove(candidate.prompt)
         self._measures.pop(candidate.waiter.session, None)
-        self._since.pop(candidate.waiter.session, None)
+        if candidate.prompt.kind == "prompt":  # a Compaction keeps its Turn's place
+            self._since.pop(candidate.waiter.session, None)
+            self._compactions.forget(candidate.waiter.session)
         self._start_prompt(
             candidate.prompt, candidate.session, candidate.link, slot, candidate.waiter.need
         )
@@ -787,9 +867,12 @@ class TurnQueue:
         assert isinstance(state, ServerReady)  # a slot is only taken on a ready Server
         slot_context = state.props.slot_context
         cap = output_cap(session.settings.sampling, slot_context)
+        compacting = prompt.kind != "prompt"
         request = TurnRequest(
             model=session.settings.model,
-            input=conversation.request_input(prompt.text),
+            input=self._compactions.request(session.id)
+            if compacting
+            else conversation.request_input(prompt.text),
             params={**session.settings.sampling.request_params(), "max_output_tokens": cap},
         )
         job = TurnJob(session.id, request, link.base_url)
@@ -811,7 +894,11 @@ class TurnQueue:
             else None,
         )
         self._reserve(self._running[session.id])
-        self._reporter.record(session.id, "turn_started", "turn started", need=need)
+        if compacting:
+            shown = "summary step started"
+            self._reporter.record(session.id, "compaction_step_started", shown, need=need)
+        else:
+            self._reporter.record(session.id, "turn_started", "turn started", need=need)
         self._submit_turn(job)
 
     def _server_changed(self, server: ServerKey, state: ServerState) -> None:
@@ -880,7 +967,7 @@ class TurnQueue:
 
     def _tell_over_limit(self, link: Link, limit: int) -> None:
         """A Notice naming this Main's Sessions on ``link`` whose Context no longer fits its
-        lowered slot limit (ADR-0022); compacting them comes with #46."""
+        lowered slot limit (ADR-0022); each compacts in parts before its next Turn (ADR-0017)."""
         over: list[str] = []
         for session_id in self._sessions.ids():
             try:
@@ -1077,6 +1164,7 @@ class TurnQueue:
             used=used,
             used_before=before,
             shared=shared,
+            compacts=running.session.settings.compact.auto,
         )
 
         def notify(kind: str, title: str, text: str) -> None:
@@ -1126,8 +1214,30 @@ class TurnQueue:
             self._sessions.save_conversation(session, conversation)
         return conversation
 
+    def _compaction_measured(self, session_id: SessionId, ticket: int, tokens: int | None) -> None:
+        """The Server measured something a Compaction asked; once it ends, saved or not, its
+        entry leaves the queue."""
+        entry = self._compactions.entry(session_id)
+        try:
+            over = self._compactions.measured(session_id, ticket, tokens)
+        except AllInError as error:
+            self._prompts.remove(entry)
+            self._compactions.failed(entry, error)
+            over = True
+        else:
+            if over:
+                self._prompts.remove(entry)
+                self._used.pop(session_id, None)  # the Context Notice may show again
+        if over:
+            self._measures.pop(session_id, None)
+            self.send_turn_state(session_id)
+        self._start_turns()
+
     def _fail_turn(self, running: _RunningTurn, error: AllInError) -> None:
         session_id = running.session.id
+        if _compacting(running):  # nothing changed: its Prompt, if any, waits in the queue
+            self._compactions.failed(running.prompt, error)
+            return
         # What it streamed is in no Conversation, so the Log keeps it for the rebuilt Chat.
         streamed = running.streamed
         fields = {"error": str(error), "reasoning": streamed.reasoning, "answer": streamed.answer}
@@ -1144,7 +1254,12 @@ class TurnQueue:
         conversation = self._conversation(running.session)
         turn = Turn(prompt=running.prompt.text, steps=steps, cut=running.cut)
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
-        return len(conversation.turns)
+        return conversation.next_turn
+
+
+def _compacting(running: _RunningTurn) -> bool:
+    """Whether its Step is a Compaction's summary Step."""
+    return running.prompt.kind != "prompt"
 
 
 def _reason(error: AllInError) -> JsonValue:

@@ -46,6 +46,34 @@ class Sampling(BaseModel, frozen=True):
         return self.model_dump(exclude_none=True)
 
 
+class CompactSettings(BaseModel, frozen=True):
+    """When and how a Session's Conversation is compacted (ADR-0017)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auto: bool = Field(
+        default=True,
+        description="compact on its own before a Turn whose Step would pass the threshold",
+    )
+    threshold: float = Field(
+        default=0.85,
+        gt=0,
+        le=1,
+        description="share of the slot's limit a Step may need before it compacts first",
+    )
+    keep: float = Field(
+        default=0.25,
+        ge=0,
+        lt=1,
+        description="share of the slot's limit the last whole Turns kept literal may take",
+    )
+    sysprompt: str = Field(
+        default="compact.txt",
+        min_length=1,
+        description="Sysprompt file in the sysprompts folder that guides the summary",
+    )
+
+
 class SessionSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -80,6 +108,7 @@ class SessionSettings(BaseModel, frozen=True):
         description="its Confirmations go up to Main, which answers them under --devastation;"
         " only a human changes it",
     )
+    compact: CompactSettings = CompactSettings()
 
 
 class StepSettings(BaseModel, frozen=True):

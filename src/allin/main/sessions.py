@@ -19,7 +19,13 @@ from allin.core.errors import (
 from allin.core.files import write_atomically
 from allin.core.ids import MainId, SessionId, new_session_id, parse_session_id
 from allin.core.settings import SessionSettings
-from allin.main.conversation import Conversation, load_conversation, save_conversation
+from allin.main.conversation import (
+    Conversation,
+    archive_conversation,
+    load_archived,
+    load_conversation,
+    save_conversation,
+)
 from allin.main.log import Log, LogEntry, read_log
 
 _METADATA = "session.json"
@@ -98,6 +104,14 @@ class SessionStore:
 
     def save_conversation(self, session: Session, conversation: Conversation) -> None:
         save_conversation(self._root / session.id, conversation)
+
+    def archive_conversation(self, session: Session, conversation: Conversation) -> str:
+        """Archive what a Compaction replaces; its path within the Session's folder."""
+        return archive_conversation(self._root / session.id, conversation)
+
+    def load_archived(self, session: Session) -> list[Conversation]:
+        """What its Compactions archived, oldest first."""
+        return load_archived(self._root / session.id)
 
     def log(self, session_id: SessionId) -> Log:
         if parse_session_id(session_id) is None:  # an id made by hand never becomes a path

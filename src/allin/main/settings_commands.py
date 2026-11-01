@@ -37,28 +37,34 @@ _SYSPROMPT_KEYS = ("sysprompt", "assistant_name", "username")
 _RESTART_NOTE = "base_url takes effect when Main restarts"
 
 
-_SESSION_USAGE = "/session <sid> | /session set <sid> [key=value…]"
+_SESSION_USAGE = (
+    "/session <sid> | /session set <sid> [key=value…] | /session compact <sid> [instructions]"
+)
 
 
 @dataclass(frozen=True)
 class SessionCommand:
-    """What ``/session`` was asked about: a Session and, after ``set``, its assignments."""
+    """What ``/session`` was asked about: a Session and, after ``set``, its assignments, or
+    after ``compact``, the human's instructions for the summary."""
 
     session_id: str  # as typed; loading it checks it
-    assignments: str = ""
+    rest: str = ""
+    compact: bool = False
 
 
 def parse_session_command(args: list[str]) -> SessionCommand | None:
-    """``/session <sid>`` or ``/session set <sid> [key=value…]``, from the words after
-    ``/session`` (the second one holding the rest of the line); ``None`` if it is neither."""
+    """``/session <sid>``, ``/session set <sid> [key=value…]`` or ``/session compact <sid>
+    [instructions]``, from the words after ``/session`` (the second one holding the rest of
+    the line); ``None`` if it is none of them."""
     if not args:
         return None
-    if args[0] != "set":
+    if args[0] not in ("set", "compact"):
         return SessionCommand(args[0]) if len(args) == 1 else None
     words = args[1].split(maxsplit=1) if len(args) > 1 else []
     if not words:
         return None
-    return SessionCommand(words[0], words[1] if len(words) > 1 else "")
+    rest = words[1] if len(words) > 1 else ""
+    return SessionCommand(words[0], rest, compact=args[0] == "compact")
 
 
 def _check_authority(assignments: Mapping[SettingName, str], origin: Origin) -> None:
@@ -134,12 +140,16 @@ class SettingsCommands:
 
     def session(self, first: str, rest: str = "", origin: Origin = HUMAN) -> bool:
         """``/session <sid>`` shows a Session's Settings; ``/session set <sid> key=value…``
-        changes them."""
+        changes them; ``/session compact <sid> [instructions]`` compacts its Conversation,
+        without a Confirmation since a Rewind undoes it (ADR-0017)."""
         target = parse_session_command([first, rest] if rest else [first])
         if target is None:
             raise InvalidArguments(usage=_SESSION_USAGE)
         session = self._sessions.load_owned(target.session_id, self._main_id)
-        assignments = parse_assignments(target.assignments)
+        if target.compact:
+            self._turns.compact(session, target.rest)
+            return True
+        assignments = parse_assignments(target.rest)
         extra = self._notices.setting_keys()
         if not assignments:
             self._show(session.id, session.settings, extra)
@@ -176,7 +186,7 @@ class SettingsCommands:
             return
         conversation = self._sessions.load_conversation(session) or Conversation(sysprompt="")
         # A running Turn is saved with the Sysprompt it was sent, so it counts as one already.
-        if conversation.turns or self._turns.streamed(session.id) is not None:
+        if conversation.started or self._turns.streamed(session.id) is not None:
             # Its Sysprompt is fixed; new names only reach the Chat.
             if settings.sysprompt != session.settings.sysprompt:
                 raise SyspromptLocked(session_id=session.id)
