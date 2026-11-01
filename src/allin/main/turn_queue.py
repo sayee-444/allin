@@ -468,7 +468,9 @@ class TurnQueue:
             if slot is not None:  # an answered Turn goes on before any new Prompt
                 self._resume_turn(running, slot)
                 return True
-        for prompt in self._prompts.waiting(active=self._running.keys() | self._changes.keys()):
+        # A Session whose Enlace changes waits for it, but a suspended Turn repeats its Step.
+        held = self._changes.keys() - self._falls.keys()
+        for prompt in self._prompts.waiting(active=self._running.keys() | held):
             try:
                 session = self._sessions.load(prompt.session_id)
                 link = self._links.resolve(session.settings)
@@ -681,11 +683,9 @@ class TurnQueue:
     def _watched_link(self, session: Session) -> Link | None:
         """The Session's Enlace, watched from now on; ``None`` if it cannot be resolved, which
         its Prompt tells when it would start."""
-        try:
-            link = self._links.resolve(session.settings)
-        except AllInError:
-            return None
-        self._watch(link)
+        link = self._link_or_none(session)
+        if link is not None:
+            self._watch(link)
         return link
 
     def _watched_link_of(self, session_id: SessionId) -> Link | None:
@@ -712,7 +712,9 @@ class TurnQueue:
         now = self._clock()
         for session_id, change in list(self._changes.items()):
             state = self._states.get(change.to.key)
-            verdict = judge(change, state, session_id in self._running, now)
+            # A Turn suspended to repeat its Step is still active: it repeats on the old model.
+            busy = session_id in self._running or session_id in self._falls
+            verdict, self._changes[session_id] = judge(change, state, busy, now)
             if verdict == "wait":
                 continue
             del self._changes[session_id]
@@ -722,9 +724,7 @@ class TurnQueue:
                     case "apply":
                         self._apply_change(session, change.to)
                     case "fail":
-                        before = self._link_or_none(session)
-                        was = before.describe() if before else "none"
-                        shown = failure_text(change, state, was)
+                        shown = failure_text(change, state, self._link_or_none(session))
                         self._tell_session(session_id, "link_change_failed", shown)
             except AllInError as error:
                 self._windows.show_error(error, session_id)

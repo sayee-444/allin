@@ -123,7 +123,7 @@ class SettingsCommands:
             self._default = changed
         else:
             self._use(changed)
-            if link is not None:  # Main tells how it is from now on
+            if link is not None:  # its state is known, and told, before /new uses it
                 self._turns.watch(link)
         return True
 

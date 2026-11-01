@@ -5,12 +5,13 @@ active Turn, so no Turn changes model half-way; if the new Supervisor cannot sta
 stays where it was and Main says why.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from allin.core.ids import SessionId
 from allin.main.events import (
     ServerAsleep,
+    ServerDown,
     ServerFailed,
     ServerReady,
     ServerRestarting,
@@ -25,7 +26,7 @@ STALE_FOR = 10.0
 type Verdict = Literal["wait", "apply", "fail"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class LinkChange:
     session_id: SessionId
     to: Link
@@ -33,28 +34,33 @@ class LinkChange:
     live: bool = False  # whether its Server has shown itself running since
 
 
-def judge(change: LinkChange, state: ServerState | None, busy: bool, now: float) -> Verdict:
+def judge(
+    change: LinkChange, state: ServerState | None, busy: bool, now: float
+) -> tuple[Verdict, LinkChange]:
     """What to do with a pending change, given what its Server says now and whether the
-    Session has an active Turn."""
+    Session has an active Turn; and the change as it stands after this look."""
+    running = replace(change, live=True)
     match state:
         case ServerReady():
-            change.live = True
-            return "wait" if busy else "apply"
+            return ("wait" if busy else "apply"), running
         case ServerAsleep(slept_by_human=True):  # never woken but by a human (ADR-0022)
-            return "fail"
+            return "fail", change
         case ServerFailed() | ServerAsleep() | ServerRestarting(sleep=True):
-            return "fail" if change.live or now - change.since >= STALE_FOR else "wait"
+            stale = not change.live and now - change.since < STALE_FOR
+            return ("wait" if stale else "fail"), change
+        case ServerDown() if change.to.supervisor is None:  # Main cannot start that one
+            return "fail", change
         case None:
-            return "wait"
+            return "wait", change
         case _:  # loading, restarting, or not answering yet: it runs
-            change.live = True
-            return "wait"
+            return "wait", running
 
 
-def failure_text(change: LinkChange, state: ServerState | None, before: str) -> str:
-    """Why the change failed and what to do, for Main's Chat and the Session's Window."""
+def failure_text(change: LinkChange, state: ServerState | None, before: Link | None) -> str:
+    """Why the change failed and what to do, for Main's Chat and the Session's Window;
+    ``before`` is ``None`` if the Session's Enlace cannot be resolved."""
     server = change.to.describe()
-    stays = f"the Enlace stays on {before}"
+    stays = f"the Enlace stays on {before.describe() if before else 'one that cannot be resolved'}"
     match state:
         case ServerFailed(failure="vram", gpu_holders=holders) if holders:
             names = ", ".join(holders)
@@ -73,6 +79,8 @@ def failure_text(change: LinkChange, state: ServerState | None, before: str) -> 
         case ServerAsleep(slept_by_human=True):
             name = change.to.supervisor
             why = f"{server} was put to sleep by a human; wake it with /server wake {name}"
+        case ServerDown():
+            why = f"{server} cannot be reached"
         case _:
             why = f"{server} fell asleep before it was ready"
     return f"Enlace not changed: {why}; {stays}"

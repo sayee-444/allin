@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from allin.core.errors import LlmUnavailable
 from allin.core.ids import ServerKey, SupervisorName
 from allin.ipc.messages import ChatAppend, ContextUsage
 from allin.main.conversation import Step
@@ -367,3 +368,39 @@ def test_a_session_can_move_to_the_server_at_mains_base_url(main: MainHarness):
     session = main.create_session(server="gpu")
     main.run(change(session.id, ""), settle=True)  # the harness's Server at 9931 is ready
     assert main.sessions.load(session.id).settings.server is None
+
+
+def test_a_turn_suspended_by_a_fall_repeats_its_step_on_the_old_server_before_the_change(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    main.run(
+        InputReceived(session.id, "one"),
+        ready(GPU),
+        change(session.id, "cpu"),
+        ready(CPU),
+        TurnEnded(session.id, error=LlmUnavailable(reason="Connection error.")),
+        ready(GPU),
+        settle=True,
+    )
+    assert [job.base_url for job in main.held] == [
+        "http://127.0.0.1:9101/v1",
+        "http://127.0.0.1:9101/v1",  # the same Step again, on the same model
+    ]
+    assert main.sessions.load(session.id).settings.server == "gpu"
+
+
+def test_a_change_to_mains_server_while_it_is_down_fails_and_frees_the_sessions_prompts(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    main.server_up = False
+    chat = main.run(
+        change(session.id, ""),
+        ServerChanged(ServerKey("9931"), ServerDown()),
+        InputReceived(session.id, "hi"),
+        ready(GPU),
+        settle=True,
+    )
+    assert any("Enlace not changed" in line and "cannot be reached" in line for line in chat)
+    assert [job.base_url for job in main.held] == ["http://127.0.0.1:9101/v1"]
