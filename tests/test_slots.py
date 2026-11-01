@@ -1,6 +1,6 @@
 import pytest
 
-from allin.main.slots import ServerProps, capacity, parse_props, server_name
+from allin.main.slots import ServerProps, capacity, parse_props, server_name, server_root
 
 # What llama-server's /props says, trimmed to what Main reads.
 PROPS = {
@@ -53,3 +53,12 @@ def test_parallel_can_only_lower_the_capacity():
 def test_until_supervisors_exist_a_server_is_named_by_its_port():
     assert server_name("http://127.0.0.1:9931/v1") == "9931"
     assert server_name("http://localhost/v1") == "80"
+    assert server_name("https://localhost/v1") == "443"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["http://127.0.0.1:9931/v1", "http://127.0.0.1:9931/v1/", "http://127.0.0.1:9931/"],
+)
+def test_the_server_root_is_outside_the_openai_v1_path(base_url: str):
+    assert server_root(base_url) == "http://127.0.0.1:9931"

@@ -163,6 +163,18 @@ def _escapes() -> int:
     )
 
 
+def _mutation_score() -> str:
+    """Share of mutants the suite kills, over the modules ``[tool.mutmut]`` lists."""
+    _run("venv/bin/mutmut", "run")
+    states = re.findall(
+        r": (\w+)$", _run("venv/bin/mutmut", "results", "--all", "true"), re.MULTILINE
+    )
+    if not states:
+        return "no data"
+    killed = states.count("killed")
+    return f"{killed / len(states):.0%} ({killed}/{len(states)} mutants killed)"
+
+
 def _hours(delta: timedelta | None) -> str:
     return "no data" if delta is None else f"{delta.total_seconds() / 3600:.1f} h"
 
@@ -183,6 +195,7 @@ def main() -> None:
         f"  time to restore       {_hours(dora.time_to_restore)}  (issues labelled bug)",
         "Code health",
         f"  tests                 {_coverage()}",
+        f"  mutation score        {_mutation_score()}",
         f"  type errors           {_type_errors()}  (basedpyright strict)",
         f"  lint warnings         {_lint_warnings()}  (ruff)",
         f"  escapes in src        {_escapes()}  (cast, pyright/type: ignore, noqa)",

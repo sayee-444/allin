@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = ["pydantic>=2", "openai>=2"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "basedpyright"]
+dev = ["pytest", "pytest-cov", "mutmut", "ruff", "basedpyright"]
 
 [project.scripts]
 allin = "allin.__main__:main"
@@ -88,3 +88,16 @@ ignore = [
 # Test functions return nothing; basedpyright strict still checks their parameters.
 # Fakes keep the signatures they stand in for, and raise plain errors with their message.
 "tests/**" = ["ANN201", "ARG", "TRY003", "EM101"]
+
+[tool.mutmut]
+# Mutation testing: `venv/bin/mutmut run`, then `venv/bin/mutmut results`. Start with the pure
+# logic, where a surviving mutant means a test that would miss a real bug.
+paths_to_mutate = [
+    "src/allin/core/ids.py",
+    "src/allin/core/drafts.py",
+    "src/allin/main/slots.py",
+    "src/allin/main/usage.py",
+    "src/allin/main/prompts.py",
+]
+tests_dir = ["tests/"]
+also_copy = ["src/", "scripts/", "sysprompts/"]
