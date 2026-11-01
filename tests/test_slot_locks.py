@@ -4,8 +4,9 @@ import sys
 from pathlib import Path
 
 from allin.core.ids import ServerKey
+from allin.core.slot_locks import SlotLocks
 from allin.main.events import MainEvent, SlotFreed
-from allin.main.slot_locks import SlotLocks, SlotWaiter
+from allin.main.slot_locks import SlotWaiter
 
 KEY = ServerKey("9931")
 
@@ -46,7 +47,7 @@ def test_a_main_that_dies_mid_step_leaves_its_slot_free(tmp_path: Path):
     script = (
         "import sys, time\n"
         "from pathlib import Path\n"
-        "from allin.main.slot_locks import SlotLocks\n"
+        "from allin.core.slot_locks import SlotLocks\n"
         "lock = SlotLocks(Path(sys.argv[1]), '9931').take(1)\n"
         "print(lock.slot, flush=True)\n"
         "time.sleep(60)\n"

@@ -22,6 +22,7 @@ from allin.main.sessions import SessionStore
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.signals import ShutdownSignals
 from allin.main.state import MainStateStore
+from allin.main.ticker import Ticker
 from allin.main.turn import OpenAiLlm
 from allin.main.windows import WindowOpener, close_orphan_window
 from allin.ui.screen import ChatScreen
@@ -80,10 +81,13 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: b
         dispatcher.run()  # closes every Window before returning
         executors.shutdown(_SHUTDOWN_GRACE)  # running Turns are cancelled, never saved
         server_links.stop()
+        ticks.stop()
         screen.inbox.put(None)
 
     shutdown_signals = ShutdownSignals(lambda: inbox.put(Shutdown()))
     shutdown_signals.install()
+    ticks = Ticker(inbox)  # Main looks for stalled Steps once a second (ADR-0023)
+    ticks.start()
     dispatcher_thread = threading.Thread(target=dispatch, name="dispatcher")
     dispatcher_thread.start()
     try:

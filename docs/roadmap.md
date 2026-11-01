@@ -8,8 +8,8 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #24 Supervisor 1/4: `python -m allin.supervisor <nombre>` con `flock`, Ajustes en `servers/<nombre>.toml` (`--kv-unified` con `-np ≥ 2`), estado en `servers/<nombre>.json`, salida en `logs/servers/<nombre>/`, relanzado con espera creciente y `failed` tras 5 caídas, por VRAM o por puerto ocupado (con su dueño); el Enlace es el Ajuste de Sesión `server` (`session.server` en la plantilla); cada Servidor tiene su vigilancia, sus candados `servers/<nombre>.slot<N>.lock` y su espera, y un Prompt despierta a su Supervisor dormido, que sobrevive a Main. `/session set <sid> server=` se rechaza hasta #27 (2026-11-01). Antes: #28 Recuadro.
-- **Siguiente:** #25 Supervisor 2/4: reinicio ordenado, drenado y una sola regla para las caídas.
+- **Último hecho:** #25 Supervisor 2/4 (2026-11-01): `/server restart <nombre> [--now]` manda `SIGHUP` (o `SIGUSR1`) al Supervisor, que escribe `draining`, toma todos los candados de slot y reinicia con los Ajustes pendientes; si no arrancan, vuelve solo a los últimos que arrancaron y Main lo cuenta. Una caída o un `--now` deja el Turno suspendido y su Paso se repite al volver; dos caídas seguidas con el Paso ya en el Servidor hacen fallar el Turno. Un Paso sin avance en `step.stall` s (los eventos del stream y, mientras lee la entrada, lo que dice `/slots`) se cancela con un Aviso y suelta el slot aunque el Servidor siga callado (la prueba con `SIGSTOP` encontró que no lo soltaba: arreglado). Un límite de slot más bajo da un Aviso con las Sesiones que lo pasan. Métricas: 466 tests, cobertura 85 %, mutación 98 %, 8 escapes, CFR 9 %. Queda para #26: que `/server sleep` drene igual (hoy solo el reinicio drena). Limitaciones conocidas: el avance de `/slots` cuenta para todos los Pasos de ese Servidor, porque llama no dice qué slot leyó; y un Main que arranca ya con el límite bajado no avisa (llega con #46). Antes: #24 Supervisor 1/4.
+- **Siguiente:** #26 Supervisor 3/4: `/server …`, con `wake`, e investigación de Ajustes del Servidor.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -41,7 +41,7 @@ Ya tienen código; verificados y comentados.
 4. ✅ #55 Ajustes: archivo, `/set`, `/set --default`, `/reset`, `/session set` y `/session`
 5. ✅ #28 Recuadro de Aviso y Confirmación
 6. ✅ #24 Supervisor 1/4: Supervisor con nombre, Enlace de cada Sesión y despertar con trabajo (ADR-0022)
-7. #25 Supervisor 2/4: reinicio ordenado, drenado y una sola regla para las caídas (ADR-0023)
+7. ✅ #25 Supervisor 2/4: reinicio ordenado, drenado y una sola regla para las caídas (ADR-0023)
 8. #26 Supervisor 3/4: `/server …`, con `wake`, e investigación de Ajustes del Servidor
 9. #27 Supervisor 4/4: cambiar el Enlace de una Sesión en caliente
 10. #51 Turno cortado: detectarlo por los tokens, guardarlo marcado y avisar (ADR-0004)

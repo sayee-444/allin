@@ -93,7 +93,8 @@ class LlmRequestFailed(AllInError):
 
 class LlmUnavailable(LlmRequestFailed):
     """The LLM's server cannot serve a Step: it is down, still loading its model (503), or it
-    died while a Step streamed."""
+    died while a Step streamed. ``reached`` says whether the Step got to the Server before it
+    fell, which counts towards failing its Turn (ADR-0023)."""
 
     code: ClassVar[str] = "llm_unavailable"
 
@@ -102,6 +103,12 @@ class TurnCancelled(AllInError):
     """A Turn was stopped before it finished: its Window closed, or Main is shutting down."""
 
     code: ClassVar[str] = "turn_cancelled"
+
+
+class StepStalled(AllInError):
+    """A Step made no progress for ``step.stall`` seconds; Main cancelled it (ADR-0023)."""
+
+    code: ClassVar[str] = "step_stalled"
 
 
 class TurnCrashed(AllInError):
@@ -204,3 +211,10 @@ class SupervisorAlreadyRunning(AllInError):
     """Another process already is this Supervisor; only one may be (ADR-0008)."""
 
     code: ClassVar[str] = "supervisor_already_running"
+
+
+class SupervisorNotRunning(AllInError):
+    """A Supervisor asked to restart is asleep or failed: its next wake uses its pending
+    Settings anyway."""
+
+    code: ClassVar[str] = "supervisor_not_running"

@@ -33,7 +33,9 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGHUP, signal.SIG_IGN)  # a restart on SIGHUP comes with #25
+    signal.signal(signal.SIGHUP, lambda _s, _f: supervisor.restart(now=False))
+    # --now: Mains cut their Steps short and repeat them after the restart (ADR-0023).
+    signal.signal(signal.SIGUSR1, lambda _s, _f: supervisor.restart(now=True))
     try:
         sys.exit(supervisor.run(os.getpid()))
     except SupervisorAlreadyRunning as error:

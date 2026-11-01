@@ -9,6 +9,7 @@ from allin.core.drafts import put_back
 from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId, ServerKey, SessionId, SupervisorName
 from allin.core.settings import MainSettings, Sampling, SessionSettings
+from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.ipc.messages import (
     ChatAppend,
     ChatDelta,
@@ -42,7 +43,6 @@ from allin.main.notices import load_notice_types
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import MainSettingsFiles
-from allin.main.slot_locks import SlotLock, SlotLocks
 from allin.main.slots import ServerProps
 from allin.main.state import MainState, MainStateStore
 from allin.ui.chat import Chat, Row
@@ -87,6 +87,7 @@ class FakeServers:
         self.directory = directory
         self.watched: list[Link] = []
         self.woken: list[str] = []
+        self.restarted: list[tuple[str, bool]] = []
         self.taken: list[ServerKey] = []  # each slot lock Main took, by Server
         self.slot_waits = 0  # times Main waited for a slot lock another Main held
         self.on_slot_wait: Callable[[], None] = lambda: None
@@ -114,6 +115,9 @@ class FakeServers:
         self.woken.append(name)
         return True
 
+    def restart(self, name: SupervisorName, now: bool) -> None:
+        self.restarted.append((name, now))
+
 
 SETTINGS = MainSettings(session=SessionSettings(username="ana", assistant_name="AllIn"))
 # What a Window is first sent for a Session with no Turns: just its context limit.
@@ -133,14 +137,18 @@ class FakeWindowLink:
         self.closed = True
 
 
+type Between = Callable[[], None]  # something a test does between two events
+
+
 class DrainingInbox(queue.Queue[MainEvent]):
     """An inbox that says Shutdown once it is empty, so a test's dispatcher always stops.
 
     Events in ``later`` are fed one at a time, each once the inbox is empty, as if the user
-    waited for Main to finish with everything before.
+    waited for Main to finish with everything before. A function among them is called at its
+    turn instead, e.g. to move Main's clock.
     """
 
-    def __init__(self, later: list[MainEvent]) -> None:
+    def __init__(self, later: list[MainEvent | Between]) -> None:
         super().__init__()
         self._later = later
 
@@ -150,7 +158,14 @@ class DrainingInbox(queue.Queue[MainEvent]):
         try:
             return super().get(block=False)
         except queue.Empty:
-            return self._later.pop(0) if self._later else Shutdown()
+            while self._later:
+                event = self._later.pop(0)
+                if not callable(event):
+                    return event
+                event()
+                if not super().empty():
+                    return super().get(block=False)
+            return Shutdown()
 
 
 class RecordingStateStore(MainStateStore):
@@ -189,6 +204,7 @@ class MainHarness:
         # Whether another Main could have taken a slot lock as each Turn was submitted.
         self.slot_free_at_submit: list[bool] = []
         self.hold_turns = False
+        self.now = 0.0  # Main's clock, as the test moves it
         self.main_screen: list[ScreenUpdate] = []  # boxes and marks of Main's Chat, in order
         self.devastation = False  # lit on the command line
         self.notices_dir = tmp_path / "notices"  # Notice modules, loaded on each start
@@ -216,7 +232,7 @@ class MainHarness:
     def windows(self, session_id: str) -> list[FakeWindowLink]:
         return [link for sid, link in self.opened if sid == session_id]
 
-    def run(self, *events: MainEvent, settle: bool = False) -> list[str]:
+    def run(self, *events: MainEvent | Between, settle: bool = False) -> list[str]:
         """Feed events to a dispatcher, run it until nothing is left and return Main's Chat.
 
         With ``settle``, each event arrives only once Main has handled all that came before it
@@ -225,6 +241,7 @@ class MainHarness:
         main_chat: list[str] = []
         if self.server_up:
             events = (server_ready(self.server), *events)
+        assert settle or not any(callable(event) for event in events), "steps need settle"
         inbox = DrainingInbox(list(events) if settle else [])
 
         def submit_turn(job: TurnJob) -> None:
@@ -256,8 +273,10 @@ class MainHarness:
             self.main_screen.append,
             self.devastation,
             load_notice_types(self.notices_dir),
+            lambda: self.now,
         )
         for event in () if settle else events:
+            assert not callable(event)
             inbox.put(event)
         dispatcher.run()
         return main_chat
@@ -759,23 +778,72 @@ def test_closing_a_window_with_no_turn_or_prompt_cancels_nothing(main: MainHarne
 @pytest.mark.parametrize(
     "stream", [Unreachable(), DroppedStream([answer("half")])], ids=["down", "dies mid-turn"]
 )
-def test_when_the_server_is_unreachable_the_prompt_goes_back_to_its_windows_input(
+def test_a_step_the_server_could_not_finish_runs_again_once_it_is_back(
     main: MainHarness, stream: Unreachable | DroppedStream
 ):
     session = main.create_session()
-    main.llm = FakeLlm(stream)
-    main.run(MainCommandEntered(f"/open {session.id}"), InputReceived(session.id, "hola\nadiós"))
-    assert main.sessions.load_conversation(session) == Conversation(
-        sysprompt="I am AllIn; you are ana."
+    main.llm = FakeLlm(stream, full_reply("", "again"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola\nadiós"),
+        server_ready(main.server),  # what the Server watch says once it is back
+        settle=True,
+    )
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None and [turn.prompt for turn in conversation.turns] == [
+        "hola\nadiós"
+    ]
+    [window] = main.windows(session.id)
+    assert not any(isinstance(m, InputRestore) for m in window.sent)
+    assert any(isinstance(m, ChatAppend) and "turn suspended" in m.text for m in window.sent)
+    assert any(isinstance(m, ChatAppend) and "cannot be reached" in m.text for m in window.sent)
+    [cut] = [entry for entry in main.session_log(session) if entry.event == "turn_suspended"]
+    assert "llm_unavailable" in cut.fields["error"]
+
+
+def test_the_same_step_left_half_done_by_two_falls_in_a_row_fails_its_turn(main: MainHarness):
+    session = main.create_session()
+    main.llm = FakeLlm(DroppedStream([answer("half")]), DroppedStream([answer("half")]))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        server_ready(main.server),
+        settle=True,
     )
     [window] = main.windows(session.id)
-    [error] = [m for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
-    assert "llm_unavailable" in error.text
-    assert any(isinstance(m, ChatAppend) and "cannot be reached" in m.text for m in window.sent)
-    restored = window.sent.index(InputRestore(text="hola\nadiós"))
-    assert restored < window.sent.index(TurnState(active=False))
+    assert InputRestore(text="hola") in window.sent
     [failed] = [entry for entry in main.session_log(session) if entry.event == "turn_failed"]
     assert "llm_unavailable" in failed.fields["error"]
+
+
+def test_two_falls_in_a_row_while_the_server_reads_the_step_fail_its_turn(main: MainHarness):
+    # A Step that brings its Server down while it reads its input (e.g. out of memory on a long
+    # prompt) never streams anything: it still counts, or it would repeat forever (ADR-0023).
+    session = main.create_session()
+    main.llm = FakeLlm(DroppedStream([]), DroppedStream([]), full_reply("", "never"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        server_ready(main.server),
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    assert InputRestore(text="hola") in window.sent
+    assert any(entry.event == "turn_failed" for entry in main.session_log(session))
+
+
+def test_falls_before_the_step_reached_the_server_never_fail_its_turn(main: MainHarness):
+    session = main.create_session()
+    main.llm = FakeLlm(Unreachable(), Unreachable(), Unreachable(), full_reply("", "ok"))
+    main.run(
+        InputReceived(session.id, "hola"),
+        server_ready(main.server),
+        server_ready(main.server),
+        server_ready(main.server),
+        settle=True,
+    )
+    assert not any(entry.event == "turn_failed" for entry in main.session_log(session))
+    assert any(entry.event == "turn_finished" for entry in main.session_log(session))
 
 
 def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
@@ -783,7 +851,7 @@ def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
 ):
     a, b = main.create_session(), main.create_session()
     main.server = server(slots=2)
-    main.llm = FakeLlm(DroppedStream([answer("half")]), full_reply("", "back"))
+    main.llm = FakeLlm(DroppedStream([answer("half")]), full_reply("", "a"), full_reply("", "b"))
     chat = main.run(
         MainCommandEntered(f"/open {b.id}"),
         InputReceived(a.id, "a1"),
@@ -794,7 +862,9 @@ def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
     assert main.servers.rechecks == 1  # for the dead server
     assert turn_lines(chat) == [
         f"[{a.id}] turn started",
+        f"[{a.id}] turn started",  # its Step again, before the Prompts that waited
         f"[{b.id}] turn started",
+        f"[{a.id}] turn finished",
         f"[{b.id}] turn finished",
     ]
     [paused] = [n for n, line in enumerate(chat) if "cannot be reached" in line]
@@ -1194,11 +1264,11 @@ def test_turns_cancelled_on_shutdown_let_go_of_their_slot_locks(main: MainHarnes
     assert SlotLocks(main.slot_locks_dir, KEY).take(1) is not None
 
 
-def test_a_turn_that_gets_503_while_the_model_loads_pauses_the_queue_and_gives_its_text_back(
+def test_a_turn_that_gets_503_while_the_model_loads_waits_and_runs_once_it_is_loaded(
     main: MainHarness,
 ):
     a, b = main.create_session(), main.create_session()
-    main.llm = FakeLlm(status_error(503), full_reply("", "loaded"))
+    main.llm = FakeLlm(status_error(503), full_reply("", "a"), full_reply("", "b"))
     chat = main.run(
         MainCommandEntered(f"/open {a.id}"),
         InputReceived(a.id, "a1"),
@@ -1208,14 +1278,10 @@ def test_a_turn_that_gets_503_while_the_model_loads_pauses_the_queue_and_gives_i
         settle=True,
     )
     assert main.servers.rechecks == 1
-    assert turn_lines(chat) == [
-        f"[{a.id}] turn started",
-        f"[{b.id}] turn started",
-        f"[{b.id}] turn finished",
-    ]
-    [failed] = [entry for entry in main.session_log(a) if entry.event == "turn_failed"]
-    assert "llm_unavailable" in failed.fields["error"] and "503" in failed.fields["error"]
+    lines = turn_lines(chat)
+    assert lines[:2] == [f"[{a.id}] turn started", f"[{a.id}] turn started"]
+    assert lines.index(f"[{a.id}] turn finished") > 1
     paused = [n for n, line in enumerate(chat) if line.startswith("queue paused")]
     assert paused and paused[-1] < chat.index(f"[{b.id}] turn started")
     [window] = main.windows(a.id)
-    assert InputRestore(text="a1") in window.sent
+    assert InputRestore(text="a1") not in window.sent

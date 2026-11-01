@@ -16,6 +16,8 @@ type SupervisorStatus = Literal["starting", "ready", "crashed", "failed", "drain
 # Why it failed: the Server did not fit in VRAM, its port was taken, it crashed too often, or
 # its Settings are invalid.
 type FailureKind = Literal["vram", "port_in_use", "crashes", "settings"]
+# A restart asked for: once every Step on the Server ends, or cutting them short now.
+type RestartKind = Literal["drain", "now"]
 
 
 class SupervisorState(BaseModel, frozen=True):
@@ -28,6 +30,9 @@ class SupervisorState(BaseModel, frozen=True):
     last_exit_code: int | None = None
     failure: FailureKind | None = None
     reason: str | None = None  # the failure's details, as the Server or the system said them
+    restart: RestartKind | None = None  # while draining for a restart
+    # Why it runs on the last Settings that started instead of the pending ones (ADR-0008).
+    fallback_reason: str | None = None
 
 
 def state_path(servers: Path, name: SupervisorName) -> Path:

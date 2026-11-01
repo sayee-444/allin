@@ -79,6 +79,16 @@ class SessionSettings(BaseModel, frozen=True):
     )
 
 
+class StepSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    stall: float = Field(
+        default=120.0,
+        gt=0,
+        description="seconds a Step may go without progress before Main cancels it",
+    )
+
+
 class MainSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -92,6 +102,7 @@ class MainSettings(BaseModel, frozen=True):
         ge=1,
         description="Turns at once; only lowers the Server's slots; empty: as many as slots",
     )
+    step: StepSettings = StepSettings()
     # The Session template: copied by /new, never used by Main itself.
     session: SessionSettings = Field(default_factory=SessionSettings)
 

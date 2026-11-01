@@ -13,6 +13,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from pydantic import BaseModel, TypeAdapter
+
 from allin.core.ids import ServerKey, SupervisorName, parse_supervisor_name
 from allin.main.events import (
     MainEvent,
@@ -21,7 +23,9 @@ from allin.main.events import (
     ServerDown,
     ServerFailed,
     ServerLoading,
+    ServerProgress,
     ServerReady,
+    ServerRestarting,
     ServerState,
 )
 from allin.main.slots import parse_props, server_root
@@ -45,6 +49,27 @@ def probe(base_url: str, timeout: float = _TIMEOUT) -> ServerState:
     except (OSError, ValueError):  # no server, or not JSON
         return ServerDown()
     return ServerDown() if props is None else ServerReady(props)
+
+
+def reading_progress(base_url: str, timeout: float = _TIMEOUT) -> int | None:
+    """How much input the Server's busy slots have read, summed (``/slots``); ``None`` if it
+    does not say, e.g. ``--no-slots``."""
+    try:
+        with urllib.request.urlopen(f"{server_root(base_url)}/slots", timeout=timeout) as reply:
+            slots = _Slots.validate_python(json.load(reply))
+    except (OSError, ValueError):
+        return None
+    return sum(slot.n_prompt_tokens_processed for slot in slots if slot.is_processing)
+
+
+class _Slot(BaseModel):
+    """The part of a ``/slots`` entry Main reads."""
+
+    is_processing: bool = False
+    n_prompt_tokens_processed: int = 0
+
+
+_Slots = TypeAdapter(list[_Slot])
 
 
 def supervisor_view(servers: Path, name: SupervisorName) -> ServerState:
@@ -82,6 +107,7 @@ class ServerWatch:
         self._interval = interval
         self._lock = threading.Lock()
         self._last: ServerState | None = None  # what it last reported
+        self._read: int | None = None  # input its slots had read at the last look
         self._stopping = threading.Event()
         self._thread = threading.Thread(
             target=self._watch, name=f"server-watch-{server}", daemon=True
@@ -101,15 +127,28 @@ class ServerWatch:
         if self._thread.is_alive():
             self._thread.join()
 
+    def _look_at_reading(self) -> None:
+        read, self._read = self._read, reading_progress(self._base_url)
+        if self._read and self._read != read:
+            self._inbox.put(ServerProgress(self._server))
+
     def _look(self) -> ServerState:
         if self._supervisor is None:
             return probe(self._base_url)
         # What answers on its port while it is not running is not its Server: waking it then
         # fails, saying who holds the port.
-        if not supervisor_active(*self._supervisor):
-            return supervisor_view(*self._supervisor)
+        servers, name = self._supervisor
+        if not supervisor_active(servers, name):
+            return supervisor_view(servers, name)
+        told = read_state(servers, name)
+        if told is not None and told.status == "draining":
+            return ServerRestarting(now=told.restart == "now")
         state = probe(self._base_url)
-        return supervisor_view(*self._supervisor) if isinstance(state, ServerDown) else state
+        if isinstance(state, ServerDown):
+            return supervisor_view(servers, name)
+        if isinstance(state, ServerReady) and told is not None and told.fallback_reason:
+            return ServerReady(state.props, fallback=told.fallback_reason)
+        return state
 
     def _watch(self) -> None:
         while not self._stopping.is_set():
@@ -118,4 +157,6 @@ class ServerWatch:
                 changed, self._last = state != self._last, state
             if changed:
                 self._inbox.put(ServerChanged(self._server, state))
+            if isinstance(state, ServerReady):
+                self._look_at_reading()
             self._stopping.wait(self._interval)

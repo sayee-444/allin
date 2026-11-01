@@ -21,6 +21,7 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
     assert set(keys) == {
         "base_url",
         "parallel",
+        "step.stall",
         "session.assistant_name",
         "session.username",
         "session.sysprompt",

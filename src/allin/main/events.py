@@ -101,6 +101,8 @@ class ServerReady:
     """The Server is ready, with these props; said again when they change."""
 
     props: ServerProps
+    # Why its Supervisor runs the last Settings that started instead of the pending ones.
+    fallback: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +122,30 @@ class ServerFailed:
     gpu_holders: tuple[SupervisorName, ...] = ()
 
 
-type ServerState = ServerDown | ServerLoading | ServerReady | ServerAsleep | ServerFailed
+@dataclass(frozen=True)
+class ServerRestarting:
+    """Its Supervisor drains it for a restart: no new Step starts; with ``now``, the Turns
+    running on it are suspended and their Steps repeated after it (ADR-0008, ADR-0023)."""
+
+    now: bool = False
+
+
+type ServerState = (
+    ServerDown | ServerLoading | ServerReady | ServerAsleep | ServerFailed | ServerRestarting
+)
+
+
+@dataclass(frozen=True)
+class ServerProgress:
+    """The Server read more of some Step's input (``/slots``): a Step that has sent nothing
+    yet is not stalled, since llama sends nothing while it reads (build 10909, ADR-0023)."""
+
+    server: ServerKey
+
+
+@dataclass(frozen=True)
+class Tick:
+    """A second went by: Main looks for Steps that stopped making progress (ADR-0023)."""
 
 
 @dataclass(frozen=True)
@@ -173,6 +198,8 @@ type MainEvent = (
     | TurnEnded
     | ServerChanged
     | SlotFreed
+    | ServerProgress
+    | Tick
     | ConfirmationRequested
     | BoxAnswered
     | Shutdown

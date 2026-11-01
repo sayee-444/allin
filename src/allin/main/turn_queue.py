@@ -15,6 +15,7 @@ in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_fail
 Prompt back to the input, only for a human one).
 """
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,8 +23,15 @@ from typing import Protocol
 
 from pydantic import JsonValue
 
-from allin.core.errors import AllInError, LlmUnavailable, TurnCancelled, TurnCrashed
-from allin.core.ids import BoxId, ServerKey, SessionId, SupervisorName
+from allin.core.errors import (
+    AllInError,
+    LlmUnavailable,
+    StepStalled,
+    TurnCancelled,
+    TurnCrashed,
+)
+from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
+from allin.core.slot_locks import SlotLock
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
@@ -35,6 +43,7 @@ from allin.main.events import (
     ServerFailed,
     ServerLoading,
     ServerReady,
+    ServerRestarting,
     ServerState,
 )
 from allin.main.executors import SHUTTING_DOWN, TurnJob
@@ -44,7 +53,6 @@ from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
-from allin.main.slot_locks import SlotLock
 from allin.main.slots import ServerProps, capacity
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
@@ -77,8 +85,21 @@ class Servers(Protocol):
         """Start an asleep Supervisor; whether it did."""
         ...
 
+    def restart(self, name: SupervisorName, now: bool) -> None:
+        """Ask a running Supervisor to restart its Server (``SupervisorNotRunning`` if not)."""
+        ...
+
 
 _RESUMED_TEXT = "queue resumed: {server} is ready"
+# Why Main cancels a Turn's Step itself: a restart with --now (repeated after it, ADR-0023) or
+# no progress for ``step.stall`` seconds (it fails).
+RESTARTING = "the Server restarts now"
+STALLED = "the Step made no progress"
+_SUSPENDED_TEXT = (
+    "turn suspended: {why}; what its Step gave is dropped and the Step runs again once the"
+    " Server is back"
+)
+_MAX_FALLS = 2  # the same Step left half-done by this many falls in a row: its Turn fails
 
 
 def _waiting_text(link: Link, state: ServerState | None) -> str:
@@ -89,6 +110,8 @@ def _waiting_text(link: Link, state: ServerState | None) -> str:
             return f"queue paused until {server}'s /health is OK"
         case ServerLoading():
             return f"queue paused: {server} is loading its model"
+        case ServerRestarting():
+            return f"queue paused: {server} is restarting"
         case ServerAsleep(slept_by_human=True):
             return f"queue paused: {server} was put to sleep by a human; only a human wakes it"
         case ServerAsleep():
@@ -120,6 +143,8 @@ class _RunningTurn:
     # Whether Main answers its Confirmations itself: ``--devastation`` and the Session's
     # Exemption as they were when it started, so changing them only reaches the next Turn.
     auto_confirm: bool
+    progress_at: float  # when its Step last showed progress: started, or a stream event
+    sent: bool = False  # whether its Step sent any stream event: until then it reads input
     streamed: Streamed = field(default_factory=Streamed)
     asking: BoxId | None = None  # the Confirmation it waits on, if any
     answer: bool | None = None  # its answer, while it waits for a slot to go on
@@ -144,7 +169,16 @@ class TurnQueue:
         boxes: MainBoxes,
         devastation: Devastation,
         notices: NoticeTypes,
+        main_id: MainId,
+        stall: float,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        self._main_id = main_id
+        self._stall = stall
+        self._clock = clock
+        # How many falls in a row left each Session's current Step half-done (ADR-0023).
+        self._falls: dict[SessionId, int] = {}
+        self._contexts: dict[ServerKey, int] = {}  # each Server's slot context, last seen
         self._notices = notices
         self._boxes = boxes
         self._devastation = devastation
@@ -197,10 +231,35 @@ class TurnQueue:
         for prompt in prompts:
             self._prompts.push(prompt)
 
+    def progress(self, session_id: SessionId) -> None:
+        """The Session's running Step sent something: it is not stalled."""
+        if (running := self._running.get(session_id)) is not None:
+            running.progress_at = self._clock()
+            running.sent = True
+
+    def server_progress(self, server: ServerKey) -> None:
+        """``server`` read more input: its Steps still reading theirs are not stalled. Which
+        slot read it, llama does not say, so it counts for each of them."""
+        for running in self._running.values():
+            if running.link.key == server and not running.sent:
+                running.progress_at = self._clock()
+
+    def tick(self) -> None:
+        """Cancel each Step that made no progress for ``step.stall`` seconds (ADR-0023)."""
+        now = self._clock()
+        for running in self._running.values():
+            in_step = running.slot is not None and running.cancellation.reason is None
+            if in_step and now - running.progress_at >= self._stall:
+                running.cancellation.cancel(STALLED)
+
+    def set_stall(self, stall: float) -> None:
+        self._stall = stall
+
     def output(self, session_id: SessionId, kind: OutputKind, text: str) -> None:
         running = self._running.get(session_id)
         if running is None:
             return
+        running.progress_at = self._clock()
         if kind == "reasoning":
             running.streamed.reasoning += text
         else:
@@ -228,7 +287,11 @@ class TurnQueue:
                 raise error or TurnCrashed(reason="no steps")
             turn = self._save_turn(running, steps)
         except AllInError as failure:
-            self._fail_turn(running, failure)
+            if _reason(failure) == STALLED:
+                self._stalled(running)
+            elif not self._suspend(running, failure):
+                self._falls.pop(session_id, None)
+                self._fail_turn(running, failure)
             if isinstance(failure, LlmUnavailable):
                 key = running.link.key
                 if self._ready(key):  # Turns running at once all fail when the server dies
@@ -237,6 +300,7 @@ class TurnQueue:
                 if not self._prompts.has(session_id):  # else the change or ``push`` told it
                     self._windows.send(session_id, self._waiting_entry(running.link))
         else:
+            self._falls.pop(session_id, None)
             self._reporter.record(session_id, "turn_finished", "turn finished", turn=turn)
             if (tokens := tokens_entry(steps)) is not None:
                 self._windows.send(session_id, tokens)
@@ -249,6 +313,7 @@ class TurnQueue:
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
+        self._falls.pop(session_id, None)
         texts: list[JsonValue] = [prompt.text for prompt in self._prompts.drop(session_id)]
         if texts:
             shown = dropped_entry(len(texts), reason).text
@@ -421,7 +486,7 @@ class TurnQueue:
         job = TurnJob(session.id, request, link.base_url)
         auto_confirm = self._devastation.covers(session.settings)
         self._running[session.id] = _RunningTurn(
-            prompt, session, link, job.cancellation, job, slot, auto_confirm
+            prompt, session, link, job.cancellation, job, slot, auto_confirm, self._clock()
         )
         self._reporter.record(session.id, "turn_started", "turn started")
         self._submit_turn(job)
@@ -431,7 +496,7 @@ class TurnQueue:
         before = self._states.get(server)
         self._states[server] = state
         if isinstance(state, ServerReady):
-            self._server_ready(link, state.props, before)
+            self._server_ready(link, state.props, state.fallback, before)
             return
         waiting = _waiting_text(link, state)
         if self._told.get(server) != waiting:
@@ -440,6 +505,10 @@ class TurnQueue:
             self._reporter.report(None, "queue_paused", waiting, **fields)
             for session_id in self._sessions_on(server):
                 self._windows.send(session_id, self._waiting_entry(link))
+        if isinstance(state, ServerRestarting) and state.now:
+            for running in self._running.values():  # repeated once it is back (ADR-0023)
+                if running.link.key == server and running.slot is not None:
+                    running.cancellation.cancel(RESTARTING)
         if isinstance(state, ServerFailed) and state.failure == "vram":
             self._vram_failed(link, state, before)
         elif isinstance(state, ServerFailed) and state != before:
@@ -453,10 +522,24 @@ class TurnQueue:
         ):
             self._wake(link.supervisor)
 
-    def _server_ready(self, link: Link, props: ServerProps, before: ServerState | None) -> None:
+    def _server_ready(
+        self,
+        link: Link,
+        props: ServerProps,
+        fallback: str | None,
+        before: ServerState | None,
+    ) -> None:
         """Adapt to what the Server says of itself (ADR-0004)."""
         server = link.key
         old = before.props if isinstance(before, ServerReady) else None
+        old_fallback = before.fallback if isinstance(before, ServerReady) else None
+        if fallback is not None and fallback != old_fallback:
+            shown = f"{link.describe()} runs its last Settings that started: {fallback}"
+            self._reporter.report(None, "server_fallback", shown, server=server, reason=fallback)
+        last_context = self._contexts.get(server)
+        self._contexts[server] = props.slot_context
+        if last_context is not None and props.slot_context < last_context:
+            self._tell_over_limit(link, props.slot_context)
         if props != old:
             turns = capacity(props, self._parallel)
             shown = (
@@ -471,6 +554,61 @@ class TurnQueue:
         if self._told.pop(server, None) is not None:
             shown = _RESUMED_TEXT.format(server=link.describe())
             self._reporter.report(None, "queue_resumed", shown, server=server)
+
+    def _tell_over_limit(self, link: Link, limit: int) -> None:
+        """A Notice naming this Main's Sessions on ``link`` whose Context no longer fits its
+        lowered slot limit (ADR-0022); compacting them comes with #46."""
+        over: list[str] = []
+        for session_id in self._sessions.ids():
+            try:
+                session = self._sessions.load(session_id)
+                if session.owner != self._main_id or self._links.resolve(session.settings) != link:
+                    continue
+                conversation = self._sessions.load_conversation(session)
+            except AllInError:
+                continue
+            steps = conversation.turns[-1].steps if conversation and conversation.turns else []
+            context = context_tokens(steps)
+            if context is not None and context > limit:
+                over.append(f"{session_id} ({context})")
+        if over:
+            title = f"{link.describe()}: context limit lowered to {limit} tokens"
+            text = f"over the limit: {', '.join(over)}"
+            self._boxes.notify(None, title, text, "context_limit")
+
+    def _suspend(self, running: _RunningTurn, failure: AllInError) -> bool:
+        """Suspend the Turn whose Step a fall or a restart of its Server left half-done: it goes
+        back first in the queue, to run that Step again once the Server is back (ADR-0023).
+        ``False`` if it must fail instead: not a fall or a restart, or the same Step left
+        half-done by two falls in a row."""
+        restart = _reason(failure) == RESTARTING
+        if not (restart or isinstance(failure, LlmUnavailable)):
+            return False
+        session_id = running.session.id
+        streamed = running.streamed
+        fell_in_it = not restart and failure.fields.get("reached") is True
+        falls = self._falls.get(session_id, 0) + (1 if fell_in_it else 0)
+        if falls >= _MAX_FALLS:
+            self._falls.pop(session_id, None)
+            return False
+        self._falls[session_id] = falls
+        why = "the Server restarted" if restart else "the Server fell"
+        shown = _SUSPENDED_TEXT.format(why=why)
+        fields = {"error": str(failure), "reasoning": streamed.reasoning, "answer": streamed.answer}
+        self._reporter.record(session_id, "turn_suspended", shown, **fields)
+        self._windows.send(session_id, ChatAppend(role="info", label="server", text=shown))
+        self._prompts.push_front(running.prompt)
+        return True
+
+    def _stalled(self, running: _RunningTurn) -> None:
+        """No progress for ``step.stall`` seconds: the Step fails, without repeating, since it
+        would stall again on the same Server (ADR-0023)."""
+        session_id = running.session.id
+        self._falls.pop(session_id, None)
+        self._fail_turn(running, StepStalled(seconds=self._stall))
+        title = "Step stalled"  # Main names the Session in front, the Window is its own
+        text = f"no progress for {self._stall:g} s on {running.link.describe()}: cancelled"
+        self._boxes.notify(session_id, title, text, "step_stalled")
 
     def _vram_failed(self, link: Link, state: ServerFailed, before: ServerState | None) -> None:
         """Main never puts a Supervisor to sleep to make room; it tries again when one falls
@@ -565,6 +703,7 @@ class TurnQueue:
 
     def _resume_turn(self, running: _RunningTurn, slot: SlotLock) -> None:
         answer, running.answer, running.slot = running.answer, None, slot
+        running.progress_at = self._clock()
         assert answer is not None
         running.job.confirmation.resume(answer)
 
@@ -607,3 +746,8 @@ class TurnQueue:
         turn = Turn(prompt=running.prompt.text, steps=steps)
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return len(conversation.turns)
+
+
+def _reason(error: AllInError) -> JsonValue:
+    """Why a cancelled Turn was cancelled; ``None`` for any other error."""
+    return error.fields.get("reason") if isinstance(error, TurnCancelled) else None

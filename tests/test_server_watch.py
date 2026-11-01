@@ -13,7 +13,7 @@ from allin.main.events import (
     ServerReady,
     ServerState,
 )
-from allin.main.server_watch import ServerWatch, probe
+from allin.main.server_watch import ServerWatch, probe, reading_progress
 from allin.main.slots import ServerProps
 
 KEY = ServerKey("gpu")
@@ -23,19 +23,26 @@ NOBODY = "http://127.0.0.1:9/v1"  # nothing listens there
 class FakeServer:
     """A local llama-server stand-in; change ``loading`` or ``props`` while it runs."""
 
-    def __init__(self, props: dict[str, Any], loading: bool = False) -> None:
+    def __init__(
+        self,
+        props: dict[str, Any],
+        loading: bool = False,
+        slots: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.loading = loading
         self.props = props
+        self.slots = slots or []
 
         def handle(handler: BaseHTTPRequestHandler) -> None:
-            if handler.path not in ("/health", "/props"):
+            if handler.path not in ("/health", "/props", "/slots"):
                 handler.send_response(404)
             elif self.loading:
                 handler.send_response(503)
             else:
                 handler.send_response(200)
             handler.end_headers()
-            body = self.props if handler.path == "/props" else {"status": "ok"}
+            bodies = {"/props": self.props, "/slots": self.slots}
+            body = bodies.get(handler.path, {"status": "ok"})
             handler.wfile.write(json.dumps(body).encode())
 
         handler = type("Handler", (BaseHTTPRequestHandler,), {"do_GET": handle})
@@ -129,3 +136,14 @@ def test_a_server_that_never_answers_is_said_down_once():
     assert next_state(inbox) == ServerDown()
     watch.stop()
     assert inbox.empty()
+
+
+def test_the_input_busy_slots_have_read_is_summed_from_slots():
+    slots = [
+        {"is_processing": True, "n_prompt_tokens_processed": 2048},
+        {"is_processing": False, "n_prompt_tokens_processed": 999},
+        {"is_processing": True, "n_prompt_tokens_processed": 10},
+    ]
+    with FakeServer(props(2, 4096), slots=slots) as server:
+        assert reading_progress(server.base_url) == 2058
+    assert reading_progress(NOBODY, timeout=0.5) is None
