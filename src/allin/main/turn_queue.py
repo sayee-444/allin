@@ -31,6 +31,7 @@ from allin.core.errors import (
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
+from allin.core.slot_locks import SlotLock
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
@@ -52,7 +53,6 @@ from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
-from allin.main.slot_locks import SlotLock
 from allin.main.slots import ServerProps, capacity
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
@@ -95,10 +95,11 @@ _RESUMED_TEXT = "queue resumed: {server} is ready"
 # no progress for ``step.stall`` seconds (it fails).
 RESTARTING = "the Server restarts now"
 STALLED = "the Step made no progress"
-_CUT_SHORT = (
-    "step cut short: {why}; what it gave is dropped and it runs again once the Server is back"
+_SUSPENDED_TEXT = (
+    "turn suspended: {why}; what its Step gave is dropped and the Step runs again once the"
+    " Server is back"
 )
-_MAX_CUTS = 2  # the same Step cut short by this many falls in a row: its Turn fails
+_MAX_FALLS = 2  # the same Step left half-done by this many falls in a row: its Turn fails
 
 
 def _waiting_text(link: Link, state: ServerState | None) -> str:
@@ -175,8 +176,8 @@ class TurnQueue:
         self._main_id = main_id
         self._stall = stall
         self._clock = clock
-        # How many falls in a row cut each Session's current Step short (ADR-0023).
-        self._cuts: dict[SessionId, int] = {}
+        # How many falls in a row left each Session's current Step half-done (ADR-0023).
+        self._falls: dict[SessionId, int] = {}
         self._contexts: dict[ServerKey, int] = {}  # each Server's slot context, last seen
         self._notices = notices
         self._boxes = boxes
@@ -286,12 +287,10 @@ class TurnQueue:
                 raise error or TurnCrashed(reason="no steps")
             turn = self._save_turn(running, steps)
         except AllInError as failure:
-            if self._cut_short(running, failure):
-                pass
-            elif _reason(failure) == STALLED:
+            if _reason(failure) == STALLED:
                 self._stalled(running)
-            else:
-                self._cuts.pop(session_id, None)
+            elif not self._suspend(running, failure):
+                self._falls.pop(session_id, None)
                 self._fail_turn(running, failure)
             if isinstance(failure, LlmUnavailable):
                 key = running.link.key
@@ -301,7 +300,7 @@ class TurnQueue:
                 if not self._prompts.has(session_id):  # else the change or ``push`` told it
                     self._windows.send(session_id, self._waiting_entry(running.link))
         else:
-            self._cuts.pop(session_id, None)
+            self._falls.pop(session_id, None)
             self._reporter.record(session_id, "turn_finished", "turn finished", turn=turn)
             if (tokens := tokens_entry(steps)) is not None:
                 self._windows.send(session_id, tokens)
@@ -314,7 +313,7 @@ class TurnQueue:
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
-        self._cuts.pop(session_id, None)
+        self._falls.pop(session_id, None)
         texts: list[JsonValue] = [prompt.text for prompt in self._prompts.drop(session_id)]
         if texts:
             shown = dropped_entry(len(texts), reason).text
@@ -577,25 +576,26 @@ class TurnQueue:
             text = f"over the limit: {', '.join(over)}"
             self._boxes.notify(None, title, text, "context_limit")
 
-    def _cut_short(self, running: _RunningTurn, failure: AllInError) -> bool:
-        """A Step a fall or a restart of its Server left half-done goes back first in the
-        queue, to run again once the Server is back (ADR-0023); ``False`` if it must fail:
-        the same Step cut short by two falls in a row."""
+    def _suspend(self, running: _RunningTurn, failure: AllInError) -> bool:
+        """Suspend the Turn whose Step a fall or a restart of its Server left half-done: it goes
+        back first in the queue, to run that Step again once the Server is back (ADR-0023).
+        ``False`` if it must fail instead: not a fall or a restart, or the same Step left
+        half-done by two falls in a row."""
         restart = _reason(failure) == RESTARTING
         if not (restart or isinstance(failure, LlmUnavailable)):
             return False
         session_id = running.session.id
         streamed = running.streamed
-        half_done = bool(streamed.reasoning or streamed.answer)
-        cuts = self._cuts.get(session_id, 0) + (1 if half_done and not restart else 0)
-        if cuts >= _MAX_CUTS:
-            self._cuts.pop(session_id, None)
+        fell_in_it = not restart and failure.fields.get("reached") is True
+        falls = self._falls.get(session_id, 0) + (1 if fell_in_it else 0)
+        if falls >= _MAX_FALLS:
+            self._falls.pop(session_id, None)
             return False
-        self._cuts[session_id] = cuts
+        self._falls[session_id] = falls
         why = "the Server restarted" if restart else "the Server fell"
-        shown = _CUT_SHORT.format(why=why)
+        shown = _SUSPENDED_TEXT.format(why=why)
         fields = {"error": str(failure), "reasoning": streamed.reasoning, "answer": streamed.answer}
-        self._reporter.record(session_id, "step_cut_short", shown, **fields)
+        self._reporter.record(session_id, "turn_suspended", shown, **fields)
         self._windows.send(session_id, ChatAppend(role="info", label="server", text=shown))
         self._prompts.push_front(running.prompt)
         return True
@@ -604,7 +604,7 @@ class TurnQueue:
         """No progress for ``step.stall`` seconds: the Step fails, without repeating, since it
         would stall again on the same Server (ADR-0023)."""
         session_id = running.session.id
-        self._cuts.pop(session_id, None)
+        self._falls.pop(session_id, None)
         self._fail_turn(running, StepStalled(seconds=self._stall))
         title = f"[{session_id}] Step stalled"
         text = f"no progress for {self._stall:g} s on {running.link.describe()}: cancelled"

@@ -9,6 +9,7 @@ from allin.core.drafts import put_back
 from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId, ServerKey, SessionId, SupervisorName
 from allin.core.settings import MainSettings, Sampling, SessionSettings
+from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.ipc.messages import (
     ChatAppend,
     ChatDelta,
@@ -42,7 +43,6 @@ from allin.main.notices import load_notice_types
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import MainSettingsFiles
-from allin.main.slot_locks import SlotLock, SlotLocks
 from allin.main.slots import ServerProps
 from allin.main.state import MainState, MainStateStore
 from allin.ui.chat import Chat, Row
@@ -795,13 +795,13 @@ def test_a_step_the_server_could_not_finish_runs_again_once_it_is_back(
     ]
     [window] = main.windows(session.id)
     assert not any(isinstance(m, InputRestore) for m in window.sent)
-    assert any(isinstance(m, ChatAppend) and "step cut short" in m.text for m in window.sent)
+    assert any(isinstance(m, ChatAppend) and "turn suspended" in m.text for m in window.sent)
     assert any(isinstance(m, ChatAppend) and "cannot be reached" in m.text for m in window.sent)
-    [cut] = [entry for entry in main.session_log(session) if entry.event == "step_cut_short"]
+    [cut] = [entry for entry in main.session_log(session) if entry.event == "turn_suspended"]
     assert "llm_unavailable" in cut.fields["error"]
 
 
-def test_the_same_step_cut_short_by_two_falls_in_a_row_fails_its_turn(main: MainHarness):
+def test_the_same_step_left_half_done_by_two_falls_in_a_row_fails_its_turn(main: MainHarness):
     session = main.create_session()
     main.llm = FakeLlm(DroppedStream([answer("half")]), DroppedStream([answer("half")]))
     main.run(
@@ -816,7 +816,23 @@ def test_the_same_step_cut_short_by_two_falls_in_a_row_fails_its_turn(main: Main
     assert "llm_unavailable" in failed.fields["error"]
 
 
-def test_falls_before_the_step_gave_anything_never_fail_its_turn(main: MainHarness):
+def test_two_falls_in_a_row_while_the_server_reads_the_step_fail_its_turn(main: MainHarness):
+    # A Step that brings its Server down while it reads its input (e.g. out of memory on a long
+    # prompt) never streams anything: it still counts, or it would repeat forever (ADR-0023).
+    session = main.create_session()
+    main.llm = FakeLlm(DroppedStream([]), DroppedStream([]), full_reply("", "never"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        server_ready(main.server),
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    assert InputRestore(text="hola") in window.sent
+    assert any(entry.event == "turn_failed" for entry in main.session_log(session))
+
+
+def test_falls_before_the_step_reached_the_server_never_fail_its_turn(main: MainHarness):
     session = main.create_session()
     main.llm = FakeLlm(Unreachable(), Unreachable(), Unreachable(), full_reply("", "ok"))
     main.run(

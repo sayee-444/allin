@@ -11,7 +11,7 @@ import pytest
 
 from allin.core.errors import ServerSettingsInvalid, SupervisorAlreadyRunning
 from allin.core.ids import ServerKey, SupervisorName
-from allin.main.slot_locks import SlotLocks
+from allin.core.slot_locks import SlotLocks
 from allin.supervisor.lock import supervisor_active
 from allin.supervisor.process import MAX_CRASHES, Supervisor
 from allin.supervisor.settings import ServerSettings, load_server_settings
@@ -232,6 +232,32 @@ def test_a_restart_waits_for_every_slot_and_starts_the_pending_settings(
     state = supervisor.state()
     assert state is not None and "4096" in state.arguments
     assert SlotLocks(servers, ServerKey("gpu")).take(2) is not None  # it let them go
+
+
+def test_now_asked_while_it_drains_is_told_to_every_main(running: Callable[..., Running]):
+    supervisor = running(parallel=2)
+    wait_for(supervisor.status_is("ready"))
+    step = SlotLocks(supervisor.data_dir / "servers", ServerKey("gpu")).take(2)
+    assert step is not None
+    supervisor.supervisor.restart(now=False)
+    wait_for(lambda: (s := supervisor.state()) is not None and s.restart == "drain")
+    supervisor.supervisor.restart(now=True)  # Mains read it to cut their Steps short
+    wait_for(lambda: (s := supervisor.state()) is not None and s.restart == "now")
+    step.release()
+    wait_for(supervisor.status_is("ready"))
+
+
+def test_a_restart_asked_while_it_starts_loads_the_model_once(running: Callable[..., Running]):
+    supervisor = running("--fake-load", "0.5")
+    wait_for(supervisor.status_is("starting"))
+    first = supervisor.state()
+    assert first is not None
+    supervisor.supervisor.restart(now=False)  # this launch reads the pending Settings already
+    wait_for(supervisor.status_is("ready"))
+    time.sleep(0.5)
+    state = supervisor.state()
+    assert state is not None and state.status == "ready"
+    assert state.server_pid == first.server_pid
 
 
 def test_pending_settings_that_do_not_start_fall_back_to_the_last_that_did(

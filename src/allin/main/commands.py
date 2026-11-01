@@ -24,7 +24,7 @@ from allin.main.settings_commands import SettingsCommands, parse_session_command
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
-# Asks a running Supervisor to restart its Server, cutting Steps short with ``now``.
+# Asks a running Supervisor to restart its Server, suspending the running Turns with ``now``.
 type RestartSupervisor = Callable[[SupervisorName, bool], None]
 
 

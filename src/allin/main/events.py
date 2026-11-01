@@ -124,8 +124,8 @@ class ServerFailed:
 
 @dataclass(frozen=True)
 class ServerRestarting:
-    """Its Supervisor drains it for a restart: no new Step starts; with ``now``, the running
-    ones are cut short and repeated after it (ADR-0008, ADR-0023)."""
+    """Its Supervisor drains it for a restart: no new Step starts; with ``now``, the Turns
+    running on it are suspended and their Steps repeated after it (ADR-0008, ADR-0023)."""
 
     now: bool = False
 

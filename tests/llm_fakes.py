@@ -158,7 +158,7 @@ class FakeLlm:
         self.requests.append({"model": model, "input": input, **params})
         script = self._streams.pop(0)
         if isinstance(script, Unreachable):
-            raise connection_lost()
+            raise connection_lost() from httpx2.ConnectError("connection refused")
         stream = script if isinstance(script, FakeStream) else FakeStream(script)
         self.opened.append(stream)
         return stream

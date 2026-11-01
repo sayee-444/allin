@@ -20,7 +20,7 @@ from typing import Literal
 
 from allin.core.errors import ServerSettingsInvalid
 from allin.core.ids import ServerKey, SupervisorName
-from allin.main.slot_locks import SlotLock, SlotLocks
+from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.supervisor.lock import SupervisorLock, lock_path
 from allin.supervisor.ports import port_free, port_holder
 from allin.supervisor.settings import ServerSettings, load_server_settings
@@ -124,16 +124,10 @@ class Supervisor:
                 )
             server, log_start = self._launch(settings)
             outcome = self._watch(server, settings)
-            if outcome is None:  # stopped
-                self._end(server)
-                self._write("asleep", settings)
-                return 0
+            if outcome is None or (outcome == "restart" and not self._drain(settings)):
+                return self._fall_asleep(server, settings)  # stopped, maybe while it drained
             if outcome == "restart":
-                if not self._drain(settings):  # stopped while it drained
-                    self._end(server)
-                    self._write("asleep", settings)
-                    return 0
-                self._end(server)  # every slot is ours: no Step of any Main is cut
+                self._end(server)  # every slot is ours: no Turn of any Main is suspended
                 self._restart = None
                 settings = self._next(settings)
                 crashes = 0
@@ -159,6 +153,11 @@ class Supervisor:
                 self._write("asleep", settings, last_exit_code=exit_code)
                 return 0
             settings = self._next(settings)  # a relaunch after a crash uses the pending ones
+
+    def _fall_asleep(self, server: subprocess.Popen[bytes], settings: ServerSettings) -> int:
+        self._end(server)
+        self._write("asleep", settings)
+        return 0
 
     def _pending(self) -> ServerSettings:
         return load_server_settings(self._servers / f"{self._name}.toml")
@@ -188,11 +187,14 @@ class Supervisor:
     def _drain(self, settings: ServerSettings) -> bool:
         """Take every slot lock of the Server, waiting for each Step on it to end: then no Main
         has one. ``False`` if stopped meanwhile."""
-        self._write("draining", settings, server_pid=self._server_pid)
+        told: RestartKind | None = None
         locks = SlotLocks(self._servers, ServerKey(self._name))
         while len(self._held) < settings.parallel:
             if self._stopping:
                 return False
+            if self._restart != told:  # ``now`` may come while it drains: Mains read it here
+                told = self._restart
+                self._write("draining", settings, server_pid=self._server_pid)
             lock = locks.take(settings.parallel)
             if lock is None:
                 time.sleep(self._poll)
@@ -247,6 +249,7 @@ class Supervisor:
         """Its Server answers: these Settings are good, and Mains may take slots again."""
         if self._runs_pending(settings):  # no fallback any more
             self._failed_pending, self._fallback_reason = None, None
+            self._restart = None  # one asked while it started: it runs the pending ones already
         self._good = settings
         self._release_slots()
         self._write("ready", settings, server_pid=self._server_pid)

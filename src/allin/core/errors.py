@@ -93,7 +93,8 @@ class LlmRequestFailed(AllInError):
 
 class LlmUnavailable(LlmRequestFailed):
     """The LLM's server cannot serve a Step: it is down, still loading its model (503), or it
-    died while a Step streamed."""
+    died while a Step streamed. ``reached`` says whether the Step got to the Server before it
+    fell, which counts towards failing its Turn (ADR-0023)."""
 
     code: ClassVar[str] = "llm_unavailable"
 

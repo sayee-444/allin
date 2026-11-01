@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
 
+import httpx2
 import openai
 from openai import OpenAI
 from openai.types.responses import (
@@ -167,10 +168,13 @@ def _run_step(
     except openai.APITimeoutError as error:  # a slow server is up: only this Step fails
         raise LlmRequestFailed(reason=str(error)) from error
     except openai.APIConnectionError as error:  # the SDK's own, also for a stream cut short
-        raise LlmUnavailable(reason=str(error)) from error
+        # Refused: the Step never reached the Server. Else it fell with the Step in it, maybe
+        # while it read the input, before anything streamed (ADR-0023).
+        reached = not isinstance(error.__cause__, httpx2.ConnectError)
+        raise LlmUnavailable(reason=str(error), reached=reached) from error
     except openai.APIStatusError as error:
         if error.status_code == 503:  # llama-server is loading the model: as good as down
-            raise LlmUnavailable(reason=str(error)) from error
+            raise LlmUnavailable(reason=str(error), reached=False) from error
         raise LlmRequestFailed(reason=str(error)) from error
     except openai.OpenAIError as error:
         raise LlmRequestFailed(reason=str(error)) from error

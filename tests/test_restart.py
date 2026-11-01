@@ -2,6 +2,7 @@
 
 import os
 import queue
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -18,10 +19,12 @@ from allin.main.events import (
     ServerProgress,
     ServerReady,
     ServerRestarting,
+    SlotFreed,
     Tick,
     TurnEnded,
     TurnRaw,
 )
+from allin.main.links import Link
 from allin.main.server_links import ServerLinks
 from allin.main.turn_queue import RESTARTING, STALLED
 from allin.supervisor.lock import SupervisorLock, lock_path
@@ -72,7 +75,7 @@ def test_once_back_from_a_restart_the_prompts_that_waited_run(main: MainHarness)
     assert [job.session_id for job in main.held] == [a.id]
 
 
-def test_restart_now_cuts_the_running_steps_short_and_repeats_them_once_back(
+def test_restart_now_suspends_the_running_turns_and_repeats_their_steps_once_back(
     main: MainHarness,
 ):
     session = main.create_session()
@@ -190,6 +193,26 @@ def test_no_slot_is_taken_while_the_supervisor_drains(tmp_path: Path):
         assert links.take_slot(ServerKey("gpu"), 1) is None
     finally:
         lock.release()
+
+
+def test_no_slot_is_waited_for_while_the_supervisor_drains(tmp_path: Path):
+    # The waiter would take and release each slot the Supervisor is draining, racing it; Main
+    # looks again once the Server is back.
+    servers = tmp_path / "servers"
+    write_state(servers, GPU, SupervisorState(status="draining", pid=os.getpid()))
+    inbox = queue.Queue[MainEvent]()
+    links = ServerLinks(tmp_path, inbox)
+    links.watch(Link(ServerKey("gpu"), "http://127.0.0.1:9/v1", GPU))
+    lock = SupervisorLock(lock_path(servers, GPU))
+    lock.acquire()
+    try:
+        links.wait_for_slot(ServerKey("gpu"), 1)
+        time.sleep(0.3)
+    finally:
+        lock.release()
+        links.stop()
+    events = [inbox.get_nowait() for _ in range(inbox.qsize())]
+    assert not any(isinstance(event, SlotFreed) for event in events)
 
 
 def test_a_step_still_reading_its_input_is_kept_alive_by_the_servers_progress(

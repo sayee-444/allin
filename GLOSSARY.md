@@ -130,7 +130,7 @@ La versión con la que Main arranca tras un `/reset`; se cambia con `/set --defa
 
 **Ajustes del Servidor** (`ServerSettings`):
 Los parámetros de carga con los que arranca el Servidor (modelo, contexto, slots, caché KV, GPU…); solo cambian reiniciándolo. No son los parámetros de muestreo, que viajan en cada Paso desde los Ajustes de Sesión.
-Los **en curso** son con los que corre el Servidor ahora (los informa el Supervisor); los **pendientes** son los que se aplicarán en su próximo arranque, sea por reinicio pedido o por caída.
+Los **en curso** son con los que corre el Servidor ahora (los informa el Supervisor); los **pendientes** son los que se aplicarán en su próximo arranque, sea por reinicio pedido o por caída. Si los pendientes no arrancan, el Supervisor vuelve solo a los **últimos que arrancaron** (`fallback`), deja el motivo en su estado y Main lo cuenta en su Chat y su Log.
 
 **Tema** (`Theme`):
 Conjunto con nombre de Ajustes visuales (letra, colores por tipo de línea, borde, tamaño de la Ventana y caracteres especiales) en `themes/<nombre>.toml`, dentro de la carpeta de su Perfil. Lo usan las Ventanas y el Chat de Main. Una Sesión guarda su nombre, no una copia, así que editarlo cambia al momento todas las Ventanas que lo usan; las claves sueltas sobrescritas tienen prioridad sobre él. Es dato y no pasa por cuarentena, pero solo admite valores con forma fija (ADR-0018).
@@ -175,6 +175,10 @@ _Avoid_: pool, cola de trabajo, job
 **Paso** (`Step`):
 Una sola llamada a `responses.create` dentro de un Turno; un Turno con tools tiene varios Pasos.
 _Avoid_: ronda, iteración
+
+**Paso colgado** (`stalled step`):
+Paso que no avanza en `step.stall` segundos (Ajuste de Main): ni llegan eventos del stream ni, mientras el Servidor lee la entrada, crece lo que `/slots` dice que lleva leído. Main lo cancela, suelta su slot y saca un Aviso; el Paso falla sin repetirse, porque en el mismo Servidor volvería a colgarse. No es una caída (ADR-0023).
+_Avoid_: Paso congelado, timeout del Paso
 
 **Contexto** (`Context`):
 Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten los Pasos en curso de todas las Sesiones enlazadas al mismo Supervisor. Cuando una Sesión se acerca a su límite, se compacta.

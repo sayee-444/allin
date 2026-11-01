@@ -14,10 +14,11 @@ from pathlib import Path
 
 from allin.core.errors import SupervisorNotRunning
 from allin.core.ids import ServerKey, SupervisorName, parse_supervisor_name
+from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.main.events import MainEvent
 from allin.main.links import Link
 from allin.main.server_watch import ServerWatch
-from allin.main.slot_locks import SlotLock, SlotLocks, SlotWaiter
+from allin.main.slot_locks import SlotWaiter
 from allin.supervisor.lock import supervisor_active
 from allin.supervisor.state import read_state, state_path
 
@@ -53,11 +54,14 @@ class ServerLinks:
 
     def take_slot(self, server: ServerKey, slots: int) -> SlotLock | None:
         """``None`` also while its Supervisor drains: it takes every slot (ADR-0008)."""
-        name = parse_supervisor_name(server)
-        state = read_state(self._servers, name) if name is not None else None
-        if state is not None and state.status == "draining":
+        if self._draining(server):
             return None
         return self._watched[server].locks.take(slots)
+
+    def _draining(self, server: ServerKey) -> bool:
+        name = parse_supervisor_name(server)
+        state = read_state(self._servers, name) if name is not None else None
+        return state is not None and state.status == "draining"
 
     def restart(self, name: SupervisorName, now: bool) -> None:
         """Ask a running Supervisor to restart its Server with its pending Settings."""
@@ -67,7 +71,10 @@ class ServerLinks:
         os.kill(state.pid, signal.SIGUSR1 if now else signal.SIGHUP)
 
     def wait_for_slot(self, server: ServerKey, slots: int) -> None:
-        self._watched[server].waiter.start(slots)
+        """Not while its Supervisor drains, racing it for each slot: Main looks again once
+        the Server is back."""
+        if not self._draining(server):
+            self._watched[server].waiter.start(slots)
 
     def recheck(self, server: ServerKey) -> None:
         if (watched := self._watched.get(server)) is not None:
