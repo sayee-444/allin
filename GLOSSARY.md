@@ -13,7 +13,7 @@ El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único 
 _Avoid_: abuelo, padre, proceso principal, servidor (el Servidor es `llama serve`)
 
 **Perfil** (`Profile`):
-Identidad con nombre de un Main raíz, guardada como archivos modulares en `profiles/<nombre>/`: sus Ajustes de Main (con el Enlace), las Sesiones que le pertenecen, sus submains, su Estado de Main y sus piezas (functions, Sysprompts, Moldes, Planos y Temas). Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar Main con ese nombre como id; trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta. Es privado: lo que se comparte con otros usuarios es un Kit, y desde una Sesión, `/send` y Consultar solo alcanzan las del Perfil activo.
+Identidad con nombre de un Main raíz, guardada como archivos modulares en `profiles/<nombre>/`: sus Ajustes de Main (con el Enlace por defecto), las Sesiones que le pertenecen, sus submains, su Estado de Main y sus piezas (functions, Sysprompts, Moldes, Planos y Temas). Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar Main con ese nombre como id; trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta. Es privado: lo que se comparte con otros usuarios es un Kit, y desde una Sesión, `/send` y Consultar solo alcanzan las del Perfil activo.
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
 
 **Kit** (`Kit`):
@@ -29,7 +29,7 @@ El componente de Main que abre una Ventana: lanza xterm con `Popen` en una sesi�
 _Avoid_: hijo, worker
 
 **Ventana** (`Window`):
-El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrarla cancela el Turno de su Sesión solo si el Prompt de ese Turno tiene Origen humano; para cualquier otro Turno es una mirilla, y cerrarla no detiene el trabajo. Mandar su Sesión a segundo plano no es cerrarla.
+El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrarla cancela el Turno de su Sesión solo si el Prompt de ese Turno tiene Origen humano; para cualquier otro Turno es una mirilla, y cerrarla no detiene el trabajo. Su Enter nunca se bloquea, y lo que se envió y sigue en cola vuelve al Borrador al cerrarla. Mandar su Sesión a segundo plano no es cerrarla.
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
 
 **Segundo plano** (`background`):
@@ -44,20 +44,21 @@ Pantalla temporal de Main que lista las Sesiones abiertas del Perfil, a la vista
 _Avoid_: fsource organizadora, barra de tareas, Lanzador (es el que abre las Ventanas)
 
 **Servidor** (`Server`):
-El proceso `llama serve` que atiende los Pasos de los Turnos de los Mains que apuntan a él. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa. Los de los modelos del RAG no atienden Pasos: calculan embeddings o reordenan para él.
+El proceso `llama serve` que atiende los Pasos de las Sesiones enlazadas a su Supervisor. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa. Los de los modelos del RAG no atienden Pasos: calculan embeddings o reordenan para él.
 _Avoid_: deploy, LLM (como nombre del proceso)
 
 **Supervisor** (`Supervisor`):
-Entidad con nombre y sus propios Ajustes del Servidor que, cuando está **activo**, es un proceso de AllIn que lanza su Servidor, lo relanza si cae y lo reinicia con otros Ajustes cuando se le pide; **dormido**, solo existen sus Ajustes. No muere con Main. Varios Mains pueden compartir un Supervisor, y se reparten los slots de su Servidor.
+Entidad con nombre y sus propios Ajustes del Servidor que, cuando está **activo**, es un proceso de AllIn que lanza su Servidor, lo relanza si cae y lo reinicia con otros Ajustes cuando se le pide; **dormido**, solo existen sus Ajustes. Despierta cuando le llega trabajo de una Sesión enlazada a él, si cabe en VRAM y sin dormir a otro; al que durmió un humano solo lo despierta un humano. No muere con Main ni se duerme solo. Lo comparten todas las Sesiones enlazadas a él, sean del Main que sean, y se reparten los slots de su Servidor.
 _Avoid_: singleton, el script que ejecuta llama, servidor por defecto
 
 **Enlace** (`server` link):
-Ajuste de Main que nombra el único Supervisor al que manda sus Turnos. Al arrancar, Main despierta a ese Supervisor (o se adhiere a él si ya está activo) y a ningún otro, salvo los de los modelos del RAG si está encendido (ADR-0019). Un submain lo hereda por copia.
+Ajuste de Sesión que nombra el Supervisor al que van sus Pasos. Main guarda uno en su plantilla de Sesión, el Enlace por defecto, que se copia en `/new` y que heredan sus submains; cambiarlo no mueve a las Sesiones ya creadas. Sesiones del mismo Main pueden usar Supervisores distintos, y los Pasos de Main que no son de ninguna Sesión van al Enlace por defecto. Una Sesión nunca cambia sola de Supervisor, aunque otro esté libre, y lo conserva en un Traspaso.
+_Avoid_: adherir (es lo que se hace con un Proceso adherido), url, servidor de Main
 
 ## Sesiones y registros
 
 **Sesión** (`Session`):
-Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana.
+Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana. Un humano puede cambiarle el id, y el viejo sigue valiendo como alias.
 _Avoid_: ventana, chat
 
 **Carpeta de trabajo** (`workspace`):
@@ -112,10 +113,10 @@ Parámetros que gobiernan a Main o a una Sesión. Se heredan por copia: lo ya cr
 _Avoid_: settings, config
 
 **Ajustes de Main** (`MainSettings`):
-Los que Main usa para sí mismo (su idioma, su Tema, el Enlace, `parallel`…); no se comparten con las Sesiones.
+Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se comparten con las Sesiones.
 
 **Ajustes de Sesión** (`SessionSettings`):
-Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que solo almacena, no usa, y que se copian a la Sesión en `/new`; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
+Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que se copian a la Sesión en `/new` y que no usa, salvo el Enlace por defecto para sus propios Pasos; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
 
 **Ajustes actuales** (`current settings`):
 La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains.
@@ -131,6 +132,10 @@ Los **en curso** son con los que corre el Servidor ahora (los informa el Supervi
 Conjunto con nombre de Ajustes visuales (letra, colores por tipo de línea, borde, tamaño de la Ventana y caracteres especiales) en `themes/<nombre>.toml`, dentro de la carpeta de su Perfil. Lo usan las Ventanas y el Chat de Main. Una Sesión guarda su nombre, no una copia, así que editarlo cambia al momento todas las Ventanas que lo usan; las claves sueltas sobrescritas tienen prioridad sobre él. Es dato y no pasa por cuarentena, pero solo admite valores con forma fija (ADR-0018).
 _Avoid_: skin, estilo
 
+**Atajo** (`key`):
+Tecla asignada a una acción de la Ventana o del Chat de Main (enviar, saltar de línea, interrumpir…) o a un comando: un Command session en la Ventana, un Command main en el Chat de Main. Están en los Ajustes de cada Sesión, para su Ventana, y en los de Main, para su Chat. Pulsarla ejecuta con Origen humano, así que solo un humano los cambia (`/key`) y ningún Kit los trae. Cada tecla tiene a lo sumo un Atajo, y siempre queda una para enviar.
+_Avoid_: keycap, keybinding, tecla rápida
+
 ## Ejecución
 
 **Prompt**:
@@ -138,14 +143,14 @@ Una petición al LLM para una Sesión, en espera en la cola de Main, siempre con
 _Avoid_: /run
 
 **Turno** (`Turn`):
-La atención completa de un Prompt: empieza cuando Main lo saca de la cola y termina cuando un paso concluye sin llamadas a tools pendientes, o al cancelarse o fallar. Una Sesión tiene a lo sumo un Turno activo. Sesiones distintas pueden tener Turnos activos en paralelo, y sus Pasos corren a la vez hasta el número de slots del Servidor, que se reparten entre los Mains que lo comparten; un Turno cuyas tools corren no ocupa slot.
+La atención completa de un Prompt: empieza cuando Main lo saca de la cola y termina cuando un paso concluye sin llamadas a tools pendientes, o al cancelarse o fallar. Una Sesión tiene a lo sumo un Turno activo: lo que el humano envía desde su Ventana mientras dura entra en él en el siguiente Paso, y los Prompts de otras Sesiones esperan su propio Turno. Sesiones distintas pueden tener Turnos activos en paralelo, y sus Pasos corren a la vez hasta el número de slots de su Servidor, que se reparten todas las Sesiones enlazadas a él; un Turno cuyas tools corren no ocupa slot.
 _Avoid_: request, petición (para el ciclo completo)
 
 **Turno suspendido** (`suspended turn`):
-Turno que, al caer o reiniciarse el Servidor, no falla porque ya llamó a una Zombie: conserva su Conversación hasta la salida de la última Zombie terminada y continúa con un Paso nuevo cuando el Servidor vuelve a estar listo, como Continuación.
+Turno que espera porque una caída o un reinicio de su Servidor le dejó un Paso a medias: conserva su Conversación hasta antes de ese Paso y lo repite, como Continuación, cuando el Servidor vuelve a estar listo. Si el mismo Paso queda a medias en dos caídas seguidas, el Turno falla. No es un Turno cortado, que se guarda con lo que generó.
 
 **Turno cortado** (`cut turn`):
-Turno cuyo último Paso terminó porque llegó a su Tope de salida o al límite del slot, no porque el LLM acabara. Se guarda con lo generado, marcado, y se lo dicen al humano un Aviso y al LLM una Notificación; no es un Turno fallido (ADR-0004).
+Turno cuyo último Paso terminó porque llegó a su Tope de salida o al límite del slot, o porque un humano lo interrumpió, no porque el LLM acabara. Se guarda con lo generado, marcado, y se lo dicen al humano un Aviso y al LLM una Notificación; no es un Turno fallido (ADR-0004).
 _Avoid_: truncado (es lo que hace `--context-shift`), incompleto
 
 **Continuación** (`Continuation`):
@@ -156,15 +161,19 @@ Petición de una Sesión de que un evento la despierte: cuando ocurre (responden
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
-Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Con un quórum `k`, la despierta cuando `k` terminan bien y cancela las demás; una carrera es `k=1`. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida, y ese plazo solo corre mientras su Perfil está activo en un Main vivo. Es del Perfil en que se abrió.
+Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Con un quórum `k`, la despierta cuando `k` terminan bien y cancela las demás; una carrera es `k=1`. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida. El plazo solo corre mientras su Perfil está activo en un Main vivo, y a cada trabajadora no le cuenta el tiempo en que su Servidor no está listo. Es del Perfil en que se abrió.
 _Avoid_: job, barrera, tarea
+
+**Lote** (`Batch`):
+Encargo cuyas tareas no van asignadas de antemano. Main le da la siguiente a una trabajadora de su lista cuando esta no tiene Turno ni cola y su Servidor tiene sitio para empezarla, así que los Supervisores libres se turnan el lote. La Sesión que lo abrió despierta una sola vez, con todos los resultados y el Supervisor y el modelo que respondió cada uno. Plazo, quórum y cancelación funcionan como en el Encargo.
+_Avoid_: pool, cola de trabajo, job
 
 **Paso** (`Step`):
 Una sola llamada a `responses.create` dentro de un Turno; un Turno con tools tiene varios Pasos.
 _Avoid_: ronda, iteración
 
 **Contexto** (`Context`):
-Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten las Sesiones con Turno activo. Cuando una Sesión se acerca a su límite, se compacta.
+Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten los Pasos en curso de todas las Sesiones enlazadas al mismo Supervisor. Cuando una Sesión se acerca a su límite, se compacta.
 _Avoid_: tokens gastados (ambiguo)
 
 **Tope de salida** (`max_output_tokens`):
@@ -250,9 +259,6 @@ _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 Lo que el kernel impone al proceso de una Function tool o de un Proceso adherido según su Alcance: Landlock para archivos y TCP, y un filtro seccomp para lo que Landlock no ve (sockets unix, UDP sin red, io_uring, meter teclas en una terminal). El proceso se lo pone a sí mismo antes de importar su function, y no hereda de Main ni su terminal, ni su entorno, ni sus rutas de importación. Nada lo salta, ni `--devastation` (ADR-0016).
 _Avoid_: sandbox, jaula
 
-**Zombie** (`zombie`):
-Marca (decorador) de una fsource o fagent cuya llamada sobrevive a una caída o reinicio del Servidor: su Turno queda suspendido en lugar de fallar. Las fscreen no la admiten. Solo cubre al Servidor, no a una caída de Main. No es un cuarto tipo de function.
-
 **Confirmación** (`Confirmation`):
 Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación y `--devastation` para todas, pero solo con Origen humano; no se apaga desde los Ajustes. Crear o modificar una pieza desde una Sesión siempre la pide, y además deja la pieza en cuarentena.
 _Avoid_: aprobación (es otra puerta), permiso
@@ -272,7 +278,7 @@ _Avoid_: advertencia (como nombre del concepto), alerta, popup
 ## Memoria
 
 **RAG** (`Rag`):
-La memoria de consulta de un Perfil: un Proceso adherido que guarda, con fecha y procedencia, documentos, el historial de las Sesiones y lo que AllIn sabe de sí mismo, y devuelve como dato los pocos fragmentos que mejor responden. No decide por el LLM ni le da tools o permisos (ADR-0019).
+La memoria de consulta de un Perfil: un Proceso adherido que guarda, con fecha y procedencia, documentos, el historial de las Sesiones y lo que AllIn sabe de sí mismo, y devuelve como dato los pocos fragmentos que mejor responden. Cada Sesión lo consulta o no según su Ajuste `rag`, que copia del de Main en `/new`, como el Enlace. No decide por el LLM ni le da tools o permisos (ADR-0019).
 _Avoid_: memoria (a secas), base de conocimiento, personalidad
 
 **Corpus** (`Corpus`):

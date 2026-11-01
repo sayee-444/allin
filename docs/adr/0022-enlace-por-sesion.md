@@ -1,0 +1,27 @@
+# El Enlace es de cada Sesión, y cada Supervisor ordena su propia espera
+
+Hasta ahora cada Main tenía un único Enlace (ADR-0008, ADR-0011), y usar varios cerebros era repartir trabajo entre submains, que llegan en F3. Se cambia: el Enlace es un Ajuste de cada Sesión (`server`). Main guarda el Enlace por defecto en su plantilla de Sesión, que se copia en `/new` y que heredan sus submains. Así, Sesiones del mismo Main usan Supervisores distintos, y un Encargo o un Lote reparten entre ellos desde F2, sin submains. Se descartó seguir con un Enlace por Main porque obligaba a crear un submain solo para usar otro modelo, y porque un Traspaso o un cambio de Perfil cambiaban el Supervisor, y con él el límite de Contexto, de Sesiones que no lo habían pedido.
+
+## Cambiar el Enlace
+
+`/set server=<nombre>` cambia solo el Enlace por defecto. `/session set <sid> server=<nombre>` cambia el de una Sesión, y es atómico, como lo era el de Main: si el Supervisor duerme, lo despierta, y el Enlace solo cambia cuando informa `ready`; si no cabe en VRAM o falla, se queda donde estaba y Main dice por qué. Si la Sesión tiene un Turno activo, el cambio espera a que termine, para que ningún Turno cambie de modelo a la mitad. Una Sesión nunca cambia sola de Supervisor, aunque otro esté libre: su Conversación, su límite de Contexto y su modelo son de su Supervisor.
+
+Un Clon copia el Enlace, Restablecer vuelve al de su receta (ADR-0015), y ni un Traspaso ni un cambio de Perfil lo tocan. Un Molde puede nombrar un Supervisor; si no existe en esta máquina, la Sesión nace con el Enlace por defecto y sale un Aviso. Los Pasos de Main que no son de ninguna Sesión, hoy solo `describir` (ADR-0019), van al Enlace por defecto.
+
+Cuando baja el límite del slot de una Sesión (porque cambió su Enlace, porque se bajó `-c` o porque el Supervisor volvió a los últimos Ajustes que arrancaron), un Aviso nombra las Sesiones que quedaron por encima, y su siguiente Paso se compacta por partes (ADR-0017). Si el Servidor nuevo no ve imágenes, nunca recibe una tal cual: va su descripción o, si no la tiene, una línea que dice que el modelo actual no la ve.
+
+## Despertar y dormir
+
+Un Supervisor dormido despierta cuando le llega trabajo: un Paso de una Sesión enlazada a él o, en el caso de los del RAG, algo que el RAG necesita. Ya no despierta al arrancar Main. Si no cabe en VRAM, sigue dormido: su trabajo espera y un Aviso dice qué Supervisor ocupa la GPU. Main nunca duerme a uno para hacerle sitio a otro, y vuelve a intentarlo cuando alguno se duerme. El precio es que, tras reiniciar la máquina, el primer Prompt espera a que cargue el modelo, y el borde lo dice.
+
+`/server sleep`, con Confirmación y solo de un humano, drena el Supervisor como antes de un reinicio (no empieza Pasos nuevos y espera a que acaben los que están en curso) y después lo duerme. Ya no se niega porque haya Sesiones enlazadas, porque siempre hay Sesiones cerradas enlazadas a algún Supervisor. Lo que durmió un humano solo lo despierta un humano, con `/server wake`. Hasta entonces su trabajo espera, incluido el siguiente Paso de un Turno que tenía tools corriendo, para que ninguna Sesión le devuelva la GPU a un Supervisor que un humano durmió para liberarla. Ninguno se duerme solo, aunque no lo use ninguna Sesión abierta; `/server` sin nombre los lista todos, con su estado y cuántas Sesiones abiertas usan cada uno. El `.json` del Supervisor distingue además los estados drenando y dormido, y dice si lo durmió un humano.
+
+## La espera
+
+Con varios Supervisores en un Main, la cola ya no se pausa entera. Un Prompt corre cuando su Sesión no tiene Turno activo y su Supervisor tiene sitio; si no, lo adelantan los de otras Sesiones, como ya pasaba con las Sesiones ocupadas. Cuando un Supervisor no está listo, solo esperan sus Sesiones. `parallel` sigue siendo el tope de Turnos activos de todo el Main, sumando todos sus Supervisores.
+
+Entre Mains, ADR-0004 decía «gana quien encuentra un slot libre», y eso deja a uno sin turno. Al terminar un Paso, su Main suelta el candado del slot y lo vuelve a tomar en el mismo instante si tiene cola, mientras que otro Main solo mira cada 100 ms (comprobado en el código el 2026-10-31). Por eso cada Supervisor tiene una lista de espera junto a sus candados, compartida por todos los Mains que lo usan. Se ordena por clase (primero las Continuaciones, luego los Prompts nuevos y al final `describir`) y, dentro de cada clase, por orden de llegada. Un slot libre va al primero de la lista, sea del Main que sea, y el Main que lo soltó no lo vuelve a tomar si otro espera desde antes. Se descartó turnarse entre Mains sin mirar la hora, y también dar pesos por Main.
+
+La misma lista lleva las reservas del pool con `--kv-unified`. Cada Paso en curso reserva su entrada medida más su Tope de salida, y un Paso solo entra si cabe en `-c` menos todas las reservas, sean del Main que sean. El Prompt grande que ya no se deja adelantar (ADR-0004) frena también a los demás Mains.
+
+La Ventana dice por qué espera: «en cola (2.º)», «esperando slot», «esperando sitio en el pool», «Servidor cargando», «Servidor reiniciando», «Servidor caído» o «Supervisor dormido».

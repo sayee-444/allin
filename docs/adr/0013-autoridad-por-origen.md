@@ -21,3 +21,5 @@ Como Main no lee comandos en el texto de una Sesión, `/send` acepta la forma es
 Cada Prompt que despierta una Suscripción lleva en su Origen la cadena de Suscripciones que lo causó. Si la misma Suscripción se repite en la cadena más veces que su tope, la cadena se corta con una Notificación. Una Suscripción hecha para repetirse declara el suyo (un Goal, su `max_rounds`); las demás usan un Ajuste. Así los ciclos buscados siguen hasta su tope, y los accidentales (A despierta a B, que despierta a A) terminan solos.
 
 Los hashes protegen las piezas, no el estado: sin aislamiento, una tool aprobada podría escribir los archivos de estado de Main y romper ADR-0001 desde fuera. Ese riesgo lo cierra el encierro de cada proceso de tool (ADR-0016), que llega en F2 con las primeras tools.
+
+**Enmienda (2026-11-01).** Un Atajo (`/key`) ejecuta su comando con Origen humano, porque lo pulsa un humano. Por eso solo un humano los cambia, y ningún Kit los trae: si un LLM pudiera asignarle a Enter un `/reset --all`, el humano lo ejecutaría con su autoridad sin saberlo. Lo que el humano escribe durante un Turno entra en él sin cambiar su Origen (ADR-0024).

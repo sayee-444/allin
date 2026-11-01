@@ -15,7 +15,7 @@ Una pieza no puede añadir Command main. Un Command main es código de Main, cor
 
 ## Quién recibe los métodos
 
-La Sesión que adhiere el proceso recibe sus métodos como recibe sus functions. Si lo adhiere Main por un Ajuste, los reciben las Sesiones nuevas en `/new`, y se quitan con `-sf=off`. Desde el Chat de Main, `/attach` solo da los métodos a las Sesiones de `--to`; con `@attach`, los recibe la Sesión de esa Ventana.
+La Sesión que adhiere el proceso recibe sus métodos como recibe sus functions. Si lo adhiere Main por un Ajuste, como el RAG, cada Sesión los tiene según su propio Ajuste, copiado del de Main en `/new` (ADR-0019). Desde el Chat de Main, `/attach` solo da los métodos a las Sesiones de `--to`; con `@attach`, los recibe la Sesión de esa Ventana.
 
 La Sesión que adhirió puede pasar los métodos a las Sesiones que ella crea, al crearlas o después, pero nunca a otras. Un humano se los da o se los quita a cualquiera, con los comandos de functions de F2. Se dan y se quitan juntos, como un bloque con el nombre del Proceso adherido. En `tools=[...]`, cada método se llama `<nombre>_<método>`, porque una Sesión puede tener dos Procesos adheridos de la misma fscreen y los nombres de tool no admiten puntos.
 
