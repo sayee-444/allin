@@ -15,7 +15,7 @@ Una pieza no puede añadir Command main. Un Command main es código de Main, cor
 
 ## Quién recibe los métodos
 
-La Sesión que adhiere el proceso recibe sus métodos como recibe sus functions. Si lo adhiere Main por un Ajuste, los reciben las Sesiones nuevas en `/new`, y se quitan con `-sf=off`. Desde el Chat de Main, `/attach` solo da los métodos a las Sesiones de `--to`; con `@attach`, los recibe la Sesión de esa Ventana.
+La Sesión que adhiere el proceso recibe sus métodos como recibe sus functions. Si lo adhiere Main por un Ajuste, como el RAG, cada Sesión los tiene según su propio Ajuste, copiado del de Main en `/new` (ADR-0019). Desde el Chat de Main, `/attach` solo da los métodos a las Sesiones de `--to`; con `@attach`, los recibe la Sesión de esa Ventana.
 
 La Sesión que adhirió puede pasar los métodos a las Sesiones que ella crea, al crearlas o después, pero nunca a otras. Un humano se los da o se los quita a cualquiera, con los comandos de functions de F2. Se dan y se quitan juntos, como un bloque con el nombre del Proceso adherido. En `tools=[...]`, cada método se llama `<nombre>_<método>`, porque una Sesión puede tener dos Procesos adheridos de la misma fscreen y los nombres de tool no admiten puntos.
 
@@ -34,3 +34,7 @@ Lo que manda lleva el Origen de quien lo llamó, más el Proceso adherido como e
 ## Lo que devuelve una llamada humana
 
 Lo que devuelve sale en el Chat donde se tecleó la llamada y queda en el Log de Main. Con `@call`, queda también en el Log de la Sesión y le deja una Notificación de una línea, para que su LLM no siga trabajando sobre un estado que ya cambió; se apaga con `@conversation_logs off call`. Con `/call` desde el Chat de Main no deja Notificación a nadie, porque a las Sesiones que usan el proceso ya las protege la revisión.
+
+**Enmienda (2026-11-01, ADR-0012).** Un Proceso adherido puede atender varias llamadas a la vez, si su fscreen lo declara. Entonces cada Command session que ejecuta dice de qué llamada viene: lleva el Origen de esa llamada y se rechaza si esa llamada ya terminó. No abre un riesgo nuevo, porque el estado del proceso ya mezcla lo que escribieron varias Sesiones, y por eso su eslabón nunca cuenta como humano. La revisión la lleva ahora el propio proceso, y un `@writes` de un humano la sube igual que antes.
+
+**Enmienda (2026-11-01, ADR-0025).** Un método solo ejecuta los Command sessions que declara su fscreen en su Alcance y que además están en la lista de todas las Sesiones de la cadena de su llamada. Lo que Main pide por su cuenta lleva el Origen de Main. Una fscreen que declara Otorgar solo la adhiere un humano.
