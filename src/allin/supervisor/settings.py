@@ -125,6 +125,15 @@ class ServerSettings(BaseModel, frozen=True):
         return self.model_copy(update={"kv_unified": self.unified_cache()})
 
 
+def shares_pool(arguments: list[str]) -> bool:
+    """Whether a Server running ``arguments`` shares one pool among its slots
+    (``--kv-unified``); a line Main cannot read counts as shared, the careful guess."""
+    try:
+        return parse_cmdline(arguments).unified_cache() is not False
+    except ServerNotAdoptable:
+        return True
+
+
 def load_server_settings(path: Path) -> ServerSettings:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))

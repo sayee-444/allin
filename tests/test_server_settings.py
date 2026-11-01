@@ -23,6 +23,7 @@ from allin.supervisor.settings import (
     load_server_settings,
     parse_cmdline,
     save_server_settings,
+    shares_pool,
 )
 
 # The user's line for one Server (models/como llamar llama serve…), as /proc/<pid>/cmdline has it.
@@ -218,3 +219,17 @@ def test_flash_attn_takes_the_value_that_follows_it():
 def test_slots_that_are_not_a_count_are_not_adopted(slots: str):
     with pytest.raises(ServerNotAdoptable):
         parse_cmdline(["llama", "serve", "-m", "m.gguf", "-np", slots, "--port", "9"])
+
+
+@pytest.mark.parametrize(
+    ("line", "shared"),
+    [
+        ("llama serve -m m.gguf -c 8192 -np 2 --kv-unified --port 9931", True),
+        ("llama serve -m m.gguf -c 8192 -np 2 --no-kv-unified --port 9931", False),
+        ("llama serve -m m.gguf -c 8192 -np 2 --port 9931", False),  # llama: off with -np
+        ("llama serve -m m.gguf -c 8192 --port 9931", True),  # -np auto turns it on
+        ("llama serve -m m.gguf --context-shift", True),  # unreadable: the careful guess
+    ],
+)
+def test_the_running_arguments_say_whether_the_slots_share_a_pool(line: str, shared: bool) -> None:
+    assert shares_pool(line.split()) is shared

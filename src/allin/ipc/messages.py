@@ -68,10 +68,12 @@ class ChatDelta(BaseModel):
 
 
 class TurnState(BaseModel):
-    """Whether the Session has a Turn running or waiting; Enter is blocked while it does."""
+    """Whether the Session has a Turn running or waiting; Enter is blocked while it does.
+    ``waiting`` says why its next Step has not started, for its border (ADR-0022)."""
 
     type: Literal["turn_state"] = "turn_state"
     active: bool
+    waiting: str | None = None
 
 
 class ContextUsage(BaseModel):
@@ -82,6 +84,14 @@ class ContextUsage(BaseModel):
     context: int | None
     limit: int | None  # the context of each of the Server's slots, as its /props says
     tokens_per_second: float | None
+
+
+class PoolShared(BaseModel):
+    """Whether the Session's limit is a ``--kv-unified`` pool that a Step of another Session
+    uses now, so its border says the limit is shared."""
+
+    type: Literal["pool_shared"] = "pool_shared"
+    shared: bool
 
 
 class InputRestore(BaseModel):
@@ -128,6 +138,7 @@ type MainToWindow = (
     | ChatDelta
     | TurnState
     | ContextUsage
+    | PoolShared
     | InputRestore
     | BoxShow
     | BoxHide

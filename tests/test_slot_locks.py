@@ -1,10 +1,13 @@
+import os
 import queue
 import subprocess
 import sys
+import time
 from pathlib import Path
 
-from allin.core.ids import ServerKey
+from allin.core.ids import MainId, ServerKey, SessionId
 from allin.core.slot_locks import SlotLocks
+from allin.core.wait_list import Reservation, WaitList
 from allin.main.events import MainEvent, SlotFreed
 from allin.main.slot_locks import SlotWaiter
 
@@ -64,28 +67,64 @@ def test_a_main_that_dies_mid_step_leaves_its_slot_free(tmp_path: Path):
     assert SlotLocks(tmp_path, KEY).take(1) is not None
 
 
+def waiter_on(tmp_path: Path, inbox: queue.Queue[MainEvent]) -> SlotWaiter:
+    return SlotWaiter(SlotLocks(tmp_path, KEY), WaitList(tmp_path, KEY), inbox, KEY, interval=0.01)
+
+
 def test_the_waiter_says_once_when_a_slot_another_main_held_is_free(tmp_path: Path):
     other = SlotLocks(tmp_path, KEY).take(1)
     assert other is not None
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    waiter = SlotWaiter(SlotLocks(tmp_path, KEY), inbox, KEY, interval=0.01)
-    waiter.start(1)
-    waiter.start(1)  # already waiting: still one wait, one event
+    waiter = waiter_on(tmp_path, inbox)
+    waiter.start(1, 0)
+    waiter.start(1, 0)  # already waiting: still one wait, one event
     try:
         assert inbox.empty()
         other.release()
         assert inbox.get(timeout=5) == SlotFreed(KEY)
-        waiter.start(1)  # a new wait once the last one reported
+        again = SlotLocks(tmp_path, KEY).take(1)
+        assert again is not None
+        waiter.start(1, 0)  # a new wait once the last one reported
+        again.release()
         assert inbox.get(timeout=5) == SlotFreed(KEY)
     finally:
         waiter.stop()
     assert inbox.empty()
 
 
+def test_the_waiter_says_when_the_wait_list_changes(tmp_path: Path):
+    inbox: queue.Queue[MainEvent] = queue.Queue()
+    waits = WaitList(tmp_path, KEY)
+    waiter = waiter_on(tmp_path, inbox)
+    waiter.start(1, waits.version())  # a slot is free, but Main could not take it
+    try:
+        time.sleep(0.05)
+        assert inbox.empty()
+        waits.release(
+            MainId("other"), os.getpid(), SessionId("s1")
+        )  # nothing to release: no change
+        waits.reserve(
+            Reservation(main=MainId("other"), pid=os.getpid(), session=SessionId("s1"), tokens=1)
+        )
+        waits.release(MainId("other"), os.getpid(), SessionId("s1"))
+        assert inbox.get(timeout=5) == SlotFreed(KEY)
+    finally:
+        waiter.stop()
+
+
 def test_a_waiter_with_every_slot_held_waits_until_main_stops(tmp_path: Path):
     assert SlotLocks(tmp_path, KEY).take(1) is not None
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    waiter = SlotWaiter(SlotLocks(tmp_path, KEY), inbox, KEY, interval=0.01)
-    waiter.start(1)
+    waiter = waiter_on(tmp_path, inbox)
+    waiter.start(1, 0)
     waiter.stop()
     assert inbox.empty()
+
+
+def test_free_counts_the_locks_nobody_holds(tmp_path: Path):
+    locks = SlotLocks(tmp_path, KEY)
+    held = locks.take(3)
+    assert locks.free(3) == 2
+    assert held is not None
+    held.release()
+    assert locks.free(3) == 3

@@ -92,6 +92,17 @@ class StepSettings(BaseModel, frozen=True):
     )
 
 
+class AdmissionSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    patience: float = Field(
+        default=120.0,
+        ge=0,
+        description="seconds a waiting Prompt may be overtaken by smaller ones that fit in the"
+        " pool; after that nobody overtakes it",
+    )
+
+
 class MainSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -106,6 +117,7 @@ class MainSettings(BaseModel, frozen=True):
         description="Turns at once; only lowers the Server's slots; empty: as many as slots",
     )
     step: StepSettings = StepSettings()
+    admission: AdmissionSettings = AdmissionSettings()
     # The Session template: copied by /new, never used by Main itself.
     session: SessionSettings = Field(default_factory=SessionSettings)
 

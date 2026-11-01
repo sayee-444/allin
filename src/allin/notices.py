@@ -37,6 +37,11 @@ class NoticeEvent:
     limit: int | None  # each slot's context, once the Server said it
     cut: CutReason | None = None  # why the Step was cut, if it was (ADR-0004)
     output_cap: int | None = None  # the most it could generate
+    # What counts against ``limit`` now and after the Session's Step before: its Context, plus
+    # with a shared pool what other Sessions' Steps in course reserve of it.
+    used: int | None = None
+    used_before: int | None = None
+    shared: bool = False  # whether ``limit`` is a ``--kv-unified`` pool
 
 
 # Gets what happened and the Session's Settings of the type; gives the variables of its text,
