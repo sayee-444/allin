@@ -35,6 +35,7 @@ from allin.main.turn_queue import Servers, TurnQueue
 from allin.supervisor.lock import supervisor_active
 from allin.supervisor.ports import listening_pid, port_free
 from allin.supervisor.settings import (
+    CONTEXT_SHIFT_ENV,
     ServerSettings,
     apply_server_assignments,
     check_server_authority,
@@ -56,13 +57,19 @@ _HUMAN_ONLY = frozenset({"sleep", "adopt"})
 _RUNNING = frozenset({"starting", "ready", "crashed", "draining"})
 _GONE_TIMEOUT = 30.0  # how long an adopted llama may take to free its port
 _GONE_POLL = 0.1
-_CONTEXT_SHIFT_ENV = b"LLAMA_ARG_CONTEXT_SHIFT"
+_PROC = Path("/proc")
 _FALSE = frozenset({b"", b"0", b"false", b"off", b"no", b"disabled"})
+
+
+def _first_word(text: str) -> tuple[str, str]:
+    """A line's first word and the rest after it; both empty for a blank line."""
+    words = text.split(maxsplit=1)
+    return (words[0] if words else "", words[1] if len(words) > 1 else "")
 
 
 def _action(args: list[str]) -> str:
     """The word after ``/server``; empty for the list of them all."""
-    return args[0].split(maxsplit=1)[0] if args and args[0].split() else ""
+    return _first_word(args[0])[0] if args else ""
 
 
 def delicate(args: list[str]) -> bool:
@@ -75,29 +82,27 @@ def human_only(args: list[str]) -> bool:
 
 @dataclass(frozen=True)
 class _Line:
-    """What ``/server`` was asked: an action, the Supervisor it names and what follows."""
+    """The Supervisor a ``/server`` action names, and what follows its name."""
 
-    action: str
-    name: SupervisorName | None
+    name: SupervisorName
     rest: str
 
 
 class ServerCommands:
     def __init__(
         self,
-        servers_dir: Path,
         servers: Servers,
         reporter: Reporter,
         turns: TurnQueue,
         links: LinkResolver,
         sessions: SessionStore,
         windows: OpenWindows,
-        default_server: Callable[[], str | None],
+        default_server: Callable[[], SupervisorName | None],
         post: Callable[[MainEvent], None],
     ) -> None:
         """``default_server``: the default Enlace now; ``post`` puts an event in Main's
         inbox from another thread."""
-        self._dir = servers_dir
+        self._dir = links.servers
         self._servers = servers
         self._reporter = reporter
         self._turns = turns
@@ -108,31 +113,22 @@ class ServerCommands:
         self._post = post
 
     def run(self, text: str = "", origin: Origin = HUMAN) -> bool:
-        words = text.split(maxsplit=1)
-        action = words[0] if words else ""
-        rest = words[1] if len(words) > 1 else ""
+        action, rest = _first_word(text)
         match action:
             case "":
                 self._list()
             case "new":
-                line = self._named(action, rest, exists=False)
-                self._new(line, origin)
+                self._new(self._named(rest, exists=False, takes_rest=True), origin)
             case "set":
                 self._set(self._maybe_named(rest), origin)
             case "restart":
-                line = self._maybe_named(rest)
-                if line.rest not in ("", "--now"):
-                    raise InvalidArguments(usage=USAGE)
-                self._servers.restart(self._name(line), now=line.rest == "--now")
+                self._restart(self._maybe_named(rest))
             case "adopt":
-                self._adopt(self._named(action, rest, exists=False))
+                self._adopt(self._named(rest, exists=False))
             case "sleep":
-                line = self._named(action, rest)
-                self._servers.sleep(self._name(line))
-                shown = f"Supervisor {line.name}: going to sleep; only /server wake wakes it"
-                self._reporter.report(None, "supervisor_sleep", shown, server=line.name)
+                self._sleep(self._named(rest))
             case "wake":
-                self._wake(self._named(action, rest))
+                self._wake(self._named(rest).name)
             case _ if not rest:
                 self._show(self._existing(action))
             case _:
@@ -141,35 +137,30 @@ class ServerCommands:
 
     def adopted(self, name: SupervisorName) -> None:
         """The adopted llama ended and freed its port: its Supervisor launches it again."""
-        self._wake(_Line("wake", name, ""))
+        self._wake(name)
 
     # --- reading the line
 
-    def _named(self, action: str, rest: str, exists: bool = True) -> _Line:
-        words = rest.split(maxsplit=1)
-        name = parse_supervisor_name(words[0]) if words else None
-        if name is None:
-            raise InvalidArguments(usage=USAGE)
-        line = _Line(action, name, words[1] if len(words) > 1 else "")
-        if action not in ("new", "set") and line.rest:
+    def _named(self, rest: str, exists: bool = True, takes_rest: bool = False) -> _Line:
+        first, after = _first_word(rest)
+        name = parse_supervisor_name(first)
+        if name is None or (after and not takes_rest):
             raise InvalidArguments(usage=USAGE)
         if exists:
             self._existing(name)
         elif self._toml(name).exists():
             raise SupervisorExists(supervisor=name)
-        return line
+        return _Line(name, after)
 
     def _maybe_named(self, rest: str) -> _Line:
         """``[name] …``: the default Enlace's Supervisor when the first word is no name."""
-        words = rest.split(maxsplit=1)
-        first = words[0] if words else ""
+        first, after = _first_word(rest)
         if first and "=" not in first and first != "--now":
-            name = self._existing(first)
-            return _Line("", name, words[1] if len(words) > 1 else "")
+            return _Line(self._existing(first), after)
         default = self._default_server()
         if default is None:
             raise InvalidArguments(usage=USAGE)  # no default Enlace to fall back on
-        return _Line("", self._existing(default), rest)
+        return _Line(self._existing(default), rest)
 
     def _existing(self, text: str) -> SupervisorName:
         name = parse_supervisor_name(text)
@@ -178,10 +169,6 @@ class ServerCommands:
         if not self._toml(name).exists():
             raise SupervisorNotFound(supervisor=name)
         return name
-
-    def _name(self, line: _Line) -> SupervisorName:
-        assert line.name is not None  # every parse above gives one
-        return line.name
 
     def _toml(self, name: SupervisorName) -> Path:
         return self._dir / f"{name}.toml"
@@ -192,7 +179,7 @@ class ServerCommands:
         assignments = parse_assignments(line.rest)
         check_server_authority(assignments, origin)
         settings = apply_server_assignments(None, assignments)
-        save_server_settings(self._toml(self._name(line)), settings)
+        save_server_settings(self._toml(line.name), settings)
         shown = f"Supervisor {line.name} created, asleep: work for it wakes it"
         self._reporter.report(None, "supervisor_created", shown, server=line.name)
 
@@ -201,70 +188,91 @@ class ServerCommands:
         if not assignments:
             raise InvalidArguments(usage=USAGE)
         check_server_authority(assignments, origin)
-        name = self._name(line)
+        name = line.name
         settings = apply_server_assignments(load_server_settings(self._toml(name)), assignments)
         save_server_settings(self._toml(name), settings)  # only once it is all valid
         shown = f"Supervisor {name}: pending Settings changed; /server restart {name} applies them"
         self._reporter.report(None, "server_settings_changed", shown, server=name)
 
-    def _wake(self, line: _Line) -> None:
-        name = self._name(line)
-        link = self._links.resolve_name(name)
-        self._turns.watch(link)  # so that whether it fits in VRAM is told
+    def _restart(self, line: _Line) -> None:
+        if line.rest not in ("", "--now"):
+            raise InvalidArguments(usage=USAGE)
+        self._servers.restart(line.name, now=line.rest == "--now")
+
+    def _sleep(self, line: _Line) -> None:
+        self._servers.sleep(line.name)
+        shown = f"Supervisor {line.name}: going to sleep; only /server wake wakes it"
+        self._reporter.report(None, "supervisor_sleep", shown, server=line.name)
+
+    def _wake(self, name: SupervisorName) -> None:
+        self._turns.watch(self._links.resolve_name(name))  # so whether it fits in VRAM is told
         if self._servers.wake(name, human=True):
-            self._reporter.report(
-                None, "supervisor_woken", f"waking Supervisor {name}", server=name
-            )
+            shown = f"waking Supervisor {name}"
+            self._reporter.report(None, "supervisor_woken", shown, server=name)
         else:
             self._reporter.show(None, f"Supervisor {name} is awake already")
 
     def _adopt(self, line: _Line) -> None:
-        """Read the ``llama serve`` on Main's ``base_url`` port, save its Settings as a new
-        Supervisor's, end it and have the Supervisor launch it again."""
-        name = self._name(line)
-        port = urlsplit(self._links.observed().base_url).port
-        pid = listening_pid(port) if port is not None else None
-        if port is None or pid is None:
-            raise ServerNotAdoptable(reason=f"no process of this user listens on port {port}")
+        """Save the Settings of the ``llama serve`` on Main's ``base_url`` port as a new
+        Supervisor's, end it and have the Supervisor launch it again once it is gone."""
+        port = urlsplit(self._links.observed().base_url).port or 0
+        pid, settings = self._adoptable(port)
+        save_server_settings(self._toml(line.name), settings)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:  # it ended meanwhile: nothing to take over
+            self._toml(line.name).unlink()
+            raise ServerNotAdoptable(reason="it ended before it was adopted", pid=pid) from None
+        shown = f"Supervisor {line.name} adopts pid {pid}: launched again once it ends"
+        arguments = shlex.join(settings.arguments())
+        fields = {"server": line.name, "pid": pid, "arguments": arguments}
+        self._reporter.report(None, "supervisor_adopted", shown, **fields)
+        relaunch = threading.Thread(
+            target=self._relaunch_when_gone, args=(line.name, pid, port), daemon=True
+        )
+        relaunch.start()
+
+    def _adoptable(self, port: int) -> tuple[int, ServerSettings]:
+        """The process that listens on ``port`` and the Settings that launch it again;
+        ``ServerNotAdoptable`` if there is none, or a Supervisor already runs it."""
+        pid = listening_pid(port)
+        if pid is None:
+            raise ServerNotAdoptable(reason="no process of this user listens there", port=port)
+        for name in self._names():
+            state = read_state(self._dir, name)
+            if state is not None and state.server_pid == pid and supervisor_active(self._dir, name):
+                reason = "a Supervisor already runs it"
+                raise ServerNotAdoptable(reason=reason, supervisor=name, pid=pid)
         settings = _read_process(pid)
         if settings.port != port:
-            reason = f"it says port {settings.port} but listens on {port}"
-            raise ServerNotAdoptable(reason=reason)
-        save_server_settings(self._toml(name), settings)
-        os.kill(pid, signal.SIGTERM)
-        shown = f"Supervisor {name} adopts pid {pid}: launched again once it ends"
-        self._reporter.report(
-            None,
-            "supervisor_adopted",
-            shown,
-            server=name,
-            arguments=shlex.join(settings.arguments()),
-        )
-        threading.Thread(
-            target=self._relaunch_when_gone, args=(name, pid, port), daemon=True
-        ).start()
+            raise ServerNotAdoptable(reason="its line names another port", port=settings.port)
+        return pid, settings
 
     def _relaunch_when_gone(self, name: SupervisorName, pid: int, port: int) -> None:
         deadline = time.monotonic() + _GONE_TIMEOUT
-        while (Path(f"/proc/{pid}").exists() or not port_free(port)) and (
-            time.monotonic() < deadline
-        ):
+        while (_PROC / str(pid)).exists() or not port_free(port):
+            if time.monotonic() > deadline:
+                break  # waking it then says who holds the port
             time.sleep(_GONE_POLL)
-        self._post(SupervisorAdopted(name))  # if it would not end, waking says the port's holder
+        self._post(SupervisorAdopted(name))
 
     # --- showing
 
+    def _names(self) -> list[SupervisorName]:
+        names = (parse_supervisor_name(path.stem) for path in sorted(self._dir.glob("*.toml")))
+        return [name for name in names if name is not None]
+
     def _list(self) -> None:
-        names = [parse_supervisor_name(path.stem) for path in sorted(self._dir.glob("*.toml"))]
+        names = self._names()
         default = self._default_server()
         users = self._open_sessions_by_server()
-        shown = [name for name in names if name is not None]
-        if not shown:
+        if not names:
             self._reporter.show(None, "no Supervisors: /server new <name> key=value… makes one")
-        for name in shown:
+        for name in names:
             mark = " (default Enlace)" if name == default else ""
             count = users.get(name, 0)
-            line = f"{name}{mark}: {self._status(name)}, used by {count} open Session(s)"
+            # Other Mains' Sessions are not seen until Mains talk to each other (F3).
+            line = f"{name}{mark}: {self._status(name)}, used by {count} open Session(s) here"
             self._reporter.show(None, line)
 
     def _show(self, name: SupervisorName) -> None:
@@ -277,14 +285,15 @@ class ServerCommands:
             self._reporter.show(None, f"pending Settings unreadable: {error}")
             return
         if state is not None and state.fallback_reason:
-            self._reporter.show(
-                None, f"runs its last Settings that started: {state.fallback_reason}"
-            )
+            shown = f"runs its last Settings that started: {state.fallback_reason}"
+            self._reporter.show(None, shown)
+        differs = running is not None and running.effective() != pending.effective()
         for key in ServerSettings.model_fields:
-            value = getattr(pending, key)
-            line = f"{key}={_shown(value)}"
-            if running is not None and getattr(running, key) != value:
-                line += f"   * running: {_shown(getattr(running, key))}"
+            line = f"{key}={_shown(getattr(pending, key))}"
+            if differs and running is not None:
+                ran = getattr(running.effective(), key)
+                if ran != getattr(pending.effective(), key):
+                    line += f"   * running: {_shown(ran)}"
             self._reporter.show(None, line)
 
     def _status(self, name: SupervisorName) -> str:
@@ -299,15 +308,16 @@ class ServerCommands:
             return "asleep, put to sleep by a human; only /server wake wakes it"
         return "asleep; work for it wakes it"
 
-    def _open_sessions_by_server(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
+    def _open_sessions_by_server(self) -> dict[SupervisorName, int]:
+        counts: dict[SupervisorName, int] = {}
         for session_id in self._windows.pids():
             try:
                 server = self._sessions.load(session_id).settings.server
             except AllInError:
                 continue
-            if server is not None:
-                counts[server] = counts.get(server, 0) + 1
+            name = parse_supervisor_name(server) if server is not None else None
+            if name is not None:
+                counts[name] = counts.get(name, 0) + 1
         return counts
 
 
@@ -333,16 +343,16 @@ def _shown(value: str | int | bool | list[str] | None) -> str:
 
 def _read_process(pid: int) -> ServerSettings:
     """The Server Settings of the running process ``pid``, from ``/proc``."""
-    proc = Path(f"/proc/{pid}")
+    proc = _PROC / str(pid)
     try:
         argv = [word.decode() for word in (proc / "cmdline").read_bytes().split(b"\0") if word]
         cwd = str((proc / "cwd").readlink())
         environ = (proc / "environ").read_bytes().split(b"\0")
     except OSError as error:
-        raise ServerNotAdoptable(reason=f"cannot read pid {pid}: {error.strerror}") from error
+        raise ServerNotAdoptable(reason=error.strerror, pid=pid) from error
     for entry in environ:
         key, _, value = entry.partition(b"=")
-        if key == _CONTEXT_SHIFT_ENV and value.lower() not in _FALSE:
+        if key == CONTEXT_SHIFT_ENV.encode() and value.lower() not in _FALSE:
             reason = "its environment turns on context shift, which truncates in silence"
             raise ServerNotAdoptable(reason=reason)
     return parse_cmdline(argv, cwd=cwd)

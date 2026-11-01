@@ -125,9 +125,9 @@ def test_the_registry_marks_the_keys_that_name_a_file_or_open_the_network():
 @pytest.mark.parametrize("key", ["model", "port", "extra", "command", "cwd", "mmproj"])
 def test_only_a_human_sets_a_key_that_names_a_file_or_opens_the_network(key: str):
     with pytest.raises(HumanOnly):
-        check_server_authority([key], "session")
-    check_server_authority([key], HUMAN)
-    check_server_authority(["context", "parallel", "gpu_layers"], "session")
+        check_server_authority(parse_assignments(f"{key}=x"), "session")
+    check_server_authority(parse_assignments(f"{key}=x"), HUMAN)
+    check_server_authority(parse_assignments("context=1 parallel=1 gpu_layers=1"), "session")
 
 
 def test_saved_settings_load_back_the_same(tmp_path: Path):
@@ -154,7 +154,7 @@ def test_an_invalid_value_names_its_key():
 
 def test_only_a_human_names_the_key_it_was_refused():
     with pytest.raises(HumanOnly) as raised:
-        check_server_authority(["context", "port"], "session")
+        check_server_authority(parse_assignments("context=1 port=2"), "session")
     assert raised.value.fields["action"] == "port"
 
 
@@ -203,7 +203,7 @@ def test_given_slots_without_a_unified_cache_flag_keep_it_off_as_llama_does():
 def test_a_flag_left_without_its_value_says_which_key_is_wrong():
     with pytest.raises(ServerNotAdoptable) as raised:
         parse_cmdline(["llama", "serve", "-m", "m.gguf", "--port", "9", "-c"])
-    assert str(raised.value.fields["reason"]).startswith("context:")
+    assert raised.value.fields["key"] == "context"
     with pytest.raises(ServerNotAdoptable) as empty:
         parse_cmdline(["-m", "m.gguf"])
     assert empty.value.fields["reason"] == "not a llama serve line"
@@ -212,3 +212,9 @@ def test_a_flag_left_without_its_value_says_which_key_is_wrong():
 def test_flash_attn_takes_the_value_that_follows_it():
     settings = parse_cmdline(["llama", "serve", "-m", "m.gguf", "-fa", "off", "--port", "9"])
     assert settings.flash_attn == "off" and settings.extra == []
+
+
+@pytest.mark.parametrize("slots", ["many", "-1"])
+def test_slots_that_are_not_a_count_are_not_adopted(slots: str):
+    with pytest.raises(ServerNotAdoptable):
+        parse_cmdline(["llama", "serve", "-m", "m.gguf", "-np", slots, "--port", "9"])

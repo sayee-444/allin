@@ -361,3 +361,21 @@ def test_the_server_runs_in_its_settings_folder_without_context_shift_from_the_e
         assert f"cwd {folder}" in log and "context shift env None" in log
     finally:
         supervisor.stop()
+
+
+def test_a_human_sleep_asked_while_it_drains_for_a_restart_sleeps_without_relaunching(
+    running: Callable[..., Running],
+):
+    supervisor = running(parallel=2)
+    wait_for(supervisor.status_is("ready"))
+    step = SlotLocks(supervisor.data_dir / "servers", ServerKey("gpu")).take(2)
+    assert step is not None
+    supervisor.supervisor.restart(now=False)
+    wait_for(supervisor.status_is("draining"))
+    supervisor.supervisor.sleep_by_human()
+    step.release()
+    wait_for(supervisor.ended)
+    state = supervisor.state()
+    assert state is not None and state.status == "asleep" and state.slept_by_human
+    log = (supervisor.data_dir / "logs" / "servers" / "gpu" / "server.log").read_text()
+    assert log.count("\n--- ") + log.startswith("--- ") == 1  # launched once, never again

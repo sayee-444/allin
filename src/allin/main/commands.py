@@ -69,7 +69,6 @@ class MainCommands:
         devastation: Devastation,
         server: ServerCommands,
     ) -> None:
-        self.server = server  # the dispatcher hands it what /server adopt waits for
         self._boxes = boxes
         self._devastation = devastation
         self._reporter = reporter

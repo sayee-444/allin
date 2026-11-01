@@ -12,7 +12,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from allin.core.errors import AllInError
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SupervisorName, parse_supervisor_name
+from allin.core.settings import SessionSettings
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
 from allin.main.devastation import Devastation
@@ -122,6 +123,16 @@ class Dispatcher:
             self._devastation,
             notices.types,
         )
+        self._server_commands = ServerCommands(
+            servers,
+            self._reporter,
+            self._turns,
+            links,
+            sessions,
+            self._windows,
+            lambda: _supervisor_of(settings_commands.current.session),
+            inbox.put,
+        )
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -132,17 +143,7 @@ class Dispatcher:
             sysprompts,
             self._boxes,
             self._devastation,
-            ServerCommands(
-                links.servers,
-                servers,
-                self._reporter,
-                self._turns,
-                links,
-                sessions,
-                self._windows,
-                lambda: settings_commands.current.session.server,
-                inbox.put,
-            ),
+            self._server_commands,
         )
 
     def run(self) -> None:
@@ -212,7 +213,7 @@ class Dispatcher:
             case SlotFreed(server):
                 self._turns.slot_freed(server)
             case SupervisorAdopted(name):
-                self._commands.server.adopted(name)
+                self._server_commands.adopted(name)
             case ConfirmationRequested(session_id, title, text):
                 self._turns.confirmation_requested(session_id, title, text)
             case BoxAnswered(box_id, answer):
@@ -231,3 +232,8 @@ def _default_link(links: LinkResolver, settings: LoadedSettings) -> Link:
         return links.resolve(settings.current.session)
     except AllInError:
         return links.observed()
+
+
+def _supervisor_of(settings: SessionSettings) -> SupervisorName | None:
+    """The Supervisor of an Enlace; ``None`` for Main's ``base_url``."""
+    return parse_supervisor_name(settings.server) if settings.server is not None else None

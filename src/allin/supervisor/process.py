@@ -7,7 +7,6 @@ Supervisor never leaves a Server holding its port and its VRAM.
 """
 
 import ctypes
-import json
 import os
 import re
 import signal
@@ -19,12 +18,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
+from pydantic import BaseModel, Field, ValidationError
+
 from allin.core.errors import ServerSettingsInvalid, SupervisorAlreadyRunning
 from allin.core.ids import ServerKey, SupervisorName
 from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.supervisor.lock import SupervisorLock, lock_path
 from allin.supervisor.ports import port_free, port_holder
-from allin.supervisor.settings import ServerSettings, load_server_settings
+from allin.supervisor.settings import CONTEXT_SHIFT_ENV, ServerSettings, load_server_settings
 from allin.supervisor.state import (
     FailureKind,
     RestartKind,
@@ -46,8 +47,6 @@ _VRAM = re.compile(
     re.IGNORECASE,
 )
 _PR_SET_PDEATHSIG = 1
-# What would make llama truncate the Conversation in silence, from the environment (ADR-0017).
-_CONTEXT_SHIFT_ENV = "LLAMA_ARG_CONTEXT_SHIFT"
 
 
 def _die_with(supervisor_pid: int) -> Callable[[], None]:
@@ -230,7 +229,8 @@ class Supervisor:
             stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
             log.write(f"--- {stamp} {' '.join(settings.arguments())}\n".encode())
             log.flush()
-            env = {k: v for k, v in os.environ.items() if k != _CONTEXT_SHIFT_ENV}
+            # Never truncating the Conversation in silence, not even by the environment (ADR-0017).
+            env = {k: v for k, v in os.environ.items() if k != CONTEXT_SHIFT_ENV}
             server = subprocess.Popen(
                 settings.arguments(),
                 cwd=settings.cwd,
@@ -359,15 +359,19 @@ def put_to_sleep(servers: Path, name: SupervisorName) -> bool:
     return True
 
 
+class _Props(BaseModel):
+    """The part of ``/props`` the Supervisor reads: how many slots llama chose."""
+
+    total_slots: int = Field(ge=1)
+
+
 def _total_slots(port: int) -> int | None:
+    url = f"http://127.0.0.1:{port}/props"
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/props", timeout=_HEALTH_TIMEOUT
-        ) as reply:
-            slots = json.load(reply).get("total_slots")
-    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+        with urllib.request.urlopen(url, timeout=_HEALTH_TIMEOUT) as reply:
+            return _Props.model_validate_json(reply.read()).total_slots
+    except (urllib.error.URLError, OSError, ValidationError):
         return None
-    return slots if isinstance(slots, int) and slots >= 1 else None
 
 
 def _healthy(port: int) -> bool:

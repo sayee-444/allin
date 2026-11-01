@@ -242,3 +242,41 @@ def test_adopt_reads_the_line_of_the_server_on_mains_port_ends_it_and_wakes_its_
     assert sorted(settings.arguments()) == sorted(line)
     assert settings.cwd == str(folder)
     assert main.servers.woken_by_human == ["mine"]
+
+
+def test_a_unified_cache_left_to_the_slots_is_not_shown_as_a_difference(main: MainHarness):
+    servers = main.slot_locks_dir
+    (servers / "gpu.toml").write_text(GPU_TOML + "parallel = 2\n")
+    running = ["llama", "serve", "-m", "m.gguf", "-c", "8192", "-np", "2", "--kv-unified"]
+    lock = SupervisorLock(lock_path(servers, SupervisorName("gpu")))
+    lock.acquire()
+    try:
+        arguments = [*running, "--port", "9101"]
+        state = SupervisorState(status="ready", pid=os.getpid(), arguments=arguments)
+        write_state(servers, SupervisorName("gpu"), state)
+        chat = main.run(human("/server gpu"))
+    finally:
+        lock.release()
+    assert not any("running" in line for line in chat)
+
+
+def test_adopt_refuses_a_server_that_a_supervisor_already_runs(main: MainHarness, tmp_path: Path):
+    port = free_port()
+    process = subprocess.Popen(
+        [sys.executable, str(FAKE), "-m", "m.gguf", "--port", str(port)], stdout=subprocess.DEVNULL
+    )
+    lock = SupervisorLock(lock_path(main.slot_locks_dir, SupervisorName("gpu")))
+    lock.acquire()
+    try:
+        wait_for(lambda: not port_free(port))
+        state = SupervisorState(status="ready", pid=os.getpid(), server_pid=process.pid)
+        write_state(main.slot_locks_dir, SupervisorName("gpu"), state)
+        main.settings = main.settings.model_copy(update={"base_url": f"http://127.0.0.1:{port}/v1"})
+        chat = main.run(human("/server -y adopt mine"))
+        assert process.poll() is None  # left alone
+    finally:
+        lock.release()
+        process.kill()
+        process.wait()
+    assert any("server_not_adoptable" in line and "gpu" in line for line in chat)
+    assert not toml(main, "mine").exists()
