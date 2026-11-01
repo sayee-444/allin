@@ -1,0 +1,75 @@
+#20 — prueba manual, 2026-11-01. Rama refactor/20-partir-dispatcher, commit fb18547 (el d55f16c solo renombra
+attach→open, stop_turns→cancel_running y draft→keep_draft; basedpyright y la suite completa lo cubren).
+Servidor: llama serve -m "Qwen3.8-27B-Uncensored-Q6_K.gguf" --mmproj "mmproj-Qwen3.8-27B-Uncensored-f16.gguf" -ngl all -fa on
+  -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0
+  --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data (Sesiones 9lg5vv y wg08qs).
+
+Objetivo: comprobar con el Servidor real que cada colaborador hace lo mismo que el Dispatcher de main.
+
+1. Arranque sin Servidor (Recovery.restore → TurnQueue.pause("starting"))
+   - "main started" y "queue paused until the LLM server's /health is OK" (main0.png).
+2. /new dos veces (MainCommands → OpenWindows.open) y un Prompt con la cola en pausa (TurnQueue.push)
+   - La Ventana 9lg5vv muestra el Prompt y el aviso de pausa; Enter queda bloqueado (a-win-paused.png).
+3. Se lanza llama serve (TurnQueue.server_ready → OpenWindows.set_context_limit)
+   - "LLM server ready: 2 turn(s) at once, 128000 tokens of context per slot", "queue resumed: the LLM server is ready",
+     y el Turno empieza y termina (b-main-ready.png).
+   - La Ventana recibe reasoning, respuesta y tokens; borde "context 129 / 128k · 113.3 tok/s" (b-win-answer.png).
+4. Main muerto a mitad de Turno (Recovery.close_left_open y restore)
+   - Borrador sin enviar en 9lg5vv; Prompt largo en wg08qs, que transmite (c-win-streaming.png); kill -9 de Main.
+   - MainState que dejó el Main muerto (state-killed.json): las dos Ventanas, el Borrador y el Prompt en curso.
+   - Al reiniciar: "turn failed: turn_crashed: reason='main stopped without closing it'", "window closed: main stopped
+     without closing it" en las dos, las dos Ventanas huérfanas cerradas y reabiertas, cola en pausa y reanudada (d-main-restart.png).
+   - wg08qs: su Prompt vuelve al input con el error (d-win-restart-wg08qs.png); 9lg5vv: Chat reconstruido, borde
+     "129 / 128k" y el Borrador en el input (d-win-restart-9lg5vv.png).
+5. /exit (OpenWindows.close_all, Reporter.log_main)
+   - Las dos Ventanas se cierran; Log de Main y MainState al final, abajo.
+
+Extracto del Log de Main (eventos de alto nivel):
+{"ts": "2026-11-01T03:07:49.325536-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-01T03:07:49.326054-06:00", "event": "queue_paused"}
+{"ts": "2026-11-01T03:07:59.153482-06:00", "event": "command", "command": "/new", "result": "ok"}
+{"ts": "2026-11-01T03:08:01.249190-06:00", "event": "command", "command": "/new", "result": "ok"}
+{"ts": "2026-11-01T03:08:09.712371-06:00", "event": "command", "sid": "9lg5vv", "command": "/send 9lg5vv Say hello in three words.", "result": "ok"}
+{"ts": "2026-11-01T03:08:34.345550-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 128000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "capacity": 2, "parallel": null}
+{"ts": "2026-11-01T03:08:34.345854-06:00", "event": "queue_resumed"}
+{"ts": "2026-11-01T03:08:34.346010-06:00", "event": "turn_started", "sid": "9lg5vv"}
+{"ts": "2026-11-01T03:08:35.038107-06:00", "event": "turn_finished", "sid": "9lg5vv", "turn": 0}
+{"ts": "2026-11-01T03:08:53.610018-06:00", "event": "turn_started", "sid": "wg08qs"}
+{"ts": "2026-11-01T03:08:53.611073-06:00", "event": "command", "sid": "wg08qs", "command": "/send wg08qs Write a 600 word story about a lighthouse keeper.", "result": "ok"}
+{"ts": "2026-11-01T03:09:08.976174-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-01T03:09:08.976893-06:00", "event": "turn_failed", "sid": "wg08qs", "error": "turn_crashed: reason='main stopped without closing it'", "reasoning": "", "answer": ""}
+{"ts": "2026-11-01T03:09:08.976936-06:00", "event": "window_closed", "sid": "wg08qs", "returncode": null}
+{"ts": "2026-11-01T03:09:08.977013-06:00", "event": "window_closed", "sid": "9lg5vv", "returncode": null}
+{"ts": "2026-11-01T03:09:09.027316-06:00", "event": "orphan_window_closed", "sid": "9lg5vv", "pid": 70251}
+{"ts": "2026-11-01T03:09:09.078402-06:00", "event": "orphan_window_closed", "sid": "wg08qs", "pid": 70273}
+{"ts": "2026-11-01T03:09:09.079821-06:00", "event": "queue_paused"}
+{"ts": "2026-11-01T03:09:09.079977-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 128000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "capacity": 2, "parallel": null}
+{"ts": "2026-11-01T03:09:09.080082-06:00", "event": "queue_resumed"}
+{"ts": "2026-11-01T03:09:23.232562-06:00", "event": "command", "command": "/exit", "result": "ok"}
+{"ts": "2026-11-01T03:09:23.296477-06:00", "event": "window_closed", "sid": "9lg5vv", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-01T03:09:23.296610-06:00", "event": "window_closed", "sid": "wg08qs", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-01T03:09:23.296672-06:00", "event": "main_stopped", "main_id": "root"}
+
+MainState tras /exit:
+{
+  "windows": {
+    "9lg5vv": 70683,
+    "wg08qs": 70688
+  },
+  "drafts": {
+    "9lg5vv": [
+      "draft left unsent"
+    ],
+    "wg08qs": [
+      "Write a 600 word story about a lighthouse keeper."
+    ]
+  },
+  "queue": [],
+  "running": []
+}
+
+Suite: 286 passed in 0.85s
+basedpyright: 0 errors, 0 warnings, 0 notes
+ruff check y ruff format --check sobre src y tests: limpios
+git diff main -- tests/test_dispatcher.py: vacío (ningún assert tocado)
