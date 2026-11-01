@@ -32,8 +32,16 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "session.sampling.max_output_tokens",
         "session.server",
         "session.exempt",
+        "session.compact.auto",
+        "session.compact.threshold",
+        "session.compact.keep",
+        "session.compact.sysprompt",
     }
     assert keys["parallel"].scope == "main" and keys["parallel"].default is None
+    compact = {name: keys[f"session.compact.{name}"].default for name in ("auto", "threshold")}
+    assert compact == {"auto": True, "threshold": 0.85}
+    assert keys["session.compact.keep"].default == 0.25
+    assert keys["session.compact.sysprompt"].default == "compact.txt"
     assert keys["session.model"].scope == "session" and keys["session.model"].default == "allin"
     assert all(key.description for key in keys.values())
 

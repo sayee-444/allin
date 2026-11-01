@@ -204,6 +204,9 @@ _Avoid_: max tokens, límite de salida
 Reemplazar la parte vieja de la Conversación de una Sesión por un resumen que escribe el LLM, archivando lo reemplazado, para que siga cabiendo en su Contexto. Se hace a mano (`/session compact`, `@compact`) o sola, al pasar un umbral del límite del slot (`compact.auto`, encendida por defecto). Quedan literales el Sysprompt, el historial inicial, el Prompt actual y los Turnos recientes. El resumen entra como `user`, nunca como `developer`, y un Rewind a antes del corte recupera lo archivado. Nunca se trunca en silencio (ADR-0017).
 _Avoid_: truncar, context shift, resumen (es lo que produce)
 
+**Paso de resumen** (`summary step`):
+Paso aparte con que una Compactación pide al modelo del Enlace de la Sesión el resumen de una parte de su Conversación, guiado por el **Sysprompt de compactación** (el archivo que nombra `compact.sysprompt` en el Perfil, o el que trae Main si el Perfil no lo tiene). Pasa por la admisión y toma un candado de slot como cualquier Paso, y se repite tras una caída; no es un Turno, así que no se guarda en la Conversación. Si lo que se resume no cabe en un solo Paso, hay uno por parte, cada uno con el resumen del anterior (ADR-0017).
+
 ## Comandos
 
 **Command main** (`MainCommand`):

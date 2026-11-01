@@ -3,7 +3,7 @@ from typing import Any
 
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
-from allin.main.chat_rebuild import rebuild_chat
+from allin.main.chat_rebuild import compacted_entries, compaction_failed_entry, rebuild_chat
 from allin.main.conversation import Conversation, Step, Turn
 from allin.main.log import LogEntry
 
@@ -133,4 +133,40 @@ def test_a_finished_turn_shows_what_it_cost_after_its_output():
     assert rebuild_chat(conversation, log, SETTINGS) == [
         ChatAppend(role="user", label="ana", text="hola"),
         ChatAppend(role="info", label="tokens", text="43 tokens this turn"),
+    ]
+
+
+def test_after_a_compaction_the_chat_still_shows_every_turn_with_the_cut_line_and_summary():
+    a, b, c = turn("p1", "", "A1"), turn("p2", "", "A2"), turn("p3", "", "A3")
+    archived = Conversation(sysprompt="s", turns=[a, b])
+    conversation = Conversation(
+        sysprompt="s", summary="We chose mango.", summarized=1, turns=[b, c]
+    )
+    log = [
+        entry("prompt", text="p1"),
+        entry("turn_finished", turn=0),
+        entry("prompt", text="p2"),
+        entry("turn_finished", turn=1),
+        entry("compacted", summarized=1, summary="We chose mango."),
+        entry("prompt", text="p3"),
+        entry("turn_finished", turn=2),
+    ]
+    assert rebuild_chat(conversation, log, SETTINGS, archived=[archived]) == [
+        ChatAppend(role="user", label="ana", text="p1"),
+        ChatAppend(role="answer", label="AllIn", text="A1"),
+        ChatAppend(role="user", label="ana", text="p2"),
+        ChatAppend(role="answer", label="AllIn", text="A2"),
+        *compacted_entries(1, "We chose mango."),
+        ChatAppend(role="user", label="ana", text="p3"),
+        ChatAppend(role="answer", label="AllIn", text="A3"),
+    ]
+    [cut, summary] = compacted_entries(1, "We chose mango.")
+    assert cut.text.startswith("──") and "Prompts 1\N{EN DASH}1" in cut.text
+    assert summary == ChatAppend(role="info", label="summary", text="We chose mango.")
+
+
+def test_a_failed_compaction_shows_why_and_that_nothing_changed():
+    log = [entry("compaction_failed", error="compaction_failed: reason='x'")]
+    assert rebuild_chat(Conversation(sysprompt="s"), log, SETTINGS) == [
+        compaction_failed_entry("compaction_failed: reason='x'")
     ]

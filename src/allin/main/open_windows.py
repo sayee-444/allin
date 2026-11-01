@@ -205,9 +205,8 @@ class OpenWindows:
     def _send_chat(self, session: Session, streamed: Streamed | None) -> None:
         """Show a Window the Session's Chat so far, rebuilt from its Conversation and Log."""
         conversation = self._sessions.load_conversation(session) or Conversation(sysprompt="")
-        for message in rebuild_chat(
-            conversation, self._sessions.read_log(session), session.settings
-        ):
+        log, archived = self._sessions.read_log(session), self._sessions.load_archived(session)
+        for message in rebuild_chat(conversation, log, session.settings, archived):
             self.send(session.id, message)
         self.show_context(session, _last_steps(streamed, conversation))
         if streamed is not None:  # what the running Turn has streamed so far; it goes on

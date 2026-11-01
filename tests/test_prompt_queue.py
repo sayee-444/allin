@@ -49,3 +49,13 @@ def test_removing_a_prompt_takes_out_only_the_first_equal_one():
     queue.push(Prompt(A, "same"))
     queue.remove(Prompt(A, "same"))
     assert queue.all() == [Prompt(B, "b"), Prompt(A, "same")]
+
+
+def test_an_entry_can_go_just_before_a_queued_prompt():
+    queue = PromptQueue()
+    queue.push(Prompt(B, "b"))
+    queue.push(Prompt(A, "a"))
+    compact = Prompt(A, "", "auto_compact")
+    queue.insert_before(Prompt(A, "a"), compact)
+    assert queue.all() == [Prompt(B, "b"), compact, Prompt(A, "a")]
+    assert compact != Prompt(A, "")  # a Compaction is no Prompt of the same text

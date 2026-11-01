@@ -2,7 +2,7 @@
 crosses ``notices.context.threshold`` of it (0.8 by default), and again only after falling
 back below, e.g. after a Rewind. Without ``--kv-unified`` the limit is the slot's and what
 counts is the Session's Context; with it, the pool's, and what the other Sessions' Steps in
-course reserve counts too (#29).
+course reserve counts too (#29). With ``compact.auto`` off it suggests ``/session compact``.
 
 It is built into Main like a module of ``notices/`` (ADR-0009): it has the same Settings, and
 a module declaring ``context`` replaces it.
@@ -25,13 +25,16 @@ def _check(event: NoticeEvent, params: dict[str, JsonValue]) -> Mapping[str, obj
     if event.used < mark or (event.used_before is not None and event.used_before >= mark):
         return None  # below it, or already above it at the Step before
     what = "the shared pool" if event.shared else "the Context"
-    return {"what": what, "pct": 100 * event.used // event.limit, "limit": event.limit}
+    # With ``compact.auto`` off nobody compacts it but a human (ADR-0017).
+    hint = "" if event.compacts else f"; /session compact {event.session_id} makes room"
+    pct = 100 * event.used // event.limit
+    return {"what": what, "pct": pct, "limit": event.limit, "hint": hint}
 
 
 CONTEXT = NoticeType(
     name="context",
     title="Context",
-    text="{what} is at {pct}% of {limit} tokens",
+    text="{what} is at {pct}% of {limit} tokens{hint}",
     params={"threshold": _THRESHOLD},
     check=_check,
 )

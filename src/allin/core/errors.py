@@ -118,6 +118,13 @@ class PromptTooBig(AllInError):
     code: ClassVar[str] = "prompt_too_big"
 
 
+class CompactionFailed(AllInError):
+    """A Compaction could not give a summary that serves: its Conversation stays as it was
+    (ADR-0017)."""
+
+    code: ClassVar[str] = "compaction_failed"
+
+
 class TurnCrashed(AllInError):
     """A Turn hit an unexpected error; the executor survives it and reports it."""
 

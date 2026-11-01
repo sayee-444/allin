@@ -13,6 +13,7 @@ from allin.core.errors import SessionStorageFailed, SessionUnreadable
 from allin.core.files import write_atomically
 
 _FILE = "conversation.json"
+_ARCHIVE = "compacted"  # what each Compaction replaced, numbered from 1
 
 type Item = dict[str, Any]  # a Responses API input/output item, as JSON
 
@@ -34,7 +35,20 @@ class Turn(BaseModel, frozen=True):
 
 class Conversation(BaseModel, frozen=True):
     sysprompt: str  # rendered text, so editing the file later does not change this Session
+    # What the last Compaction wrote of the Turns it replaced, which are archived (ADR-0017).
+    summary: str | None = None
+    summarized: int = 0  # how many first Turns the summary replaced: the number of turns[0]
     turns: list[Turn] = []
+
+    @property
+    def next_turn(self) -> int:
+        """The number, from 0, of the next Turn among every Turn the Session had."""
+        return self.summarized + len(self.turns)
+
+    @property
+    def started(self) -> bool:
+        """Whether it has had a Turn, literal or summarized."""
+        return self.next_turn > 0
 
     def with_turn(self, turn: Turn) -> "Conversation":
         return self.model_copy(update={"turns": [*self.turns, turn]})
@@ -42,14 +56,31 @@ class Conversation(BaseModel, frozen=True):
     def request_input(self, prompt: str) -> list[Item]:
         """The ``input`` for the first Step of a Turn that answers ``prompt``."""
         items: list[Item] = [{"role": "developer", "content": self.sysprompt}]
+        if self.summary is not None:
+            items.append(summary_item(self.summary, self.summarized))
         for turn in self.turns:
-            items.append(_user(turn.prompt))
-            items += [item for step in turn.steps for item in step.output]
-        items.append(_user(prompt))
+            items += turn_items(turn)
+        items.append(user_item(prompt))
         return items
 
 
-def _user(text: str) -> Item:
+def summary_header(prompts: int) -> str:
+    """What heads a summary, so the LLM reads it as data about the Prompts it replaced."""
+    return f"[Conversation summary · Prompts 1\N{EN DASH}{prompts}]"
+
+
+def summary_item(summary: str, prompts: int) -> Item:
+    """A summary as the Conversation holds it: a ``user`` message, never ``developer``, since
+    it comes from what the LLM read (ADR-0013)."""
+    return user_item(f"{summary_header(prompts)}\n\n{summary}")
+
+
+def turn_items(turn: Turn) -> list[Item]:
+    """A Turn as ``input`` items: its Prompt, then what each of its Steps produced."""
+    return [user_item(turn.prompt), *(item for step in turn.steps for item in step.output)]
+
+
+def user_item(text: str) -> Item:
     return {"role": "user", "content": text}
 
 
@@ -68,3 +99,34 @@ def save_conversation(folder: Path, conversation: Conversation) -> None:
         write_atomically(folder / _FILE, conversation.model_dump_json(indent=2))
     except OSError as error:
         raise SessionStorageFailed(root=str(folder), reason=str(error)) from error
+
+
+def archive_conversation(folder: Path, conversation: Conversation) -> str:
+    """Keep a Conversation as it was before a Compaction replaced part of it, so nothing is
+    lost and a Rewind can bring it back (ADR-0017); its path within ``folder``."""
+    archive = folder / _ARCHIVE
+    try:
+        archive.mkdir(exist_ok=True)
+        number = len(_archived(archive)) + 1
+        write_atomically(archive / f"{number}.json", conversation.model_dump_json(indent=2))
+    except OSError as error:
+        raise SessionStorageFailed(root=str(folder), reason=str(error)) from error
+    return f"{_ARCHIVE}/{number}.json"
+
+
+def load_archived(folder: Path) -> list[Conversation]:
+    """Every Conversation a Compaction archived, oldest first."""
+    try:
+        return [
+            Conversation.model_validate_json(path.read_bytes())
+            for path in _archived(folder / _ARCHIVE)
+        ]
+    except (OSError, ValidationError) as error:
+        raise SessionUnreadable(session_id=folder.name, reason=str(error)) from error
+
+
+def _archived(archive: Path) -> list[Path]:
+    if not archive.is_dir():
+        return []
+    numbered = [path for path in archive.glob("*.json") if path.stem.isdigit()]
+    return sorted(numbered, key=lambda path: int(path.stem))

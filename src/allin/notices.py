@@ -42,6 +42,7 @@ class NoticeEvent:
     used: int | None = None
     used_before: int | None = None
     shared: bool = False  # whether ``limit`` is a ``--kv-unified`` pool
+    compacts: bool = True  # whether the Session compacts on its own (``compact.auto``)
 
 
 # Gets what happened and the Session's Settings of the type; gives the variables of its text,
