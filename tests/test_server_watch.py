@@ -4,10 +4,19 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Self
 
-from allin.main.events import MainEvent, ServerDown, ServerLoading, ServerReady
+from allin.core.ids import ServerKey
+from allin.main.events import (
+    MainEvent,
+    ServerChanged,
+    ServerDown,
+    ServerLoading,
+    ServerReady,
+    ServerState,
+)
 from allin.main.server_watch import ServerWatch, probe
 from allin.main.slots import ServerProps
 
+KEY = ServerKey("gpu")
 NOBODY = "http://127.0.0.1:9/v1"  # nothing listens there
 
 
@@ -74,6 +83,12 @@ def test_a_server_whose_props_say_nothing_usable_is_down():
         assert probe(server.base_url) == ServerDown()
 
 
+def next_state(inbox: queue.Queue[MainEvent]) -> ServerState:
+    event = next_event(inbox)
+    assert isinstance(event, ServerChanged) and event.server == KEY
+    return event.state
+
+
 def next_event(inbox: queue.Queue[MainEvent]) -> MainEvent:
     return inbox.get(timeout=5)
 
@@ -81,14 +96,14 @@ def next_event(inbox: queue.Queue[MainEvent]) -> MainEvent:
 def test_the_watch_reports_each_change_once_until_main_stops():
     inbox: queue.Queue[MainEvent] = queue.Queue()
     with FakeServer(props(2, 64000), loading=True) as server:
-        watch = ServerWatch(server.base_url, inbox, interval=0.01)
+        watch = ServerWatch(KEY, server.base_url, inbox, interval=0.01)
         watch.start()
         try:
-            assert next_event(inbox) == ServerLoading()
+            assert next_state(inbox) == ServerLoading()
             server.loading = False
-            assert next_event(inbox) == ready(2, 64000)
+            assert next_state(inbox) == ready(2, 64000)
             server.props = props(1, 128000)  # restarted with -np 1 between two looks
-            assert next_event(inbox) == ready(1, 128000)
+            assert next_state(inbox) == ready(1, 128000)
         finally:
             watch.stop()
     assert inbox.empty()  # nothing changed after that, so nothing else was said
@@ -97,20 +112,20 @@ def test_the_watch_reports_each_change_once_until_main_stops():
 def test_a_watch_asked_to_recheck_says_again_what_it_sees():
     inbox: queue.Queue[MainEvent] = queue.Queue()
     with FakeServer(props(2, 64000)) as server:
-        watch = ServerWatch(server.base_url, inbox, interval=0.01)
+        watch = ServerWatch(KEY, server.base_url, inbox, interval=0.01)
         watch.start()
         try:
-            assert next_event(inbox) == ready(2, 64000)
+            assert next_state(inbox) == ready(2, 64000)
             watch.recheck()  # a Turn found it unavailable, though it looked ready
-            assert next_event(inbox) == ready(2, 64000)
+            assert next_state(inbox) == ready(2, 64000)
         finally:
             watch.stop()
 
 
 def test_a_server_that_never_answers_is_said_down_once():
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    watch = ServerWatch(NOBODY, inbox, interval=0.01)
+    watch = ServerWatch(KEY, NOBODY, inbox, interval=0.01)
     watch.start()
-    assert next_event(inbox) == ServerDown()
+    assert next_state(inbox) == ServerDown()
     watch.stop()
     assert inbox.empty()

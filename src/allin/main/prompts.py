@@ -22,16 +22,13 @@ class PromptQueue:
     def push(self, prompt: Prompt) -> None:
         self._prompts.append(prompt)
 
-    def pop_ready(self, active: Container[str]) -> Prompt | None:
-        """Take the first Prompt whose Session has no active Turn, so a busy one blocks no one."""
-        for index, prompt in enumerate(self._prompts):
-            if prompt.session_id not in active:
-                return self._prompts.pop(index)
-        return None
+    def waiting(self, active: Container[str]) -> list[Prompt]:
+        """The Prompts whose Session has no active Turn, in queue order."""
+        return [prompt for prompt in self._prompts if prompt.session_id not in active]
 
-    def ready(self, active: Container[str]) -> bool:
-        """Whether ``pop_ready`` would take a Prompt."""
-        return any(prompt.session_id not in active for prompt in self._prompts)
+    def remove(self, prompt: Prompt) -> None:
+        """Take out the first Prompt equal to ``prompt``: the one ``waiting`` gave first."""
+        self._prompts.remove(prompt)
 
     def drop(self, session_id: SessionId) -> list[Prompt]:
         """Take a Session's Prompts out of the queue; return them in their order."""

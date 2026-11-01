@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, Valid
 from pydantic_core import ErrorDetails
 
 from allin.core.errors import InvalidSetting, MalformedAssignment, UnknownSetting
+from allin.core.ids import SUPERVISOR_NAME_PATTERN
 
 type SettingScope = Literal["main", "session"]
 # A Setting's dotted key as ``/set`` takes it: ``session.sampling.temperature``.
@@ -59,6 +60,12 @@ class SessionSettings(BaseModel, frozen=True):
         description="Sysprompt file in the sysprompts folder; fixed once there is a Turn",
     )
     model: str = Field(default="allin", min_length=1, description="model name sent to the Server")
+    # Its Enlace (ADR-0022): the Supervisor its Steps go to; empty: the Server at base_url.
+    server: str | None = Field(
+        default=None,
+        pattern=SUPERVISOR_NAME_PATTERN,
+        description="Supervisor its Steps go to (servers/<name>.toml); empty: Main's base_url",
+    )
     sampling: Sampling = Sampling()
     # Each Notice type's Settings, by type and key, as far as they differ from what its module
     # declares (ADR-0009); their keys, ``notices.<type>.<key>``, come from the loaded modules.

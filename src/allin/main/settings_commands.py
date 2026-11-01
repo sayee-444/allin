@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
+from allin.core.errors import HumanOnly, InvalidArguments, InvalidSetting, SyspromptLocked
 from allin.core.ids import MainId
 from allin.core.origin import HUMAN, Origin
 from allin.core.settings import (
@@ -136,6 +136,8 @@ class SettingsCommands:
             self._show(session.id, session.settings, extra)
             return True
         _check_authority(assignments, origin)
+        if "server" in assignments:  # atomic, waiting for the new Supervisor: #27 (ADR-0022)
+            raise InvalidSetting(key="server", reason="a Session's Enlace cannot change yet")
         changed = apply_settings(session.settings, assignments, extra)
         self._save_session(session, changed)
         if changed.exempt != session.settings.exempt:

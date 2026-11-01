@@ -96,7 +96,7 @@ class Recovery:
                 self._windows.open(session, self._turns.streamed(session.id))
             except AllInError as error:
                 self._windows.show_error(error, session_id)
-        self._turns.pause("starting")  # once the Windows are open, so they are told why
+        self._turns.tell_waiting()  # once the Windows are open
         self.save()
 
     def save(self) -> None:

@@ -4,11 +4,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from allin.core.errors import AllInError
-from allin.core.ids import BoxId, SessionId
+from allin.core.ids import BoxId, ServerKey, SessionId, SupervisorName
 from allin.core.origin import HUMAN, Origin
 from allin.main.conversation import Step
 from allin.main.slots import ServerProps
 from allin.main.turn import OutputKind
+from allin.supervisor.state import FailureKind
 
 
 @dataclass(frozen=True)
@@ -102,12 +103,39 @@ class ServerReady:
     props: ServerProps
 
 
-type ServerState = ServerDown | ServerLoading | ServerReady
+@dataclass(frozen=True)
+class ServerAsleep:
+    """Its Supervisor is not running: it wakes when work comes for it (ADR-0022)."""
+
+    slept_by_human: bool = False  # then only a human wakes it
+
+
+@dataclass(frozen=True)
+class ServerFailed:
+    """Its Supervisor gave up, and said why in its ``.json`` (ADR-0008)."""
+
+    failure: FailureKind
+    reason: str
+    # The Supervisors active while it did not fit in VRAM: who holds the GPU.
+    gpu_holders: tuple[SupervisorName, ...] = ()
+
+
+type ServerState = ServerDown | ServerLoading | ServerReady | ServerAsleep | ServerFailed
+
+
+@dataclass(frozen=True)
+class ServerChanged:
+    """What a Server says of itself changed (ADR-0004); the Server watch tells it."""
+
+    server: ServerKey
+    state: ServerState
 
 
 @dataclass(frozen=True)
 class SlotFreed:
     """A slot lock another Main held is free, while Prompts here waited for one."""
+
+    server: ServerKey
 
 
 @dataclass(frozen=True)
@@ -143,9 +171,7 @@ type MainEvent = (
     | TurnRaw
     | StepEnded
     | TurnEnded
-    | ServerDown
-    | ServerLoading
-    | ServerReady
+    | ServerChanged
     | SlotFreed
     | ConfirmationRequested
     | BoxAnswered
