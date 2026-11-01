@@ -26,6 +26,7 @@ from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
 from allin.main.devastation import Devastation
 from allin.main.executors import SHUTTING_DOWN, TurnJob
+from allin.main.notices import NoticeTypes
 from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import Prompt, PromptQueue
 from allin.main.reporting import Reporter
@@ -34,6 +35,8 @@ from allin.main.slot_locks import SlotLock, SlotLocks
 from allin.main.slots import ServerProps, capacity
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
+from allin.main.usage import context_tokens
+from allin.notices import NoticeEvent
 
 type SubmitTurn = Callable[[TurnJob], None]
 # Waits for one of the server's first N slot locks to be free; then ``SlotFreed`` reaches the
@@ -88,7 +91,9 @@ class TurnQueue:
         recheck_server: RecheckServer,
         boxes: MainBoxes,
         devastation: Devastation,
+        notices: NoticeTypes,
     ) -> None:
+        self._notices = notices
         self._boxes = boxes
         self._devastation = devastation
         self._reporter = reporter
@@ -139,6 +144,7 @@ class TurnQueue:
             return
         running.streamed.steps.append(step)
         self._windows.show_context(running.session, running.streamed.steps)
+        self._tell_notices(running)
 
     def turn_ended(
         self, session_id: SessionId, steps: list[Step] | None, error: AllInError | None
@@ -326,6 +332,19 @@ class TurnQueue:
             )
             self._reporter.record(session.id, "turn_started", "turn started")
             self._submit_turn(job)
+
+    def _tell_notices(self, running: _RunningTurn) -> None:
+        """Show the Notices a Step that just ended sets off for its Session."""
+        session_id = running.session.id
+        limit = self._server.slot_context if self._server is not None else None
+        event = NoticeEvent(session_id, context_tokens(running.streamed.steps), limit)
+
+        def notify(title: str, text: str) -> None:
+            self._reporter.record(session_id, "notice", f"notice: {title}", title=title, text=text)
+            self._boxes.notify(session_id, title, text)
+
+        for failure in self._notices.happened(event, running.session.settings, notify):
+            self._reporter.error(failure, session_id)
 
     def _answered(self, running: _RunningTurn, answer: bool) -> None:
         running.asking = None

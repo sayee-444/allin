@@ -36,6 +36,7 @@ from allin.main.events import (
 )
 from allin.main.executors import TurnJob, execute
 from allin.main.log import Log, LogEntry, read_log
+from allin.main.notices import load_notice_types
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import MainSettingsFiles
@@ -140,6 +141,7 @@ class MainHarness:
         self.hold_turns = False
         self.main_screen: list[ScreenUpdate] = []  # boxes and marks of Main's Chat, in order
         self.devastation = False  # lit on the command line
+        self.notices_dir = tmp_path / "notices"  # Notice modules, loaded on each start
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
@@ -205,6 +207,7 @@ class MainHarness:
             self._recheck_server,
             self.main_screen.append,
             self.devastation,
+            load_notice_types(self.notices_dir),
         )
         for event in () if settle else events:
             inbox.put(event)

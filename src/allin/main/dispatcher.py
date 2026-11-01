@@ -35,6 +35,7 @@ from allin.main.events import (
     WindowConnected,
 )
 from allin.main.log import Log
+from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
@@ -67,6 +68,7 @@ class Dispatcher:
         recheck_server: RecheckServer,
         main_screen: Callable[[ScreenUpdate], None],
         devastation: bool,
+        notices: LoadedNotices,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line."""
@@ -90,6 +92,7 @@ class Dispatcher:
             recheck_server,
             self._boxes,
             self._devastation,
+            notices.types,
         )
         self._recovery = Recovery(
             self._reporter,
@@ -100,7 +103,7 @@ class Dispatcher:
             state,
             close_orphan_window,
         )
-        self._settings_problems = settings.problems
+        self._start_problems = [*settings.problems, *notices.problems]
         settings_commands = SettingsCommands(
             self._reporter,
             self._turns,
@@ -110,6 +113,7 @@ class Dispatcher:
             settings_files,
             sysprompts,
             self._devastation,
+            notices.types,
         )
         self._commands = MainCommands(
             self._reporter,
@@ -126,7 +130,7 @@ class Dispatcher:
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""
         self._reporter.report(None, "main_started", "main started", main_id=self._main_id)
-        for problem in self._settings_problems:  # Main runs on with the defaults
+        for problem in self._start_problems:  # Main runs on without what failed
             self._reporter.error(problem)
         self._devastation.start()
         self._recovery.close_left_open()

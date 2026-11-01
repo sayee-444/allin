@@ -15,6 +15,7 @@ from allin.main.events import BoxAnswered, MainCommandEntered, MainEvent, Shutdo
 from allin.main.executors import TurnExecutors
 from allin.main.lock import MainLock
 from allin.main.log import Log
+from allin.main.notices import load_notice_types
 from allin.main.server_watch import ServerWatch
 from allin.main.sessions import SessionStore
 from allin.main.settings_files import MainSettingsFiles
@@ -76,6 +77,7 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: b
         watch.recheck,
         screen.inbox.put,
         devastation,
+        load_notice_types(data_dir / "notices"),  # part of Main: loaded once, here (ADR-0016)
     )
 
     def dispatch() -> None:

@@ -186,3 +186,9 @@ class HumanOnly(AllInError):
     """Only a human may do this (``-y``, ``--devastation``, the Exemption: ADR-0013)."""
 
     code: ClassVar[str] = "human_only"
+
+
+class NoticeFailed(AllInError):
+    """A Notice module failed to load, or its check failed; the other Notices go on."""
+
+    code: ClassVar[str] = "notice_failed"

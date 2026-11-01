@@ -14,6 +14,7 @@ from allin.core.origin import HUMAN, Origin
 from allin.core.settings import (
     MainSettings,
     SessionSettings,
+    SettingKey,
     SettingName,
     apply_settings,
     parse_assignments,
@@ -21,6 +22,7 @@ from allin.core.settings import (
 )
 from allin.main.conversation import Conversation
 from allin.main.devastation import Devastation
+from allin.main.notices import NoticeTypes
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
@@ -76,8 +78,10 @@ class SettingsCommands:
         files: MainSettingsFiles,
         sysprompts: Path,
         devastation: Devastation,
+        notices: NoticeTypes,
     ) -> None:
         self._devastation = devastation
+        self._notices = notices
         self._reporter = reporter
         self._turns = turns
         self._sessions = sessions
@@ -99,11 +103,12 @@ class SettingsCommands:
         rest = (words[1] if len(words) > 1 else "") if to_default else text
         target = self._default if to_default else self._current
         assignments = parse_assignments(rest)
+        extra = self._notices.setting_keys(prefix="session.")
         if not assignments:
-            self._show(None, target)
+            self._show(None, target, extra)
             return True
         _check_authority(assignments, origin)
-        changed = apply_settings(target, assignments)
+        changed = apply_settings(target, assignments, extra)
         if changed.session.sysprompt != target.session.sysprompt:
             render_sysprompt(self._sysprompts, changed.session)  # the file must be there
         if to_default:
@@ -126,11 +131,12 @@ class SettingsCommands:
             raise InvalidArguments(usage=_SESSION_USAGE)
         session = self._sessions.load_owned(target.session_id, self._main_id)
         assignments = parse_assignments(target.assignments)
+        extra = self._notices.setting_keys()
         if not assignments:
-            self._show(session.id, session.settings)
+            self._show(session.id, session.settings, extra)
             return True
         _check_authority(assignments, origin)
-        changed = apply_settings(session.settings, assignments)
+        changed = apply_settings(session.settings, assignments, extra)
         self._save_session(session, changed)
         if changed.exempt != session.settings.exempt:
             self._devastation.mark(session.id)
@@ -164,6 +170,11 @@ class SettingsCommands:
             saved, conversation.model_copy(update={"sysprompt": sysprompt})
         )
 
-    def _show(self, session_id: str | None, settings: MainSettings | SessionSettings) -> None:
-        for line in shown_settings(settings):
+    def _show(
+        self,
+        session_id: str | None,
+        settings: MainSettings | SessionSettings,
+        extra: list[SettingKey],
+    ) -> None:
+        for line in shown_settings(settings, extra):
             self._reporter.show(session_id, line)
