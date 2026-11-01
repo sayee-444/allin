@@ -1,0 +1,2 @@
+06:26:56 slot lock 1 taken
+06:27:07 step ended after 3778 deltas; slot lock released

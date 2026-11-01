@@ -1,0 +1,44 @@
+#25 Supervisor 2/4 — prueba a mano (2026-11-01)
+
+Servidor: Supervisor "a" (servers/a.toml), modelo IQ2_XXS (solo mecánica), puerto 9932.
+Línea de llama serve que lanza el Supervisor:
+  llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -c 12000 -np 2 -ngl all -fa on --port 9932 -ctk q4_0 -ctv q4_0 --spec-type draft-mtp --kv-unified --jinja
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data, con session.server = "a" y step.stall = 15.
+
+a) Reinicio con un Turno en curso (a-drenando-*.png, b-*.png)
+   - /send 01zeok "Cuenta del 1 al 300…"; durante el Turno: /server restart a.
+   - Main: "queue paused: Supervisor a is restarting"; el Turno sigue hasta el final.
+   - /send 8vh4q8 "Di solo: despues" mientras drena: espera.
+   - Tras el Turno: el Supervisor reinicia con context 12000 (antes 16000) y el Prompt de 8vh4q8 corre después.
+
+b) Dos Mains (otro-main.txt)
+   - Un segundo proceso toma el candado de slot 1 como lo haría otro Main y genera un Paso contra 9932.
+   - El reinicio esperó también a que soltara su candado (06:27:07) antes de reiniciar.
+
+c) --now (c-now-*.png)
+   - /server restart a --now con un Turno en curso: "turn suspended: the Server restarted; …"; tras el reinicio el Paso se repite solo y el Turno termina.
+
+d) Caídas (d-*.png)
+   - kill -9 a llama serve a mitad de un Paso: el Turno queda suspendido y el Paso se repite al volver.
+   - Dos caídas seguidas en el mismo Paso: "turn failed: llm_unavailable" y el texto vuelve al input.
+   (Estas capturas son de antes de renombrar el evento: en ellas se lee "step cut short", hoy "turn suspended".)
+
+e) Paso colgado (e-congelado-ventana.png, e-colgado-main.png, e-colgado-ventana.png)
+   - /send 8vh4q8 "Cuenta del 1 al 2000…"; a los 4 s, kill -STOP al llama serve (13:32:21).
+   - Congelado: a.slot0.lock held, a.slot1.lock free.
+   - 13:32:36.99 turn_failed step_stalled seconds=15.0, con el Servidor aún congelado; Aviso "Step stalled: no progress for 15 s on Supervisor a: cancelled".
+   - 13:32:40, aún congelado: a.slot0.lock free, a.slot1.lock free. Luego kill -CONT.
+   - La primera prueba encontró un fallo: el slot no se soltaba hasta el SIGCONT, porque cerrar el stream no despertaba al hilo lector. Arreglado en 77f04ac (shutdown del socket); lo cubre test_cancelling_a_step_whose_server_went_silent_ends_it_at_once.
+
+f) Aviso de límite (f-aviso-limite.png)
+   - 01zeok lleva 2579 tokens de contexto. context = 2048 en a.toml y /server restart a.
+   - Aviso: "Supervisor a: context limit lowered to 2048 tokens — over the limit: 01zeok (2579)".
+
+g) Ajustes que no arrancan (g-vuelta-main.png)
+   - context = 1000000 y /server restart a: llama no arranca.
+   - Log de Main: server_fallback reason="… llama_init_from_model: failed to initialize the context: failed to allocate compute pp buffers".
+   - a.json: status ready, -c 2048 (los últimos que arrancaron), fallback_reason con ese motivo; Chat: "Supervisor a runs its last Settings that started: …".
+
+Medida de la build (para el Paso colgado): POST /v1/responses con stream y ~2000 palabras de entrada: cabeceras a los 0,00 s, primer evento a los 2,72 s. llm.stream() vuelve enseguida y el stream se puede cerrar mientras el Servidor lee.
+
+Suite: 466 passed; basedpyright 0 errores; ruff limpio.
