@@ -1,0 +1,42 @@
+#51 Turno cortado — prueba a mano (2026-11-01)
+
+Servidor: llama serve -m Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 3072
+  --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0
+  --kv-unified -np 2 --spec-type draft-mtp --port 9931   (build 10909; /props n_ctx = 3072, 2 slots)
+Main: ./venv/bin/python -m allin --data-dir <scratch>/d51, en un xterm conducido con python-xlib.
+
+a) Tope por defecto (a-tope-defecto-ventana.png). Sesión n10xj7 sin tocar Ajustes: tope = 3072 // 4 = 768.
+   Prompt: «Write a very long story about a lighthouse keeper, at least 3000 words, no thinking.»
+   llama: eval 768 tokens. conversation.json: turns[0].cut = output_cap, usage 98 in / 768 out.
+   Log: notice cut_turn «it reached its output cap of 768 tokens; raise it with /session set n10xj7
+   sampling.max_output_tokens=<n>, or ask it to go on»; turn_finished {"turn": 0, "cut": "output_cap"}.
+   El input queda vacío: el Prompt no vuelve.
+
+c) Turno que termina solo (c-sin-corte-ventana.png). Siguiente Prompt en n10xj7, aún con el tope 768:
+   888 in / 753 out, turn_finished {"turn": 1} sin cut, sin Aviso ni marca.
+   Termina a mitad de frase: el IQ2_XXS se quedó en un bucle y emitió fin de texto él mismo. Para descartar que
+   llama pare antes del tope con draft-mtp, una sonda aparte (puerto 9932, mismo modelo y flags, -c 8192)
+   pidió 16 veces por chat completions con max_tokens=768: las 16 dieron finish_reason length con 768 tokens.
+   Otra sonda con 300/768/1000: todo corte por length informa exactamente el tope, y la Responses API
+   dice completed en todos.
+
+b) Tope bajo (b-tope-300-main.png, b-tope-300-ventana.png). /session set n10xj7 sampling.max_output_tokens=300
+   y otro Prompt: llama eval 300 tokens; turns[2].cut = output_cap; Aviso «output cap of 300 tokens».
+
+d) Límite del slot (d-slot-ventana.png, d-slot-main.png). /new → 6xmy44, /session set 6xmy44
+   sampling.max_output_tokens=4000 (para que mande el slot y no el tope).
+   llama: n_tokens = 3071, truncated = 1. usage 98 in + 2974 out = 3072. turns[0].cut = slot_limit.
+   Aviso: «the Conversation filled the slot's 3072 tokens of context; …».
+   Nota: tras la revisión de código el texto ya no propone «ask it to go on in fewer words» (con el slot lleno
+   tampoco cabe); el texto final lo comprueba
+   test_a_turn_that_fills_the_slot_is_saved_cut_with_what_it_generated.
+
+e) Reabrir la Ventana (e-reabierta-ventana.png). Cerrada con WM_DELETE_WINDOW y /open n10xj7: el Chat
+   reconstruido muestra «[cut] turn cut: it reached its output cap» en el Turno cortado y nada en el que
+   terminó solo.
+
+Al final: /exit, los dos llama lanzados por mí parados; GPU en 1,1 GB.
+
+Solo con tests (tests/test_cut_turns.py): detección por tokens (tope, slot con margen de un token, sin usage),
+16 384 o un cuarto del slot, el Aviso apagado con notices.cut_turn.enabled=false, y un módulo de notices/
+llamado cut_turn que reemplaza al de Main (tests/test_notices.py).
