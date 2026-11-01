@@ -52,7 +52,7 @@ class Devastation:
     def switch(self, on: bool) -> None:
         """Light it or put it out; running Turns keep what they had when they started."""
         self._on = on
-        self._reporter.report(None, "devastation", f"--devastation {'on' if on else 'off'}")
+        self._reporter.report(None, "devastation", f"--devastation {'on' if on else 'off'}", on=on)
         self._main_border(TitleMark(DEVASTATION_MARK if on else ""))
         for session_id in self._windows.pids():
             self.mark(session_id)

@@ -69,6 +69,8 @@ def test_a_delicate_command_asks_first_and_no_runs_nothing(main: MainHarness):
     assert "/reset: waiting for confirmation" in chat and "/reset: rejected" in chat
     assert current_parallel(main) == 2
     assert HideBox(FIRST_BOX) in main.main_screen
+    [rejected] = [entry for entry in main.main_log() if entry.fields.get("result") == "rejected"]
+    assert rejected.fields["command"] == "/reset"
 
 
 def test_a_delicate_command_runs_once_answered_yes(main: MainHarness):

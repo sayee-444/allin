@@ -77,7 +77,7 @@ class BorderStatus:
 
 @dataclass(frozen=True)
 class TitleMark:
-    """A mark shown on the Chat's border right after the title, such as ``--devastation``."""
+    """A mark shown on the Chat's border before the title, such as ``--devastation``."""
 
     text: str
 
@@ -282,8 +282,9 @@ class ChatScreen:
         chat_box, input_box = self._boxes
         chat_pad, input_pad = self._pads
         chat_box.border()  # wipes a longer status drawn before
-        marks = [part for part in (self._mark, self._status) if part]
-        title = f" {self._title} " + "".join(f"─ {part} " for part in marks)
+        # The mark goes first: a long title or status never hides it.
+        parts = [part for part in (self._mark, self._title, self._status) if part]
+        title = " " + " ─ ".join(parts) + " "
         chat_box.addnstr(0, 2, title, max(0, layout.chat_box.width - 4))
         chat_box.noutrefresh()
         input_box.border()

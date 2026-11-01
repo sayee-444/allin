@@ -142,7 +142,8 @@ class MainCommands:
 
         def on_answer(answer: bool) -> None:
             if not answer:
-                self._reporter.report(session_id, "command", f"{_summary(text)}: rejected")
+                shown = f"{_summary(text)}: rejected"
+                self._reporter.report(session_id, "command", shown, command=text, result="rejected")
                 return
             try:
                 self._call(command, args, HUMAN)
