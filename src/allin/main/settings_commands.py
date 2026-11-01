@@ -150,6 +150,8 @@ class SettingsCommands:
         before, self._current = self._current, settings
         if settings.parallel != before.parallel:
             self._turns.set_parallel(settings.parallel)
+        if settings.step.stall != before.step.stall:
+            self._turns.set_stall(settings.step.stall)
         if settings.base_url != before.base_url:
             self._reporter.report(None, "settings_restart_needed", _RESTART_NOTE)
 

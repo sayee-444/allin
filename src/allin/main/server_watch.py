@@ -22,6 +22,7 @@ from allin.main.events import (
     ServerFailed,
     ServerLoading,
     ServerReady,
+    ServerRestarting,
     ServerState,
 )
 from allin.main.slots import parse_props, server_root
@@ -106,10 +107,18 @@ class ServerWatch:
             return probe(self._base_url)
         # What answers on its port while it is not running is not its Server: waking it then
         # fails, saying who holds the port.
-        if not supervisor_active(*self._supervisor):
-            return supervisor_view(*self._supervisor)
+        servers, name = self._supervisor
+        if not supervisor_active(servers, name):
+            return supervisor_view(servers, name)
+        told = read_state(servers, name)
+        if told is not None and told.status == "draining":
+            return ServerRestarting(now=told.restart == "now")
         state = probe(self._base_url)
-        return supervisor_view(*self._supervisor) if isinstance(state, ServerDown) else state
+        if isinstance(state, ServerDown):
+            return supervisor_view(servers, name)
+        if isinstance(state, ServerReady) and told is not None and told.fallback_reason:
+            return ServerReady(state.props, fallback=told.fallback_reason)
+        return state
 
     def _watch(self) -> None:
         while not self._stopping.is_set():

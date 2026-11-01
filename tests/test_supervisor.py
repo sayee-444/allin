@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import ServerSettingsInvalid, SupervisorAlreadyRunning
-from allin.core.ids import SupervisorName
+from allin.core.ids import ServerKey, SupervisorName
+from allin.main.slot_locks import SlotLocks
 from allin.supervisor.lock import supervisor_active
 from allin.supervisor.process import MAX_CRASHES, Supervisor
 from allin.supervisor.settings import ServerSettings, load_server_settings
@@ -205,3 +206,48 @@ def test_stopped_it_ends_its_server_and_falls_asleep(running: Callable[..., Runn
     assert not supervisor_active(supervisor.data_dir / "servers", SupervisorName("gpu"))
     with pytest.raises(ProcessLookupError):
         os.kill(state.server_pid, 0)
+
+
+def test_a_restart_waits_for_every_slot_and_starts_the_pending_settings(
+    running: Callable[..., Running],
+):
+    supervisor = running(parallel=2)
+    wait_for(supervisor.status_is("ready"))
+    servers = supervisor.data_dir / "servers"
+    step = SlotLocks(servers, ServerKey("gpu")).take(2)  # a Step some Main runs
+    assert step is not None
+    first = supervisor.state()
+    assert first is not None
+    toml = servers / "gpu.toml"
+    toml.write_text(toml.read_text().replace("context = 8192", "context = 4096"))
+    supervisor.supervisor.restart(now=False)
+    wait_for(supervisor.status_is("draining"))
+    time.sleep(0.3)
+    draining = supervisor.state()
+    assert draining is not None and draining.status == "draining" and draining.restart == "drain"
+    assert draining.server_pid == first.server_pid  # the Step goes on
+    step.release()
+    wait_for(lambda: (s := supervisor.state()) is not None and s.server_pid != first.server_pid)
+    wait_for(supervisor.status_is("ready"))
+    state = supervisor.state()
+    assert state is not None and "4096" in state.arguments
+    assert SlotLocks(servers, ServerKey("gpu")).take(2) is not None  # it let them go
+
+
+def test_pending_settings_that_do_not_start_fall_back_to_the_last_that_did(
+    running: Callable[..., Running],
+):
+    supervisor = running()
+    wait_for(supervisor.status_is("ready"))
+    toml = supervisor.data_dir / "servers" / "gpu.toml"
+    good = toml.read_text()
+    toml.write_text(good.replace("extra = []", 'extra = ["--fake-mode", "vram"]'))
+    supervisor.supervisor.restart(now=True)
+    wait_for(lambda: (s := supervisor.state()) is not None and s.fallback_reason is not None)
+    wait_for(supervisor.status_is("ready"))
+    state = supervisor.state()
+    assert state is not None and "--fake-mode" not in state.arguments
+    assert "out of memory" in (state.fallback_reason or "")
+    toml.write_text(good)  # Settings that start again: the fallback is over
+    supervisor.supervisor.restart(now=False)
+    wait_for(lambda: (s := supervisor.state()) is not None and s.fallback_reason is None)

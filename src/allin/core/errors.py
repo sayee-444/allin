@@ -104,6 +104,12 @@ class TurnCancelled(AllInError):
     code: ClassVar[str] = "turn_cancelled"
 
 
+class StepStalled(AllInError):
+    """A Step made no progress for ``step.stall`` seconds; Main cancelled it (ADR-0023)."""
+
+    code: ClassVar[str] = "step_stalled"
+
+
 class TurnCrashed(AllInError):
     """A Turn hit an unexpected error; the executor survives it and reports it."""
 
@@ -204,3 +210,10 @@ class SupervisorAlreadyRunning(AllInError):
     """Another process already is this Supervisor; only one may be (ADR-0008)."""
 
     code: ClassVar[str] = "supervisor_already_running"
+
+
+class SupervisorNotRunning(AllInError):
+    """A Supervisor asked to restart is asleep or failed: its next wake uses its pending
+    Settings anyway."""
+
+    code: ClassVar[str] = "supervisor_not_running"

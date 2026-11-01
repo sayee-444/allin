@@ -12,7 +12,7 @@ from allin.core.errors import (
     UnknownCommand,
     WindowAlreadyOpen,
 )
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SupervisorName, parse_supervisor_name
 from allin.core.origin import HUMAN, Origin
 from allin.main.boxes import MainBoxes
 from allin.main.devastation import Devastation
@@ -23,6 +23,9 @@ from allin.main.sessions import SessionStore
 from allin.main.settings_commands import SettingsCommands, parse_session_command
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
+
+# Asks a running Supervisor to restart its Server, cutting Steps short with ``now``.
+type RestartSupervisor = Callable[[SupervisorName, bool], None]
 
 
 @dataclass(frozen=True)
@@ -54,7 +57,9 @@ class MainCommands:
         sysprompts: Path,
         boxes: MainBoxes,
         devastation: Devastation,
+        restart_supervisor: RestartSupervisor,
     ) -> None:
+        self._restart_supervisor = restart_supervisor
         self._boxes = boxes
         self._devastation = devastation
         self._reporter = reporter
@@ -85,6 +90,8 @@ class MainCommands:
                 takes_origin=True,
             ),
             "/devastation": _MainCommand(("state",), self._switch_devastation, human_only=True),
+            # Only ``restart`` so far; /server's other actions come with #26.
+            "/server": _MainCommand(("action", "name"), self._server, optional=("--now",)),
             "/exit": _MainCommand((), lambda: False),
         }
 
@@ -188,6 +195,13 @@ class MainCommands:
     def _send(self, session_id: str, text: str) -> bool:
         session = self._sessions.load_owned(session_id, self._main_id)
         self._turns.push(session, Prompt(session.id, text))
+        return True
+
+    def _server(self, action: str, name: str, flag: str | None = None) -> bool:
+        supervisor = parse_supervisor_name(name)
+        if action != "restart" or supervisor is None or flag not in (None, "--now"):
+            raise InvalidArguments(usage=self._commands["/server"].usage("/server restart"))
+        self._restart_supervisor(supervisor, flag == "--now")
         return True
 
     def _switch_devastation(self, state: str) -> bool:

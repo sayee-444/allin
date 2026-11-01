@@ -3,14 +3,17 @@ waiter each, started the first time a Session needs that Server, and the waking 
 Supervisor when work comes for it.
 """
 
+import os
 import queue
+import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from allin.core.ids import ServerKey, SupervisorName
+from allin.core.errors import SupervisorNotRunning
+from allin.core.ids import ServerKey, SupervisorName, parse_supervisor_name
 from allin.main.events import MainEvent
 from allin.main.links import Link
 from allin.main.server_watch import ServerWatch
@@ -49,7 +52,19 @@ class ServerLinks:
         watch.start()
 
     def take_slot(self, server: ServerKey, slots: int) -> SlotLock | None:
+        """``None`` also while its Supervisor drains: it takes every slot (ADR-0008)."""
+        name = parse_supervisor_name(server)
+        state = read_state(self._servers, name) if name is not None else None
+        if state is not None and state.status == "draining":
+            return None
         return self._watched[server].locks.take(slots)
+
+    def restart(self, name: SupervisorName, now: bool) -> None:
+        """Ask a running Supervisor to restart its Server with its pending Settings."""
+        state = read_state(self._servers, name)
+        if state is None or state.pid is None or not supervisor_active(self._servers, name):
+            raise SupervisorNotRunning(supervisor=name)
+        os.kill(state.pid, signal.SIGUSR1 if now else signal.SIGHUP)
 
     def wait_for_slot(self, server: ServerKey, slots: int) -> None:
         self._watched[server].waiter.start(slots)

@@ -22,6 +22,10 @@ class PromptQueue:
     def push(self, prompt: Prompt) -> None:
         self._prompts.append(prompt)
 
+    def push_front(self, prompt: Prompt) -> None:
+        """Put a Prompt back first: a Step a Server left half-done goes before the rest."""
+        self._prompts.insert(0, prompt)
+
     def waiting(self, active: Container[str]) -> list[Prompt]:
         """The Prompts whose Session has no active Turn, in queue order."""
         return [prompt for prompt in self._prompts if prompt.session_id not in active]

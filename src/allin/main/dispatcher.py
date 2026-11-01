@@ -7,6 +7,7 @@ owns and calls from that same thread: ``Reporter`` (Main's Chat and the Logs), `
 """
 
 import queue
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from allin.main.events import (
     Shutdown,
     SlotFreed,
     StepEnded,
+    Tick,
     TurnEnded,
     TurnOutput,
     TurnRaw,
@@ -67,6 +69,7 @@ class Dispatcher:
         main_screen: Callable[[ScreenUpdate], None],
         devastation: bool,
         notices: LoadedNotices,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line."""
@@ -91,6 +94,9 @@ class Dispatcher:
             self._boxes,
             self._devastation,
             notices.types,
+            main_id,
+            settings.current.step.stall,
+            clock,
         )
         self._recovery = Recovery(
             self._reporter,
@@ -123,6 +129,7 @@ class Dispatcher:
             sysprompts,
             self._boxes,
             self._devastation,
+            servers.restart,
         )
 
     def run(self) -> None:
@@ -172,7 +179,10 @@ class Dispatcher:
             case TurnOutput(session_id, kind, text):
                 self._turns.output(session_id, kind, text)
             case TurnRaw(session_id, raw):
+                self._turns.progress(session_id)
                 self._reporter.raw(session_id, raw)
+            case Tick():
+                self._turns.tick()
             case StepEnded(session_id, step):
                 self._turns.step_ended(session_id, step)
             case TurnEnded(session_id, steps, error):
