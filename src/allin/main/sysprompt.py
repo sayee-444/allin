@@ -1,4 +1,5 @@
-"""Rendering a Sysprompt template from ``sysprompts/`` with a Session's Settings."""
+"""Rendering a Sysprompt template from the active Profile's ``sysprompts/`` with a Session's
+Settings."""
 
 from pathlib import Path
 from string import Template

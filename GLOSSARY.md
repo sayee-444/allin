@@ -13,7 +13,7 @@ El proceso orquestador (`python -m allin`, paquete `allin.main`); dueño único 
 _Avoid_: abuelo, padre, proceso principal, servidor (el Servidor es `llama serve`)
 
 **Perfil** (`Profile`):
-Identidad con nombre de un Main raíz, guardada como archivos modulares en `profiles/<nombre>/`: sus Ajustes de Main (con el Enlace por defecto), las Sesiones que le pertenecen, sus submains, su Estado de Main y sus piezas (functions, Sysprompts, Moldes, Planos y Temas). Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar Main con ese nombre como id; trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta. Es privado: lo que se comparte con otros usuarios es un Kit, y desde una Sesión, `/send` y Consultar solo alcanzan las del Perfil activo.
+Identidad con nombre de un Main raíz, guardada como archivos modulares en `profiles/<nombre>/`: sus Ajustes de Main (con el Enlace por defecto), las Sesiones que le pertenecen, sus submains, su Estado de Main y sus piezas (functions, Sysprompts, Moldes, Planos y Temas). Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar el Main raíz con él (`--profile`); su id sigue siendo `root`, así que el dueño de sus Sesiones no cambia. Trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta. Es privado: lo que se comparte con otros usuarios es un Kit, y desde una Sesión, `/send` y Consultar solo alcanzan las del Perfil activo.
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
 
 **Kit** (`Kit`):
@@ -82,14 +82,14 @@ Registro con fecha y hora de los eventos de una Sesión o de Main; siempre activ
 _Avoid_: historial
 
 **Estado de Main** (`MainState`):
-Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json` (el del Main raíz pasa a la carpeta de su Perfil en #30), para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Sesiones en segundo plano, Borradores, cola de Prompts y Prompts de los Turnos en curso. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
+Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json` (el del Main raíz, en `state.json` de la carpeta de su Perfil), para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Sesiones en segundo plano, Borradores, cola de Prompts y Prompts de los Turnos en curso. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
 _Avoid_: snapshot, sesión de Main
 
 **Borrador** (`draft`):
 Lo que hay en el input de una Ventana sin enviar; la Ventana se lo manda a Main cuando el usuario deja de teclear un momento, y vuelve al input al reabrirla o al reiniciar Main. Es una lista de bloques: el que se ve en el input y los que esperan detrás (el borde dice `+N waiting`). Un Prompt de Origen humano que vuelve al input (Turno fallido o interrumpido) se muestra como bloque propio y lo que había pasa a esperar; nunca se mezclan ni se repiten. Enter envía solo el bloque que se ve y muestra el siguiente.
 
 **Sysprompt** (`Sysprompt`):
-Archivo de texto plantilla en `sysprompts/`, dentro de la carpeta de su Perfil (hoy en la de instalación; cambia en #30), que, rellenado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. Es dato: Main lo rellena y nunca lo ejecuta. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).
+Archivo de texto plantilla en `sysprompts/`, dentro de la carpeta de su Perfil (los de la carpeta de instalación son la semilla con la que nace `default`), que, rellenado con los Ajustes de la Sesión, se vuelve el mensaje `developer` inicial de la Conversación. Es dato: Main lo rellena y nunca lo ejecuta. La Sesión guarda el texto renderizado, no la ruta: editar el archivo después no afecta a Sesiones existentes. Solo se puede fijar o cambiar mientras la Conversación no tiene Turnos (al crearla, o tras un Rewind hasta el inicio).
 _Avoid_: system prompt (como nombre del archivo)
 
 **Sesión coordinadora** (`coordinator`):
@@ -127,7 +127,7 @@ Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se compa
 Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que se copian a la Sesión en `/new` y que no usa, salvo el Enlace por defecto para sus propios Pasos; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
 
 **Ajustes actuales** (`current settings`):
-La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains. Se guardan en `settings/current.json` de la carpeta de datos (en la del Perfil desde #30); si ese archivo no es válido, Main dice qué clave falla y arranca con los por defecto. `/set` a secas los muestra.
+La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains. Se guardan en `settings/current.json` de la carpeta del Perfil; si ese archivo no es válido, Main dice qué clave falla y arranca con los por defecto. `/set` a secas los muestra.
 
 **Ajustes por defecto** (`default settings`):
 La versión con la que Main arranca tras un `/reset`; se cambia con `/set --default` y se guarda en `settings/default.json`.

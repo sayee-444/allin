@@ -23,6 +23,23 @@ def parse_session_id(text: str) -> SessionId | None:
     return SessionId(text) if _SESSION_ID.fullmatch(text) is not None else None
 
 
+# A Profile's name, also its folder's under ``profiles/``: letters, digits and hyphens, 3 to 32.
+ProfileName = NewType("ProfileName", str)
+_PROFILE_NAME = re.compile(r"[A-Za-z0-9-]{3,32}")
+_GENERATED_PROFILE_LENGTH = 8
+DEFAULT_PROFILE = ProfileName("default")  # what there was before Profiles becomes this one
+
+
+def parse_profile_name(text: str) -> ProfileName | None:
+    """``text`` as a Profile's name if it has the shape of one (so it is safe as a folder name)."""
+    return ProfileName(text) if _PROFILE_NAME.fullmatch(text) is not None else None
+
+
+def new_profile_name() -> ProfileName:
+    """A Profile's name for ``/profile new`` without one: 8 characters of ``[a-z0-9]``."""
+    return ProfileName("".join(secrets.choice(_ALPHABET) for _ in range(_GENERATED_PROFILE_LENGTH)))
+
+
 # A Notice or Confirmation on screen, made by Main; its Window answers by it.
 BoxId = NewType("BoxId", str)
 

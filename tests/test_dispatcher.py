@@ -42,6 +42,7 @@ from allin.main.executors import TurnJob, execute
 from allin.main.links import Link, LinkResolver
 from allin.main.log import Log, LogEntry, read_log
 from allin.main.notices import load_notice_types
+from allin.main.profiles import ProfileStore
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import MainSettingsFiles
@@ -217,11 +218,15 @@ class MainHarness:
     def __init__(self, tmp_path: Path) -> None:
         self.root = tmp_path / "sessions"
         self.sessions = SessionStore(self.root)
-        self.sysprompts = tmp_path / "sysprompts"
-        self.sysprompts.mkdir()
-        (self.sysprompts / "default.txt").write_text("I am $assistant_name; you are $username.")
+        self.seed = tmp_path / "install" / "sysprompts"  # the installation's Sysprompts
+        self.seed.mkdir(parents=True)
+        (self.seed / "default.txt").write_text("I am $assistant_name; you are $username.")
+        self.profiles = ProfileStore(tmp_path, self.seed)
+        self.profiles.migrate()  # as Main does on start, before the first run
+        self.profile = self.profiles.open(None)
+        self.sysprompts = self.profile.sysprompts
         self.llm = FakeLlm()
-        self.settings_dir = tmp_path / "settings"
+        self.settings_dir = self.profile.settings
         self.settings_files = MainSettingsFiles(self.settings_dir)
         self.settings = SETTINGS
         self.server = server()
@@ -237,7 +242,7 @@ class MainHarness:
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.main_log_path = tmp_path / "main.jsonl"
-        self.state = RecordingStateStore(tmp_path / "state" / "root.json")
+        self.state = RecordingStateStore(self.profile.state)
         self.server_up = True  # the queue, paused on start, resumes before any event
         self.orphans: list[tuple[str, int]] = []  # Windows a dead Main left, as Main closed them
         self.live_orphans: set[int] = set()  # their pids; any other pid is gone or not a Window
@@ -292,7 +297,8 @@ class MainHarness:
             ME,
             self.settings_files.load(),
             self.settings_files,
-            self.sysprompts,
+            self.profiles,
+            self.profile,
             self.state,
             self._close_orphan,
             LinkResolver(self.slot_locks_dir, self.settings.base_url),

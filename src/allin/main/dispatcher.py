@@ -9,7 +9,6 @@ owns and calls from that same thread: ``Reporter`` (Main's Chat and the Logs), `
 import queue
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SupervisorName, parse_supervisor_name
@@ -43,6 +42,8 @@ from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
 from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
+from allin.main.profile_commands import ProfileCommands
+from allin.main.profiles import Profile, ProfileStore
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
@@ -66,7 +67,8 @@ class Dispatcher:
         main_id: MainId,
         settings: LoadedSettings,
         settings_files: MainSettingsFiles,
-        sysprompts: Path,
+        profiles: ProfileStore,
+        profile: Profile,
         state: MainStateStore,
         close_orphan_window: CloseOrphanWindow,
         links: LinkResolver,
@@ -78,7 +80,9 @@ class Dispatcher:
         wall_clock: Callable[[], float] = time.time,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
-        ``devastation`` is whether a human lit it on the command line."""
+        ``devastation`` is whether a human lit it on the command line; ``profile`` is the
+        active Profile, whose Sysprompts Sessions are born with."""
+        sysprompts = profile.sysprompts
         self._inbox = inbox
         self._main_id = main_id
         self._reporter = Reporter(main_chat, main_log, sessions)
@@ -149,6 +153,7 @@ class Dispatcher:
             self._boxes,
             self._devastation,
             self._server_commands,
+            ProfileCommands(self._reporter, profiles, profile),
         )
 
     def run(self) -> None:

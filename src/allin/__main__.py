@@ -13,7 +13,13 @@ def main() -> None:
         "--sysprompts-dir",
         type=Path,
         default=Path.cwd() / "sysprompts",
-        help="Sysprompt templates (default: ./sysprompts)",
+        help="the installation's Sysprompt templates, which the Profile default is born with"
+        " (default: ./sysprompts)",
+    )
+    parser.add_argument(
+        "--profile",
+        help="the Profile to open (default: the last one used); one that does not exist is an"
+        " error",
     )
     parser.add_argument(
         "--devastation",
@@ -22,7 +28,8 @@ def main() -> None:
         " for this start only",
     )
     args = parser.parse_args()
-    run(args.data_dir.resolve(), args.sysprompts_dir.resolve(), args.devastation)
+    profile: str | None = args.profile
+    run(args.data_dir.resolve(), args.sysprompts_dir.resolve(), profile, args.devastation)
 
 
 if __name__ == "__main__":

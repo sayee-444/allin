@@ -7,7 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
-from allin.core.errors import MainAlreadyRunning
+from allin.core.errors import AllInError, MainAlreadyRunning
 from allin.core.ids import ROOT_MAIN_ID
 from allin.ipc.channel import remove_stale_fifos
 from allin.main.dispatcher import Dispatcher
@@ -17,6 +17,7 @@ from allin.main.links import LinkResolver
 from allin.main.lock import MainLock
 from allin.main.log import Log
 from allin.main.notices import load_notice_types
+from allin.main.profiles import Profile, ProfileStore
 from allin.main.server_links import ServerLinks
 from allin.main.sessions import SessionStore
 from allin.main.settings_files import MainSettingsFiles
@@ -30,22 +31,43 @@ from allin.ui.screen import ChatScreen
 _SHUTDOWN_GRACE = 2.0
 
 
-def run(data_dir: Path, sysprompts: Path, devastation: bool = False) -> None:
-    lock = MainLock(_state_dir(data_dir) / f"{ROOT_MAIN_ID}.lock")  # held until the process ends
-    try:  # before anything touches the state another Main may be using (ADR-0007)
-        lock.acquire()
+def run(
+    data_dir: Path, seed_sysprompts: Path, profile_name: str | None, devastation: bool = False
+) -> None:
+    """Start the root Main on ``profile_name``'s Profile, the last one used if ``None``."""
+    try:
+        lock, profile = start_root(data_dir, seed_sysprompts, profile_name)
     except MainAlreadyRunning as error:
-        sys.exit(f"{error}: another Main with this id already runs on {data_dir}")
-    curses.wrapper(_run, data_dir, sysprompts, devastation)
+        sys.exit(f"{error}: another root Main already runs on {data_dir}")
+    except AllInError as error:
+        sys.exit(str(error))
+    curses.wrapper(_run, data_dir, ProfileStore(data_dir, seed_sysprompts), profile, devastation)
+    del lock  # held until here, and dropped by the kernel however the process ends
 
 
-def _state_dir(data_dir: Path) -> Path:
-    """Where each Main keeps its MainState and its lock (ADR-0007)."""
-    return data_dir / "state"
+def start_root(
+    data_dir: Path, seed_sysprompts: Path, profile_name: str | None
+) -> tuple[MainLock, Profile]:
+    """Take the root Main's lock and open its Profile, migrating what there was before
+    Profiles the first time; a Profile that does not exist is an error that creates nothing."""
+    profiles = ProfileStore(data_dir, seed_sysprompts)
+    profiles.check(profile_name)  # before the lock, which is a file too
+    # One root Main per data dir, whatever its Profile, before anything touches the state
+    # another Main may be using (ADR-0007).
+    lock = MainLock(data_dir / "state" / "main.lock")
+    lock.acquire()
+    profiles.migrate()
+    return lock, profiles.open(profile_name)
 
 
-def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: bool) -> None:
-    settings_files = MainSettingsFiles(data_dir / "settings")
+def _run(
+    stdscr: curses.window,
+    data_dir: Path,
+    profiles: ProfileStore,
+    profile: Profile,
+    devastation: bool,
+) -> None:
+    settings_files = MainSettingsFiles(profile.settings)
     loaded = settings_files.load()  # a broken file is told by the Dispatcher, on start
     settings = loaded.current
     title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /raw on|off [sid], /set, /session <sid>, /exit)"
@@ -67,8 +89,9 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: b
         ROOT_MAIN_ID,
         loaded,
         settings_files,
-        sysprompts,
-        MainStateStore(_state_dir(data_dir) / f"{ROOT_MAIN_ID}.json"),
+        profiles,
+        profile,
+        MainStateStore(profile.state),
         close_orphan_window,
         LinkResolver(data_dir / "servers", settings.base_url),
         server_links,

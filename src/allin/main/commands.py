@@ -17,6 +17,7 @@ from allin.core.origin import HUMAN, Origin
 from allin.main.boxes import MainBoxes
 from allin.main.devastation import Devastation
 from allin.main.open_windows import OpenWindows
+from allin.main.profile_commands import ProfileCommands
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
@@ -68,6 +69,7 @@ class MainCommands:
         boxes: MainBoxes,
         devastation: Devastation,
         server: ServerCommands,
+        profiles: ProfileCommands,
     ) -> None:
         self._boxes = boxes
         self._devastation = devastation
@@ -78,6 +80,7 @@ class MainCommands:
         self._main_id = main_id
         self._settings = settings
         self._sysprompts = sysprompts
+        self._profiles = profiles
         # Command mains are registered once, when Main starts.
         self._commands: dict[str, _MainCommand] = {
             "/new": _MainCommand((), self._new),
@@ -108,6 +111,7 @@ class MainCommands:
                 confirm=server_delicate,
                 human_only=server_human_only,
             ),
+            "/profile": _MainCommand((), profiles.run, rest=True, optional=("action…",)),
             "/exit": _MainCommand((), lambda: False),
         }
 
@@ -199,6 +203,7 @@ class MainCommands:
         sysprompt = render_sysprompt(self._sysprompts, settings)
         session = self._sessions.create(self._main_id, settings, sysprompt)
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
+        self._profiles.joined(session.id)
         self._windows.open(session, self._turns.streamed(session.id))
         return True
 
@@ -206,6 +211,7 @@ class MainCommands:
         session = self._sessions.load_owned(session_id, self._main_id)
         if self._windows.is_open(session.id):
             raise WindowAlreadyOpen(session_id=session.id)
+        self._profiles.joined(session.id)  # opening another Profile's Session shares it
         self._windows.open(session, self._turns.streamed(session.id))
         return True
 
