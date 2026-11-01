@@ -1,9 +1,15 @@
 #!/usr/bin/env sh
-# Runs the checks the issue workflow asks for before each commit, on the working tree.
+# Runs the checks the issue workflow asks for on exactly what is being committed (the index),
+# so unstaged edits never make a commit fail or pass by accident.
 # Enable once per clone with: git config core.hooksPath .githooks
 set -e
-cd "$(git rev-parse --show-toplevel)"
-venv/bin/ruff check src tests
-venv/bin/ruff format --check src tests
-venv/bin/basedpyright
-venv/bin/pytest -q
+root="$(git rev-parse --show-toplevel)"
+staged="$(mktemp -d)"
+trap 'rm -rf "$staged"' EXIT
+git checkout-index --all --prefix="$staged/"
+ln -s "$root/venv" "$staged/venv"
+cd "$staged"
+"$root/venv/bin/ruff" check src tests
+"$root/venv/bin/ruff" format --check src tests
+"$root/venv/bin/basedpyright"
+PYTHONPATH="$staged/src" "$root/venv/bin/pytest" -q -p no:cacheprovider
