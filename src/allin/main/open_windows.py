@@ -7,11 +7,12 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from allin.core.errors import AllInError
-from allin.core.ids import SessionId
+from allin.core.ids import ServerKey, SessionId
 from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore
 from allin.main.chat_rebuild import error_entry, rebuild_chat
 from allin.main.conversation import Conversation, Step
 from allin.main.executors import SHUTTING_DOWN
+from allin.main.links import LinkResolver
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.turn import OutputKind
@@ -46,14 +47,22 @@ class Streamed:
 
 
 class OpenWindows:
-    def __init__(self, open_window: OpenWindow, reporter: Reporter, sessions: SessionStore) -> None:
+    def __init__(
+        self,
+        open_window: OpenWindow,
+        reporter: Reporter,
+        sessions: SessionStore,
+        links: LinkResolver,
+    ) -> None:
         self._open_window = open_window
+        self._link_resolver = links
         self._reporter = reporter
         self._sessions = sessions
         self._links: dict[SessionId, WindowLink] = {}
         # Each Session's Draft, shown block first, as its Window last sent it.
         self._drafts: dict[SessionId, list[str]] = {}
-        self._limit: int | None = None  # each slot's context, once the Server is ready
+        # Each Server's slot context, once ready: the limit its Sessions' Windows show.
+        self._limits: dict[ServerKey, int] = {}
 
     def open(self, session: Session, streamed: Streamed | None) -> None:
         """Open the Session's Window and show it its Chat so far and its Draft.
@@ -87,26 +96,41 @@ class OpenWindows:
         """Show the Window the Context ``steps`` leave and how fast the last one generated."""
         usage = ContextUsage(
             context=context_tokens(steps),
-            limit=self._limit,
+            limit=self._limit(session),
             tokens_per_second=tokens_per_second(steps),
         )
         self.send(session.id, usage)
 
-    def set_context_limit(self, limit: int, streamed: Mapping[SessionId, Streamed]) -> None:
-        """Show every open Window its Context against the Server's new limit.
+    def set_context_limit(
+        self, server: ServerKey, limit: int, streamed: Mapping[SessionId, Streamed]
+    ) -> None:
+        """Show every open Window of a Session on ``server`` its Context against the Server's
+        new limit.
 
         ``streamed`` is what each running Turn has given so far, by Session.
         """
-        self._limit = limit
+        self._limits[server] = limit
         for session_id in list(self._links):
             try:
                 session = self._sessions.load(session_id)
+                if self._server_of(session) != server:
+                    continue
                 conversation = self._sessions.load_conversation(session)
             except AllInError as error:
                 self.show_error(error, session_id)
                 continue
             conversation = conversation or Conversation(sysprompt="")
             self.show_context(session, _last_steps(streamed.get(session_id), conversation))
+
+    def _server_of(self, session: Session) -> ServerKey | None:
+        try:
+            return self._link_resolver.resolve(session.settings).key
+        except AllInError:  # its Prompt tells it when it would start
+            return None
+
+    def _limit(self, session: Session) -> int | None:
+        server = self._server_of(session)
+        return None if server is None else self._limits.get(server)
 
     def show_error(self, error: AllInError, session_id: SessionId | None = None) -> None:
         """Tell Main's Chat and Logs, and the Session's Window if it concerns one."""

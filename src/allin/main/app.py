@@ -13,15 +13,14 @@ from allin.ipc.channel import remove_stale_fifos
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import BoxAnswered, MainCommandEntered, MainEvent, Shutdown
 from allin.main.executors import TurnExecutors
+from allin.main.links import LinkResolver
 from allin.main.lock import MainLock
 from allin.main.log import Log
 from allin.main.notices import load_notice_types
-from allin.main.server_watch import ServerWatch
+from allin.main.server_links import ServerLinks
 from allin.main.sessions import SessionStore
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.signals import ShutdownSignals
-from allin.main.slot_locks import SlotLocks, SlotWaiter
-from allin.main.slots import server_name
 from allin.main.state import MainStateStore
 from allin.main.turn import OpenAiLlm
 from allin.main.windows import WindowOpener, close_orphan_window
@@ -54,11 +53,9 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: b
     log_dir.mkdir(parents=True, exist_ok=True)
     inbox: queue.Queue[MainEvent] = queue.Queue()
     remove_stale_fifos(data_dir / "fifo")  # no Window outlives the Main that opened it
-    executors = TurnExecutors(OpenAiLlm(settings.base_url), inbox)
-    # Main starts without waiting for the Server: its queue stays paused until it is ready.
-    watch = ServerWatch(settings.base_url, inbox)
-    slot_locks = SlotLocks(data_dir / "servers", server_name(settings.base_url))
-    slot_waiter = SlotWaiter(slot_locks, inbox)
+    executors = TurnExecutors(OpenAiLlm, inbox)
+    # Main starts without waiting for any Server: each Session waits until its own is ready.
+    server_links = ServerLinks(data_dir, inbox)
     dispatcher = Dispatcher(
         inbox,
         screen.inbox.put,
@@ -72,9 +69,8 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: b
         sysprompts,
         MainStateStore(_state_dir(data_dir) / f"{ROOT_MAIN_ID}.json"),
         close_orphan_window,
-        slot_locks,
-        slot_waiter.start,
-        watch.recheck,
+        LinkResolver(data_dir / "servers", settings.base_url),
+        server_links,
         screen.inbox.put,
         devastation,
         load_notice_types(data_dir / "notices"),  # part of Main: loaded once, here (ADR-0016)
@@ -83,13 +79,11 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path, devastation: b
     def dispatch() -> None:
         dispatcher.run()  # closes every Window before returning
         executors.shutdown(_SHUTDOWN_GRACE)  # running Turns are cancelled, never saved
-        watch.stop()
-        slot_waiter.stop()
+        server_links.stop()
         screen.inbox.put(None)
 
     shutdown_signals = ShutdownSignals(lambda: inbox.put(Shutdown()))
     shutdown_signals.install()
-    watch.start()
     dispatcher_thread = threading.Thread(target=dispatch, name="dispatcher")
     dispatcher_thread.start()
     try:

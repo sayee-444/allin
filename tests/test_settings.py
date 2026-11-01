@@ -28,6 +28,7 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "session.sampling.temperature",
         "session.sampling.top_p",
         "session.sampling.max_output_tokens",
+        "session.server",
         "session.exempt",
     }
     assert keys["parallel"].scope == "main" and keys["parallel"].default is None

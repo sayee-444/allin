@@ -12,6 +12,7 @@ import queue
 import threading
 from pathlib import Path
 
+from allin.core.ids import ServerKey
 from allin.main.events import MainEvent, SlotFreed
 
 _INTERVAL = 0.1
@@ -30,7 +31,7 @@ class SlotLock:
 
 
 class SlotLocks:
-    def __init__(self, directory: Path, server: str) -> None:
+    def __init__(self, directory: Path, server: ServerKey) -> None:
         self._directory = directory
         self._server = server
 
@@ -55,9 +56,14 @@ class SlotWaiter:
     soon as the last one has reported."""
 
     def __init__(
-        self, locks: SlotLocks, inbox: queue.Queue[MainEvent], interval: float = _INTERVAL
+        self,
+        locks: SlotLocks,
+        inbox: queue.Queue[MainEvent],
+        server: ServerKey,
+        interval: float = _INTERVAL,
     ) -> None:
         self._locks = locks
+        self._server = server
         self._inbox = inbox
         self._interval = interval
         self._lock = threading.Lock()
@@ -87,6 +93,6 @@ class SlotWaiter:
                 lock.release()
                 with self._lock:  # before the event: Main may need to wait again right after
                     self._thread = None
-                self._inbox.put(SlotFreed())
+                self._inbox.put(SlotFreed(self._server))
                 return
             self._stopping.wait(self._interval)

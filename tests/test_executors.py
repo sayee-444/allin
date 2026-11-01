@@ -11,6 +11,7 @@ A = SessionId("aaaaaa")
 B = SessionId("bbbbbb")
 
 
+URL = "http://127.0.0.1:9931/v1"
 REQUEST = TurnRequest(model="allin", input=[{"role": "user", "content": "hi"}], params={})
 
 
@@ -24,12 +25,12 @@ def turn_end(inbox: queue.Queue[MainEvent], session_id: str) -> TurnEnded:
 def test_each_turn_runs_on_its_own_thread_so_none_waits_for_another():
     hanging = HangingStream([answer("half")])
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    executors = TurnExecutors(FakeLlm(hanging, full_reply("", "next")), inbox)
+    executors = TurnExecutors(lambda _url: FakeLlm(hanging, full_reply("", "next")), inbox)
     try:
-        cancelled = TurnJob(A, REQUEST)
+        cancelled = TurnJob(A, REQUEST, URL)
         executors.submit(cancelled)
         assert hanging.waiting.wait(timeout=5)
-        executors.submit(TurnJob(B, REQUEST))  # no fixed pool: it does not wait
+        executors.submit(TurnJob(B, REQUEST, URL))  # no fixed pool: it does not wait
         assert turn_end(inbox, B).steps is not None
 
         cancelled.cancellation.cancel("window closed")
@@ -42,8 +43,8 @@ def test_each_turn_runs_on_its_own_thread_so_none_waits_for_another():
 def test_shutdown_cancels_the_turns_that_are_running():
     hanging = HangingStream([answer("half")])
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    executors = TurnExecutors(FakeLlm(hanging), inbox)
-    executors.submit(TurnJob(A, REQUEST))
+    executors = TurnExecutors(lambda _url: FakeLlm(hanging), inbox)
+    executors.submit(TurnJob(A, REQUEST, URL))
     assert hanging.waiting.wait(timeout=5)
     executors.shutdown(timeout=5)
     end = turn_end(inbox, A)
@@ -52,7 +53,7 @@ def test_shutdown_cancels_the_turns_that_are_running():
 
 def test_a_turn_submitted_while_main_shuts_down_is_cancelled():
     inbox: queue.Queue[MainEvent] = queue.Queue()
-    executors = TurnExecutors(FakeLlm(full_reply("", "late")), inbox)
+    executors = TurnExecutors(lambda _url: FakeLlm(full_reply("", "late")), inbox)
     executors.shutdown(timeout=5)
-    executors.submit(TurnJob(A, REQUEST))
+    executors.submit(TurnJob(A, REQUEST, URL))
     assert isinstance(turn_end(inbox, A).error, TurnCancelled)

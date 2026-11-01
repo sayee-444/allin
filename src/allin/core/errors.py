@@ -192,3 +192,15 @@ class NoticeFailed(AllInError):
     """A Notice module failed to load, or its check failed; the other Notices go on."""
 
     code: ClassVar[str] = "notice_failed"
+
+
+class ServerSettingsInvalid(AllInError):
+    """A Supervisor's ``servers/<name>.toml`` is missing or holds a bad key."""
+
+    code: ClassVar[str] = "server_settings_invalid"
+
+
+class SupervisorAlreadyRunning(AllInError):
+    """Another process already is this Supervisor; only one may be (ADR-0008)."""
+
+    code: ClassVar[str] = "supervisor_already_running"

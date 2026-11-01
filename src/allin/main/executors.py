@@ -22,6 +22,7 @@ SHUTTING_DOWN = "main is shutting down"
 class TurnJob:
     session_id: SessionId
     request: TurnRequest
+    base_url: str  # the Server of the Session's Enlace (ADR-0022)
     # The dispatcher keeps it to stop the Turn, e.g. when its Window closes.
     cancellation: Cancellation = field(default_factory=Cancellation)
     # How the Turn asks for a Confirmation; the dispatcher resumes it through this.
@@ -52,8 +53,10 @@ class TurnExecutors:
     """A thread per Turn; the dispatcher only submits one while the server has room for it,
     so how many run at once can change with the server's slots (ADR-0004)."""
 
-    def __init__(self, llm: Llm, inbox: queue.Queue[MainEvent]) -> None:
-        self._llm = llm
+    def __init__(self, llm_for: Callable[[str], Llm], inbox: queue.Queue[MainEvent]) -> None:
+        """``llm_for`` makes the client of a Server from its ``base_url``; one per Server."""
+        self._llm_for = llm_for
+        self._llms: dict[str, Llm] = {}
         self._inbox = inbox
         self._lock = threading.Lock()
         self._stopping = False
@@ -78,9 +81,15 @@ class TurnExecutors:
         for thread in running:
             thread.join(timeout)
 
+    def _llm(self, base_url: str) -> Llm:
+        with self._lock:
+            if base_url not in self._llms:
+                self._llms[base_url] = self._llm_for(base_url)
+            return self._llms[base_url]
+
     def _work(self, job: TurnJob) -> None:
         try:
-            execute(self._llm, job, self._inbox.put)
+            execute(self._llm(job.base_url), job, self._inbox.put)
         finally:
             with self._lock:
                 del self._running[threading.current_thread()]

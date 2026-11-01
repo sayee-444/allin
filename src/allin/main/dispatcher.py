@@ -10,6 +10,7 @@ import queue
 from collections.abc import Callable
 from pathlib import Path
 
+from allin.core.errors import AllInError
 from allin.core.ids import MainId
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
@@ -22,9 +23,7 @@ from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     MainEvent,
-    ServerDown,
-    ServerLoading,
-    ServerReady,
+    ServerChanged,
     Shutdown,
     SlotFreed,
     StepEnded,
@@ -34,6 +33,7 @@ from allin.main.events import (
     WindowClosed,
     WindowConnected,
 )
+from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
 from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
@@ -42,9 +42,8 @@ from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
-from allin.main.slot_locks import SlotLocks
 from allin.main.state import MainStateStore
-from allin.main.turn_queue import RecheckServer, SubmitTurn, TurnQueue, WaitForSlot
+from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
 from allin.ui.screen import ScreenUpdate
 
 
@@ -63,9 +62,8 @@ class Dispatcher:
         sysprompts: Path,
         state: MainStateStore,
         close_orphan_window: CloseOrphanWindow,
-        slot_locks: SlotLocks,
-        wait_for_slot: WaitForSlot,
-        recheck_server: RecheckServer,
+        links: LinkResolver,
+        servers: Servers,
         main_screen: Callable[[ScreenUpdate], None],
         devastation: bool,
         notices: LoadedNotices,
@@ -75,7 +73,8 @@ class Dispatcher:
         self._inbox = inbox
         self._main_id = main_id
         self._reporter = Reporter(main_chat, main_log, sessions)
-        self._windows = OpenWindows(open_window, self._reporter, sessions)
+        self._windows = OpenWindows(open_window, self._reporter, sessions, links)
+        self._default_link = _default_link(links, settings)
         self._boxes = MainBoxes(main_screen, self._windows)
         self._devastation = Devastation(
             devastation, main_screen, self._windows, sessions, self._boxes, self._reporter, main_id
@@ -87,9 +86,8 @@ class Dispatcher:
             sysprompts,
             settings.current.parallel,
             submit_turn,
-            slot_locks,
-            wait_for_slot,
-            recheck_server,
+            links,
+            servers,
             self._boxes,
             self._devastation,
             notices.types,
@@ -133,6 +131,7 @@ class Dispatcher:
         for problem in self._start_problems:  # Main runs on without what failed
             self._reporter.error(problem)
         self._devastation.start()
+        self._turns.watch(self._default_link)  # Main tells how its Server is from the start
         self._recovery.close_left_open()
         self._recovery.restore()
         while self._handle(self._inbox.get()):
@@ -161,7 +160,7 @@ class Dispatcher:
         match event:
             case WindowConnected(session_id):
                 self._reporter.record(session_id, "window_connected", "window connected")
-                self._turns.send_turn_state(session_id)
+                self._turns.window_connected(session_id)
                 self._boxes.window_opened(session_id)
                 self._devastation.mark(session_id)
             case InputReceived(session_id, text):
@@ -183,14 +182,10 @@ class Dispatcher:
                 self._turns.cancel(session_id, "window closed")
             case ErrorOccurred(error, session_id):
                 self._windows.show_error(error, session_id)
-            case ServerReady(props):
-                self._turns.server_ready(props)
-            case ServerLoading():
-                self._turns.pause("loading")
-            case ServerDown():
-                self._turns.pause("down")
-            case SlotFreed():
-                self._turns.slot_freed()
+            case ServerChanged(server, state):
+                self._turns.server_changed(server, state)
+            case SlotFreed(server):
+                self._turns.slot_freed(server)
             case ConfirmationRequested(session_id, title, text):
                 self._turns.confirmation_requested(session_id, title, text)
             case BoxAnswered(box_id, answer):
@@ -200,3 +195,12 @@ class Dispatcher:
             case Shutdown():
                 return False
         return True
+
+
+def _default_link(links: LinkResolver, settings: LoadedSettings) -> Link:
+    """Where Main's default Enlace leads; Main's ``base_url`` if it cannot be resolved, which
+    each Session linked to it tells when its Prompt would start."""
+    try:
+        return links.resolve(settings.current.session)
+    except AllInError:
+        return links.observed()

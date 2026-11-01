@@ -25,3 +25,18 @@ def parse_session_id(text: str) -> SessionId | None:
 
 # A Notice or Confirmation on screen, made by Main; its Window answers by it.
 BoxId = NewType("BoxId", str)
+
+# A Supervisor's name, also its files' in ``servers/``: a letter, then letters, digits, - or _.
+SupervisorName = NewType("SupervisorName", str)
+SUPERVISOR_NAME_PATTERN = r"^[a-z][a-z0-9_-]{0,31}$"
+_SUPERVISOR_NAME = re.compile(SUPERVISOR_NAME_PATTERN)
+
+
+def parse_supervisor_name(text: str) -> SupervisorName | None:
+    """``text`` as a Supervisor's name if it has the shape of one (safe as a file name)."""
+    return SupervisorName(text) if _SUPERVISOR_NAME.fullmatch(text) is not None else None
+
+
+# The name of a Server in its slot locks and in Main's queue: its Supervisor's name or, for a
+# Server Main only observes, its port, which never looks like a Supervisor's name.
+ServerKey = NewType("ServerKey", str)
