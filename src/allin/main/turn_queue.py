@@ -19,6 +19,7 @@ from typing import Literal
 from pydantic import JsonValue
 
 from allin.core.errors import AllInError, LlmUnavailable, TurnCancelled, TurnCrashed
+from allin.core.ids import SessionId
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
@@ -86,7 +87,7 @@ class TurnQueue:
         self._pause_reason: PauseReason = "down"
         self._stopping = False  # nor once Main is shutting down
         self._prompts = PromptQueue()
-        self._running: dict[str, _RunningTurn] = {}
+        self._running: dict[SessionId, _RunningTurn] = {}
 
     def push(self, session: Session, prompt: Prompt) -> None:
         """Queue a Prompt the user sent, show it in its Window and start it if there is room."""
@@ -104,7 +105,7 @@ class TurnQueue:
         for prompt in prompts:
             self._prompts.push(prompt)
 
-    def output(self, session_id: str, kind: OutputKind, text: str) -> None:
+    def output(self, session_id: SessionId, kind: OutputKind, text: str) -> None:
         running = self._running.get(session_id)
         if running is None:
             return
@@ -114,7 +115,7 @@ class TurnQueue:
             running.streamed.answer += text
         self._windows.stream(running.session, kind, text)
 
-    def step_ended(self, session_id: str, step: Step) -> None:
+    def step_ended(self, session_id: SessionId, step: Step) -> None:
         running = self._running.get(session_id)
         if running is None:
             return
@@ -122,7 +123,7 @@ class TurnQueue:
         self._windows.show_context(running.session, running.streamed.steps)
 
     def turn_ended(
-        self, session_id: str, steps: list[Step] | None, error: AllInError | None
+        self, session_id: SessionId, steps: list[Step] | None, error: AllInError | None
     ) -> None:
         running = self._running.pop(session_id, None)
         if running is None:
@@ -146,7 +147,7 @@ class TurnQueue:
         self.send_turn_state(session_id)
         self._start_turns()
 
-    def cancel(self, session_id: str, reason: str) -> None:
+    def cancel(self, session_id: SessionId, reason: str) -> None:
         """Drop a Session's queued Prompts and stop its running Turn.
 
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
@@ -210,12 +211,12 @@ class TurnQueue:
             self._fail_turn(running, TurnCancelled(reason=SHUTTING_DOWN))
         self._running.clear()
 
-    def send_turn_state(self, session_id: str) -> None:
+    def send_turn_state(self, session_id: SessionId) -> None:
         """Tell the Session's Window whether it has a Turn running or waiting."""
         active = session_id in self._running or self._prompts.has(session_id)
         self._windows.send(session_id, TurnState(active=active))
 
-    def streamed(self, session_id: str) -> Streamed | None:
+    def streamed(self, session_id: SessionId) -> Streamed | None:
         """What the Session's running Turn has given so far; ``None`` if it has none."""
         running = self._running.get(session_id)
         return None if running is None else running.streamed

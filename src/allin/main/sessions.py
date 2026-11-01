@@ -17,7 +17,7 @@ from allin.core.errors import (
     SessionUnreadable,
 )
 from allin.core.files import write_atomically
-from allin.core.ids import MainId, is_session_id, new_session_id
+from allin.core.ids import MainId, SessionId, new_session_id, parse_session_id
 from allin.core.settings import SessionSettings
 from allin.main.conversation import Conversation, load_conversation, save_conversation
 from allin.main.log import Log, LogEntry, read_log
@@ -27,7 +27,7 @@ _LOG = "log.jsonl"
 
 
 class Session(BaseModel, frozen=True):
-    id: str
+    id: SessionId
     owner: MainId  # the only Main that may open it
     created_by: MainId
     created_at: datetime
@@ -35,7 +35,7 @@ class Session(BaseModel, frozen=True):
 
 
 class SessionStore:
-    def __init__(self, root: Path, new_id: Callable[[], str] = new_session_id) -> None:
+    def __init__(self, root: Path, new_id: Callable[[], SessionId] = new_session_id) -> None:
         self._root = root
         self._new_id = new_id
 
@@ -43,9 +43,9 @@ class SessionStore:
         """Create a Session with a fresh id and its folder; ``sysprompt`` is already rendered."""
         try:
             self._root.mkdir(parents=True, exist_ok=True)
-            folder = self._new_folder()
+            session_id, folder = self._new_folder()
             session = Session(
-                id=folder.name,
+                id=session_id,
                 owner=owner,
                 created_by=owner,
                 created_at=datetime.now(UTC),
@@ -57,28 +57,31 @@ class SessionStore:
             raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
         return session
 
-    def load(self, session_id: str) -> Session:
+    def load(self, text: str) -> Session:
+        """The Session whose id is ``text``, typed by the user or read from disk."""
         # Anything that is not an id is never turned into a path.
-        if not is_session_id(session_id) or not (self._root / session_id).is_dir():
-            raise SessionNotFound(session_id=session_id)
+        session_id = parse_session_id(text)
+        if session_id is None or not (self._root / session_id).is_dir():
+            raise SessionNotFound(session_id=text)
         path = self._root / session_id / _METADATA
         try:
             return Session.model_validate_json(path.read_bytes())
         except (OSError, ValidationError) as error:
             raise SessionUnreadable(session_id=session_id, reason=str(error)) from error
 
-    def load_owned(self, session_id: str, main_id: MainId) -> Session:
+    def load_owned(self, text: str, main_id: MainId) -> Session:
         """Load a Session only ``main_id`` may use: the Main that owns it."""
-        session = self.load(session_id)
+        session = self.load(text)
         if session.owner != main_id:
             raise SessionNotOwned(session_id=session.id, owner=session.owner)
         return session
 
-    def ids(self) -> list[str]:
+    def ids(self) -> list[SessionId]:
         """The ids of every stored Session, in no particular order."""
         if not self._root.is_dir():
             return []
-        return [path.name for path in self._root.iterdir() if is_session_id(path.name)]
+        parsed = (parse_session_id(path.name) for path in self._root.iterdir())
+        return [session_id for session_id in parsed if session_id is not None]
 
     def load_conversation(self, session: Session) -> Conversation | None:
         """``None`` for a Session created before Sessions had a Conversation."""
@@ -87,19 +90,20 @@ class SessionStore:
     def save_conversation(self, session: Session, conversation: Conversation) -> None:
         save_conversation(self._root / session.id, conversation)
 
-    def log(self, session_id: str) -> Log:
-        if not is_session_id(session_id):
+    def log(self, session_id: SessionId) -> Log:
+        if parse_session_id(session_id) is None:  # an id made by hand never becomes a path
             raise SessionNotFound(session_id=session_id)
         return Log(self._root / session_id / _LOG)
 
     def read_log(self, session: Session) -> list[LogEntry]:
         return read_log(self._root / session.id / _LOG)
 
-    def _new_folder(self) -> Path:
+    def _new_folder(self) -> tuple[SessionId, Path]:
         while True:
-            folder = self._root / self._new_id()
+            session_id = self._new_id()
+            folder = self._root / session_id
             try:
                 folder.mkdir()  # fails if taken, so two Sessions never share one
             except FileExistsError:
                 continue
-            return folder
+            return session_id, folder

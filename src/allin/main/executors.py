@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from allin.core.errors import AllInError, TurnCrashed
+from allin.core.ids import SessionId
 from allin.main.events import MainEvent, StepEnded, TurnEnded, TurnOutput, TurnRaw
 from allin.main.turn import Cancellation, Llm, TurnRequest, run_turn
 
@@ -18,7 +19,7 @@ SHUTTING_DOWN = "main is shutting down"
 
 @dataclass(frozen=True)
 class TurnJob:
-    session_id: str
+    session_id: SessionId
     request: TurnRequest
     # The dispatcher keeps it to stop the Turn, e.g. when its Window closes.
     cancellation: Cancellation = field(default_factory=Cancellation)

@@ -10,6 +10,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from allin.core.errors import AllInError, WindowLaunchFailed
+from allin.core.ids import SessionId
 from allin.ipc.channel import Channel, FifoPair, create_fifo_pair
 from allin.ipc.messages import (
     InputDraft,
@@ -36,7 +37,7 @@ _ORPHAN_GRACE = 2.0
 class _WindowListener:
     """Turns what a Window sends into events for the dispatcher."""
 
-    def __init__(self, session_id: str, inbox: queue.Queue[MainEvent]) -> None:
+    def __init__(self, session_id: SessionId, inbox: queue.Queue[MainEvent]) -> None:
         self._session_id = session_id
         self._inbox = inbox
 
@@ -83,7 +84,7 @@ class _Window:
         self._fifos.remove()
 
 
-def close_orphan_window(session_id: str, pid: int) -> bool:
+def close_orphan_window(session_id: SessionId, pid: int) -> bool:
     """Close the xterm a dead Main left open for ``session_id``; return whether there was one.
 
     Only a process running this Session's Window is touched: since that Main died, ``pid`` may
@@ -123,7 +124,7 @@ class WindowOpener:
         self._data_dir = data_dir
         self._inbox = inbox
 
-    def __call__(self, session_id: str) -> WindowLink:
+    def __call__(self, session_id: SessionId) -> WindowLink:
         try:
             fifos = create_fifo_pair(self._data_dir / "fifo", session_id)
         except OSError as error:

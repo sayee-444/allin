@@ -10,14 +10,15 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from allin.core.errors import MainStateStorageFailed, MainStateUnreadable
 from allin.core.files import write_atomically
+from allin.core.ids import SessionId
 from allin.main.prompts import Prompt
 
 
 class MainState(BaseModel, frozen=True):
     # Open Windows, in the order they opened, with their xterm's pid (ADR-0007).
-    windows: dict[str, int] = Field(default_factory=dict[str, int])
+    windows: dict[SessionId, int] = Field(default_factory=dict[SessionId, int])
     # Each Session's Draft, shown block first (``core.drafts``).
-    drafts: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
+    drafts: dict[SessionId, list[str]] = Field(default_factory=dict[SessionId, list[str]])
     queue: list[Prompt] = Field(default_factory=list[Prompt])  # waiting, in queue order
     running: list[Prompt] = Field(default_factory=list[Prompt])  # their Turns had started
 

@@ -7,6 +7,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from allin.core.errors import AllInError
+from allin.core.ids import SessionId
 from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore
 from allin.main.chat_rebuild import error_entry, rebuild_chat
 from allin.main.conversation import Conversation, Step
@@ -32,7 +33,7 @@ class WindowLink(Protocol):
         ...
 
 
-type OpenWindow = Callable[[str], WindowLink]
+type OpenWindow = Callable[[SessionId], WindowLink]
 
 
 @dataclass
@@ -49,9 +50,9 @@ class OpenWindows:
         self._open_window = open_window
         self._reporter = reporter
         self._sessions = sessions
-        self._links: dict[str, WindowLink] = {}
+        self._links: dict[SessionId, WindowLink] = {}
         # Each Session's Draft, shown block first, as its Window last sent it.
-        self._drafts: dict[str, list[str]] = {}
+        self._drafts: dict[SessionId, list[str]] = {}
         self._limit: int | None = None  # each slot's context, once the Server is ready
 
     def open(self, session: Session, streamed: Streamed | None) -> None:
@@ -69,10 +70,10 @@ class OpenWindows:
         for block in reversed(self._drafts.get(session.id, [])):
             self.send(session.id, InputRestore(text=block))
 
-    def is_open(self, session_id: str) -> bool:
+    def is_open(self, session_id: SessionId) -> bool:
         return session_id in self._links
 
-    def send(self, session_id: str, message: BaseModel) -> None:
+    def send(self, session_id: SessionId, message: BaseModel) -> None:
         """Send a Session's Window a message; nothing if it has none."""
         link = self._links.get(session_id)
         if link is not None:
@@ -91,7 +92,7 @@ class OpenWindows:
         )
         self.send(session.id, usage)
 
-    def set_context_limit(self, limit: int, streamed: Mapping[str, Streamed]) -> None:
+    def set_context_limit(self, limit: int, streamed: Mapping[SessionId, Streamed]) -> None:
         """Show every open Window its Context against the Server's new limit.
 
         ``streamed`` is what each running Turn has given so far, by Session.
@@ -107,13 +108,13 @@ class OpenWindows:
             conversation = conversation or Conversation(sysprompt="")
             self.show_context(session, _last_steps(streamed.get(session_id), conversation))
 
-    def show_error(self, error: AllInError, session_id: str | None = None) -> None:
+    def show_error(self, error: AllInError, session_id: SessionId | None = None) -> None:
         """Tell Main's Chat and Logs, and the Session's Window if it concerns one."""
         self._reporter.error(error, session_id)
         if session_id is not None:
             self.send(session_id, error_entry(str(error)))
 
-    def closed(self, session_id: str, returncode: int | None) -> None:
+    def closed(self, session_id: SessionId, returncode: int | None) -> None:
         """The Window is gone: release Main's end of it."""
         link = self._links.pop(session_id, None)
         if link is not None:
@@ -133,19 +134,19 @@ class OpenWindows:
             )
         self._links.clear()
 
-    def pids(self) -> dict[str, int]:
+    def pids(self) -> dict[SessionId, int]:
         """Each open Window's xterm pid, in the order they opened."""
         return {session_id: link.pid for session_id, link in self._links.items()}
 
-    def keep_draft(self, session_id: str, blocks: Sequence[str]) -> None:
+    def keep_draft(self, session_id: SessionId, blocks: Sequence[str]) -> None:
         """What a Session's Window holds in its input now, shown block first."""
         self._drafts[session_id] = list(blocks)
 
-    def clear_draft(self, session_id: str) -> None:
+    def clear_draft(self, session_id: SessionId) -> None:
         """The Window sent its input, which is empty now."""
         self._drafts.pop(session_id, None)
 
-    def drafts(self) -> dict[str, list[str]]:
+    def drafts(self) -> dict[SessionId, list[str]]:
         """Every Session's Draft that is not empty."""
         return {session_id: draft for session_id, draft in self._drafts.items() if draft}
 

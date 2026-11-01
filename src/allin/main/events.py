@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from allin.core.errors import AllInError
+from allin.core.ids import SessionId
 from allin.main.conversation import Step
 from allin.main.slots import ServerProps
 from allin.main.turn import OutputKind
@@ -11,12 +12,12 @@ from allin.main.turn import OutputKind
 
 @dataclass(frozen=True)
 class WindowConnected:
-    session_id: str
+    session_id: SessionId
 
 
 @dataclass(frozen=True)
 class InputReceived:
-    session_id: str
+    session_id: SessionId
     text: str
 
 
@@ -24,20 +25,20 @@ class InputReceived:
 class DraftReceived:
     """A Window's Draft, shown block first, once the user stopped typing for a moment."""
 
-    session_id: str
+    session_id: SessionId
     blocks: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class WindowClosed:
-    session_id: str
+    session_id: SessionId
     returncode: int
 
 
 @dataclass(frozen=True)
 class ErrorOccurred:
     error: AllInError
-    session_id: str | None = None
+    session_id: SessionId | None = None
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ class MainCommandEntered:
 class TurnOutput:
     """Text the LLM streamed during a Session's Turn."""
 
-    session_id: str
+    session_id: SessionId
     kind: OutputKind
     text: str
 
@@ -60,7 +61,7 @@ class TurnOutput:
 class TurnRaw:
     """One raw event of a Turn's stream, as JSON; it always goes to Main's Log."""
 
-    session_id: str
+    session_id: SessionId
     event: dict[str, Any]
 
 
@@ -68,7 +69,7 @@ class TurnRaw:
 class StepEnded:
     """One Step of a Session's running Turn ended; the Turn may go on with another."""
 
-    session_id: str
+    session_id: SessionId
     step: Step
 
 
@@ -76,7 +77,7 @@ class StepEnded:
 class TurnEnded:
     """A Session's Turn finished with its Steps, or stopped with ``error``."""
 
-    session_id: str
+    session_id: SessionId
     steps: list[Step] | None = None
     error: AllInError | None = None
 

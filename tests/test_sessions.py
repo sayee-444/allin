@@ -9,7 +9,7 @@ from allin.core.errors import (
     SessionStorageFailed,
     SessionUnreadable,
 )
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SessionId
 from allin.core.settings import SessionSettings
 from allin.main.conversation import Conversation
 from allin.main.sessions import SessionStore
@@ -26,7 +26,7 @@ def test_a_new_session_gets_a_six_character_id_and_its_own_folder(tmp_path: Path
 
 def test_an_id_whose_folder_already_exists_is_never_reused(tmp_path: Path):
     (tmp_path / "aaaaaa").mkdir()
-    ids = iter(["aaaaaa", "bbbbbb"])
+    ids = iter([SessionId("aaaaaa"), SessionId("bbbbbb")])
     session = SessionStore(tmp_path, new_id=lambda: next(ids)).create(OWNER, SETTINGS, "sysprompt")
     assert session.id == "bbbbbb"
     assert list((tmp_path / "aaaaaa").iterdir()) == []

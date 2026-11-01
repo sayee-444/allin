@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from allin.core.drafts import put_back
 from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SessionId
 from allin.core.settings import MainSettings, Sampling, SessionSettings
 from allin.ipc.messages import (
     ChatAppend,
@@ -430,7 +430,7 @@ def test_closed_window_is_reported_and_no_longer_receives_messages(main: MainHar
 
 
 def test_errors_are_shown_in_main_chat_with_their_session(main: MainHarness):
-    chat = main.run(ErrorOccurred(MalformedMessage(line="garbage"), session_id="aaaaaa"))
+    chat = main.run(ErrorOccurred(MalformedMessage(line="garbage"), session_id=SessionId("aaaaaa")))
     assert any("aaaaaa" in line and "malformed_message" in line for line in chat)
 
 
