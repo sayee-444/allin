@@ -606,7 +606,7 @@ class TurnQueue:
         session_id = running.session.id
         self._falls.pop(session_id, None)
         self._fail_turn(running, StepStalled(seconds=self._stall))
-        title = f"[{session_id}] Step stalled"
+        title = "Step stalled"  # Main names the Session in front, the Window is its own
         text = f"no progress for {self._stall:g} s on {running.link.describe()}: cancelled"
         self._boxes.notify(session_id, title, text, "step_stalled")
 

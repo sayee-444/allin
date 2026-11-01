@@ -1,10 +1,12 @@
+import socket
 import threading
+import time
 
 import pytest
 
 from allin.core.errors import LlmRequestFailed, LlmUnavailable, TurnCancelled
 from allin.main.conversation import Step
-from allin.main.turn import Cancellation, TurnRequest, run_turn
+from allin.main.turn import Cancellation, OpenAiLlm, TurnRequest, run_turn
 from tests.llm_fakes import (
     DroppedStream,
     FakeLlm,
@@ -159,3 +161,64 @@ def test_other_http_errors_and_a_slow_server_only_fail_the_step(error: Script):
     with pytest.raises(LlmRequestFailed) as raised:
         run(FakeLlm(error))
     assert not isinstance(raised.value, LlmUnavailable)
+
+
+def _silent_server() -> tuple[socket.socket, threading.Event]:
+    """A server that starts a Step's stream, sends one delta and goes silent, as a frozen
+    llama-server would; it lets go once the returned event is set."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    done = threading.Event()
+    delta = (
+        b"event: response.output_text.delta\ndata: "
+        b'{"type":"response.output_text.delta","delta":"1","item_id":"x","output_index":0,'
+        b'"content_index":0,"sequence_number":1,"logprobs":[]}\n\n'
+    )
+
+    def serve() -> None:
+        connection, _ = listener.accept()
+        with connection:
+            connection.recv(65536)
+            connection.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                b"Transfer-Encoding: chunked\r\n\r\n" + b"%x\r\n%s\r\n" % (len(delta), delta)
+            )
+            done.wait(30)
+
+    threading.Thread(target=serve, daemon=True).start()
+    return listener, done
+
+
+def test_cancelling_a_step_whose_server_went_silent_ends_it_at_once():
+    # Closing the stream alone leaves the reader blocked until the Server sends again: a
+    # stalled Step would keep its slot (ADR-0023).
+    listener, done = _silent_server()
+    port = listener.getsockname()[1]
+    cancellation = Cancellation()
+    streamed = threading.Event()
+    outcome: list[BaseException] = []
+
+    def step() -> None:
+        try:
+            run_turn(
+                OpenAiLlm(f"http://127.0.0.1:{port}/v1"),
+                REQUEST,
+                lambda _kind, _text: streamed.set(),
+                cancellation,
+                lambda _raw: None,
+                lambda _step: None,
+            )
+        except TurnCancelled as error:
+            outcome.append(error)
+
+    reader = threading.Thread(target=step, daemon=True)
+    try:
+        reader.start()
+        assert streamed.wait(5)
+        time.sleep(0.2)  # the reader waits for the next event
+        cancellation.cancel("stalled")  # from Main's thread, as ``tick`` does
+        reader.join(5)
+        assert not reader.is_alive()
+        assert len(outcome) == 1
+    finally:
+        done.set()
+        listener.close()

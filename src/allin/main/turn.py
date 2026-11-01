@@ -4,9 +4,10 @@ In F1 a Turn has a single Step; with tools (F2) a Step that ends with pending to
 followed by another one.
 """
 
+import socket
 import threading
 from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
 
@@ -50,12 +51,35 @@ class OpenAiLlm:
         )
 
     def stream(self, model: str, input: list[Item], params: dict[str, Any]) -> LlmStream:
-        return self._client.responses.create(
-            model=model,
-            input=cast(ResponseInputParam, input),
-            stream=True,
-            **params,
+        return _SdkStream(
+            self._client.responses.create(
+                model=model,
+                input=cast(ResponseInputParam, input),
+                stream=True,
+                **params,
+            )
         )
+
+
+class _SdkStream:
+    """The SDK's stream, whose ``close`` also wakes a reader blocked on a Server gone silent:
+    closing its socket does not, shutting it down does. A stalled Step ends at once and lets
+    its slot go, instead of when the Server sends again (ADR-0023)."""
+
+    def __init__(self, stream: openai.Stream[ResponseStreamEvent]) -> None:
+        self._stream = stream
+
+    def __iter__(self) -> Iterator[ResponseStreamEvent]:
+        return iter(self._stream)
+
+    def close(self) -> None:
+        network: object = self._stream.response.extensions.get("network_stream")
+        get_extra_info: object = getattr(network, "get_extra_info", None)
+        connection = get_extra_info("socket") if callable(get_extra_info) else None
+        if isinstance(connection, socket.socket):
+            with suppress(OSError):  # already shut down or closed
+                connection.shutdown(socket.SHUT_RDWR)
+        self._stream.close()
 
 
 class Cancellation:
