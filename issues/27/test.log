@@ -1,0 +1,52 @@
+#27 Supervisor 4/4 — prueba a mano (2026-11-01)
+
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data, en un xterm conducido con python-xlib.
+Tres Supervisores en <scratch>/data/servers (a.toml, b.toml y big.toml, aquí con <repo> en lugar de la ruta):
+  a:   Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf, -c 16000 -np 1, puerto 9932
+  b:   Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf, -c 2048 -np 1, puerto 9933
+  big: Qwen3.8-27B-Uncensored-Q6_K.gguf, -c 128000 -ctk q8_0 -ctv q8_0, --fit off, puerto 9934
+Los dos Q2 caben a la vez en la 5090 (19,5 GB usados con ambos cargados); el Q6 no cabe junto a ellos.
+Las líneas de llama las arma cada Supervisor desde su .toml (todas con -ngl all -fa on --jinja y el muestreo de siempre).
+
+a) Cambio con la Sesión libre (a-libre-cambiado-main.png, a-libre-cambiado-ventana.png)
+   - /set session.server=a; /new → fraa30 en a. Un Prompt despierta a a y corre ahí.
+   - /session set fraa30 server=b con b dormido: «Enlace changes to Supervisor b once it is ready
+     and no Turn is active», «waking Supervisor b», b carga y, al estar ready, «Enlace changed to Supervisor b».
+   - El borde de la Ventana pasa a «/ 2k», el límite de b.
+
+b) Cambio con un Turno en curso (b-cambiado-main.png)
+   - Desde el mismo proceso: /send fraa30 «Ahora cuenta del 41 al 90…» y enseguida /session set fraa30 server=a.
+   - /slots durante el cambio: 9932 [(1, False)], 9933 [(27, True)]: el Turno corre en b.
+   - Orden en el Chat de Main: «Enlace changes to Supervisor a…», «turn finished», «Enlace changed to Supervisor a».
+
+c) El siguiente Turno va al nuevo, y el anterior sigue activo (c-siguiente-y-server-main.png, c-siguiente-ventana.png)
+   - /send fraa30 «Di solo: listo». /slots después: 9932 [(608, False)] (antes 1), 9933 [(27, False)] (sin cambio).
+   - /server: «a (default Enlace): ready…» y «b: ready (Server pid …), used by 0 open Session(s) here».
+
+d) Aviso de límite (d-aviso-limite-main.png, d-aviso-limite-ventana.png)
+   - En a, «Ahora cuenta del 91 al 250…»: la Conversación queda en 3848 tokens.
+   - /session set fraa30 server=b: el Enlace cambia (b ya estaba ready) y sale el Aviso
+     «Supervisor b: context limit is 2048 tokens — the Conversation already holds 3848: over the limit».
+     El borde dice «context 3848 / 2k». Compactarla llega con #46.
+
+e) No cabe en VRAM (e-vram-main.png, e-vram-ventana.png)
+   - Con a y b cargados: /session set fraa30 server=big. big despierta y llama falla:
+     big.json: status failed, failure vram, reason «llama_model_load: error loading model: unable to allocate CUDA0 buffer».
+   - «Enlace not changed: Supervisor big does not fit in VRAM: the GPU is held by Supervisor a, b; free it with
+     /server sleep a or /server sleep b, or lower its Settings with /server set; the Enlace stays on Supervisor b».
+   - fraa30 sigue con server = "b". Main no durmió a nadie.
+   - El mensaje llegó a los ~12 s: el fallo que big contó llegó antes de verlo cargar, y el cambio lo da
+     por bueno pasados diez segundos (podía ser el .json de una ejecución anterior).
+
+f) Enlace por defecto (f-defecto-main.png)
+   - Con el defecto en b, /new creó k0j628 (server=b). /set session.server=a y /new → faqefl.
+   - /session k0j628: server=b (no se movió); /session faqefl: server=a.
+
+Al final: /server -y sleep a y b, /exit; sin llama, sin Supervisor y sin Main lanzados por mí; GPU en 1,1 GB.
+
+Solo con tests:
+   - Un fallo viejo del .json no cuenta hasta verlo correr o pasados diez segundos:
+     test_a_failure_the_supervisor_told_before_it_was_woken_ends_the_change_only_once_stale y tests/test_link_changes.py.
+   - Supervisor dormido por un humano: test_a_change_to_a_supervisor_a_human_put_to_sleep_fails_at_once_saying_how_to_wake_it.
+   - Pedir el Enlace actual anula el cambio pendiente: test_asking_for_the_current_enlace_drops_a_pending_change.
+   - /set session.server con un Supervisor sin Ajustes: test_the_default_enlace_cannot_name_a_supervisor_with_no_settings.

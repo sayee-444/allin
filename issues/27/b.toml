@@ -1,0 +1,8 @@
+model = "Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf"
+cwd = "<repo>/models"
+context = 2048
+parallel = 1
+gpu_layers = "all"
+flash_attn = "on"
+port = 9933
+extra = ["--jinja", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.05", "--presence-penalty", "0", "--repeat-penalty", "1.0"]

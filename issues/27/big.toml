@@ -1,0 +1,10 @@
+model = "Qwen3.8-27B-Uncensored-Q6_K.gguf"
+cwd = "<repo>/models"
+context = 128000
+parallel = 1
+gpu_layers = "all"
+flash_attn = "on"
+cache_type_k = "q8_0"
+cache_type_v = "q8_0"
+port = 9934
+extra = ["--jinja", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.05", "--presence-penalty", "0", "--repeat-penalty", "1.0", "--fit", "off"]
