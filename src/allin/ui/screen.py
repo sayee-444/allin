@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from allin.core.errors import ScreenTooSmall
 from allin.core.ids import BoxId
-from allin.ui.boxes import Box, BoxClosed, BoxStack, box_rows
+from allin.ui.boxes import VIEW_KEYS, Box, BoxClosed, BoxStack, box_rows
 from allin.ui.chat import Chat, Row
 from allin.ui.draft import DraftReporter
 from allin.ui.input_buffer import InputBuffer
@@ -347,7 +347,7 @@ class ChatScreen:
 
 def _is_view_key(chord: KeyEvent) -> bool:
     """Keys that change only the view: they work while a box waits for its answer."""
-    return isinstance(chord, KeyChord) and chord.key in (Key.RESIZE, Key.PAGE_UP, Key.PAGE_DOWN)
+    return isinstance(chord, KeyChord) and chord.key in VIEW_KEYS
 
 
 def _visible_label(label: str | None) -> str | None:

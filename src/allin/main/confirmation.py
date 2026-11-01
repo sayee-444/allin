@@ -6,8 +6,8 @@ of new Prompts (a Continuation, ADR-0004). The decorator ``@confirm`` (F2) asks 
 """
 
 import queue
-import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from allin.core.ids import SessionId
 from allin.main.events import ConfirmationRequested, MainEvent
@@ -16,21 +16,30 @@ from allin.main.turn import Cancellation
 _POLL = 0.1  # how often a waiting Turn looks whether it was cancelled
 
 
+type Emit = Callable[[MainEvent], None]  # hands an event to Main's dispatcher
+
+
+@dataclass(frozen=True)
+class _Turn:
+    session_id: SessionId
+    cancellation: Cancellation
+    emit: Emit
+
+
 class ConfirmationGate:
     def __init__(self) -> None:
-        self._turn: tuple[SessionId, Cancellation, Callable[[MainEvent], None]] | None = None
+        self._turn: _Turn | None = None
         self._answers: queue.Queue[bool] = queue.Queue()
-        self._lock = threading.Lock()
 
     def connect(
         self,
         session_id: SessionId,
         cancellation: Cancellation,
-        emit: Callable[[MainEvent], None],
+        emit: Emit,
     ) -> None:
         """The Turn it belongs to and where its events go; its executor connects it before
         the Turn runs."""
-        self._turn = (session_id, cancellation, emit)
+        self._turn = _Turn(session_id, cancellation, emit)
 
     def ask(self, title: str, text: str) -> bool:
         """From the Turn's thread: the user's answer, once the Turn may go on.
@@ -38,15 +47,14 @@ class ConfirmationGate:
         Raises ``TurnCancelled`` if the Turn is cancelled while it waits.
         """
         assert self._turn is not None, "ask() before the executor connected the gate"
-        session_id, cancellation, emit = self._turn
-        with self._lock:  # one question at a time per Turn
-            emit(ConfirmationRequested(session_id, title, text))
-            while True:
-                cancellation.check()
-                try:
-                    return self._answers.get(timeout=_POLL)
-                except queue.Empty:
-                    continue
+        turn = self._turn
+        turn.emit(ConfirmationRequested(turn.session_id, title, text))
+        while True:
+            turn.cancellation.check()
+            try:
+                return self._answers.get(timeout=_POLL)
+            except queue.Empty:
+                continue
 
     def resume(self, answer: bool) -> None:
         """From Main: the answer is in and the Turn holds a slot again."""

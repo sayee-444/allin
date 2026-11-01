@@ -17,7 +17,7 @@ from allin.core.errors import AllInError, NoticeFailed
 from allin.core.settings import SessionSettings, SettingKey, SettingName
 from allin.notices import NoticeEvent, NoticeType
 
-type Notify = Callable[[str, str], None]  # shows a Notice's title and text
+type Notify = Callable[[str, str, str], None]  # shows a Notice's type, title and text
 
 
 class NoticeTypes:
@@ -55,7 +55,8 @@ class NoticeTypes:
                 failed.append(NoticeFailed(notice=notice_type.name, reason=repr(error)))
                 continue
             if variables is not None:
-                notify(str(params["title"]), _fill(str(params["text"]), variables))
+                title, text = str(params["title"]), _fill(str(params["text"]), variables)
+                notify(notice_type.name, title, text)
         return failed
 
 

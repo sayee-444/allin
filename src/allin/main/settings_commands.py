@@ -64,7 +64,7 @@ def _check_authority(assignments: Mapping[SettingName, str], origin: Origin) -> 
     """Only a human gives or takes away the Exemption (ADR-0013)."""
     for name in assignments:
         if name in _HUMAN_ONLY and origin != HUMAN:
-            raise HumanOnly(key=name, origin=origin)
+            raise HumanOnly(action=name, origin=origin)
 
 
 class SettingsCommands:

@@ -16,7 +16,8 @@ type BoxKind = Literal["notice", "confirm"]
 
 _YES = frozenset("sSyY")
 _NO = frozenset("nN")
-_NOT_ANSWERS = frozenset({Key.RESIZE, Key.PAGE_UP, Key.PAGE_DOWN})
+# Keys that change only the view: they never answer a box, and work while one waits.
+VIEW_KEYS = frozenset({Key.RESIZE, Key.PAGE_UP, Key.PAGE_DOWN})
 _HINTS: dict[BoxKind, str] = {"notice": "any key closes", "confirm": "[s]i / [n]o"}
 
 
@@ -59,7 +60,7 @@ class BoxStack:
     def key(self, event: KeyEvent) -> BoxClosed | None:
         """What a key does to the shown box; ``None`` if it leaves it open."""
         box = self.current
-        if box is None or not isinstance(event, KeyChord) or event.key in _NOT_ANSWERS:
+        if box is None or not isinstance(event, KeyChord) or event.key in VIEW_KEYS:
             return None
         answer = _answer(box, event)
         if box.kind == "confirm" and answer is None:

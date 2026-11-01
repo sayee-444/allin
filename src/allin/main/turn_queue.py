@@ -5,8 +5,10 @@ It holds the queue, the running Turns, how many may run at once, the slot lock e
 
 Each queue entry is a whole ``Prompt``, carried as it is from ``push`` to its running Turn and
 the saved MainState, so an Origin (ADR-0013) added to ``Prompt`` reaches every place that needs
-it; and ``PromptQueue.pop_ready`` alone decides which Prompt starts next, so a Continuation
-that must go before the new Prompts changes only that order. What depends on the Origin is
+it. A Turn that waits for a Confirmation's answer holds no slot; once answered it is a
+Continuation and takes the next free slot before any new Prompt (``_next_continuation``);
+letting a new Prompt through after several Continuations in a row comes with F2's. Among the
+new Prompts, ``PromptQueue.pop_ready`` decides which starts next. What depends on the Origin is
 in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_fail_turn`` (the
 Prompt back to the input, only for a human one).
 """
@@ -188,17 +190,18 @@ class TurnQueue:
             self._withdraw(running)
 
     def confirmation_requested(self, session_id: SessionId, title: str, text: str) -> None:
-        """A running Turn asks yes or no: it gives its slot back while it waits (ADR-0009)."""
+        """A running Turn asks yes or no: it gives its slot back while a human answers
+        (ADR-0009), so Prompts that wait can use it."""
         running = self._running.get(session_id)
         if running is None or running.cancellation.reason is not None:
             return
-        running.release_slot()
-        if running.auto_confirm:
+        if running.auto_confirm:  # answered at once: the Turn keeps its slot and goes on
             fields = {"title": title, "text": text, "answer": True}
             shown = f"confirmation answered by --devastation: {title}"
             self._reporter.record(session_id, "confirmation_auto_answered", shown, **fields)
-            self._answered(running, True)
+            running.job.confirmation.resume(True)
             return
+        running.release_slot()
         self._reporter.record(session_id, "confirmation_asked", f"confirmation: {title}")
 
         def on_answer(answer: bool) -> None:
@@ -208,6 +211,7 @@ class TurnQueue:
             self._answered(running, answer)
 
         running.asking = self._boxes.confirm(session_id, title, text, on_answer)
+        self._start_turns()
 
     def server_ready(self, props: ServerProps) -> None:
         """Adapt to what the Server says of itself (ADR-0004), then go on with the queue."""
@@ -326,7 +330,7 @@ class TurnQueue:
                 params=session.settings.sampling.request_params(),
             )
             job = TurnJob(session.id, request)
-            auto_confirm = self._devastation.on and session.settings.exempt
+            auto_confirm = self._devastation.covers(session.settings)
             self._running[session.id] = _RunningTurn(
                 prompt, session, job.cancellation, job, slot, auto_confirm
             )
@@ -339,9 +343,10 @@ class TurnQueue:
         limit = self._server.slot_context if self._server is not None else None
         event = NoticeEvent(session_id, context_tokens(running.streamed.steps), limit)
 
-        def notify(title: str, text: str) -> None:
-            self._reporter.record(session_id, "notice", f"notice: {title}", title=title, text=text)
-            self._boxes.notify(session_id, title, text)
+        def notify(kind: str, title: str, text: str) -> None:
+            fields = {"kind": kind, "title": title, "text": text}
+            self._reporter.record(session_id, "notice", f"notice: {title}", **fields)
+            self._boxes.notify(session_id, title, text, kind)
 
         for failure in self._notices.happened(event, running.session.settings, notify):
             self._reporter.error(failure, session_id)

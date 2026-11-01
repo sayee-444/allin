@@ -116,9 +116,12 @@ class MainCommands:
             if not len(command.params) <= len(args) <= len(names):
                 raise InvalidArguments(usage=command.usage(name))
             if (yes or command.human_only) and origin != HUMAN:
-                raise HumanOnly(command=name, origin=origin)
-            if command.confirm and not yes and not self._devastation.on:
-                self._ask(command, args, text, session_id)
+                raise HumanOnly(action=name, origin=origin)
+            # --devastation answers the Confirmations of Main's own Chat; one asked from a
+            # Session waits for its chain's Exemption, which arrives with F2 (ADR-0013).
+            answered_by_main = self._devastation.on and origin != "session"
+            if command.confirm and not yes and not answered_by_main:
+                self._ask(command, args, text, session_id, origin)
                 return True
             if command.confirm and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
@@ -136,9 +139,15 @@ class MainCommands:
         return command.run(*args)
 
     def _ask(
-        self, command: _MainCommand, args: list[str], text: str, session_id: str | None
+        self,
+        command: _MainCommand,
+        args: list[str],
+        text: str,
+        session_id: str | None,
+        origin: Origin,
     ) -> None:
-        """Ask before a delicate command; it runs, as a human asked it, once answered yes."""
+        """Ask before a delicate command; once answered yes it runs with the Origin it came
+        with, never more."""
 
         def on_answer(answer: bool) -> None:
             if not answer:
@@ -146,7 +155,7 @@ class MainCommands:
                 self._reporter.report(session_id, "command", shown, command=text, result="rejected")
                 return
             try:
-                self._call(command, args, HUMAN)
+                self._call(command, args, origin)
             except AllInError as error:
                 self._report(session_id, text, error)
             else:

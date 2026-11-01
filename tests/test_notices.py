@@ -8,7 +8,7 @@ from allin.ipc.messages import BoxShow
 from allin.main.events import InputReceived, MainCommandEntered, WindowConnected
 from allin.main.notices import load_notice_types
 from allin.notices import NoticeEvent
-from allin.ui.screen import ShowBox
+from allin.ui.screen import HideBox, ShowBox
 from tests.llm_fakes import FakeLlm, full_reply
 from tests.test_dispatcher import MainHarness
 
@@ -32,7 +32,7 @@ def write(folder: Path, name: str, source: str) -> None:
 def shown(types_folder: Path, settings: SessionSettings) -> list[tuple[str, str]]:
     notes: list[tuple[str, str]] = []
     failed = load_notice_types(types_folder).types.happened(
-        EVENT, settings, lambda title, text: notes.append((title, text))
+        EVENT, settings, lambda _kind, title, text: notes.append((title, text))
     )
     assert failed == []
     return notes
@@ -127,3 +127,12 @@ def test_the_settings_of_each_notice_type_are_shown(main: MainHarness):
     session = main.create_session()
     chat = main.run(MainCommandEntered(f"/session {session.id}"))
     assert f"[{session.id}] notices.step.enabled=True" in chat
+
+
+def test_a_notice_that_fires_again_replaces_the_one_still_shown(main: MainHarness):
+    session = main.create_session()
+    main.llm = FakeLlm(full_reply("", "ok"), full_reply("", "ok"))
+    main.run(InputReceived(session.id, "one"), InputReceived(session.id, "two"), settle=True)
+    shown_ids = [u.box.box_id for u in main.main_screen if isinstance(u, ShowBox)]
+    hidden_ids = [u.box_id for u in main.main_screen if isinstance(u, HideBox)]
+    assert len(shown_ids) == 2 and hidden_ids == shown_ids[:1]

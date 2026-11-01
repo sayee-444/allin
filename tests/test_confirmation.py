@@ -311,3 +311,22 @@ def test_after_a_restart_everything_asks_again(main: MainHarness):
     main.main_screen.clear()
     main.run(MainCommandEntered("/reset"))
     assert [box.box.kind for box in shown_boxes(main)] == ["confirm"]
+
+
+def test_devastation_does_not_answer_a_command_a_session_asked_for(main: MainHarness):
+    main.devastation = True
+    main.run(MainCommandEntered("/reset", origin="session"))
+    assert [box.box.kind for box in shown_boxes(main)] == ["notice", "confirm"]
+    assert current_parallel(main) == 2
+
+
+def test_a_prompt_already_waiting_takes_the_slot_a_confirmation_frees(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    main.run(
+        InputReceived(a.id, "hi"),
+        InputReceived(b.id, "hi"),  # waits: A holds the only slot
+        ConfirmationRequested(a.id, "delete", "Delete it?"),
+        settle=True,
+    )
+    assert [job.session_id for job in main.held] == [a.id, b.id]

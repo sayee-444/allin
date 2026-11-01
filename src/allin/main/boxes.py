@@ -24,6 +24,7 @@ class _Pending:
     box: Box
     session_id: SessionId | None
     on_answer: OnAnswer | None  # only a Confirmation's
+    kind: str | None  # a Notice's type
 
 
 class MainBoxes:
@@ -37,11 +38,21 @@ class MainBoxes:
         self, session_id: SessionId | None, title: str, text: str, on_answer: OnAnswer
     ) -> BoxId:
         """Ask the user yes or no; ``on_answer`` gets the answer once someone gives it."""
-        return self._show("confirm", session_id, title, text, on_answer)
+        return self._show("confirm", session_id, title, text, on_answer, None)
 
-    def notify(self, session_id: SessionId | None, title: str, text: str) -> BoxId:
-        """Tell the user something; it never waits for anything."""
-        return self._show("notice", session_id, title, text, None)
+    def notify(
+        self, session_id: SessionId | None, title: str, text: str, kind: str | None = None
+    ) -> BoxId:
+        """Tell the user something; it never waits for anything.
+
+        A Notice of the same ``kind`` and Session still on screen gives way to this one, so a
+        Notice that fires again never piles up.
+        """
+        if kind is not None:
+            for box_id, pending in list(self._pending.items()):
+                if pending.session_id == session_id and pending.kind == kind:
+                    self.withdraw(box_id)
+        return self._show("notice", session_id, title, text, None, kind)
 
     def answered(self, box_id: BoxId, answer: bool | None) -> None:
         """Someone answered a box, in Main's Chat or in a Window; a late second answer to the
@@ -72,9 +83,10 @@ class MainBoxes:
         title: str,
         text: str,
         on_answer: OnAnswer | None,
+        notice_kind: str | None,
     ) -> BoxId:
         box = Box(next(self._ids), kind, title, text)
-        self._pending[box.box_id] = _Pending(box, session_id, on_answer)
+        self._pending[box.box_id] = _Pending(box, session_id, on_answer, notice_kind)
         self._main_screen(ShowBox(_in_main_chat(box, session_id)))
         if session_id is not None:
             self._windows.send(session_id, _show_message(box))

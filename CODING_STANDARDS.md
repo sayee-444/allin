@@ -20,7 +20,7 @@ Every value has a type that says what it means in the domain, and data from outs
 ## Errors
 
 - **Every error is an `AllInError`** subclass with a stable `code` and its facts as keyword fields (`SessionNotFound(session_id=...)`), never a message string: Windows and Logs render it from the fields. Re-raise with `from error`.
-- **A broad `except Exception` that swallows the error** lives only where a thread must survive anything (a Turn's executor), with a `noqa: BLE001` comment saying why. One that only adds context and re-raises (`Cancellation.watching`) needs no exemption.
+- **A broad `except Exception` that swallows the error** lives only where a thread must survive anything (a Turn's executor) or where Main runs code a human wrote as part of it (a Notice module, ADR-0016), with a `noqa: BLE001` comment saying why; the error is told, never dropped. One that only adds context and re-raises (`Cancellation.watching`) needs no exemption.
 
 ## Concurrency
 

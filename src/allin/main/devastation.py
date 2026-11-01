@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId
+from allin.core.settings import SessionSettings
 from allin.ipc.messages import Coverage
 from allin.main.boxes import MainBoxes
 from allin.main.open_windows import OpenWindows
@@ -44,6 +45,10 @@ class Devastation:
     def on(self) -> bool:
         return self._on
 
+    def covers(self, settings: SessionSettings) -> bool:
+        """Whether Main answers by itself the Confirmations of a Session with ``settings``."""
+        return self._on and settings.exempt
+
     def start(self) -> None:
         """Mark Main's Chat if it was lit on the command line."""
         if self._on:
@@ -66,11 +71,11 @@ class Devastation:
     def mark(self, session_id: SessionId) -> None:
         """Tell a Session's Window whether Main answers its Confirmations now."""
         try:
-            exempt = self._sessions.load(session_id).settings.exempt
+            settings = self._sessions.load(session_id).settings
         except AllInError as error:
             self._reporter.error(error, session_id)
             return
-        self._windows.send(session_id, Coverage(covered=self._on and exempt))
+        self._windows.send(session_id, Coverage(covered=self.covers(settings)))
 
     def _exempt_sessions(self) -> list[SessionId]:
         exempt: list[SessionId] = []
