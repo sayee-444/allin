@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from allin.core.errors import SettingsFileInvalid, SettingsStorageFailed
 from allin.core.files import write_atomically
-from allin.core.settings import MainSettings
+from allin.core.settings import MainSettings, failing_key
 
 _CURRENT = "current.json"
 _DEFAULT = "default.json"
@@ -53,7 +53,7 @@ class MainSettingsFiles:
             problems.append(SettingsFileInvalid(file=name, key=None, reason=str(error)))
         except ValidationError as error:
             for failure in error.errors():
-                key = ".".join(str(part) for part in failure["loc"]) or None
+                key = failing_key(failure)
                 problems.append(SettingsFileInvalid(file=name, key=key, reason=failure["msg"]))
         return None
 

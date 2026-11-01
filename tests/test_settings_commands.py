@@ -212,3 +212,11 @@ def test_the_sysprompt_cannot_change_while_the_sessions_first_turn_runs(main: Ma
     )
     assert any("sysprompt_locked" in line for line in chat)
     assert main.sessions.load(session.id) == session
+
+
+@pytest.mark.parametrize("command", ["/session {sid} model=other", "/session set", "/session"])
+def test_session_without_set_takes_no_keys_and_set_needs_a_sid(main: MainHarness, command: str):
+    session = main.create_session()
+    chat = main.run(MainCommandEntered(command.format(sid=session.id)))
+    assert any("error invalid_arguments" in line for line in chat)
+    assert main.sessions.load(session.id) == session

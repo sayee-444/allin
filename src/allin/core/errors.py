@@ -158,6 +158,12 @@ class InvalidSetting(AllInError):
     code: ClassVar[str] = "invalid_setting"
 
 
+class MalformedAssignment(AllInError):
+    """Settings are given as ``key=value`` words; ``text`` is not one."""
+
+    code: ClassVar[str] = "malformed_assignment"
+
+
 class SettingsFileInvalid(AllInError):
     """A Settings file cannot be read or holds a bad key; Main uses the defaults instead."""
 

@@ -112,6 +112,10 @@ _Avoid_: crash report, volcado
 Parámetros que gobiernan a Main o a una Sesión. Se heredan por copia: lo ya creado no cambia cuando cambia el origen. La excepción es el Tema, del que se copia el nombre y que se lee en vivo (ADR-0018).
 _Avoid_: settings, config
 
+**Clave** (`SettingName`, `SettingKey`):
+Nombre con puntos de un Ajuste suelto, tal como lo toman `/set` y `/session set` (`session.sampling.temperature`, o `sampling.temperature` en una Sesión). Cada Clave declara en el registro de Claves su tipo, su valor por defecto, su validación, si es de Main o de Sesión y para qué sirve; de ahí saldrá la ayuda (#23). Una Clave desconocida o un valor que su tipo no admite son un error y no cambian nada. Un valor vacío deja sin fijar una Clave que lo admite (el muestreo, `parallel`).
+_Avoid_: opción, campo
+
 **Ajustes de Main** (`MainSettings`):
 Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se comparten con las Sesiones.
 

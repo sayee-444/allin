@@ -4,9 +4,10 @@ Main's current Settings and its defaults live here, as their files last had them
 is checked whole before anything is written, so a bad key or value changes nothing.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
-from allin.core.errors import SyspromptLocked
+from allin.core.errors import InvalidArguments, SyspromptLocked
 from allin.core.ids import MainId
 from allin.core.settings import (
     MainSettings,
@@ -26,6 +27,30 @@ _DEFAULT_FLAG = "--default"
 # What a Sysprompt is rendered from, so changing one renders it again.
 _SYSPROMPT_KEYS = ("sysprompt", "assistant_name", "username")
 _RESTART_NOTE = "base_url takes effect when Main restarts"
+
+
+_SESSION_USAGE = "/session <sid> | /session set <sid> [key=value…]"
+
+
+@dataclass(frozen=True)
+class SessionCommand:
+    """What ``/session`` was asked about: a Session and, after ``set``, its assignments."""
+
+    session_id: str  # as typed; loading it checks it
+    assignments: str = ""
+
+
+def parse_session_command(args: list[str]) -> SessionCommand | None:
+    """``/session <sid>`` or ``/session set <sid> [key=value…]``, from the words after
+    ``/session`` (the second one holding the rest of the line); ``None`` if it is neither."""
+    if not args:
+        return None
+    if args[0] != "set":
+        return SessionCommand(args[0]) if len(args) == 1 else None
+    words = args[1].split(maxsplit=1) if len(args) > 1 else []
+    if not words:
+        return None
+    return SessionCommand(words[0], words[1] if len(words) > 1 else "")
 
 
 class SettingsCommands:
@@ -81,16 +106,15 @@ class SettingsCommands:
     def session(self, first: str, rest: str = "") -> bool:
         """``/session <sid>`` shows a Session's Settings; ``/session set <sid> key=value…``
         changes them."""
-        if first != "set":
-            self._show(first, self._sessions.load_owned(first, self._main_id).settings)
-            return True
-        session_id, _, assignments = rest.strip().partition(" ")
-        session = self._sessions.load_owned(session_id, self._main_id)
-        parsed = parse_assignments(assignments)
-        if not parsed:
+        target = parse_session_command([first, rest] if rest else [first])
+        if target is None:
+            raise InvalidArguments(usage=_SESSION_USAGE)
+        session = self._sessions.load_owned(target.session_id, self._main_id)
+        assignments = parse_assignments(target.assignments)
+        if not assignments:
             self._show(session.id, session.settings)
             return True
-        self._save_session(session, apply_settings(session.settings, parsed))
+        self._save_session(session, apply_settings(session.settings, assignments))
         return True
 
     def _use(self, settings: MainSettings) -> None:

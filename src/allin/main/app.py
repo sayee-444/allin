@@ -47,7 +47,7 @@ def _run(stdscr: curses.window, data_dir: Path, sysprompts: Path) -> None:
     settings_files = MainSettingsFiles(data_dir / "settings")
     loaded = settings_files.load()  # a broken file is told by the Dispatcher, on start
     settings = loaded.current
-    title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /set, /session <sid>, /exit)"
+    title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /raw on|off [sid], /set, /session <sid>, /exit)"
     screen = ChatScreen(stdscr, title)
     log_dir = data_dir / "logs" / "main"
     log_dir.mkdir(parents=True, exist_ok=True)

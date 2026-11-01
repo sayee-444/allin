@@ -9,13 +9,18 @@ import getpass
 import shlex
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, NewType
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
+from pydantic_core import ErrorDetails
 
-from allin.core.errors import InvalidSetting, UnknownSetting
+from allin.core.errors import InvalidSetting, MalformedAssignment, UnknownSetting
 
 type SettingScope = Literal["main", "session"]
+# A Setting's dotted key as ``/set`` takes it: ``session.sampling.temperature``.
+SettingName = NewType("SettingName", str)
+# What ``model_dump`` gives of a Settings model: nested dicts of plain values.
+type SettingsData = dict[str, Any]
 
 
 class Sampling(BaseModel, frozen=True):
@@ -78,7 +83,7 @@ class MainSettings(BaseModel, frozen=True):
 class SettingKey:
     """One Setting as ``/set`` names it."""
 
-    name: str  # dotted: ``session.sampling.temperature``
+    name: SettingName
     scope: SettingScope
     parser: TypeAdapter[object]  # the field's type with its constraints
     optional: bool  # whether it may be left unset, which an empty value does
@@ -91,7 +96,7 @@ def setting_keys(model: type[BaseModel] = MainSettings) -> list[SettingKey]:
     return list(_keys(model, "", "session" if model is SessionSettings else "main"))
 
 
-def apply_settings[M: BaseModel](settings: M, assignments: Mapping[str, str]) -> M:
+def apply_settings[M: BaseModel](settings: M, assignments: Mapping[SettingName, str]) -> M:
     """A copy of ``settings`` with each key set to its value as typed; nothing changes if any
     key is unknown or any value invalid."""
     keys = {key.name: key for key in setting_keys(type(settings))}
@@ -105,22 +110,21 @@ def apply_settings[M: BaseModel](settings: M, assignments: Mapping[str, str]) ->
         return type(settings).model_validate(data)
     except ValidationError as error:
         first = error.errors()[0]
-        loc = ".".join(str(part) for part in first["loc"])
-        raise InvalidSetting(key=loc, reason=first["msg"]) from error
+        raise InvalidSetting(key=failing_key(first), reason=first["msg"]) from error
 
 
-def parse_assignments(text: str) -> dict[str, str]:
+def parse_assignments(text: str) -> dict[SettingName, str]:
     """``key=value`` words; a value may be quoted to keep its spaces."""
     try:
         words = shlex.split(text)
     except ValueError as error:
-        raise InvalidSetting(key=text, reason=str(error)) from error
-    assignments: dict[str, str] = {}
+        raise MalformedAssignment(text=text) from error
+    assignments: dict[SettingName, str] = {}
     for word in words:
         name, equals, value = word.partition("=")
         if not equals or not name:
-            raise InvalidSetting(key=word, reason="expected key=value")
-        assignments[name] = value
+            raise MalformedAssignment(text=word)
+        assignments[SettingName(name)] = value
     return assignments
 
 
@@ -137,6 +141,11 @@ def shown_settings(settings: BaseModel) -> list[str]:
     return lines
 
 
+def failing_key(failure: ErrorDetails) -> SettingName | None:
+    """The key a pydantic failure is about; ``None`` when it is about the whole file."""
+    return SettingName(".".join(str(part) for part in failure["loc"])) or None
+
+
 def _keys(model: type[BaseModel], prefix: str, scope: SettingScope) -> Iterator[SettingKey]:
     for name, field in model.model_fields.items():
         annotation = field.annotation
@@ -147,7 +156,7 @@ def _keys(model: type[BaseModel], prefix: str, scope: SettingScope) -> Iterator[
         default: JsonValue = field.get_default(call_default_factory=True)
         parser = TypeAdapter[object](field.rebuild_annotation())
         yield SettingKey(
-            name=f"{prefix}{name}",
+            name=SettingName(f"{prefix}{name}"),
             scope=scope,
             parser=parser,
             optional=_accepts_none(parser),
@@ -165,7 +174,7 @@ def _parse_value(key: SettingKey, raw: str) -> object:
         raise InvalidSetting(key=key.name, reason=error.errors()[0]["msg"]) from error
 
 
-def _set_path(data: dict[str, Any], path: list[str], value: object) -> None:
+def _set_path(data: SettingsData, path: list[str], value: object) -> None:
     *groups, last = path
     for group in groups:
         data = data[group]

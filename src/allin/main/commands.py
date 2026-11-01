@@ -11,7 +11,7 @@ from allin.main.open_windows import OpenWindows
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
-from allin.main.settings_commands import SettingsCommands
+from allin.main.settings_commands import SettingsCommands, parse_session_command
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
@@ -129,11 +129,8 @@ class MainCommands:
 
 
 def _session_of_session_command(args: list[str]) -> str | None:
-    """``/session <sid>`` or ``/session set <sid> …``."""
-    if args[:1] != ["set"]:
-        return args[0] if args else None
-    words = args[1].split() if len(args) > 1 else []
-    return words[0] if words else None
+    target = parse_session_command(args)
+    return None if target is None else target.session_id
 
 
 def _summary(text: str, width: int = 60) -> str:

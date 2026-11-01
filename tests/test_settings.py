@@ -1,10 +1,12 @@
 import pytest
 
-from allin.core.errors import InvalidSetting, UnknownSetting
+from allin.core.errors import InvalidSetting, MalformedAssignment, UnknownSetting
 from allin.core.settings import (
     MainSettings,
     Sampling,
     SessionSettings,
+    SettingKey,
+    SettingName,
     apply_settings,
     parse_assignments,
     setting_keys,
@@ -15,7 +17,7 @@ MAIN = MainSettings(session=SessionSettings(username="ana"))
 
 
 def test_every_setting_declares_its_key_scope_default_and_what_it_is():
-    keys = {key.name: key for key in setting_keys()}
+    keys: dict[str, SettingKey] = {key.name: key for key in setting_keys()}
     assert set(keys) == {
         "base_url",
         "parallel",
@@ -33,24 +35,24 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
 
 
 def test_a_value_is_parsed_into_the_keys_type():
-    changed = apply_settings(MAIN, {"session.sampling.temperature": "0.3", "parallel": "2"})
+    changed = apply_settings(MAIN, parse_assignments("session.sampling.temperature=0.3 parallel=2"))
     assert changed.session.sampling.temperature == 0.3
     assert changed.parallel == 2
 
 
 def test_applying_returns_a_copy_and_leaves_the_original_as_it_was():
-    apply_settings(MAIN, {"session.username": "bea"})
+    apply_settings(MAIN, parse_assignments("session.username=bea"))
     assert MAIN.session.username == "ana"
 
 
 def test_an_empty_value_unsets_a_key_that_may_be_left_out():
     sampled = MAIN.model_copy(update={"parallel": 2})
-    assert apply_settings(sampled, {"parallel": ""}).parallel is None
+    assert apply_settings(sampled, parse_assignments("parallel=")).parallel is None
 
 
 def test_session_settings_take_their_keys_without_the_session_prefix():
     session = SessionSettings(sampling=Sampling(top_p=0.9))
-    changed = apply_settings(session, {"sampling.temperature": "0.5"})
+    changed = apply_settings(session, parse_assignments("sampling.temperature=0.5"))
     assert changed.sampling == Sampling(temperature=0.5, top_p=0.9)
 
 
@@ -59,7 +61,7 @@ def test_session_settings_take_their_keys_without_the_session_prefix():
 )
 def test_an_unknown_key_is_an_error(key: str):
     with pytest.raises(UnknownSetting) as raised:
-        apply_settings(MAIN, {key: "1"})
+        apply_settings(MAIN, {SettingName(key): "1"})
     assert raised.value.fields == {"key": key}
 
 
@@ -77,7 +79,7 @@ def test_an_unknown_key_is_an_error(key: str):
 )
 def test_an_invalid_value_is_an_error_naming_its_key(key: str, value: str):
     with pytest.raises(InvalidSetting) as raised:
-        apply_settings(MAIN, {key: value})
+        apply_settings(MAIN, {SettingName(key): value})
     assert raised.value.fields["key"] == key
 
 
@@ -90,7 +92,7 @@ def test_assignments_are_key_value_words_and_quotes_keep_spaces():
 
 @pytest.mark.parametrize("text", ["parallel", "=2", 'session.username="open'])
 def test_an_assignment_without_a_key_and_a_value_is_an_error(text: str):
-    with pytest.raises(InvalidSetting):
+    with pytest.raises(MalformedAssignment):
         parse_assignments(text)
 
 
