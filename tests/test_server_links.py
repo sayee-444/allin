@@ -112,3 +112,19 @@ def test_one_just_woken_is_not_woken_twice(tmp_path: Path):
         assert state is not None and state.pid is not None
         os.kill(state.pid, signal.SIGTERM)
         wait_for(lambda: not supervisor_active(servers, GPU))
+
+
+def test_work_never_wakes_one_a_human_put_to_sleep_but_a_human_does(tmp_path: Path):
+    write_settings(tmp_path, "gpu", free_port())
+    servers = tmp_path / "servers"
+    links = ServerLinks(tmp_path, queue.Queue())
+    links.sleep(GPU)  # it does not run: marked
+    assert not links.wake(GPU)
+    assert links.wake(GPU, human=True)
+    wait_for(lambda: (s := read_state(servers, GPU)) is not None and s.status == "ready")
+    state = read_state(servers, GPU)
+    assert state is not None and not state.slept_by_human
+    links.sleep(GPU)  # it runs: drained, then asleep
+    wait_for(lambda: not supervisor_active(servers, GPU))
+    state = read_state(servers, GPU)
+    assert state is not None and state.status == "asleep" and state.slept_by_human

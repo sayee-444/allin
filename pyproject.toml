@@ -98,6 +98,7 @@ paths_to_mutate = [
     "src/allin/main/slots.py",
     "src/allin/main/usage.py",
     "src/allin/main/prompts.py",
+    "src/allin/supervisor/settings.py",
 ]
 tests_dir = ["tests/"]
 also_copy = ["src/", "scripts/", "sysprompts/"]

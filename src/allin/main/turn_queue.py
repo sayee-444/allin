@@ -81,8 +81,13 @@ class Servers(Protocol):
         """Make its watch report what it sees next, even if it looks unchanged."""
         ...
 
-    def wake(self, name: SupervisorName) -> bool:
-        """Start an asleep Supervisor; whether it did."""
+    def wake(self, name: SupervisorName, human: bool = False) -> bool:
+        """Start an asleep Supervisor; whether it did. Only a ``human`` wakes one a human
+        put to sleep."""
+        ...
+
+    def sleep(self, name: SupervisorName) -> None:
+        """Put a Supervisor to sleep for a human: drained first if it runs (ADR-0022)."""
         ...
 
     def restart(self, name: SupervisorName, now: bool) -> None:
@@ -110,6 +115,8 @@ def _waiting_text(link: Link, state: ServerState | None) -> str:
             return f"queue paused until {server}'s /health is OK"
         case ServerLoading():
             return f"queue paused: {server} is loading its model"
+        case ServerRestarting(sleep=True):
+            return f"queue paused: {server} is going to sleep, as a human asked"
         case ServerRestarting():
             return f"queue paused: {server} is restarting"
         case ServerAsleep(slept_by_human=True):

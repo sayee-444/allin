@@ -177,6 +177,8 @@ def test_settings_that_did_not_start_are_told_with_why_once(main: MainHarness):
 
 
 def test_server_restart_asks_the_supervisor(main: MainHarness):
+    main.slot_locks_dir.mkdir(exist_ok=True)
+    (main.slot_locks_dir / "gpu.toml").write_text('model = "m.gguf"\nport = 9940\n')
     main.run(
         MainCommandEntered("/server restart gpu --now"), MainCommandEntered("/server restart gpu")
     )

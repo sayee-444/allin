@@ -21,7 +21,21 @@ def port_free(port: int) -> bool:
 def port_holder(port: int, proc: Path = Path("/proc")) -> str:
     """Who listens on ``port``, as ``pid <n> (<name>)``; ``unknown`` when ``/proc`` hides it
     (another user's process)."""
+    pid = listening_pid(port, proc)
+    if pid is None:
+        return "unknown"
+    try:
+        name = (proc / str(pid) / "comm").read_text().strip()
+    except OSError:  # gone meanwhile
+        return "unknown"
+    return f"pid {pid} ({name})"
+
+
+def listening_pid(port: int, proc: Path = Path("/proc")) -> int | None:
+    """The process that listens on ``port``; ``None`` if none, or ``/proc`` hides it."""
     inodes = _listening_inodes(port, proc)
+    if not inodes:
+        return None
     for pid_dir in proc.iterdir():
         if not pid_dir.name.isdigit():
             continue
@@ -29,11 +43,10 @@ def port_holder(port: int, proc: Path = Path("/proc")) -> str:
             for fd in (pid_dir / "fd").iterdir():
                 target = str(fd.readlink())
                 if target.startswith("socket:[") and target[8:-1] in inodes:
-                    name = (pid_dir / "comm").read_text().strip()
-                    return f"pid {pid_dir.name} ({name})"
+                    return int(pid_dir.name)
         except OSError:  # gone, or not ours to read
             continue
-    return "unknown"
+    return None
 
 
 def _listening_inodes(port: int, proc: Path) -> set[str]:

@@ -5,6 +5,7 @@
 - ``crash``: exits with code 3 at once.
 - ``--fake-die-after S``: once ready, exits with code 3 after S seconds (``--fake-die-oom``:
   saying first that it ran out of memory).
+- ``--fake-report-env``: prints its folder and whether the environment asks context shift.
 - ``vram``: prints what llama.cpp prints when the model does not fit, and exits with 1.
 """
 
@@ -15,6 +16,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 
 def say(line: str) -> None:
@@ -34,8 +36,12 @@ def main() -> None:
     parser.add_argument("--fake-load", type=float, default=0.0)
     parser.add_argument("--fake-die-after", type=float, default=None)  # once ready, exit 3
     parser.add_argument("--fake-die-oom", action="store_true")  # saying it ran out of memory
+    parser.add_argument("--fake-report-env", action="store_true")  # its folder and environment
     args, _ = parser.parse_known_args()
     say(f"fake llama on {args.port}")
+    if args.fake_report_env:
+        say(f"cwd {Path.cwd()}")
+        say(f"context shift env {os.environ.get('LLAMA_ARG_CONTEXT_SHIFT')}")
     if args.fake_mode == "crash":
         sys.exit(3)
     if args.fake_mode == "vram":

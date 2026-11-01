@@ -51,6 +51,10 @@ _Avoid_: deploy, LLM (como nombre del proceso)
 Entidad con nombre y sus propios Ajustes del Servidor que, cuando está **activo**, es un proceso de AllIn que lanza su Servidor, lo relanza si cae y lo reinicia con otros Ajustes cuando se le pide; **dormido**, solo existen sus Ajustes. Despierta cuando le llega trabajo de una Sesión enlazada a él, si cabe en VRAM y sin dormir a otro; al que durmió un humano solo lo despierta un humano. No muere con Main ni se duerme solo. Lo comparten todas las Sesiones enlazadas a él, sean del Main que sean, y se reparten los slots de su Servidor.
 _Avoid_: singleton, el script que ejecuta llama, servidor por defecto
 
+**Adoptar** (`/server adopt`):
+Poner bajo un Supervisor nuevo el `llama serve` que un humano lanzó a mano y que escucha en el puerto del `base_url` de Main. Sus Ajustes del Servidor salen de la línea del proceso (`/proc/<pid>/cmdline`) y de su carpeta de trabajo; con Confirmación, ese proceso se cierra y el Supervisor lo relanza. No se adopta uno que ya corre bajo un Supervisor, ni uno que lleva `--context-shift`.
+_Avoid_: importar, capturar el servidor
+
 **Enlace** (`server` link):
 Ajuste de Sesión que nombra el Supervisor al que van sus Pasos. Main guarda uno en su plantilla de Sesión, el Enlace por defecto, que se copia en `/new` y que heredan sus submains; cambiarlo no mueve a las Sesiones ya creadas. Sesiones del mismo Main pueden usar Supervisores distintos, y los Pasos de Main que no son de ninguna Sesión van al Enlace por defecto. Una Sesión nunca cambia sola de Supervisor, aunque otro esté libre, y lo conserva en un Traspaso.
 _Avoid_: adherir (es lo que se hace con un Proceso adherido), url, servidor de Main

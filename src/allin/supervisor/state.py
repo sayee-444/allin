@@ -25,12 +25,14 @@ class SupervisorState(BaseModel, frozen=True):
     pid: int | None = None  # the Supervisor's own
     server_pid: int | None = None  # llama serve's
     arguments: list[str] = []  # the Server's, as it runs now
+    cwd: str | None = None  # the folder it runs in, when its Settings name one
     port: int | None = None
     slept_by_human: bool = False
     last_exit_code: int | None = None
     failure: FailureKind | None = None
     reason: str | None = None  # the failure's details, as the Server or the system said them
     restart: RestartKind | None = None  # while draining for a restart
+    going_to_sleep: bool = False  # while draining because a human put it to sleep
     # Why it runs on the last Settings that started instead of the pending ones (ADR-0008).
     fallback_reason: str | None = None
 

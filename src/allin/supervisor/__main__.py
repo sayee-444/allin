@@ -36,6 +36,8 @@ def main() -> None:
     signal.signal(signal.SIGHUP, lambda _s, _f: supervisor.restart(now=False))
     # --now: Mains cut their Steps short and repeat them after the restart (ADR-0023).
     signal.signal(signal.SIGUSR1, lambda _s, _f: supervisor.restart(now=True))
+    # /server sleep: drain, then sleep until a human wakes it (ADR-0022).
+    signal.signal(signal.SIGUSR2, lambda _s, _f: supervisor.sleep_by_human())
     try:
         sys.exit(supervisor.run(os.getpid()))
     except SupervisorAlreadyRunning as error:
