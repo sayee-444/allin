@@ -2,6 +2,7 @@ import queue
 from pathlib import Path
 
 from allin.core.errors import AllInError, MalformedMessage
+from allin.core.ids import SessionId
 from allin.ipc.channel import Channel, create_fifo_pair, remove_stale_fifos
 from allin.ipc.messages import (
     ChatAppend,
@@ -9,6 +10,9 @@ from allin.ipc.messages import (
     decode_main_message,
     decode_window_message,
 )
+
+SID = SessionId("abc123")
+
 
 TIMEOUT = 2.0
 
@@ -33,7 +37,7 @@ class Recorder:
 
 
 def test_main_and_window_exchange_messages(tmp_path: Path):
-    pair = create_fifo_pair(tmp_path, "abc123")
+    pair = create_fifo_pair(tmp_path, SID)
     main_side, window_side = Recorder(), Recorder()
     main = Channel(pair.from_window, pair.to_window, decode_window_message, main_side)
     window = Channel(pair.to_window, pair.from_window, decode_main_message, window_side)
@@ -52,7 +56,7 @@ def test_main_and_window_exchange_messages(tmp_path: Path):
 
 
 def test_malformed_line_is_reported_and_reader_keeps_going(tmp_path: Path):
-    pair = create_fifo_pair(tmp_path, "abc123")
+    pair = create_fifo_pair(tmp_path, SID)
     listener = Recorder()
     main = Channel(pair.from_window, pair.to_window, decode_window_message, listener)
     main.start()
@@ -70,7 +74,7 @@ def test_malformed_line_is_reported_and_reader_keeps_going(tmp_path: Path):
 
 
 def test_invalid_utf8_is_reported_as_malformed_and_reader_keeps_going(tmp_path: Path):
-    pair = create_fifo_pair(tmp_path, "abc123")
+    pair = create_fifo_pair(tmp_path, SID)
     listener = Recorder()
     main = Channel(pair.from_window, pair.to_window, decode_window_message, listener)
     main.start()
@@ -86,7 +90,7 @@ def test_invalid_utf8_is_reported_as_malformed_and_reader_keeps_going(tmp_path: 
 
 
 def test_fifo_pair_is_named_after_the_session(tmp_path: Path):
-    pair = create_fifo_pair(tmp_path, "abc123")
+    pair = create_fifo_pair(tmp_path, SID)
     assert pair.to_window == tmp_path / "abc123.in"
     assert pair.from_window == tmp_path / "abc123.out"
     assert pair.to_window.is_fifo() and pair.from_window.is_fifo()
@@ -95,7 +99,7 @@ def test_fifo_pair_is_named_after_the_session(tmp_path: Path):
 
 
 def test_stale_fifos_are_removed_and_other_files_kept(tmp_path: Path):
-    create_fifo_pair(tmp_path, "abc123")
+    create_fifo_pair(tmp_path, SID)
     (tmp_path / "notes.in").write_text("not a fifo")
     remove_stale_fifos(tmp_path)
     assert [path.name for path in tmp_path.iterdir()] == ["notes.in"]

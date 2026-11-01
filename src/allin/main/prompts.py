@@ -6,10 +6,12 @@ Only the dispatcher touches it, so it needs no locking.
 from collections.abc import Container
 from dataclasses import dataclass
 
+from allin.core.ids import SessionId
+
 
 @dataclass(frozen=True)
 class Prompt:
-    session_id: str
+    session_id: SessionId
     text: str
 
 
@@ -31,7 +33,7 @@ class PromptQueue:
         """Whether ``pop_ready`` would take a Prompt."""
         return any(prompt.session_id not in active for prompt in self._prompts)
 
-    def drop(self, session_id: str) -> list[Prompt]:
+    def drop(self, session_id: SessionId) -> list[Prompt]:
         """Take a Session's Prompts out of the queue; return them in their order."""
         dropped = [prompt for prompt in self._prompts if prompt.session_id == session_id]
         self._prompts = [prompt for prompt in self._prompts if prompt.session_id != session_id]
@@ -41,9 +43,9 @@ class PromptQueue:
         """Every queued Prompt, in queue order."""
         return list(self._prompts)
 
-    def has(self, session_id: str) -> bool:
+    def has(self, session_id: SessionId) -> bool:
         return any(prompt.session_id == session_id for prompt in self._prompts)
 
-    def session_ids(self) -> list[str]:
+    def session_ids(self) -> list[SessionId]:
         """The Sessions with queued Prompts, each once, in the order of their first one."""
         return list(dict.fromkeys(prompt.session_id for prompt in self._prompts))

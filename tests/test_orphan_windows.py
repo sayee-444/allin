@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from allin.core.ids import SessionId
 from allin.main.windows import close_orphan_window
+
+SID = SessionId("abc123")
 
 
 def spawn(*args: str) -> subprocess.Popen[bytes]:
@@ -18,8 +21,8 @@ def spawn(*args: str) -> subprocess.Popen[bytes]:
 
 
 def test_the_xterm_of_a_sessions_window_left_by_a_dead_main_is_closed():
-    orphan = spawn("-m", "allin.window", "abc123")
-    assert close_orphan_window("abc123", orphan.pid)
+    orphan = spawn("-m", "allin.window", SID)
+    assert close_orphan_window(SID, orphan.pid)
     assert orphan.wait(timeout=5) != 0
 
 
@@ -27,7 +30,7 @@ def test_the_xterm_of_a_sessions_window_left_by_a_dead_main_is_closed():
 def test_a_process_that_reused_the_pid_is_left_alone(args: tuple[str, ...]):
     other = spawn(*args)
     try:
-        assert not close_orphan_window("abc123", other.pid)
+        assert not close_orphan_window(SID, other.pid)
         assert other.poll() is None
     finally:
         other.kill()
@@ -35,7 +38,7 @@ def test_a_process_that_reused_the_pid_is_left_alone(args: tuple[str, ...]):
 
 
 def test_a_window_that_is_already_gone_closes_nothing():
-    gone = spawn("-m", "allin.window", "abc123")
+    gone = spawn("-m", "allin.window", SID)
     gone.kill()
     gone.wait()
-    assert not close_orphan_window("abc123", gone.pid)
+    assert not close_orphan_window(SID, gone.pid)

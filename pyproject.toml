@@ -21,9 +21,18 @@ where = ["src"]
 testpaths = ["tests"]
 
 [tool.basedpyright]
-typeCheckingMode = "standard"
+include = ["src", "tests"]
+typeCheckingMode = "strict"
 venvPath = "."
 venv = "venv"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# ANN: every function says its types, and never `Any` in a signature; UP: today's typing syntax.
+extend-select = ["ANN", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test functions return nothing; basedpyright strict still checks their parameters.
+"tests/**" = ["ANN201"]

@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# Runs the checks the issue workflow asks for before each commit, on the working tree.
+# Enable once per clone with: git config core.hooksPath .githooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+venv/bin/ruff check src tests
+venv/bin/ruff format --check src tests
+venv/bin/basedpyright
+venv/bin/pytest -q

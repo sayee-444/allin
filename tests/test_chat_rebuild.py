@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
@@ -21,7 +22,7 @@ def turn(prompt: str, thinking: str, text: str) -> Turn:
         "summary": [],
         "content": [{"type": "reasoning_text", "text": thinking}],
     }
-    message = {
+    message: dict[str, Any] = {
         "type": "message",
         "id": "msg_1",
         "role": "assistant",

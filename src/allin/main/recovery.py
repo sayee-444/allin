@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from allin.core.drafts import put_back
 from allin.core.errors import AllInError, TurnCrashed
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SessionId
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
@@ -17,7 +17,7 @@ from allin.main.turn_queue import TurnQueue
 
 # Closes the Window of a Session (by its xterm's pid) that a killed Main left open; returns
 # whether there was one.
-type CloseOrphanWindow = Callable[[str, int], bool]
+type CloseOrphanWindow = Callable[[SessionId, int], bool]
 
 _MAIN_DIED = "main stopped without closing it"
 _TURN_ENDINGS = ("turn_finished", "turn_failed", "turn_cancelled")

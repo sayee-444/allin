@@ -3,14 +3,19 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import MainStateUnreadable
+from allin.core.ids import SessionId
 from allin.main.prompts import Prompt
 from allin.main.state import MainState, MainStateStore
 
+A = SessionId("aaaaaa")
+B = SessionId("bbbbbb")
+
+
 STATE = MainState(
-    windows={"bbbbbb": 4242, "aaaaaa": 4243},
-    drafts={"aaaaaa": ["half\nwritten", "a0"]},
-    queue=[Prompt("aaaaaa", "a2"), Prompt("bbbbbb", "b1"), Prompt("aaaaaa", "a3")],
-    running=[Prompt("aaaaaa", "a1")],
+    windows={B: 4242, A: 4243},
+    drafts={A: ["half\nwritten", "a0"]},
+    queue=[Prompt(A, "a2"), Prompt(B, "b1"), Prompt(A, "a3")],
+    running=[Prompt(A, "a1")],
 )
 
 
@@ -32,4 +37,4 @@ def test_a_broken_state_cannot_be_loaded(tmp_path: Path):
 
 def test_a_state_saved_with_drafts_as_text_is_still_loaded(tmp_path: Path):
     (tmp_path / "root.json").write_text('{"drafts": {"aaaaaa": "half\\nwritten"}}')
-    assert MainStateStore(tmp_path / "root.json").load().drafts == {"aaaaaa": ["half\nwritten"]}
+    assert MainStateStore(tmp_path / "root.json").load().drafts == {A: ["half\nwritten"]}

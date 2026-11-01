@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 
 from allin.core.errors import LogUnreadable, LogWriteFailed
 
@@ -31,7 +31,7 @@ class Log:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def append(self, event: str, **fields: Any) -> None:
+    def append(self, event: str, **fields: JsonValue) -> None:
         line = {"ts": datetime.now().astimezone().isoformat(), "event": event, **fields}
         try:
             with open(self.path, "a", encoding="utf-8") as file:

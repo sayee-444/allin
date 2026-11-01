@@ -9,6 +9,8 @@ only lower that. Both change while Main runs: the Server watch reads them again 
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from pydantic import BaseModel, Field, StrictInt, ValidationError
+
 
 @dataclass(frozen=True)
 class ServerProps:
@@ -18,27 +20,29 @@ class ServerProps:
     model_path: str
 
 
+class _GenerationSettings(BaseModel):
+    n_ctx: StrictInt = Field(gt=0)
+
+
+class _Props(BaseModel):
+    """The part of ``/props`` Main reads; llama-server sends much more."""
+
+    total_slots: StrictInt = Field(gt=0)
+    default_generation_settings: _GenerationSettings
+    model_path: str | None = None
+
+
 def parse_props(props: object) -> ServerProps | None:
     """What Main uses of ``/props``; ``None`` if it says nothing usable."""
-    if not isinstance(props, dict):
+    try:
+        parsed = _Props.model_validate(props)
+    except ValidationError:
         return None
-    settings = props.get("default_generation_settings")
-    slots = _positive(props.get("total_slots"))
-    n_ctx = _positive(settings.get("n_ctx")) if isinstance(settings, dict) else None
-    if slots is None or n_ctx is None:
-        return None
-    model_path = props.get("model_path")
     return ServerProps(
-        total_slots=slots,
-        slot_context=n_ctx,
-        model_path=model_path if isinstance(model_path, str) else "",
+        total_slots=parsed.total_slots,
+        slot_context=parsed.default_generation_settings.n_ctx,
+        model_path=parsed.model_path or "",
     )
-
-
-def _positive(value: object) -> int | None:
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return None
 
 
 def capacity(props: ServerProps, parallel: int | None) -> int:

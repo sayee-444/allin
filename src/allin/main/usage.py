@@ -4,6 +4,8 @@ Every Step reads the whole Conversation again, so its ``input_tokens`` already i
 earlier Steps read: the Context is the last Step's input plus output, never a sum over Steps.
 """
 
+from typing import Any
+
 from allin.main.conversation import Step
 
 
@@ -31,5 +33,7 @@ def _new_input(step: Step) -> int:
     assert step.usage is not None
     if step.timings is not None and "prompt_n" in step.timings:
         return step.timings["prompt_n"]
-    cached = (step.usage.get("input_tokens_details") or {}).get("cached_tokens") or 0
-    return step.usage["input_tokens"] - cached
+    details: dict[str, Any] = step.usage.get("input_tokens_details") or {}
+    cached: int = details.get("cached_tokens") or 0
+    input_tokens: int = step.usage["input_tokens"]
+    return input_tokens - cached

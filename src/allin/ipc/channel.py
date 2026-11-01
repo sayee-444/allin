@@ -17,6 +17,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from allin.core.errors import AllInError, ChannelBroken, MalformedMessage
+from allin.core.ids import SessionId
 from allin.ipc.messages import encode
 
 
@@ -32,7 +33,7 @@ class FifoPair:
         self.from_window.unlink(missing_ok=True)
 
 
-def create_fifo_pair(fifo_dir: Path, session_id: str) -> FifoPair:
+def create_fifo_pair(fifo_dir: Path, session_id: SessionId) -> FifoPair:
     fifo_dir.mkdir(parents=True, exist_ok=True)
     pair = FifoPair(fifo_dir / f"{session_id}.in", fifo_dir / f"{session_id}.out")
     pair.remove()

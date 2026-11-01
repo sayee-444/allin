@@ -5,7 +5,7 @@ followed by another one.
 """
 
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
@@ -90,7 +90,7 @@ class Cancellation:
             raise TurnCancelled(reason=self._reason)
 
     @contextmanager
-    def watching(self, stream: LlmStream) -> Iterator[None]:
+    def watching(self, stream: LlmStream) -> Generator[None]:
         """While a Step reads ``stream``, ``cancel`` closes it; then it is closed anyway.
 
         Reading a stream closed by ``cancel`` fails however the SDK makes it fail, so any error

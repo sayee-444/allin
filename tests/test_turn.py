@@ -9,6 +9,7 @@ from tests.llm_fakes import (
     DroppedStream,
     FakeLlm,
     HangingStream,
+    Script,
     Unreachable,
     answer,
     completed,
@@ -78,7 +79,7 @@ def test_the_request_carries_the_model_the_input_and_only_the_params_given():
         connection_lost(),
     ],
 )
-def test_a_step_that_does_not_complete_fails_the_turn_and_closes_its_stream(stream):
+def test_a_step_that_does_not_complete_fails_the_turn_and_closes_its_stream(stream: Script):
     llm = FakeLlm(stream)
     with pytest.raises(LlmRequestFailed):
         run(llm)
@@ -123,7 +124,7 @@ def test_each_step_keeps_llama_cpps_timings_and_is_reported_as_soon_as_it_ends()
     llm = FakeLlm([answer("ok"), completed("", "ok", timings=timings)])
     reported: list[Step] = []
     steps = run_turn(
-        llm, REQUEST, lambda *_: None, Cancellation(), lambda _raw: None, reported.append
+        llm, REQUEST, lambda _kind, _text: None, Cancellation(), lambda _raw: None, reported.append
     )
     assert reported == steps
     assert steps[0].timings == timings
@@ -134,7 +135,7 @@ def test_each_step_keeps_llama_cpps_timings_and_is_reported_as_soon_as_it_ends()
     [connection_lost(), DroppedStream([answer("half")])],
     ids=["server down", "server dies mid-step"],
 )
-def test_a_server_that_cannot_be_reached_makes_the_llm_unavailable(stream):
+def test_a_server_that_cannot_be_reached_makes_the_llm_unavailable(stream: Script):
     llm = FakeLlm(stream)
     with pytest.raises(LlmUnavailable):
         run(llm)
@@ -154,7 +155,7 @@ def test_a_server_still_loading_its_model_is_unavailable():
 @pytest.mark.parametrize(
     "error", [status_error(400), status_error(500), timed_out()], ids=["400", "500", "timeout"]
 )
-def test_other_http_errors_and_a_slow_server_only_fail_the_step(error):
+def test_other_http_errors_and_a_slow_server_only_fail_the_step(error: Script):
     with pytest.raises(LlmRequestFailed) as raised:
         run(FakeLlm(error))
     assert not isinstance(raised.value, LlmUnavailable)
