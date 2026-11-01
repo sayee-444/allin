@@ -1,0 +1,22 @@
+#55 Ajustes — prueba a mano, 2026-11-01
+Main real en su xterm, --data-dir <scratch>/data (desechable), sin Servidor (los Ajustes no lo necesitan).
+default.json inicial con session.username=ana, para no mostrar el usuario del sistema.
+
+Corrida 1 (a-set-new-errores.png, b-default-reset-session-set.png)
+  /set session.sampling.temperature=0.3   -> ok
+  /new                                    -> Sesión y1zmz3
+  /session y1zmz3         -> sampling.temperature=0.3 (copiada de la plantilla)
+  /set nope=1                             -> error unknown_setting: key='nope'
+  /set parallel=0                         -> error invalid_setting: key='parallel'
+  md5sum de settings/* antes y después de los dos errores: iguales (FILES-UNCHANGED)
+  /set --default parallel=2 ; /reset ; /set -> parallel=2 en los actuales
+  /session set y1zmz3 sampling.top_p=0.5 -> ok ; /exit
+Corrida 2 (c-reinicio-session.png)
+  /session y1zmz3  -> sampling.top_p=0.5 y temperature=0.3: sobrevive al reinicio
+Corrida 3 (d-archivo-roto.png)
+  settings/current.json con "parallel": "many"
+  Main arranca, dice: error settings_file_invalid: file='current.json', key='parallel', ...
+  /set muestra los por defecto (parallel=2)
+
+Tests: tests/test_settings.py, tests/test_settings_files.py, tests/test_settings_commands.py
+Suite: 352 passed; basedpyright 0 errores; ruff limpio.
