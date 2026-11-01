@@ -1,0 +1,6 @@
+b: (200, {'completion_tokens': 50, 'prompt_tokens': 2416, 'total_tokens': 2466, 'prompt_tokens_details': {'cached_tokens': 0}}, None)
+c (after b finished, b+c > pool): (200, {'completion_tokens': 50, 'prompt_tokens': 2416, 'total_tokens': 2466, 'prompt_tokens_details': {'cached_tokens': 0}}, None)
+after c: [{'id': 0, 'n_ctx': 4096, 'is_processing': False, 'n_prompt_tokens_processed': 0, 'id_task': 254, 'n_decoded': 0}, {'id': 1, 'n_ctx': 4096, 'is_processing': False, 'n_prompt_tokens_processed': 0, 'id_task': 237, 'n_decoded': 0}]
+d: (200, {'completion_tokens': 579, 'prompt_tokens': 1513, 'total_tokens': 2092, 'prompt_tokens_details': {'cached_tokens': 0}}, None)
+e: (200, {'completion_tokens': 347, 'prompt_tokens': 1513, 'total_tokens': 1860, 'prompt_tokens_details': {'cached_tokens': 0}}, None)
+health after: {'status': 'ok'}

@@ -1,0 +1,17 @@
+props n_ctx 4096
+idle slot keys: ['id', 'is_processing', 'n_ctx', 'speculative']
+prompt tokens 2020
+busy slot keys: ['id', 'id_task', 'is_processing', 'n_ctx', 'n_prompt_tokens', 'n_prompt_tokens_cache', 'n_prompt_tokens_processed', 'next_token', 'params', 'speculative']
+busy view: [{'id': 0, 'n_ctx': 4096, 'is_processing': False}, {'id': 1, 'n_ctx': 4096, 'is_processing': True, 'n_prompt_tokens_processed': 1520, 'id_task': 2, 'n_decoded': 0}]
+busy slot keys: ['id', 'id_task', 'is_processing', 'n_ctx', 'n_prompt_tokens', 'n_prompt_tokens_cache', 'n_prompt_tokens_processed', 'next_token', 'params', 'speculative']
+busy view: [{'id': 0, 'n_ctx': 4096, 'is_processing': False}, {'id': 1, 'n_ctx': 4096, 'is_processing': True, 'n_prompt_tokens_processed': 2036, 'id_task': 2, 'n_decoded': 53}]
+busy slot keys: ['id', 'id_task', 'is_processing', 'n_ctx', 'n_prompt_tokens', 'n_prompt_tokens_cache', 'n_prompt_tokens_processed', 'next_token', 'params', 'speculative']
+busy view: [{'id': 0, 'n_ctx': 4096, 'is_processing': False}, {'id': 1, 'n_ctx': 4096, 'is_processing': True, 'n_prompt_tokens_processed': 2036, 'id_task': 2, 'n_decoded': 161}]
+one: (200, {'completion_tokens': 400, 'prompt_tokens': 2036, 'total_tokens': 2436, 'prompt_tokens_details': {'cached_tokens': 0}}, None)
+after one: [{'id': 0, 'n_ctx': 4096, 'is_processing': False}, {'id': 1, 'n_ctx': 4096, 'is_processing': False, 'n_prompt_tokens_processed': 0, 'id_task': 2, 'n_decoded': 0}]
+b: (400, None, 'request (5226 tokens) exceeds the available context size (4096 tokens), try increasing it')
+c (after b finished, b+c > pool): (400, None, 'request (5226 tokens) exceeds the available context size (4096 tokens), try increasing it')
+after c: [{'id': 0, 'n_ctx': 4096, 'is_processing': False, 'n_prompt_tokens_processed': 0, 'id_task': 113, 'n_decoded': 0}, {'id': 1, 'n_ctx': 4096, 'is_processing': False, 'n_prompt_tokens_processed': 0, 'id_task': 116, 'n_decoded': 0}]
+d: (500, None, 'Context size has been exceeded.')
+e: (500, None, 'Context size has been exceeded.')
+health after: {'status': 'ok'}

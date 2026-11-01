@@ -1,0 +1,79 @@
+#29 Admisión al pool y turnos entre Mains, con el Aviso de Contexto — prueba a mano (2026-11-01)
+Código: rama feature/29-admision-al-pool (a1b9b16).
+
+0. Sonda previa (lo que pide el issue antes de implementar)
+Servidor: llama serve -m Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 4096
+  --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --kv-unified -np 2 --spec-type draft-mtp
+  --port 9932   (build 10909)
+- /slots: un slot ocioso solo da id, n_ctx, is_processing y speculative. Uno ocupado añade n_prompt_tokens,
+  n_prompt_tokens_cache, n_prompt_tokens_processed y next_token.n_decoded. Así que sí da los tokens de cada
+  slot ocupado, pero nada de lo que guarda un slot ocioso (sonda-parte1.txt).
+- La caché de un Turno ya terminado no ocupa el pool. Se mandaron dos peticiones seguidas de 2416 + 50 tokens
+  en un pool de 4096, y las dos respondieron 200. llama desaloja la caché del slot ocioso cuando hace falta
+  sitio (sonda-parte2.txt). Por eso solo reservan los Pasos en curso.
+- Pool lleno a mitad de generación: ya medido el 2026-10-31 con la misma build. Los dos slots reciben
+  500 «Context size has been exceeded.» y el Servidor sigue sano. El Turno falla como en F1-10.
+- Medida: /apply-template + /tokenize da exactamente el input_tokens del usage (63 = 63, 105 = 105). En la
+  prueba de abajo dio 2001, 2631 y 3264, iguales al usage real.
+
+Prueba. Mismo Servidor, después con -c 8192 -np 1 sin --kv-unified (punto 5).
+Main A: ./venv/bin/python -m allin --data-dir <scratch>/d29/a   (base_url = http://127.0.0.1:9932/v1)
+Main B: ./venv/bin/python -m allin --data-dir <scratch>/d29/b, con <scratch>/d29/b/servers enlazado a
+  <scratch>/d29/a/servers, así que comparten candados y Lista de espera, como en #21.
+Sesiones sembradas con una Conversación del tamaño medido (input + Tope de salida = lo que necesitan):
+  A: 9w71sj grande 2001+600=2601, zxjtux mediana 1000+600=1600, vwwgf7 pequeña 104+600=704,
+     tje2tt enorme 3606+600=4206, kzdbpj casi llena 2754+700=3454. B: xrwrfw 1000+600=1600.
+Prompt en todas: «Count from 1 upward, one number per line, and never stop. No thinking.»
+
+1. Dos Pasos que no caben juntos en el pool no corren a la vez (criterio 1, a escala: pool de 4096)
+   /send de la grande, la mediana y la pequeña seguidos en Main A. 2601 + 1600 > 4096, pero 2601 + 704 sí cabe.
+   turn_started 9w71sj need=2601   16:28:48.757
+   turn_started vwwgf7 need=704    16:28:49.538   (la pequeña entra junto a la grande)
+   turn_finished 9w71sj            16:28:57.231
+   turn_started zxjtux need=1600   16:28:57.232   (la mediana espera hasta que se va la grande)
+   Borde de la mediana: «context ? / 4k shared · ? tok/s · waiting for room in the pool»
+   (a-mediano-espera-pool.png). Borde de la grande: «/ 4k shared» (a-grande-borde-shared.png).
+
+2. Lo que reserva un Main cuenta para la admisión del otro (criterio 6)
+   Con los Mains reiniciados tras el arreglo de identidad (ver abajo): /send zxjtux en A (need 2233) y luego
+   /send xrwrfw en B (need 2860). 2233 + 2860 > 4096.
+   Lista de espera con B esperando y la reserva de A (b-lista-de-espera.json).
+   A turn_finished zxjtux 16:34:26.125 → B turn_started xrwrfw 16:34:26.192.
+   Borde de B: «waiting for room in the pool» (b-otro-main-espera-pool.png).
+
+3. Un Prompt mayor que el pool falla sin hacer cola (criterio 3)
+   /send tje2tt (need 4206 > 4096): 3 ms después, «[error] prompt_too_big: need=4206, limit=4096». El Prompt vuelve
+   al input y Enter queda libre (c-prompt-demasiado-grande.png).
+
+4. Aviso de Contexto (criterio 4, con kvu)
+   /send kzdbpj: 2754 de entrada + 700 de salida = 3454 de 4096, o sea 84 %. Sale el Aviso «the shared pool is at
+   84% of 4096 tokens» (d-aviso-contexto.png, bajo el de Turno cortado, que se cerró con una tecla).
+   No se repite en cada Paso: 9w71sj lo dio en su Turno 1 (80 %, con la pequeña reservando a la vez), no en el 2
+   (79 %), y otra vez en el 3 (94 %) porque había bajado del umbral.
+   Con -np 1 y con -np 2 sin kvu: solo con tests
+   (test_the_context_notice_shows_once_when_it_crosses_80_percent, parametrizado en los tres casos).
+
+5. Dos Mains con un solo slot se turnan por orden de llegada (criterio 5)
+   Servidor reiniciado con -c 8192 -np 1. Uno tras otro: /send zxjtux en A, /send xrwrfw en B, /send vwwgf7 en A.
+   A zxjtux       started 16:35:26.553  finished 16:35:30.300
+   B xrwrfw       started 16:35:30.308  (A no volvió a tomar el slot para vwwgf7, que llegó después)
+   A vwwgf7       started 16:35:32.760
+   Bordes mientras corría zxjtux: A vwwgf7 «queued (2nd)» (e-np1-main-a-en-cola.png), B xrwrfw «waiting for a
+   slot» (e-np1-main-b-esperando-slot.png).
+
+Fallos que salieron al probar, corregidos en el mismo commit con su test:
+- El Turno 2 de 9w71sj se cortó mientras razonaba, sin mensaje. La medida perdía ese razonamiento y midió 2654
+  en lugar de 3264, así que el Turno 3 llegó al 94 %. Ahora el razonamiento sin respuesta se mide solo
+  (test_reasoning_with_no_answer_after_it_is_measured_too); la nueva medida da 3264 exacto.
+- Los dos Mains de prueba se llaman root. Al publicar, uno borraba los waiters del otro. Ahora un Main es su id
+  más su pid (test_two_mains_with_the_same_id_keep_their_own_waiters). Los puntos 2 y 5 se hicieron ya así.
+
+Solo con tests (tests/test_pool_admission.py, tests/test_admission.py, tests/test_wait_list.py):
+- Un Prompt grande deja de ser adelantado pasado admission.patience
+  (test_a_big_prompt_stops_being_overtaken_once_it_waited_its_patience).
+- El slot liberado va al otro Main que esperaba antes, y el Main que esperaba antes conserva su turno
+  (test_a_freed_slot_goes_to_the_other_main_that_waited_first, test_a_main_whose_prompt_waited_first_keeps_its_turn).
+- El borde con el Servidor cargando (test_the_border_says_the_server_is_loading), sin pool compartido solo cuentan
+  los slots, y lo que deja un Main muerto se borra.
+
+Al final: /exit en los dos Mains y el llama que lancé parado; GPU en 0,9 GB.
