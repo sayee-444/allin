@@ -30,6 +30,7 @@ from allin.main.events import (
 )
 from allin.main.slots import parse_props, server_root
 from allin.supervisor.lock import supervisor_active
+from allin.supervisor.settings import shares_pool
 from allin.supervisor.state import read_state
 
 _INTERVAL = 1.0
@@ -146,8 +147,9 @@ class ServerWatch:
         state = probe(self._base_url)
         if isinstance(state, ServerDown):
             return supervisor_view(servers, name)
-        if isinstance(state, ServerReady) and told is not None and told.fallback_reason:
-            return ServerReady(state.props, fallback=told.fallback_reason)
+        if isinstance(state, ServerReady) and told is not None:
+            shared = shares_pool(told.arguments) if told.arguments else True
+            return ServerReady(state.props, fallback=told.fallback_reason, shared_pool=shared)
         return state
 
     def _watch(self) -> None:

@@ -10,6 +10,7 @@ from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId, ServerKey, SessionId, SupervisorName
 from allin.core.settings import MainSettings, Sampling, SessionSettings
 from allin.core.slot_locks import SlotLock, SlotLocks
+from allin.core.wait_list import WaitList
 from allin.ipc.messages import (
     ChatAppend,
     ChatDelta,
@@ -19,11 +20,12 @@ from allin.ipc.messages import (
     TurnState,
 )
 from allin.main.chat_rebuild import rebuild_chat
-from allin.main.conversation import Conversation, Step
+from allin.main.conversation import Conversation, Item, Step
 from allin.main.dispatcher import Dispatcher
 from allin.main.events import (
     DraftReceived,
     ErrorOccurred,
+    InputMeasured,
     InputReceived,
     MainCommandEntered,
     MainEvent,
@@ -95,6 +97,11 @@ class FakeServers:
         self.slot_waits = 0  # times Main waited for a slot lock another Main held
         self.on_slot_wait: Callable[[], None] = lambda: None
         self.rechecks = 0  # times Main asked a Server watch to say again what it sees
+        # What the Server counts in each Session's input, as it measures it (ADR-0004).
+        self.input_tokens: dict[str, int | None] = {}
+        self.default_input_tokens: int | None = 100
+        self.measured: list[str] = []  # each Session whose input Main had measured
+        self.inbox: queue.Queue[MainEvent] | None = None  # where measures go, once Main runs
 
     def watch(self, link: Link) -> None:
         self.watched.append(link)
@@ -105,10 +112,22 @@ class FakeServers:
             self.taken.append(server)
         return lock
 
-    def wait_for_slot(self, server: ServerKey, slots: int) -> None:
-        del server, slots
+    def wait_for_slot(self, server: ServerKey, slots: int, version: int) -> None:
+        del server, slots, version
         self.slot_waits += 1
         self.on_slot_wait()
+
+    def wait_list(self, server: ServerKey) -> WaitList:
+        return WaitList(self.directory, server)
+
+    def measure(
+        self, server: ServerKey, session_id: SessionId, ticket: int, items: list[Item]
+    ) -> None:
+        del items
+        assert self.inbox is not None
+        self.measured.append(session_id)
+        tokens = self.input_tokens.get(session_id, self.default_input_tokens)
+        self.inbox.put(InputMeasured(server, session_id, ticket, tokens))
 
     def recheck(self, server: ServerKey) -> None:
         del server
@@ -255,6 +274,7 @@ class MainHarness:
             events = (server_ready(self.server), *events)
         assert settle or not any(callable(event) for event in events), "steps need settle"
         inbox = DrainingInbox(list(events) if settle else [])
+        self.servers.inbox = inbox
 
         def submit_turn(job: TurnJob) -> None:
             other_main = SlotLocks(self.slot_locks_dir, KEY).take(self.server.total_slots)
@@ -286,6 +306,7 @@ class MainHarness:
             self.main_screen.append,
             self.devastation,
             load_notice_types(self.notices_dir),
+            lambda: self.now,
             lambda: self.now,
         )
         for event in () if settle else events:
@@ -974,6 +995,7 @@ def test_a_turn_that_ended_just_before_shutdown_is_saved_not_given_back(main: Ma
     main.run(
         MainCommandEntered(f"/open {session.id}"),
         InputReceived(session.id, "hola"),
+        InputMeasured(KEY, session.id, 1, 100),  # so its Turn starts before /exit
         MainCommandEntered("/exit"),
         ended(session),  # its executor finished it while /exit waited in the inbox
     )
@@ -998,6 +1020,7 @@ def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
     assert main.state.saved == [
         MainState(windows=windows),
         MainState(windows=windows, drafts={sid: ["hal"]}),
+        MainState(windows=windows, queue=[Prompt(sid, "a1")]),  # while its input is measured
         MainState(windows=windows, running=[Prompt(sid, "a1")]),
         MainState(windows=windows, queue=[Prompt(sid, "a2")], running=[Prompt(sid, "a1")]),
     ]

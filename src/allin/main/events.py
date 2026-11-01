@@ -103,6 +103,10 @@ class ServerReady:
     props: ServerProps
     # Why its Supervisor runs the last Settings that started instead of the pending ones.
     fallback: str | None = None
+    # Whether its slots share one pool of ``-c`` tokens (``--kv-unified``), as its
+    # Supervisor's running arguments say; assumed for a Server without one, which llama does
+    # by itself when its slots are not given.
+    shared_pool: bool = True
 
 
 @dataclass(frozen=True)
@@ -134,6 +138,17 @@ class ServerRestarting:
 type ServerState = (
     ServerDown | ServerLoading | ServerReady | ServerAsleep | ServerFailed | ServerRestarting
 )
+
+
+@dataclass(frozen=True)
+class InputMeasured:
+    """How many tokens the Server counts in the input of a Session's next Step (ADR-0004);
+    ``None`` if it could not say. ``ticket`` tells which measure it answers."""
+
+    server: ServerKey
+    session_id: SessionId
+    ticket: int
+    tokens: int | None
 
 
 @dataclass(frozen=True)
@@ -209,6 +224,7 @@ type MainEvent = (
     | SlotFreed
     | SupervisorAdopted
     | ServerProgress
+    | InputMeasured
     | Tick
     | ConfirmationRequested
     | BoxAnswered

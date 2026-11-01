@@ -31,6 +31,13 @@ class SlotLocks:
         self._directory = directory
         self._server = server
 
+    def free(self, slots: int) -> int:
+        """How many of the server's first ``slots`` locks nobody holds now."""
+        taken = [lock for _ in range(slots) if (lock := self.take(slots)) is not None]
+        for lock in taken:
+            lock.release()
+        return len(taken)
+
     def take(self, slots: int) -> SlotLock | None:
         """A free lock among the server's first ``slots``; ``None`` if every one is held."""
         self._directory.mkdir(parents=True, exist_ok=True)

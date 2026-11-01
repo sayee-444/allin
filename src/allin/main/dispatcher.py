@@ -21,6 +21,7 @@ from allin.main.events import (
     ConfirmationRequested,
     DraftReceived,
     ErrorOccurred,
+    InputMeasured,
     InputReceived,
     MainCommandEntered,
     MainEvent,
@@ -76,6 +77,7 @@ class Dispatcher:
         devastation: bool,
         notices: LoadedNotices,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
@@ -104,7 +106,9 @@ class Dispatcher:
             notices.types,
             main_id,
             settings.current.step.stall,
+            settings.current.admission.patience,
             clock,
+            wall_clock,
         )
         self._recovery = Recovery(
             self._reporter,
@@ -203,6 +207,8 @@ class Dispatcher:
                 self._reporter.raw(session_id, raw)
             case ServerProgress(server):
                 self._turns.server_progress(server)
+            case InputMeasured(server, session_id, ticket, tokens):
+                self._turns.measured(server, session_id, ticket, tokens)
             case Tick():
                 self._turns.tick()
             case StepEnded(session_id, step):

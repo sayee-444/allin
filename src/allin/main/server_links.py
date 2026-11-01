@@ -1,6 +1,6 @@
-"""Main's side of every Server its Sessions use (ADR-0022): a watch, slot locks and a slot
-waiter each, started the first time a Session needs that Server, and the waking of an asleep
-Supervisor when work comes for it.
+"""Main's side of every Server its Sessions use (ADR-0022): a watch, slot locks, a Wait list,
+a slot waiter and a measurer each, started the first time a Session needs that Server, and the
+waking of an asleep Supervisor when work comes for it.
 """
 
 import contextlib
@@ -14,10 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from allin.core.errors import SupervisorNotRunning
-from allin.core.ids import ServerKey, SupervisorName, parse_supervisor_name
+from allin.core.ids import ServerKey, SessionId, SupervisorName, parse_supervisor_name
 from allin.core.slot_locks import SlotLock, SlotLocks
+from allin.core.wait_list import WaitList
+from allin.main.conversation import Item
 from allin.main.events import MainEvent
 from allin.main.links import Link
+from allin.main.measure import Measurer
 from allin.main.server_watch import ServerWatch
 from allin.main.slot_locks import SlotWaiter
 from allin.supervisor.lock import supervisor_active
@@ -34,7 +37,9 @@ _SLEEP_TRIES = 40  # two seconds
 class _Watched:
     watch: ServerWatch
     locks: SlotLocks
+    waits: WaitList
     waiter: SlotWaiter
+    measurer: Measurer
 
 
 class ServerLinks:
@@ -53,8 +58,20 @@ class ServerLinks:
         supervisor = (self._servers, link.supervisor) if link.supervisor else None
         watch = ServerWatch(link.key, link.base_url, self._inbox, supervisor)
         locks = SlotLocks(self._servers, link.key)
-        self._watched[link.key] = _Watched(watch, locks, SlotWaiter(locks, self._inbox, link.key))
+        waits = WaitList(self._servers, link.key)
+        waiter = SlotWaiter(locks, waits, self._inbox, link.key)
+        measurer = Measurer(link.key, link.base_url, self._inbox)
+        self._watched[link.key] = _Watched(watch, locks, waits, waiter, measurer)
         watch.start()
+
+    def wait_list(self, server: ServerKey) -> WaitList:
+        return self._watched[server].waits
+
+    def measure(
+        self, server: ServerKey, session_id: SessionId, ticket: int, items: list[Item]
+    ) -> None:
+        """Measure a Step's input on the Server; ``InputMeasured`` reaches the inbox."""
+        self._watched[server].measurer.measure(session_id, ticket, items)
 
     def take_slot(self, server: ServerKey, slots: int) -> SlotLock | None:
         """``None`` also while its Supervisor drains: it takes every slot (ADR-0008)."""
@@ -74,11 +91,12 @@ class ServerLinks:
             raise SupervisorNotRunning(supervisor=name)
         os.kill(state.pid, signal.SIGUSR1 if now else signal.SIGHUP)
 
-    def wait_for_slot(self, server: ServerKey, slots: int) -> None:
-        """Not while its Supervisor drains, racing it for each slot: Main looks again once
-        the Server is back."""
+    def wait_for_slot(self, server: ServerKey, slots: int, version: int) -> None:
+        """Wait for a slot lock to be freed or the Wait list to move past ``version``. Not while
+        its Supervisor drains, racing it for each slot: Main looks again once the Server is
+        back."""
         if not self._draining(server):
-            self._watched[server].waiter.start(slots)
+            self._watched[server].waiter.start(slots, version)
 
     def recheck(self, server: ServerKey) -> None:
         if (watched := self._watched.get(server)) is not None:
@@ -138,6 +156,7 @@ class ServerLinks:
         for watched in self._watched.values():
             watched.watch.stop()
             watched.waiter.stop()
+            watched.measurer.stop()
 
 
 def _ended_since(servers: Path, name: SupervisorName, since: float) -> bool:

@@ -111,6 +111,13 @@ class StepStalled(AllInError):
     code: ClassVar[str] = "step_stalled"
 
 
+class PromptTooBig(AllInError):
+    """A Step needs more tokens (its measured input plus its Output cap) than its Server's slot
+    holds even with nothing else in course: it fails without waiting (ADR-0004)."""
+
+    code: ClassVar[str] = "prompt_too_big"
+
+
 class TurnCrashed(AllInError):
     """A Turn hit an unexpected error; the executor survives it and reports it."""
 
