@@ -12,20 +12,23 @@ from allin.core.errors import (
     UnknownCommand,
     WindowAlreadyOpen,
 )
-from allin.core.ids import MainId, SupervisorName, parse_supervisor_name
+from allin.core.ids import MainId
 from allin.core.origin import HUMAN, Origin
 from allin.main.boxes import MainBoxes
 from allin.main.devastation import Devastation
 from allin.main.open_windows import OpenWindows
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
+from allin.main.server_commands import ServerCommands
+from allin.main.server_commands import delicate as server_delicate
+from allin.main.server_commands import human_only as server_human_only
 from allin.main.sessions import SessionStore
 from allin.main.settings_commands import SettingsCommands, parse_session_command
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
-# Asks a running Supervisor to restart its Server, suspending the running Turns with ``now``.
-type RestartSupervisor = Callable[[SupervisorName, bool], None]
+# Whether a command, by its arguments, is delicate or only a human's.
+type ByArguments = Callable[[list[str]], bool]
 
 
 @dataclass(frozen=True)
@@ -36,9 +39,16 @@ class _MainCommand:
     optional: tuple[str, ...] = ()  # params after ``params`` that may be left out
     # The Session it concerns, from its arguments; by default its ``sid`` param.
     session_of: Callable[[list[str]], str | None] | None = None
-    confirm: bool = False  # delicate: asks a Confirmation first, which ``-y`` skips (ADR-0009)
-    human_only: bool = False  # any other Origin is an error (ADR-0013)
+    # Delicate: asks a Confirmation first, which ``-y`` skips (ADR-0009).
+    confirm: bool | ByArguments = False
+    human_only: bool | ByArguments = False  # any other Origin is an error (ADR-0013)
     takes_origin: bool = False  # ``run`` also gets the Origin, as ``origin=``
+
+    def delicate(self, args: list[str]) -> bool:
+        return self.confirm(args) if callable(self.confirm) else self.confirm
+
+    def only_human(self, args: list[str]) -> bool:
+        return self.human_only(args) if callable(self.human_only) else self.human_only
 
     def usage(self, name: str) -> str:
         words = [name, *(f"<{param}>" for param in self.params)]
@@ -57,9 +67,9 @@ class MainCommands:
         sysprompts: Path,
         boxes: MainBoxes,
         devastation: Devastation,
-        restart_supervisor: RestartSupervisor,
+        server: ServerCommands,
     ) -> None:
-        self._restart_supervisor = restart_supervisor
+        self.server = server  # the dispatcher hands it what /server adopt waits for
         self._boxes = boxes
         self._devastation = devastation
         self._reporter = reporter
@@ -90,8 +100,15 @@ class MainCommands:
                 takes_origin=True,
             ),
             "/devastation": _MainCommand(("state",), self._switch_devastation, human_only=True),
-            # Only ``restart`` so far; /server's other actions come with #26.
-            "/server": _MainCommand(("action", "name"), self._server, optional=("--now",)),
+            "/server": _MainCommand(
+                (),
+                server.run,
+                rest=True,
+                optional=("action…",),
+                takes_origin=True,
+                confirm=server_delicate,
+                human_only=server_human_only,
+            ),
             "/exit": _MainCommand((), lambda: False),
         }
 
@@ -104,7 +121,7 @@ class MainCommands:
         name = (text.split(maxsplit=1) or [""])[0]
         command = self._commands.get(name)
         yes = False
-        if command is not None and command.confirm:
+        if command is not None and command.confirm is not False:
             yes, text = _take_yes(text)
         args = text.split()[1:]
         if command is not None and command.rest:
@@ -122,15 +139,16 @@ class MainCommands:
             )
             if not len(command.params) <= len(args) <= len(names):
                 raise InvalidArguments(usage=command.usage(name))
-            if (yes or command.human_only) and origin != HUMAN:
+            if (yes or command.only_human(args)) and origin != HUMAN:
                 raise HumanOnly(action=name, origin=origin)
+            delicate = command.delicate(args)
             # --devastation answers the Confirmations of Main's own Chat; one asked from a
             # Session waits for its chain's Exemption, which arrives with F2 (ADR-0013).
             answered_by_main = self._devastation.on and origin != "session"
-            if command.confirm and not yes and not answered_by_main:
+            if delicate and not yes and not answered_by_main:
                 self._ask(command, args, text, session_id, origin)
                 return True
-            if command.confirm and not yes:
+            if delicate and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
                 self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
             keep_running = self._call(command, args, origin)
@@ -195,13 +213,6 @@ class MainCommands:
     def _send(self, session_id: str, text: str) -> bool:
         session = self._sessions.load_owned(session_id, self._main_id)
         self._turns.push(session, Prompt(session.id, text))
-        return True
-
-    def _server(self, action: str, name: str, flag: str | None = None) -> bool:
-        supervisor = parse_supervisor_name(name)
-        if action != "restart" or supervisor is None or flag not in (None, "--now"):
-            raise InvalidArguments(usage=self._commands["/server"].usage("/server restart"))
-        self._restart_supervisor(supervisor, flag == "--now")
         return True
 
     def _switch_devastation(self, state: str) -> bool:

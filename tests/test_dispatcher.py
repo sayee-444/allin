@@ -88,6 +88,8 @@ class FakeServers:
         self.watched: list[Link] = []
         self.woken: list[str] = []
         self.restarted: list[tuple[str, bool]] = []
+        self.slept: list[str] = []
+        self.woken_by_human: list[str] = []
         self.taken: list[ServerKey] = []  # each slot lock Main took, by Server
         self.slot_waits = 0  # times Main waited for a slot lock another Main held
         self.on_slot_wait: Callable[[], None] = lambda: None
@@ -111,9 +113,14 @@ class FakeServers:
         del server
         self.rechecks += 1
 
-    def wake(self, name: SupervisorName) -> bool:
+    def wake(self, name: SupervisorName, human: bool = False) -> bool:
         self.woken.append(name)
+        if human:
+            self.woken_by_human.append(name)
         return True
+
+    def sleep(self, name: SupervisorName) -> None:
+        self.slept.append(name)
 
     def restart(self, name: SupervisorName, now: bool) -> None:
         self.restarted.append((name, now))

@@ -13,7 +13,7 @@ from allin.core.errors import ServerSettingsInvalid, SupervisorAlreadyRunning
 from allin.core.ids import ServerKey, SupervisorName
 from allin.core.slot_locks import SlotLocks
 from allin.supervisor.lock import supervisor_active
-from allin.supervisor.process import MAX_CRASHES, Supervisor
+from allin.supervisor.process import MAX_CRASHES, Supervisor, put_to_sleep
 from allin.supervisor.settings import ServerSettings, load_server_settings
 from allin.supervisor.state import SupervisorState, read_state
 
@@ -277,3 +277,87 @@ def test_pending_settings_that_do_not_start_fall_back_to_the_last_that_did(
     toml.write_text(good)  # Settings that start again: the fallback is over
     supervisor.supervisor.restart(now=False)
     wait_for(lambda: (s := supervisor.state()) is not None and s.fallback_reason is None)
+
+
+def test_a_human_sleep_waits_for_the_running_step_then_sleeps_marked_as_a_humans(
+    running: Callable[..., Running],
+):
+    supervisor = running(parallel=2)
+    wait_for(supervisor.status_is("ready"))
+    servers = supervisor.data_dir / "servers"
+    step = SlotLocks(servers, ServerKey("gpu")).take(2)  # a Step some Main runs
+    assert step is not None
+    supervisor.supervisor.sleep_by_human()
+    wait_for(supervisor.status_is("draining"))
+    time.sleep(0.3)
+    draining = supervisor.state()
+    assert draining is not None and draining.status == "draining" and draining.going_to_sleep
+    assert draining.restart is None
+    step.release()
+    wait_for(supervisor.ended)
+    state = supervisor.state()
+    assert state is not None and state.status == "asleep" and state.slept_by_human
+    assert not supervisor_active(servers, SupervisorName("gpu"))
+
+
+def test_slots_left_to_llama_are_read_from_its_props_to_drain_them_all(
+    tmp_path: Path,
+):
+    port = free_port()
+    servers = tmp_path / "servers"
+    servers.mkdir()
+    (servers / "gpu.toml").write_text(
+        f'model = "m.gguf"\nport = {port}\ncommand = ["{sys.executable}", "{FAKE}"]\n'
+        'extra = ["-np", "2"]\n'  # llama chose them: the Settings do not say
+    )
+    supervisor = Running(tmp_path).start()
+    try:
+        wait_for(supervisor.status_is("ready"))
+        locks = SlotLocks(servers, ServerKey("gpu"))
+        step = locks.take(2)
+        assert step is not None
+        supervisor.supervisor.sleep_by_human()
+        wait_for(supervisor.status_is("draining"))
+        time.sleep(0.3)
+        assert supervisor.status_is("draining")()  # it waits for the second slot too
+        step.release()
+        wait_for(supervisor.ended)
+    finally:
+        supervisor.stop()
+
+
+def test_a_supervisor_that_does_not_run_is_marked_as_put_to_sleep_by_a_human(tmp_path: Path):
+    servers = tmp_path / "servers"
+    write_settings(tmp_path, "gpu", free_port())
+    assert put_to_sleep(servers, SupervisorName("gpu"))
+    state = read_state(servers, SupervisorName("gpu"))
+    assert state is not None and state.status == "asleep" and state.slept_by_human
+
+
+def test_a_running_supervisor_is_not_marked_from_outside(running: Callable[..., Running]):
+    supervisor = running()
+    wait_for(supervisor.status_is("ready"))
+    assert not put_to_sleep(supervisor.data_dir / "servers", SupervisorName("gpu"))
+    assert supervisor.status_is("ready")()
+
+
+def test_the_server_runs_in_its_settings_folder_without_context_shift_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("LLAMA_ARG_CONTEXT_SHIFT", "1")
+    folder = tmp_path / "models"
+    folder.mkdir()
+    port = free_port()
+    servers = tmp_path / "servers"
+    servers.mkdir()
+    (servers / "gpu.toml").write_text(
+        f'model = "m.gguf"\nport = {port}\ncwd = "{folder}"\n'
+        f'command = ["{sys.executable}", "{FAKE}", "--fake-report-env"]\n'
+    )
+    supervisor = Running(tmp_path).start()
+    try:
+        wait_for(supervisor.status_is("ready"))
+        log = (tmp_path / "logs" / "servers" / "gpu" / "server.log").read_text()
+        assert f"cwd {folder}" in log and "context shift env None" in log
+    finally:
+        supervisor.stop()

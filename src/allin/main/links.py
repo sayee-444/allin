@@ -29,6 +29,11 @@ class LinkResolver:
         self._servers = servers
         self._base_url = base_url
 
+    @property
+    def servers(self) -> Path:
+        """The folder of every Supervisor's Server Settings and state."""
+        return self._servers
+
     def observed(self) -> Link:
         """The Server at Main's ``base_url``, which Main only observes."""
         return Link(ServerKey(server_name(self._base_url)), self._base_url, None)

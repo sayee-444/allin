@@ -3,6 +3,7 @@ waiter each, started the first time a Session needs that Server, and the waking 
 Supervisor when work comes for it.
 """
 
+import contextlib
 import os
 import queue
 import signal
@@ -20,10 +21,13 @@ from allin.main.links import Link
 from allin.main.server_watch import ServerWatch
 from allin.main.slot_locks import SlotWaiter
 from allin.supervisor.lock import supervisor_active
+from allin.supervisor.process import put_to_sleep
 from allin.supervisor.state import read_state, state_path
 
 # A Supervisor just woken takes a moment to hold its lock: not woken again meanwhile.
 _WAKE_GRACE = 10.0
+_LOCK_PAUSE = 0.05
+_SLEEP_TRIES = 40  # two seconds
 
 
 @dataclass
@@ -80,21 +84,36 @@ class ServerLinks:
         if (watched := self._watched.get(server)) is not None:
             watched.watch.recheck()
 
-    def wake(self, name: SupervisorName) -> bool:
+    def sleep(self, name: SupervisorName) -> None:
+        """Drain a running Supervisor and put it to sleep; mark one that does not run as put to
+        sleep by a human, so that work never wakes it (ADR-0022)."""
+        for _ in range(_SLEEP_TRIES):
+            if put_to_sleep(self._servers, name):
+                return
+            state = read_state(self._servers, name)
+            if state is not None and state.pid is not None:
+                with contextlib.suppress(ProcessLookupError):  # ended: marked on the next try
+                    os.kill(state.pid, signal.SIGUSR2)
+                    return
+            time.sleep(_LOCK_PAUSE)  # it starts and has not written its pid yet
+        raise SupervisorNotRunning(supervisor=name)
+
+    def wake(self, name: SupervisorName, human: bool = False) -> bool:
         """Start the Supervisor's process unless it runs, was just woken, or a human put it to
-        sleep; whether it was started."""
+        sleep and this is not a ``human``'s wake; whether it was started."""
         if supervisor_active(self._servers, name):
             return False
         self._started = [process for process in self._started if process.poll() is None]
         state = read_state(self._servers, name)
         woken = self._woken.get(name)
         if (
-            woken is not None
+            not human
+            and woken is not None
             and time.monotonic() - woken < _WAKE_GRACE
             and not _ended_since(self._servers, name, time.time() - (time.monotonic() - woken))
         ):
             return False
-        if state is not None and state.slept_by_human:  # only /server wake undoes that
+        if state is not None and state.slept_by_human and not human:  # only /server wake
             return False
         self._woken[name] = time.monotonic()
         command = [

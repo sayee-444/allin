@@ -7,6 +7,7 @@ Supervisor never leaves a Server holding its port and its VRAM.
 """
 
 import ctypes
+import json
 import os
 import re
 import signal
@@ -18,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-from allin.core.errors import ServerSettingsInvalid
+from allin.core.errors import ServerSettingsInvalid, SupervisorAlreadyRunning
 from allin.core.ids import ServerKey, SupervisorName
 from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.supervisor.lock import SupervisorLock, lock_path
@@ -29,6 +30,7 @@ from allin.supervisor.state import (
     RestartKind,
     SupervisorState,
     SupervisorStatus,
+    read_state,
     write_state,
 )
 
@@ -44,6 +46,8 @@ _VRAM = re.compile(
     re.IGNORECASE,
 )
 _PR_SET_PDEATHSIG = 1
+# What would make llama truncate the Conversation in silence, from the environment (ADR-0017).
+_CONTEXT_SHIFT_ENV = "LLAMA_ARG_CONTEXT_SHIFT"
 
 
 def _die_with(supervisor_pid: int) -> Callable[[], None]:
@@ -83,12 +87,19 @@ class Supervisor:
         self._fallback_reason: str | None = None  # why it runs on ``_good`` instead of them
         self._held: list[SlotLock] = []  # every slot lock, while it restarts the Server
         self._server_pid: int | None = None
+        self._slots = 1  # the Server's, from its Settings or, when they leave it, its /props
         self._stopping = False  # set from a signal handler: a plain flag, no lock
+        self._human_sleep = False  # likewise: drain, then sleep until a human wakes it
         self._pid = 0
 
     def stop(self) -> None:
         """Stop the Server and fall asleep; safe from a signal handler or another thread."""
         self._stopping = True
+
+    def sleep_by_human(self) -> None:
+        """Drain the Server as before a restart, then fall asleep marked as put to sleep by a
+        human, whom only a human wakes (ADR-0022). Safe from a signal handler."""
+        self._human_sleep = True
 
     def restart(self, now: bool) -> None:
         """Restart the Server with the pending Settings once no Main has a Step on it; with
@@ -114,7 +125,7 @@ class Supervisor:
             return self._fail("settings", str(error), None)
         crashes = 0
         while True:
-            if self._stopping:  # asked before the model was loaded: not loaded at all
+            if self._stopping or self._human_sleep:  # asked before the model was loaded
                 self._write("asleep", settings)
                 return 0
             if not port_free(settings.port):
@@ -124,6 +135,9 @@ class Supervisor:
                 )
             server, log_start = self._launch(settings)
             outcome = self._watch(server, settings)
+            if outcome == "sleep":
+                self._drain(settings)  # a stop meanwhile only ends it sooner
+                return self._fall_asleep(server, settings)
             if outcome is None or (outcome == "restart" and not self._drain(settings)):
                 return self._fall_asleep(server, settings)  # stopped, maybe while it drained
             if outcome == "restart":
@@ -187,15 +201,16 @@ class Supervisor:
     def _drain(self, settings: ServerSettings) -> bool:
         """Take every slot lock of the Server, waiting for each Step on it to end: then no Main
         has one. ``False`` if stopped meanwhile."""
-        told: RestartKind | None = None
+        told: RestartKind | None = self._restart
+        self._write("draining", settings, server_pid=self._server_pid)
         locks = SlotLocks(self._servers, ServerKey(self._name))
-        while len(self._held) < settings.parallel:
+        while len(self._held) < self._slots:
             if self._stopping:
                 return False
             if self._restart != told:  # ``now`` may come while it drains: Mains read it here
                 told = self._restart
                 self._write("draining", settings, server_pid=self._server_pid)
-            lock = locks.take(settings.parallel)
+            lock = locks.take(self._slots)
             if lock is None:
                 time.sleep(self._poll)
             else:
@@ -215,24 +230,30 @@ class Supervisor:
             stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
             log.write(f"--- {stamp} {' '.join(settings.arguments())}\n".encode())
             log.flush()
+            env = {k: v for k, v in os.environ.items() if k != _CONTEXT_SHIFT_ENV}
             server = subprocess.Popen(
                 settings.arguments(),
+                cwd=settings.cwd,
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 preexec_fn=_die_with(os.getpid()),  # noqa: PLW1509 -- only this thread forks
             )
         self._ready_at = None
+        self._slots = settings.parallel or 1
         self._server_pid = server.pid
         self._write("starting", settings, server_pid=server.pid)
         return server, log_start
 
     def _watch(
         self, server: subprocess.Popen[bytes], settings: ServerSettings
-    ) -> int | Literal["restart"] | None:
-        """Until the Server exits (its exit code), a restart is asked for, or the Supervisor
-        is stopped (``None``)."""
+    ) -> int | Literal["restart", "sleep"] | None:
+        """Until the Server exits (its exit code), a restart or a human's sleep is asked for,
+        or the Supervisor is stopped (``None``)."""
         while not self._stopping:
+            if self._human_sleep:
+                return "sleep"
             exit_code = server.poll()
             if exit_code is not None:
                 self._release_slots()
@@ -251,6 +272,8 @@ class Supervisor:
             self._failed_pending, self._fallback_reason = None, None
             self._restart = None  # one asked while it started: it runs the pending ones already
         self._good = settings
+        if settings.parallel is None:  # llama chose how many
+            self._slots = _total_slots(settings.port) or self._slots
         self._release_slots()
         self._write("ready", settings, server_pid=self._server_pid)
 
@@ -266,10 +289,10 @@ class Supervisor:
         """Wait before launching again; ``False`` if stopped meanwhile."""
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            if self._stopping:
+            if self._stopping or self._human_sleep:
                 return False
             time.sleep(min(self._poll, seconds))
-        return not self._stopping
+        return not (self._stopping or self._human_sleep)
 
     def _vram_line(self, start: int) -> str | None:
         """The line where the Server said it ran out of memory since its last launch (its
@@ -304,14 +327,47 @@ class Supervisor:
             pid=self._pid if status != "asleep" and status != "failed" else None,
             server_pid=server_pid,
             arguments=settings.arguments() if settings is not None else [],
+            cwd=settings.cwd if settings is not None else None,
             port=settings.port if settings is not None else None,
             last_exit_code=last_exit_code,
             failure=failure,
             reason=reason,
             restart=self._restart if status == "draining" else None,
+            going_to_sleep=self._human_sleep and status == "draining",
+            slept_by_human=self._human_sleep and status == "asleep",
             fallback_reason=self._fallback_reason,
         )
         write_state(self._servers, self._name, state)
+
+
+def put_to_sleep(servers: Path, name: SupervisorName) -> bool:
+    """Mark a Supervisor that does not run as put to sleep by a human, holding its lock while
+    it writes, as the Supervisor would; ``False`` if it runs, and is told by a signal instead."""
+    lock = SupervisorLock(lock_path(servers, name))
+    try:
+        lock.acquire()
+    except SupervisorAlreadyRunning:
+        return False
+    try:
+        state = read_state(servers, name) or SupervisorState(status="asleep")
+        asleep = SupervisorState(
+            status="asleep", arguments=state.arguments, port=state.port, slept_by_human=True
+        )
+        write_state(servers, name, asleep)
+    finally:
+        lock.release()
+    return True
+
+
+def _total_slots(port: int) -> int | None:
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/props", timeout=_HEALTH_TIMEOUT
+        ) as reply:
+            slots = json.load(reply).get("total_slots")
+    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+        return None
+    return slots if isinstance(slots, int) and slots >= 1 else None
 
 
 def _healthy(port: int) -> bool:

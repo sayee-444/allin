@@ -29,6 +29,7 @@ from allin.main.events import (
     Shutdown,
     SlotFreed,
     StepEnded,
+    SupervisorAdopted,
     Tick,
     TurnEnded,
     TurnOutput,
@@ -42,6 +43,7 @@ from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
+from allin.main.server_commands import ServerCommands
 from allin.main.sessions import SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
@@ -130,7 +132,17 @@ class Dispatcher:
             sysprompts,
             self._boxes,
             self._devastation,
-            servers.restart,
+            ServerCommands(
+                links.servers,
+                servers,
+                self._reporter,
+                self._turns,
+                links,
+                sessions,
+                self._windows,
+                lambda: settings_commands.current.session.server,
+                inbox.put,
+            ),
         )
 
     def run(self) -> None:
@@ -199,6 +211,8 @@ class Dispatcher:
                 self._turns.server_changed(server, state)
             case SlotFreed(server):
                 self._turns.slot_freed(server)
+            case SupervisorAdopted(name):
+                self._commands.server.adopted(name)
             case ConfirmationRequested(session_id, title, text):
                 self._turns.confirmation_requested(session_id, title, text)
             case BoxAnswered(box_id, answer):

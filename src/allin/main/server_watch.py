@@ -142,7 +142,7 @@ class ServerWatch:
             return supervisor_view(servers, name)
         told = read_state(servers, name)
         if told is not None and told.status == "draining":
-            return ServerRestarting(now=told.restart == "now")
+            return ServerRestarting(now=told.restart == "now", sleep=told.going_to_sleep)
         state = probe(self._base_url)
         if isinstance(state, ServerDown):
             return supervisor_view(servers, name)

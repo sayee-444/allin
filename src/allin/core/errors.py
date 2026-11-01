@@ -218,3 +218,21 @@ class SupervisorNotRunning(AllInError):
     Settings anyway."""
 
     code: ClassVar[str] = "supervisor_not_running"
+
+
+class ServerNotAdoptable(AllInError):
+    """``/server adopt`` cannot take this ``llama serve`` under a Supervisor, and says why."""
+
+    code: ClassVar[str] = "server_not_adoptable"
+
+
+class SupervisorExists(AllInError):
+    """``/server new`` or ``/server adopt`` named a Supervisor that already exists."""
+
+    code: ClassVar[str] = "supervisor_exists"
+
+
+class SupervisorNotFound(AllInError):
+    """No ``servers/<name>.toml``: no Supervisor has this name."""
+
+    code: ClassVar[str] = "supervisor_not_found"

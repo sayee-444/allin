@@ -128,6 +128,7 @@ class ServerRestarting:
     running on it are suspended and their Steps repeated after it (ADR-0008, ADR-0023)."""
 
     now: bool = False
+    sleep: bool = False  # it drains because a human put it to sleep
 
 
 type ServerState = (
@@ -154,6 +155,14 @@ class ServerChanged:
 
     server: ServerKey
     state: ServerState
+
+
+@dataclass(frozen=True)
+class SupervisorAdopted:
+    """The ``llama serve`` that ``/server adopt`` ended freed its port: its new Supervisor
+    launches it again."""
+
+    supervisor: SupervisorName
 
 
 @dataclass(frozen=True)
@@ -198,6 +207,7 @@ type MainEvent = (
     | TurnEnded
     | ServerChanged
     | SlotFreed
+    | SupervisorAdopted
     | ServerProgress
     | Tick
     | ConfirmationRequested
