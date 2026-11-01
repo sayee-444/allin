@@ -29,8 +29,19 @@ El componente de Main que abre una Ventana: lanza xterm con `Popen` en una sesi�
 _Avoid_: hijo, worker
 
 **Ventana** (`Window`):
-El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrarla cancela el Turno de su Sesión solo si el Prompt de ese Turno tiene Origen humano; para cualquier otro Turno es una mirilla, y cerrarla no detiene el trabajo.
+El proceso xterm/curses (`python -m allin.window`) que muestra una Sesión y recibe lo que escribe el usuario. A lo sumo una Ventana por Sesión; una Sesión trabaja igual sin ella. Cerrarla cancela el Turno de su Sesión solo si el Prompt de ese Turno tiene Origen humano; para cualquier otro Turno es una mirilla, y cerrarla no detiene el trabajo. Mandar su Sesión a segundo plano no es cerrarla.
 _Avoid_: nieto, terminal, xterm (como nombre del concepto)
+
+**Segundo plano** (`background`):
+Estado de una Sesión abierta que no tiene su Ventana a la vista. Sigue exactamente igual que con ella: recibe Prompts, corre sus Turnos y sus tools, y la alcanzan otras Sesiones y submains; solo le falta la pantalla. No está dormida ni se cancela nada al pasar a segundo plano, y al traerla de vuelta su Ventana se abre donde va. Una Sesión abierta está a la vista (con su Ventana) o en segundo plano; cerrar su Ventana es otra cosa.
+_Avoid_: minimizada, oculta, dormida, suspendida
+
+**Máximo de Ventanas** (`windows.max`):
+Ajuste de Main: cuántas Sesiones pueden estar a la vista a la vez en ese Main. Las demás abiertas quedan en segundo plano: lo que abre un humano desplaza a la que lleva más tiempo sin usar, y lo que abre una Sesión nace en segundo plano. El tope compartido por un árbol de submains se decide en F3.
+
+**Organizador** (`Organizer`):
+Pantalla temporal de Main que lista las Sesiones abiertas del Perfil, a la vista o en segundo plano, para traer una, mandarla a segundo plano o cerrar su Ventana con un clic. Es parte de Main, no una pieza, así que sus clics tienen Origen humano. No es la Ventana de ninguna Sesión, no cuenta para el Máximo de Ventanas y no vuelve al reiniciar Main.
+_Avoid_: fsource organizadora, barra de tareas, Lanzador (es el que abre las Ventanas)
 
 **Servidor** (`Server`):
 El proceso `llama serve` que atiende los Pasos de los Turnos de los Mains que apuntan a él. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa. Los de los modelos del RAG no atienden Pasos: calculan embeddings o reordenan para él.
@@ -66,7 +77,7 @@ Registro con fecha y hora de los eventos de una Sesión o de Main; siempre activ
 _Avoid_: historial
 
 **Estado de Main** (`MainState`):
-Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json` (el del Main raíz pasa a la carpeta de su Perfil en #30), para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Borradores, cola de Prompts y Prompts de los Turnos en curso. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
+Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json` (el del Main raíz pasa a la carpeta de su Perfil en #30), para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Sesiones en segundo plano, Borradores, cola de Prompts y Prompts de los Turnos en curso. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
 _Avoid_: snapshot, sesión de Main
 
 **Borrador** (`draft`):
@@ -89,7 +100,7 @@ Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajuste
 _Avoid_: perfil, plantilla, preset
 
 **Plano** (`Blueprint`):
-Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde qué Moldes, cuáles abren Ventana y cuál coordina. Viaja en un Kit; crear desde un Plano solo añade, nunca toca lo que ya existe.
+Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde qué Moldes, cuáles abren Ventana o nacen en segundo plano y cuál coordina. Viaja en un Kit; crear desde un Plano solo añade, nunca toca lo que ya existe.
 _Avoid_: topología, red, estructura (como nombre del concepto)
 
 **Informe de recuperación** (`RecoveryReport`):
@@ -167,7 +178,7 @@ _Avoid_: truncar, context shift, resumen (es lo que produce)
 ## Comandos
 
 **Command main** (`MainCommand`):
-Comando de Main, escrito con `/`. Es la única vía para modificar el estado; se carga al arrancar Main y no se recarga en caliente.
+Comando de Main, escrito con `/`. Es la única vía para modificar el estado; se carga al arrancar Main y no se recarga en caliente. Una pieza no puede añadir los suyos: a los métodos de un Proceso adherido, un humano los llama con `/call`.
 
 **Command session** (`SessionCommand`):
 Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016).
@@ -184,7 +195,7 @@ _Avoid_: @path (como nombre del concepto)
 Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro del LLM solo para ese Turno. Solo admite la lista cerrada de parámetros de muestreo que viajan en cada Paso; nunca functions, Sysprompt ni Alcance.
 
 **Origen** (`origin`):
-De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen. Lo que llega de otra Sesión es dato: Main nunca lo trata como comando ni le da más autoridad, y el LLM puede seguirlo, pero con la autoridad de su cadena. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
+De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main, o lo que hace en el Organizador) o una Sesión, con la cadena por la que llegó. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen. Lo que llega de otra Sesión es dato: Main nunca lo trata como comando ni le da más autoridad, y el LLM puede seguirlo, pero con la autoridad de su cadena. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
 
 **Notificación** (`Notification`):
 Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
@@ -212,11 +223,11 @@ _Avoid_: loop
 ## Functions
 
 **Function tool** (`FunctionTool`):
-Función que solo el LLM puede invocar (va en `tools=[...]`); un módulo = una tool, salvo una fscreen, que expone una por método. El usuario nunca la llama directamente.
+Función que invoca el LLM (va en `tools=[...]`); un módulo = una tool, salvo una fscreen, que expone una por método. El usuario nunca llama directamente a una fsource ni a un fagent; a los métodos de un Proceso adherido sí, con `/call`.
 _Avoid_: skill, comando
 
 **fsource**:
-Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`) y que puede ejecutar Command sessions; es la vía por la que el LLM actúa sobre AllIn.
+Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`) y que puede ejecutar Command sessions; es, con los métodos de una fscreen, la vía por la que el LLM actúa sobre AllIn.
 _Avoid_: source, function source
 
 **fagent**:
@@ -224,11 +235,11 @@ Function tool escrita por el usuario o por el LLM; se pasa explícitamente en `/
 _Avoid_: agent, function agent, agente
 
 **fscreen**:
-Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. `screen.py` es solo un ejemplo de fscreen, sin estatus especial; su comportamiento lo definen sus métodos, no los Ajustes.
+Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. Sus métodos los llaman el LLM y también un humano, con `/call`; los marcados con `@human` solo los llama un humano y nunca llegan al LLM. Mientras atiende una llamada, un método puede ejecutar Command sessions, como una fsource. `screen.py` es solo un ejemplo de fscreen, sin estatus especial; su comportamiento lo definen sus métodos, no los Ajustes.
 _Avoid_: screen, function screen
 
 **Proceso adherido** (`Attachment`):
-Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main, y al cambiar de Perfil se cierran los del saliente. Al adherirlo recibe un nombre y una Carpeta de trabajo propia que lo sobrevive; Main nunca lo relanza solo, y adherirlo de nuevo con el mismo nombre le devuelve esa carpeta. Main rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta.
+Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main, y al cambiar de Perfil se cierran los del saliente. Al adherirlo recibe un nombre y una Carpeta de trabajo propia que lo sobrevive; Main nunca lo relanza solo, y adherirlo de nuevo con el mismo nombre le devuelve esa carpeta. Main rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta. Sus métodos los recibe como tools la Sesión que lo adhiere (todas las nuevas, si lo adhiere Main), que puede pasarlos a las que ella crea; un humano se los da o se los quita a cualquiera, y soltarlo se los quita a todas. En la cadena de Origen de lo que manda a Main es un eslabón que nunca cuenta como humano, porque su estado mezcla lo que escribieron varias Sesiones.
 _Avoid_: screen, plugin, servicio
 
 **Alcance** (`reach`):

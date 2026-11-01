@@ -16,7 +16,7 @@ Entran cuatro cosas, cada una en sus Segmentos:
 
 Cada Sesión busca en su propio historial. El historial del Perfil (el de todas sus Sesiones) solo lo da un humano, y nunca se alcanza otro Perfil (ADR-0010).
 
-Lo que ve una Sesión es su lista de Segmentos. Por defecto: su historial, lo de AllIn y los Corpus que el Perfil marque como de serie. Se lleva como sus functions: un Molde la fija, un Clon la copia, y solo un humano la amplía. Los métodos `buscar` y `leer` del RAG se heredan en `/new` como las fsources y se quitan igual (`-sf=off`, o un Molde que no los lleve). El permiso es de la Sesión, no de su Ventana ni de Main: Main pone la lista en cada llamada y comprueba de qué Segmento es cada fragmento que vuelve. Las Sesiones solo leen: el historial se escribe solo y los Corpus los añade un humano.
+Lo que ve una Sesión es su lista de Segmentos. Por defecto: su historial, lo de AllIn y los Corpus que el Perfil marque como de serie. Se lleva como sus functions: un Molde la fija, un Clon la copia, y solo un humano la amplía. Los métodos `buscar` y `leer` del RAG se heredan en `/new` como las fsources y se quitan igual (`-sf=off`, o un Molde que no los lleve). En `tools=[...]` se llaman `rag_buscar` y `rag_leer` (ADR-0021). El permiso es de la Sesión, no de su Ventana ni de Main: Main pone la lista en cada llamada y comprueba de qué Segmento es cada fragmento que vuelve. Las Sesiones solo leen: el historial se escribe solo y los Corpus los añade un humano.
 
 ## Cómo llega a la Conversación sin llenarla
 
