@@ -54,7 +54,7 @@ class OpenWindows:
         self._drafts: dict[str, list[str]] = {}
         self._limit: int | None = None  # each slot's context, once the Server is ready
 
-    def attach(self, session: Session, streamed: Streamed | None) -> None:
+    def open(self, session: Session, streamed: Streamed | None) -> None:
         """Open the Session's Window and show it its Chat so far and its Draft.
 
         ``streamed`` is what its running Turn has given so far, if it has one.
@@ -137,7 +137,7 @@ class OpenWindows:
         """Each open Window's xterm pid, in the order they opened."""
         return {session_id: link.pid for session_id, link in self._links.items()}
 
-    def draft(self, session_id: str, blocks: Sequence[str]) -> None:
+    def keep_draft(self, session_id: str, blocks: Sequence[str]) -> None:
         """What a Session's Window holds in its input now, shown block first."""
         self._drafts[session_id] = list(blocks)
 

@@ -84,7 +84,7 @@ class Recovery:
             draft = drafts.get(prompt.session_id, [])
             drafts[prompt.session_id] = put_back(draft, prompt.text)
         for session_id, blocks in drafts.items():
-            self._windows.draft(session_id, blocks)
+            self._windows.keep_draft(session_id, blocks)
         self._turns.requeue(saved.queue)
         for session_id, pid in saved.windows.items():
             # Only one Main of this id runs (ADR-0007), so a Window of its still up is an orphan.
@@ -93,7 +93,7 @@ class Recovery:
                 self._reporter.record(session_id, "orphan_window_closed", shown, pid=pid)
             try:
                 session = self._sessions.load_owned(session_id, self._main_id)
-                self._windows.attach(session, self._turns.streamed(session.id))
+                self._windows.open(session, self._turns.streamed(session.id))
             except AllInError as error:
                 self._windows.show_error(error, session_id)
         self._turns.pause("starting")  # once the Windows are open, so they are told why

@@ -1,10 +1,14 @@
 """Main's queue of Prompts and the Turns it runs from them (ADR-0004).
 
 It holds the queue, the running Turns, how many may run at once, the slot lock each one holds
-(ADR-0008) and the pause while the Server is not ready. Each queue entry is a whole ``Prompt``,
-from ``push`` to the saved MainState, and ``PromptQueue.pop_ready`` alone decides which one
-starts next; so a Prompt that gains an Origin (ADR-0013), or a Continuation that must go
-before the new Prompts, changes those two and nothing here.
+(ADR-0008) and the pause while the Server is not ready.
+
+Each queue entry is a whole ``Prompt``, carried as it is from ``push`` to its running Turn and
+the saved MainState, so an Origin (ADR-0013) added to ``Prompt`` reaches every place that needs
+it; and ``PromptQueue.pop_ready`` alone decides which Prompt starts next, so a Continuation
+that must go before the new Prompts changes only that order. What depends on the Origin is
+in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_fail_turn`` (the
+Prompt back to the input, only for a human one).
 """
 
 from collections.abc import Callable
@@ -192,7 +196,7 @@ class TurnQueue:
         """Main is shutting down: no Turn starts any more."""
         self._stopping = True
 
-    def stop_turns(self) -> None:
+    def cancel_running(self) -> None:
         """On shutdown: cancel every running Turn.
 
         The Turns are ended here, as cancelled, since no event is handled after this. Their

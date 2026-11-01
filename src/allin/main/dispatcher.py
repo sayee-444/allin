@@ -98,7 +98,7 @@ class Dispatcher:
         self._take_turn_events()
         # Windows, queue and running Turns as they are: a restart restores them.
         self._recovery.save()
-        self._turns.stop_turns()
+        self._turns.cancel_running()
         self._windows.close_all()
         self._reporter.log_main("main_stopped", main_id=self._main_id)
 
@@ -124,7 +124,7 @@ class Dispatcher:
                 self._commands.run(f"/send {session_id} {text}")
                 self._turns.send_turn_state(session_id)  # unblocks Enter if /send failed
             case DraftReceived(session_id, blocks):
-                self._windows.draft(session_id, blocks)
+                self._windows.keep_draft(session_id, blocks)
             case TurnOutput(session_id, kind, text):
                 self._turns.output(session_id, kind, text)
             case TurnRaw(session_id, raw):

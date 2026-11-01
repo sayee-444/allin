@@ -89,14 +89,14 @@ class MainCommands:
         sysprompt = render_sysprompt(self._sysprompts, settings)
         session = self._sessions.create(self._main_id, settings, sysprompt)
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
-        self._windows.attach(session, self._turns.streamed(session.id))
+        self._windows.open(session, self._turns.streamed(session.id))
         return True
 
     def _open(self, session_id: str) -> bool:
         session = self._sessions.load_owned(session_id, self._main_id)
         if self._windows.is_open(session.id):
             raise WindowAlreadyOpen(session_id=session.id)
-        self._windows.attach(session, self._turns.streamed(session.id))
+        self._windows.open(session, self._turns.streamed(session.id))
         return True
 
     def _send(self, session_id: str, text: str) -> bool:
