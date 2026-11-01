@@ -1,0 +1,55 @@
+#30 Perfiles 1/3 — prueba a mano (2026-11-01)
+Código: rama feature/30-perfiles (00ed5a7) con main fusionado (#29). Sin Servidor: nada de esto lo necesita,
+así que la cola queda en pausa («Server down») y eso es lo esperado.
+
+1. Un var/ anterior a los Perfiles arranca como Perfil default sin perder Ventanas, cola ni Borradores
+   Main de main (sin Perfiles): python -m allin --data-dir <scratch>/d30
+   /new dos veces (shhr0g, wzqgqt). En shhr0g, Prompt «hola desde antes de los perfiles» (queda en cola, sin
+   Servidor). En wzqgqt, Borrador «borrador sin enviar» sin enviar (a-antes-*.png). /exit.
+   Carpeta: state/root.json (2 Ventanas, 1 Borrador, 1 Prompt en cola), state/root.lock, sessions/, logs/.
+   Main de la rama, misma carpeta y sin --profile:
+   - Se crean profiles/default/{state.json, sessions.json, sysprompts/} y state/{main.lock, last_profile.json};
+     state/root.json desaparece.
+   - sessions.json = [shhr0g, wzqgqt].
+   - Se reabren las dos Ventanas, el Prompt vuelve a la cola y el Borrador vuelve al input (b-migrado-*.png).
+   Nota: en b-migrado-borrador.png se lee «borrador sin enviare». Esa «e» la metió mi script de teclado, no AllIn.
+   Repetido en una carpeta nueva (<scratch>/d30r): antes {'fckguw': ['borrador sin enviar']}, después igual. Con
+   otro Borrador y un reinicio del Main nuevo tampoco cambia.
+
+2. Tras la migración, los Sysprompts se leen de profiles/default/sysprompts/ y una Sesión nueva nace igual que antes
+   - profiles/default/sysprompts/ es igual a la carpeta de instalación (diff -r sin diferencias).
+   - /new → kdpgs9: el mismo sysprompt que shhr0g, creada antes de migrar («igual que antes»).
+   - Se añadió «Profile default: marca propia.» a profiles/default/sysprompts/default.txt. /new → kfhoth la lleva.
+     Se lee de la carpeta del Perfil, no de la de instalación.
+
+3. /profile new copia los Sysprompts del Perfil activo; cambiar uno en un Perfil no cambia el otro
+   - /profile new tesis-2026 → profiles/tesis-2026/{settings, sysprompts, sessions.json=[]}. Su default.txt es
+     igual al de default, con la marca incluida.
+   - Se añadió «Perfil tesis: solo aquí.» al default.txt de tesis-2026 y se arrancó con --profile tesis-2026.
+     /new → 95c541 lleva las dos líneas. El default.txt de default no la tiene.
+
+4. --profile noexiste sale con error y no crea archivos
+   - En <scratch>/d30: «profile_not_found: profile='noexiste'», salida 1. find antes y después: ningún archivo
+     nuevo, y last_profile.json no cambia (mismo md5).
+   - En una carpeta que no existe (<scratch>/d30-vacia): el mismo error, y la carpeta sigue sin existir.
+
+5. /profile new X! da error; /profile new tesis-2026 crea el Perfil (c-profile-comandos.png)
+   /profile new X!          → error profile_name_invalid: name='X!'
+   /profile new tesis-2026  → profile tesis-2026 created
+   /profile new tesis-2026  → error profile_exists: profile='tesis-2026'
+   /profile                 → default (active) / tesis-2026
+
+6. Un segundo python -m allin --profile otro sobre la misma carpeta sale con main_already_running
+   Con el Main de default corriendo: python -m allin --data-dir <scratch>/d30 --profile tesis-2026 →
+   «main_already_running: lock='<scratch>/d30/state/main.lock': another root Main already runs on <scratch>/d30»,
+   salida 1.
+
+Además:
+- Sin --profile se abre el último Perfil usado. Tras usar tesis-2026, arrancar sin --profile abre tesis-2026 con
+  su propia Ventana (95c541) y su propio Estado de Main. /profile → tesis-2026 (active) (d-abre-el-ultimo-perfil.png).
+- /open shhr0g desde tesis-2026 la añade a su lista ([95c541, shhr0g]): la Sesión queda compartida.
+
+7. Tests: tests/test_profiles.py (nombres, migración, migración interrumpida, check sin tocar nada, create,
+   sesiones) y tests/test_profile_commands.py. 700 tests con #29, basedpyright y ruff limpios.
+
+Al final: /exit en todos los Mains de la prueba; no queda ninguno corriendo.
