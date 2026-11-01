@@ -10,10 +10,10 @@ from allin.main.lock import MainLock
 
 
 def test_a_second_main_with_the_same_lock_cannot_start(tmp_path: Path):
-    first = MainLock(tmp_path / "state" / "root.lock")
+    first = MainLock(tmp_path / "state" / "main.lock")
     first.acquire()
     with pytest.raises(MainAlreadyRunning):
-        MainLock(tmp_path / "state" / "root.lock").acquire()
+        MainLock(tmp_path / "state" / "main.lock").acquire()
 
 
 def test_mains_with_different_ids_run_side_by_side(tmp_path: Path):

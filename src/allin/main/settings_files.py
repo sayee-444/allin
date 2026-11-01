@@ -1,6 +1,6 @@
 """Main's Settings on disk: the current ones and the defaults, each in its own JSON file.
 
-They live in ``<data-dir>/settings/`` until Profiles move them to each Profile's folder (#30).
+They live in the ``settings/`` folder of each Profile (ADR-0010).
 A file that cannot be read never leaves Main with half its Settings: the whole version falls
 back (current to the defaults, defaults to the code's) and each failing key is told.
 """

@@ -236,3 +236,27 @@ class SupervisorNotFound(AllInError):
     """No ``servers/<name>.toml``: no Supervisor has this name."""
 
     code: ClassVar[str] = "supervisor_not_found"
+
+
+class ProfileNotFound(AllInError):
+    """No ``profiles/<name>/``: naming a Profile that does not exist never creates it."""
+
+    code: ClassVar[str] = "profile_not_found"
+
+
+class ProfileNameInvalid(AllInError):
+    """A Profile's name takes letters, digits and hyphens, from 3 to 32 of them."""
+
+    code: ClassVar[str] = "profile_name_invalid"
+
+
+class ProfileExists(AllInError):
+    """``/profile new`` named a Profile that already exists."""
+
+    code: ClassVar[str] = "profile_exists"
+
+
+class ProfileStorageFailed(AllInError):
+    """A Profile's folder or one of its files could not be read or written."""
+
+    code: ClassVar[str] = "profile_storage_failed"
