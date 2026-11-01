@@ -19,6 +19,7 @@ from allin.ui.draft import DraftReporter
 from allin.ui.input_buffer import InputBuffer
 from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
 from allin.ui.layout import Layout, Rect, compute_layout
+from allin.ui.sanitize import visible
 from allin.ui.viewport import Viewport
 from allin.ui.wrap import cell_width, wrap
 
@@ -83,7 +84,7 @@ type ScreenUpdate = str | ChatLine | ChatStream | InputLock | BorderStatus | Inp
 class ChatScreen:
     def __init__(self, stdscr: curses.window, title: str) -> None:
         self._stdscr = stdscr
-        self._title = title
+        self._title = visible(title)
         self._status = ""
         self._chat = Chat()
         self._chat_rows: list[Row] = []  # self._chat wrapped to the Chat pad's width
@@ -179,17 +180,17 @@ class ChatScreen:
                 case None:
                     return False
                 case str() as text:
-                    self._chat.add(text)
+                    self._chat.add(visible(text))
                 case ChatLine(text, role, label):
-                    self._chat.add(text, role, label)
+                    self._chat.add(visible(text), role, _visible_label(label))
                 case ChatStream(text, role, label):
-                    self._chat.stream(text, role, label)
+                    self._chat.stream(visible(text), role, visible(label))
                 case InputLock(locked):
                     self._locked = locked
                     if not locked:  # the Turn is over; a lock must not split a replayed stream
                         self._chat.end_stream()
                 case BorderStatus(text):
-                    self._status = text
+                    self._status = visible(text)
                 case InputText(text):
                     self._input.restore(text)
             self._dirty = True
@@ -211,7 +212,7 @@ class ChatScreen:
             self._layout = None
         height, width = self._stdscr.getmaxyx()
         # A trailing space reserves the cell where the cursor sits after the last character.
-        input_rows = wrap(self._input.text + " ", max(1, width - 2))
+        input_rows = wrap(visible(self._input.text) + " ", max(1, width - 2))
         try:
             layout = compute_layout(height, width, len(input_rows))
         except ScreenTooSmall:
@@ -258,6 +259,10 @@ class ChatScreen:
         with suppress(curses.error):
             self._stdscr.addnstr(0, 0, _TOO_SMALL, max(0, width - 1))
         self._stdscr.refresh()
+
+
+def _visible_label(label: str | None) -> str | None:
+    return None if label is None else visible(label)
 
 
 def _write_terminal(sequence: str) -> None:
