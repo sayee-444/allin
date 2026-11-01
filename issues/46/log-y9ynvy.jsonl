@@ -1,0 +1,2 @@
+{"ts": "2026-11-01T17:13:57.444743-06:00", "event": "prompt", "text": "Next point: which codename would you give to the whole Faro project? One line, no thinking."}
+{"ts": "2026-11-01T17:13:57.459763-06:00", "event": "error", "error": "prompt_too_big: need=8612, limit=8192"}

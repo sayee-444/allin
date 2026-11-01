@@ -1,0 +1,73 @@
+#46 Compactación del Contexto — prueba a mano (2026-11-01)
+Código: rama feature/46-compactacion (2c42788 + el arreglo 20b8a4a, ver abajo).
+Modelo: Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf, llama serve build 10909, puerto 9932, con
+  -ngl all -fa on -ctk q4_0 -ctv q4_0 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --spec-type draft-mtp
+  Fase 1: -c 16384 -np 1      Fase 2: -c 8192 -np 1      Fase 3: -c 8192 --kv-unified -np 2
+Main: ./venv/bin/python -m allin --data-dir <scratch>/d46 (carpeta de antes de los Perfiles, migrada al arrancar).
+Sesiones sembradas con una Conversación realista del proyecto «Faro»: cada Turno decide un punto (servidor de staging
+en lince:9940, PostgreSQL 17…), de unos 210 tokens. Las de los criterios 1 y 2 se hicieron además charlando de verdad.
+Los log-<sid>.jsonl son el Log de cada Sesión, sin las líneas de Ventana.
+
+1. /session compact deja literales el Sysprompt y los Turnos recientes, y cambia lo anterior por un mensaje user
+   con cabecera (fase 1)
+   - 6e6qrx (14 Turnos sembrados, compact.keep=0.1 → 1638 tokens): /session compact 6e6qrx keep every decision and
+     who owns each point. Resultado: compacted, 8 Turnos resumidos y 6 literales, 1993 → 240 tokens. El resumen lista
+     las 8 decisiones con sus datos y quién las decide (a-resumen-con-instrucciones.png).
+   - conversation.json: summarized=8, summary=…, turns = los 6 últimos (el primero es «point 9»). El sysprompt no cambia.
+     La petición lleva el resumen como mensaje user con cabecera «[Conversation summary · Prompts 1–8]»
+     (test_compacting_by_hand_summarizes_the_old_turns_and_keeps_the_recent_ones_literal).
+   - 8o0k6q, charlada de verdad: 4 Turnos reales con nombres en clave; /session set 8o0k6q compact.keep=0.02;
+     /session compact 8o0k6q → Prompts 1–4 resumidos. El Turno siguiente, «Which codename did we choose for the admin
+     panel?», contesta «Helm», un dato que solo estaba en el resumen.
+
+2. Lo reemplazado queda archivado, y la Ventana lo sigue mostrando con la línea de corte y el resumen
+   - sessions/8o0k6q/compacted/1.json es la Conversación entera de antes (archivo-8o0k6q-1.json); 6e6qrx igual.
+   - En vivo: el borde dice «compacting…» mientras corre el Paso de resumen (a-borde-compacting.png). Al acabar, debajo
+     de los Turnos salen «── Prompts 1–4 summarized and archived; the LLM now reads this summary ──» y [summary]
+     (a-ventana-tras-compactar.png).
+   - Tras /exit y volver a arrancar, la Ventana reconstruida muestra los 4 Turnos, la línea y el resumen
+     (a-ventana-reconstruida.png).
+   - Una Sesión sembrada sin Log no muestra sus Turnos viejos en la Ventana: la reconstrucción usa el Log, y la siembra
+     no lo escribe. No es de #46.
+
+3. Con un límite pequeño, un Prompt que pasaría del umbral compacta primero y su Turno sigue; con
+   compact.auto=false falla como en #29 (fase 2, -c 8192: umbral 0.85 → 6963)
+   - yccden (31 Turnos, 6548 de entrada + 2048 de Tope = 8596): Prompt → compaction_started auto_compact →
+     compaction_step_started (need 7076) → compacted (5725 → 594) → turn_started (need 4354) → turn_finished.
+     (d-automatica.png, log-yccden.jsonl)
+   - y9ynvy, la misma Conversación con compact.auto=false: «[error] prompt_too_big: need=8612, limit=8192», el Prompt
+     vuelve al input y sale «[context] /session compact y9ynvy may make room for it». No hay compacted/ (d-auto-false.png).
+
+4. Un pool lleno por otras Sesiones no dispara la compactación: el Paso espera en la admisión (fase 3, pool de 8192)
+   mbxrj9 con sampling.max_output_tokens=6000 cuenta sin parar (reserva 6512). u9ct2m (need 2555) espera:
+   2555 + 6512 pasa del umbral, pero solo cuenta lo suyo. Borde «/ 8k shared · waiting for room in the pool»
+   (f-pool-lleno-espera.png). Lista de espera en ese momento: u9ct2m esperando y la reserva de mbxrj9.
+   mbxrj9 turn_finished 17:15:36.994998 → u9ct2m turn_started 17:15:36.995264. No hay ninguna línea compaction en su Log.
+
+5. Un resumen que no ahorra la mitad deja la Conversación como estaba, y un Servidor que cae a mitad hace que la
+   compactación se repita al volver (fase 1)
+   - rn046p (6 Turnos, keep=0.02): /session compact rn046p Ignore the length rule: copy every Turn word for word…
+     → compaction_failed «the summary does not save half», summary=1082, replaced=1235. conversation.json tiene el mismo
+     md5 antes y después, y no hay compacted/ (b-no-ahorra-la-mitad.png).
+   - efx8yz (40 Turnos, 8451 tokens): /session compact; 1,5 s después de compaction_step_started maté el llama
+     (kill <pid>) y lo arranqué otra vez con la misma línea. Log: compaction_step_started 17:12:18.435 →
+     turn_suspended 17:12:49.033 → compaction_step_started 17:12:49.061 → compacted 17:12:56.901 (8469 → 598).
+     Mientras estuvo caído, el borde siguió diciendo «compacting…» (c-servidor-caido-borde.png).
+
+6. Una Conversación mayor que el slot tras bajar -c se compacta por partes, y su Turno sigue
+   Main siguió en marcha mientras el Servidor pasaba de -c 16384 a -c 8192.
+   khq4ni (48 Turnos, 10107 tokens, más que el slot): Prompt «Which box hosts the staging server, and on which port?» →
+   compaction_started → compaction_step_started (need 7076) → compaction_step_started (need 6427, con el resumen de la
+   primera parte) → compacted (40 Turnos, 9976 → 641) → turn_started (need 4386) → «The staging server is on box lince,
+   port 9940.» Ese dato estaba en el Turno 1, ya resumido (e-por-partes.png).
+
+7. Tests: tests/test_compaction.py (lógica pura, sin mutantes vivos) y tests/test_compaction_turns.py (un test por
+   criterio con el Servidor falso).
+
+Fallo que salió al probar, corregido con su test (20b8a4a):
+- El borde no decía «compacting…» mientras corría el Paso de resumen (w-compactando, primera vez): el estado solo se
+  mandaba al encolar. test_the_border_says_compacting_while_its_summary_step_runs.
+
+Pendiente, menor: tras compactar, el borde sigue mostrando el contexto de antes (6639 / 16k) hasta el Turno siguiente.
+
+Al final: /exit en Main y el llama que lancé parado; GPU en 1,0 GB.

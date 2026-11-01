@@ -1,0 +1,4 @@
+{"ts": "2026-11-01T17:11:49.972629-06:00", "event": "compaction_asked", "instructions": "Ignore the length rule: copy every Turn word for word, complete, adding nothing and dropping nothing."}
+{"ts": "2026-11-01T17:11:49.973056-06:00", "event": "compaction_started", "kind": "compact"}
+{"ts": "2026-11-01T17:11:49.986757-06:00", "event": "compaction_step_started", "need": 5383}
+{"ts": "2026-11-01T17:11:57.637641-06:00", "event": "compaction_failed", "error": "compaction_failed: reason='the summary does not save half', summary=1082, replaced=1235"}
