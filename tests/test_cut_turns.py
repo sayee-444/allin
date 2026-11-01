@@ -34,6 +34,7 @@ def test_the_default_output_cap_is_16384_or_a_quarter_of_the_slot_if_smaller():
     assert output_cap(Sampling(), slot_context=131072) == DEFAULT_OUTPUT_CAP == 16384
     assert output_cap(Sampling(), slot_context=3072) == 768
     assert output_cap(Sampling(), slot_context=3074) == 768  # whole tokens
+    assert output_cap(Sampling(), slot_context=3) == 1  # never nothing
 
 
 def test_an_output_cap_in_the_settings_wins_over_the_default():
@@ -92,9 +93,8 @@ def test_a_turn_that_fills_the_slot_is_saved_cut_with_what_it_generated(main: Ma
     assert turn.cut == "slot_limit" and turn.steps[0].output != []
     [box] = notices(main, session)
     assert box.text == (
-        "the Conversation filled the slot's 3072 tokens of context; ask it to go on in fewer"
-        f" words, or link the Session to a Server with more context (/session set {session.id}"
-        " server=<name>)"
+        "the Conversation filled the slot's 3072 tokens of context; link the Session to a"
+        f" Server with more context (/session set {session.id} server=<name>)"
     )
     assert box.title == "Turn cut"
     [finished] = [

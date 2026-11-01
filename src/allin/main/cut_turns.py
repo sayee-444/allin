@@ -10,8 +10,9 @@ from collections.abc import Mapping
 
 from pydantic import JsonValue
 
+from allin.core.cut import CutReason
 from allin.core.settings import Sampling
-from allin.main.conversation import CutReason, Step
+from allin.main.conversation import Step
 from allin.notices import NoticeEvent, NoticeType
 
 DEFAULT_OUTPUT_CAP = 16_384
@@ -24,7 +25,7 @@ def output_cap(sampling: Sampling, slot_context: int) -> int:
     slot's limit if smaller."""
     if sampling.max_output_tokens is not None:
         return sampling.max_output_tokens
-    return min(DEFAULT_OUTPUT_CAP, slot_context // 4)
+    return max(1, min(DEFAULT_OUTPUT_CAP, slot_context // 4))
 
 
 def cut_reason(step: Step, cap: int, slot_context: int) -> CutReason | None:
@@ -60,9 +61,9 @@ def _check(event: NoticeEvent, params: dict[str, JsonValue]) -> Mapping[str, obj
             how = f"raise it with /session set {sid} sampling.max_output_tokens=<n>, or ask it to go on"
         case "slot_limit":
             why = f"the Conversation filled the slot's {event.limit} tokens of context"
+            # Asking it to go on does not fit either: the full Conversation is sent again.
             how = (
-                "ask it to go on in fewer words, or link the Session to a Server with more"
-                f" context (/session set {sid} server=<name>)"
+                f"link the Session to a Server with more context (/session set {sid} server=<name>)"
             )
     return {"why": why, "how": how}
 

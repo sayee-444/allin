@@ -24,8 +24,8 @@ from dataclasses import dataclass
 
 from pydantic import JsonValue
 
+from allin.core.cut import CutReason
 from allin.core.ids import SessionId
-from allin.main.conversation import CutReason
 
 
 @dataclass(frozen=True)

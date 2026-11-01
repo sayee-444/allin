@@ -7,9 +7,10 @@ from before it had a Log shows only its Conversation's Turns.
 
 from collections.abc import Iterable
 
+from allin.core.cut import CutReason
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
-from allin.main.conversation import Conversation, CutReason, Item, Step, Turn
+from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark
 from allin.main.log import LogEntry
 from allin.main.usage import turn_tokens

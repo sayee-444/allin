@@ -23,6 +23,7 @@ from typing import Protocol
 
 from pydantic import JsonValue
 
+from allin.core.cut import CutReason
 from allin.core.errors import (
     AllInError,
     LlmUnavailable,
@@ -35,8 +36,8 @@ from allin.core.slot_locks import SlotLock
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import cut_entry, dropped_entry, error_entry, tokens_entry
-from allin.main.conversation import Conversation, CutReason, Step, Turn
-from allin.main.cut_turns import cut_reason, output_cap
+from allin.main.conversation import Conversation, Step, Turn
+from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
 from allin.main.events import (
     ServerAsleep,
@@ -347,15 +348,14 @@ class TurnQueue:
     def _turn_finished(self, running: _RunningTurn, turn: int, steps: list[Step]) -> None:
         """Tell the Turn ended and what it cost; a cut one also with its mark (ADR-0004)."""
         session_id, cut = running.session.id, running.cut
-        if cut is None:
-            self._reporter.record(session_id, "turn_finished", "turn finished", turn=turn)
-        else:
-            shown = f"turn finished, {cut_entry(cut).text}"
-            self._reporter.record(session_id, "turn_finished", shown, turn=turn, cut=cut)
         if (tokens := tokens_entry(steps)) is not None:
             self._windows.send(session_id, tokens)
-        if cut is not None:
-            self._windows.send(session_id, cut_entry(cut))
+        if cut is None:
+            self._reporter.record(session_id, "turn_finished", "turn finished", turn=turn)
+            return
+        shown = f"turn finished, {cut_mark(cut)}"
+        self._reporter.record(session_id, "turn_finished", shown, turn=turn, cut=cut)
+        self._windows.send(session_id, cut_entry(cut))
 
     def cancel(self, session_id: SessionId, reason: str) -> None:
         """Drop a Session's queued Prompts and stop its running Turn.
@@ -551,8 +551,8 @@ class TurnQueue:
             slot,
             auto_confirm,
             self._clock(),
-            slot_context,
-            cap,
+            slot_context=slot_context,
+            output_cap=cap,
         )
         self._reporter.record(session.id, "turn_started", "turn started")
         self._submit_turn(job)
@@ -803,10 +803,11 @@ class TurnQueue:
     def _tell_notices(self, running: _RunningTurn) -> None:
         """Show the Notices a Step that just ended sets off for its Session."""
         session_id = running.session.id
-        state = self._states.get(running.link.key)
-        limit = state.props.slot_context if isinstance(state, ServerReady) else None
         context = context_tokens(running.streamed.steps)
-        event = NoticeEvent(session_id, context, limit, running.cut, running.output_cap)
+        # The limit its Steps ran with, which a Server restarted meanwhile may have changed.
+        event = NoticeEvent(
+            session_id, context, running.slot_context, running.cut, running.output_cap
+        )
 
         def notify(kind: str, title: str, text: str) -> None:
             fields = {"kind": kind, "title": title, "text": text}
