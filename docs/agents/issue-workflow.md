@@ -16,7 +16,7 @@ When the milestone "Pre-F2 · Pendientes de F1" starts, tell the user it is time
 4. Test by hand against every acceptance criterion. For a real Server, follow **Testing with llama serve** below.
 5. Record evidence (below).
 6. Commit to the issue's branch with `Refs #N` (never `Closes #N`), plus the attribution trailer. Push the branch and open its pull request.
-7. Merge the pull request once every criterion is checked and the evidence is uploaded. Then close the issue with a comment in Spanish: what was built, how each criterion was checked (test name or manual step), the pull request, and the evidence images. If a criterion was not met or could not be tested, say so and leave the issue open.
+7. Merge the pull request once every criterion is checked and the evidence is uploaded. Then close the issue with a comment in Spanish: what was built, how each criterion was checked (test name or manual step), the pull request, the commits that did it (short hash and subject, as they are in `main`) and the merge commit that brought them, and the evidence images. If a criterion was not met or could not be tested, say so and leave the issue open.
 8. If the issue was already closed by the user, still verify it and comment; don't reopen it unless a criterion fails.
 
 9. Mark the issue ✅ in `docs/roadmap.md` and update its **Dónde vamos** section (last done, next, open questions for the user), and commit that on the issue's branch before merging. A new session resumes from that section, so it must always be current.
