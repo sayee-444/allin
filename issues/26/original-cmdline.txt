@@ -1,0 +1,1 @@
+llama serve -m Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931 

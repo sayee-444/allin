@@ -1,0 +1,62 @@
+#26 Supervisor 3/4 — prueba a mano (2026-11-01)
+
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data, en un xterm conducido con python-xlib.
+base_url de Main: http://127.0.0.1:9931/v1 (el de siempre).
+
+Línea de llama serve (la primera del usuario, lanzada a mano desde models/):
+  llama serve -m "Qwen3.8-27B-Uncensored-Q6_K.gguf" --mmproj "mmproj-Qwen3.8-27B-Uncensored-f16.gguf" -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+
+a) /server adopt q6 (a-adopt-confirmacion.png, a-adopt-main.png, original-cmdline.txt, adopted-cmdline.txt, q6.toml)
+   - Pide Confirmación; con «s»: «Supervisor q6 adopts pid 121145: launched again once it ends».
+   - El Supervisor q6 relanza llama (pid 121393) en la misma carpeta (<repo>/models).
+   - /proc/<pid>/cmdline antes y después: los mismos 36 argumentos con los mismos valores
+     (Counter iguales: True). El orden no es el mismo: ServerSettings escribe primero
+     las claves con nombre y luego `extra`, en el orden de la línea.
+   - q6.toml es lo que adopt guardó; al final de la prueba tiene context = 64000 por el paso g.
+
+b) /server set y /server new (b-set-y-listado.png)
+   - temperature=0.6 → unknown_setting; context=lots → invalid_setting; flash_attn=maybe → invalid_setting;
+     extra=--context-shift → invalid_setting «not allowed: --context-shift (it would truncate the Conversation in silence)».
+   - /server new otro … extra=--context-shift → el mismo error; sin ese flag, «Supervisor otro created, asleep».
+   - El .toml de q6 solo cambió en context (diff hecho antes y después de los comandos fallidos).
+   - En esta captura `cwd` sale con «* running:» vacío y kv_unified=True: era un fallo de la vista
+     (el .json no guardaba la carpeta), arreglado y vuelto a probar en g.
+
+c) /server sleep con un Turno en curso (c-sleep-drenando-main.png, c-sleep-drenando-ventana.png)
+   - /send uwzliv «Cuenta del 1 al 300 en palabras…»; a los 6 s, /server sleep q6 y «s».
+   - q6.json: status draining, going_to_sleep true, el mismo server_pid; el Turno sigue.
+   - Chat de Main: «queue paused: Supervisor q6 is going to sleep, as a human asked».
+
+d) Dormido por un humano (d-dormido-espera-ventana.png)
+   - 14:06:38 turn_finished (la cuenta llega a «trescientos»); q6.json: asleep, slept_by_human true; sin llama.
+   - /send uwzliv «Di solo: despues»: espera; la Ventana dice
+     «queue paused: Supervisor q6 was put to sleep by a human; only a human wakes it». Nadie lo despierta.
+
+e) /server wake q6 (e-wake-main.png)
+   - Carga el modelo y a las 14:07:03 empieza el Turno que esperaba; 14:07:07 turn_finished.
+
+f) /server adopt con --context-shift (f-adopt-context-shift.png)
+   - q6 dormido con /server -y sleep q6. En 9931: llama serve -m Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -ngl all -fa on -c 4096 -np 1 --context-shift --port 9931
+   - /server -y adopt cs → «error server_not_adoptable: reason='it runs with --context-shift, which truncates the Conversation in silence'».
+     No se creó cs.toml y el proceso siguió vivo (lo cerré yo después).
+
+g) /server y /server q6 tras reiniciar Main con el arreglo (g-server-q6.png)
+   - /server: «q6 (default Enlace): ready (Server pid 122610), used by 1 open Session(s)» y «otro: asleep…, used by 0».
+   - /server q6 con context=64000 pendiente: solo esa línea marca «* running: 128000».
+
+Solo con tests (no hay Command sessions hasta F2):
+   - Origen de Sesión falso: test_a_key_that_names_a_file_or_opens_the_network_is_only_set_by_a_human,
+     test_sleep_asks_a_confirmation_and_only_a_human_asks_it, test_adopt_is_only_a_humans_and_asks_a_confirmation.
+
+Muestreo por Paso: docs/research/llama-serve-settings.md, comprobado con /slots contra
+  llama serve -m Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -ngl all -fa on -c 8192 -np 1 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --port 9932
+
+Al final: sin llama, sin Supervisor y sin Main lanzados por mí.
+
+Después de la prueba a mano, la revisión de código (19c139d) cambió: la vista de /server <nombre> ya no
+marca kv_unified cuando lo decide -np (test_a_unified_cache_left_to_the_slots_is_not_shown_as_a_difference),
+adopt se niega a un llama que ya corre bajo un Supervisor (test_adopt_refuses_a_server_that_a_supervisor_already_runs)
+y un -np no numérico da server_not_adoptable. El camino de adopt con un proceso real lo cubre
+test_adopt_reads_the_line_of_the_server_on_mains_port_ends_it_and_wakes_its_supervisor.
+
+Suite: 534 passed; basedpyright 0 errores; ruff limpio; cobertura 86 %; mutación 89 %.
