@@ -143,6 +143,7 @@ class _RunningTurn:
     # Exemption as they were when it started, so changing them only reaches the next Turn.
     auto_confirm: bool
     progress_at: float  # when its Step last showed progress: started, or a stream event
+    sent: bool = False  # whether its Step sent any stream event: until then it reads input
     streamed: Streamed = field(default_factory=Streamed)
     asking: BoxId | None = None  # the Confirmation it waits on, if any
     answer: bool | None = None  # its answer, while it waits for a slot to go on
@@ -233,6 +234,14 @@ class TurnQueue:
         """The Session's running Step sent something: it is not stalled."""
         if (running := self._running.get(session_id)) is not None:
             running.progress_at = self._clock()
+            running.sent = True
+
+    def server_progress(self, server: ServerKey) -> None:
+        """``server`` read more input: its Steps still reading theirs are not stalled. Which
+        slot read it, llama does not say, so it counts for each of them."""
+        for running in self._running.values():
+            if running.link.key == server and not running.sent:
+                running.progress_at = self._clock()
 
     def tick(self) -> None:
         """Cancel each Step that made no progress for ``step.stall`` seconds (ADR-0023)."""

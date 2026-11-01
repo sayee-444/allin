@@ -136,6 +136,14 @@ type ServerState = (
 
 
 @dataclass(frozen=True)
+class ServerProgress:
+    """The Server read more of some Step's input (``/slots``): a Step that has sent nothing
+    yet is not stalled, since llama sends nothing while it reads (build 10909, ADR-0023)."""
+
+    server: ServerKey
+
+
+@dataclass(frozen=True)
 class Tick:
     """A second went by: Main looks for Steps that stopped making progress (ADR-0023)."""
 
@@ -190,6 +198,7 @@ type MainEvent = (
     | TurnEnded
     | ServerChanged
     | SlotFreed
+    | ServerProgress
     | Tick
     | ConfirmationRequested
     | BoxAnswered

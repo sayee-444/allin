@@ -15,6 +15,7 @@ from allin.main.events import (
     MainCommandEntered,
     MainEvent,
     ServerChanged,
+    ServerProgress,
     ServerReady,
     ServerRestarting,
     Tick,
@@ -189,3 +190,21 @@ def test_no_slot_is_taken_while_the_supervisor_drains(tmp_path: Path):
         assert links.take_slot(ServerKey("gpu"), 1) is None
     finally:
         lock.release()
+
+
+def test_a_step_still_reading_its_input_is_kept_alive_by_the_servers_progress(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.hold_turns = True
+    reasons: list[str | None] = []
+    main.run(
+        InputReceived(session.id, "a very long input"),
+        lambda: setattr(main, "now", 100.0),
+        ServerProgress(KEY),  # /slots: it read more
+        lambda: setattr(main, "now", 219.0),
+        Tick(),
+        lambda: reasons.append(main.held[0].cancellation.reason),
+        settle=True,
+    )
+    assert reasons == [None]

@@ -25,6 +25,7 @@ from allin.main.events import (
     MainCommandEntered,
     MainEvent,
     ServerChanged,
+    ServerProgress,
     Shutdown,
     SlotFreed,
     StepEnded,
@@ -181,6 +182,8 @@ class Dispatcher:
             case TurnRaw(session_id, raw):
                 self._turns.progress(session_id)
                 self._reporter.raw(session_id, raw)
+            case ServerProgress(server):
+                self._turns.server_progress(server)
             case Tick():
                 self._turns.tick()
             case StepEnded(session_id, step):
