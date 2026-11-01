@@ -52,7 +52,9 @@ def test_a_folder_without_a_conversation_loads_none(tmp_path: Path):
     assert load_conversation(tmp_path) is None
 
 
-def test_a_failed_save_leaves_the_previous_file_whole(tmp_path: Path, monkeypatch):
+def test_a_failed_save_leaves_the_previous_file_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     before = Conversation(sysprompt="before")
     save_conversation(tmp_path, before)
 

@@ -5,7 +5,6 @@ Saved after every change, so it survives a Main killed outright. Sessions keep t
 """
 
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -24,7 +23,7 @@ class MainState(BaseModel, frozen=True):
 
     @field_validator("drafts", mode="before")
     @classmethod
-    def _drafts_saved_as_text(cls, drafts: Any) -> Any:
+    def _drafts_saved_as_text(cls, drafts: object) -> object:
         """A Main from before Drafts had blocks saved each one as a single text."""
         if not isinstance(drafts, dict):
             return drafts

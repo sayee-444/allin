@@ -187,7 +187,7 @@ class MainHarness:
             self._wait_for_slot,
             self._recheck_server,
         )
-        for event in [] if settle else events:
+        for event in () if settle else events:
             inbox.put(event)
         dispatcher.run()
         return main_chat

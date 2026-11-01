@@ -10,6 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import JsonValue
+
 from allin.core.errors import AllInError
 from allin.main.log import Log
 from allin.main.sessions import SessionStore
@@ -50,12 +52,12 @@ class Reporter:
         self._sessions = sessions
         self._raw = _RawFilter()
 
-    def report(self, session_id: str | None, event: str, shown: str, **fields: Any) -> None:
+    def report(self, session_id: str | None, event: str, shown: str, **fields: JsonValue) -> None:
         """Show a high-level event in Main's Chat and keep it in Main's Log."""
         self.log_main(event, **({"sid": session_id} if session_id else {}), **fields)
         self._main_chat(f"[{session_id}] {shown}" if session_id else shown)
 
-    def record(self, session_id: str, event: str, shown: str, **fields: Any) -> None:
+    def record(self, session_id: str, event: str, shown: str, **fields: JsonValue) -> None:
         """A high-level event of a Session: its Log, Main's Log and Main's Chat."""
         self.log_session(session_id, event, **fields)
         self.report(session_id, event, shown, **fields)
@@ -76,14 +78,14 @@ class Reporter:
         """Whether Main's Chat shows the raw stream events of a Session, or of all of them."""
         self._raw.switch(on, session_id)
 
-    def log_main(self, event: str, **fields: Any) -> None:
+    def log_main(self, event: str, **fields: JsonValue) -> None:
         """Keep an event in Main's Log only."""
         try:
             self._main_log.append(event, **fields)
         except AllInError as error:  # never logged again, or a broken Log would loop
             self._main_chat(f"error {error}")
 
-    def log_session(self, session_id: str, event: str, **fields: Any) -> None:
+    def log_session(self, session_id: str, event: str, **fields: JsonValue) -> None:
         """Keep an event in a Session's Log only."""
         try:
             self._sessions.log(session_id).append(event, **fields)

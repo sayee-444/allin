@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from pydantic import JsonValue
+
 from allin.core.errors import AllInError, LlmUnavailable, TurnCancelled, TurnCrashed
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
@@ -150,7 +152,7 @@ class TurnQueue:
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
-        texts = [prompt.text for prompt in self._prompts.drop(session_id)]
+        texts: list[JsonValue] = [prompt.text for prompt in self._prompts.drop(session_id)]
         if texts:
             shown = dropped_entry(len(texts), reason).text
             self._reporter.record(session_id, "prompts_dropped", shown, reason=reason, texts=texts)

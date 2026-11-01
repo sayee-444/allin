@@ -12,6 +12,10 @@ El agente supervisa el roadmap: sigue el orden de `docs/roadmap.md`, implementa,
 
 Etiquetas por defecto: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
 
+### Coding standards
+
+Al escribir o revisar código: tipos, fronteras (parsear con pydantic), nombres. See `CODING_STANDARDS.md`.
+
 ### Domain docs
 
 Single-context: un `GLOSSARY.md` y `docs/adr/` en la raíz del repo. See `docs/agents/domain.md`.

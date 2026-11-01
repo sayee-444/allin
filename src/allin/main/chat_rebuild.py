@@ -30,8 +30,10 @@ def rebuild_chat(
         match entry.event:
             case "prompt":
                 chat.append(_prompt(fields["text"], settings))
-            case "turn_finished" if 0 <= fields["turn"] < len(conversation.turns):
-                chat += _turn_output(conversation.turns[fields["turn"]], settings)
+            case "turn_finished":
+                index: int = fields["turn"]
+                if 0 <= index < len(conversation.turns):
+                    chat += _turn_output(conversation.turns[index], settings)
             case "prompts_dropped":
                 chat.append(dropped_entry(len(fields["texts"]), fields["reason"]))
             case "turn_failed" | "turn_cancelled":
