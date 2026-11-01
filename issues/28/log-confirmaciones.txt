@@ -1,0 +1,14 @@
+{"ts": "2026-11-01T05:44:08.913049-06:00", "event": "notice", "sid": "0t54ls", "title": "Paso [] terminado", "text": "Contexto: 105 tokens. Control: [\u001b[2J] [] [\u0007]"}
+{"ts": "2026-11-01T05:44:50.525457-06:00", "event": "command", "sid": "0t54ls", "command": "/session set 0t54ls notices.paso.enabled=false", "result": "ok"}
+{"ts": "2026-11-01T05:45:49.668852-06:00", "event": "confirmation_asked", "command": "/reset"}
+{"ts": "2026-11-01T05:45:53.483937-06:00", "event": "confirmation_asked", "command": "/reset"}
+{"ts": "2026-11-01T05:45:54.534103-06:00", "event": "command", "command": "/reset", "result": "ok"}
+{"ts": "2026-11-01T05:45:56.889048-06:00", "event": "command", "command": "/reset", "result": "ok"}
+{"ts": "2026-11-01T05:46:07.282617-06:00", "event": "devastation"}
+{"ts": "2026-11-01T05:46:07.283125-06:00", "event": "command", "command": "/devastation on", "result": "ok"}
+{"ts": "2026-11-01T05:46:09.073220-06:00", "event": "confirmation_auto_answered", "command": "/reset"}
+{"ts": "2026-11-01T05:46:09.074393-06:00", "event": "command", "command": "/reset", "result": "ok"}
+{"ts": "2026-11-01T05:46:32.397368-06:00", "event": "devastation"}
+{"ts": "2026-11-01T05:46:37.319959-06:00", "event": "confirmation_auto_answered", "command": "/reset"}
+{"ts": "2026-11-01T05:46:37.321713-06:00", "event": "command", "command": "/reset", "result": "ok"}
+{"ts": "2026-11-01T05:46:47.087102-06:00", "event": "confirmation_asked", "command": "/reset"}

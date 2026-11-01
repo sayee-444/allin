@@ -1,0 +1,1 @@
+44807 xterm -title AllIn · 0t54ls -fa Monospace -fs 10 -geometry 180x40 -xrm XTerm*modifyOtherKeys: 2 -xrm XTerm*allowWindowOps: false -xrm XTerm*allowColorOps: false -e <repo>/venv/bin/python -m allin.window 0t54ls <scratch>/e28/data/fifo/0t54ls.in <scratch>/e28/data/fifo/0t54ls.out

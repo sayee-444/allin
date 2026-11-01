@@ -1,0 +1,33 @@
+#28 Recuadro de Aviso y Confirmación — prueba a mano, 2026-11-01
+Main real en su xterm, --data-dir <scratch>/data (desechable); default.json con session.username=ana.
+Servidor (solo mecánica): llama serve -m Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0
+  -c 16000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0
+  -np 1 --spec-type draft-mtp --port 9931
+Aviso de prueba: <data-dir>/notices/paso.py (notices-paso.py), sale en cada Paso; su título y texto llevan ESC [2J, U+009B y BEL.
+
+1. /new -> Sesión 0t54ls. xterm-args.txt: la Ventana se lanza con allowWindowOps: false y allowColorOps: false.
+2. En la Ventana "Responde solo: hola" -> el Aviso sale en la Ventana y en el Chat de Main (a-aviso-*.png),
+   con marcas visibles: ␛[2J, �9B y ␇, también en la línea "notice:" del Chat de Main.
+3. Una tecla en la Ventana lo cierra, y también desaparece del Chat de Main (b-cerrado-en-ventana-main.png).
+4. /session set 0t54ls notices.paso.enabled=false y otro Prompt -> sin Aviso (c-aviso-apagado-ventana.png).
+5. Ctrl+Enter en la Ventana sigue partiendo la línea (d-ctrl-enter.png). El pegado no se pudo probar:
+   XSendEvent no genera un pegado entre corchetes; lo cubren tests/test_ui_keys.py.
+6. conversation.json con "adios [ESC[2J] [U+009B] [BEL]" y /open de nuevo -> marcas en el Chat de la Ventana
+   (e-saneado-ventana.png).
+7. /set parallel=1, /reset -> recuadro s/n en el Chat de Main (f-confirmacion-reset.png); "n" -> parallel sigue en 1;
+   /reset y "s" -> ok; /set parallel=1 y /reset -y -> sin recuadro, parallel vacío (g-n-s-y.png).
+8. /devastation on -> Aviso con las Sesiones que dejan de preguntar (0t54ls), marca en el borde del Chat de Main
+   y en el de la Ventana (h-devastation-ventana.png). /reset -> "confirmation answered by --devastation" y queda
+   en el Log (log-confirmaciones.txt). /session set 0t54ls exempt=false -> la marca de la Ventana se apaga
+   (i-*.png).
+9. Reinicio con --devastation: marca en el borde de Main desde el arranque y /reset contestado solo
+   (j-arranque-devastation.png). Reinicio sin el flag: /reset vuelve a preguntar (k-reinicio-pregunta.png).
+
+Solo con tests (en F1 ningún Turno pide Confirmación: no hay tools; la puerta es para @confirm de F2):
+  - pausa sin slot con -np 1 y Continuación antes que los Prompts nuevos: tests/test_confirmation.py
+    (test_a_turn_waiting_for_its_confirmation_holds_no_slot, test_an_answered_turn_goes_on_before_the_new_prompts_of_its_main)
+  - -y o /devastation con Origen no humano: test_y_from_any_origin_but_a_human_is_an_error,
+    test_only_a_human_lights_devastation_or_changes_the_exemption
+  - Exención y --devastation en Turnos: test_devastation_answers_exempt_sessions_but_not_one_without_the_exemption,
+    test_a_running_turn_keeps_what_it_had_when_it_started, test_taking_the_exemption_away_reaches_only_the_next_turn
+Suite: 404 passed; basedpyright 0 errores; ruff limpio.
