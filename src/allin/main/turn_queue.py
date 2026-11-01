@@ -18,7 +18,7 @@ Prompt back to the input, only for a human one).
 import itertools
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -267,6 +267,7 @@ class TurnQueue:
         self._watched: dict[ServerKey, Link] = {}
         self._told: dict[ServerKey, str] = {}  # why it waits, as Main's Chat was last told
         self._stopping = False  # nor once Main is shutting down
+        self._paused = False  # nor while Main leaves its Profile (``/profile switch``)
         self._prompts = PromptQueue()
         self._running: dict[SessionId, _RunningTurn] = {}
         # Each Session's Enlace asked to change, until it does or fails (ADR-0022): its new
@@ -539,6 +540,59 @@ class TurnQueue:
         """Main is shutting down: no Turn starts any more."""
         self._stopping = True
 
+    def pause(self) -> None:
+        """No Turn starts until ``resume``; running ones go on (``/profile switch``)."""
+        self._paused = True
+        self._publish([])  # nothing of ours waits in any Wait list meanwhile
+
+    def resume(self) -> None:
+        """Turns start again, and each Session with queued Prompts is told it has work."""
+        self._paused = False
+        for session_id in self._prompts.session_ids():
+            self.send_turn_state(session_id)
+        self._start_turns()
+
+    def has_running(self) -> bool:
+        """Whether any Turn is active, one waiting for its Confirmation included."""
+        return bool(self._running)
+
+    def running_count(self) -> int:
+        return len(self._running)
+
+    def cancel_turns(self, reason: str) -> list[Prompt]:
+        """Stop every running Turn and keep the queue (``/profile switch --now``); the
+        Prompts of those that were a Prompt's Turn, which go back to their input.
+
+        Each Turn stays active until its executor reports it ended, as with ``cancel``.
+        """
+        stopped: list[Prompt] = []
+        for running in self._running.values():
+            if running.cancellation.reason is not None:
+                continue
+            running.cancellation.cancel(reason)
+            self._withdraw(running)
+            if not _compacting(running):
+                stopped.append(running.prompt)
+        return stopped
+
+    def take_queue(self, keep: Container[SessionId]) -> list[Prompt]:
+        """Take out the waiting Prompts of every Session but those in ``keep``, as they are:
+        the Profile Main leaves keeps them, and a Session both Profiles share goes on."""
+        taken = [prompt for prompt in self._prompts.all() if prompt.session_id not in keep]
+        for session_id in dict.fromkeys(prompt.session_id for prompt in taken):
+            self._prompts.drop(session_id)
+            self._measures.pop(session_id, None)
+            self._since.pop(session_id, None)
+            self._shown_waiting.pop(session_id, None)
+            self._compactions.drop(session_id)
+            self.send_turn_state(session_id)
+        return taken
+
+    def use_sysprompts(self, sysprompts: Path) -> None:
+        """The Sysprompts of the Profile Main entered, for what it renders from now on."""
+        self._sysprompts = sysprompts
+        self._compactions.use_sysprompts(sysprompts)
+
     def cancel_running(self) -> None:
         """On shutdown: cancel every running Turn.
 
@@ -591,7 +645,7 @@ class TurnQueue:
         """
         self._judge_changes()
         waiting: dict[SessionId, Waiting] = {}
-        while not self._stopping and self._start_one(waiting):
+        while not self._stopping and not self._paused and self._start_one(waiting):
             waiting = {}
         self._show_waiting(waiting)
         self._show_pools()

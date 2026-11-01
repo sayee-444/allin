@@ -43,6 +43,7 @@ from allin.main.log import Log
 from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.profile_commands import ProfileCommands
+from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
@@ -120,7 +121,8 @@ class Dispatcher:
             close_orphan_window,
         )
         self._start_problems = [*settings.problems, *notices.problems]
-        settings_commands = SettingsCommands(
+        self._links = links
+        self._settings_commands = settings_commands = SettingsCommands(
             self._reporter,
             self._turns,
             sessions,
@@ -142,6 +144,15 @@ class Dispatcher:
             lambda: _supervisor_of(settings_commands.current.session),
             inbox.put,
         )
+        self._switch = ProfileSwitch(
+            self._reporter,
+            profiles,
+            self._windows,
+            self._turns,
+            self._recovery,
+            profile,
+            self._enter,
+        )
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -153,7 +164,7 @@ class Dispatcher:
             self._boxes,
             self._devastation,
             self._server_commands,
-            ProfileCommands(self._reporter, profiles, profile),
+            ProfileCommands(self._reporter, profiles, self._switch),
         )
 
     def run(self) -> None:
@@ -166,6 +177,7 @@ class Dispatcher:
         self._recovery.close_left_open()
         self._recovery.restore()
         while self._handle(self._inbox.get()):
+            self._switch.check()  # once the last Turn it waited for ended
             self._recovery.save()
         self._turns.stop()
         self._take_turn_events()
@@ -174,6 +186,18 @@ class Dispatcher:
         self._turns.cancel_running()
         self._windows.close_all()
         self._reporter.log_main("main_stopped", main_id=self._main_id)
+
+    def _enter(self, profile: Profile) -> None:
+        """Use the Settings and Sysprompts of the Profile Main switched to."""
+        files = MainSettingsFiles(profile.settings)
+        loaded = files.load()
+        for problem in loaded.problems:  # Main runs on without what failed, as on start
+            self._reporter.error(problem)
+        self._settings_commands.enter(loaded, files, profile.sysprompts)
+        self._turns.use_sysprompts(profile.sysprompts)
+        self._commands.use_sysprompts(profile.sysprompts)
+        self._default_link = _default_link(self._links, loaded)
+        self._turns.watch(self._default_link)
 
     def _take_turn_events(self) -> None:
         """Handle what Turns and drafts reported before Main stopped, so a Turn that already
@@ -216,8 +240,8 @@ class Dispatcher:
             case TurnEnded(session_id, steps, error):
                 self._turns.turn_ended(session_id, steps, error)
             case WindowClosed(session_id, returncode):
-                self._windows.closed(session_id, returncode)
-                self._turns.cancel(session_id, "window closed")
+                if self._windows.closed(session_id, returncode):  # not one Main closed itself
+                    self._turns.cancel(session_id, "window closed")
             case ErrorOccurred(error, session_id):
                 self._windows.show_error(error, session_id)
             case ServerChanged(server, state):

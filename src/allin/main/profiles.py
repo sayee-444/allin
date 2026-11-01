@@ -122,6 +122,13 @@ class ProfileStore:
             raise ProfileStorageFailed(path=str(self._last), reason=str(error)) from error
         return self._profile(chosen)
 
+    def find(self, name: str) -> Profile:
+        """The Profile named ``name``, without making it the last one used."""
+        chosen = self._chosen(name)
+        if not self._exists(chosen):
+            raise ProfileNotFound(profile=chosen)
+        return self._profile(chosen)
+
     def names(self) -> list[ProfileName]:
         """Every Profile's name, sorted."""
         if not self._root.is_dir():

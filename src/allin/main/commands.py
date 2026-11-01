@@ -115,6 +115,10 @@ class MainCommands:
             "/exit": _MainCommand((), lambda: False),
         }
 
+    def use_sysprompts(self, sysprompts: Path) -> None:
+        """The active Profile's, which Sessions are born with, once Main switched to it."""
+        self._sysprompts = sysprompts
+
     def run(self, text: str, origin: Origin = HUMAN) -> bool:
         """Run a Command main and report how it went; return whether Main keeps running.
 

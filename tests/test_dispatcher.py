@@ -273,6 +273,7 @@ class MainHarness:
         (Turns included); else all of them are queued at once.
         """
         main_chat: list[str] = []
+        self._open_last_profile()
         if self.server_up:
             events = (server_ready(self.server), *events)
         assert settle or not any(callable(event) for event in events), "steps need settle"
@@ -317,6 +318,17 @@ class MainHarness:
             inbox.put(event)
         dispatcher.run()
         return main_chat
+
+    def _open_last_profile(self) -> None:
+        """Start on the Profile used last, as Main does without ``--profile``."""
+        profile = self.profiles.open(None)
+        if profile == self.profile:
+            return
+        self.profile = profile
+        self.sysprompts = profile.sysprompts
+        self.settings_dir = profile.settings
+        self.settings_files = MainSettingsFiles(profile.settings)
+        self.state = RecordingStateStore(profile.state)
 
     def main_log(self) -> list[LogEntry]:
         return read_log(self.main_log_path)
