@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = ["pydantic>=2", "openai>=2"]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "basedpyright"]
+dev = ["pytest", "pytest-cov", "ruff", "basedpyright"]
 
 [project.scripts]
 allin = "allin.__main__:main"
@@ -21,7 +21,7 @@ where = ["src"]
 testpaths = ["tests"]
 
 [tool.basedpyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 typeCheckingMode = "strict"
 venvPath = "."
 venv = "venv"

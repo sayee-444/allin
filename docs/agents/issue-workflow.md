@@ -23,6 +23,10 @@ When the milestone "Pre-F2 · Pendientes de F1" starts, tell the user it is time
 
 Never edit the body of a closed issue. If a decision changes during an issue, update the issue body, the glossary or the ADR first.
 
+## Metrics
+
+`venv/bin/python -m scripts.metrics` prints the four DORA metrics over the last four weeks (a merge into `main` is a deploy; a `fix/` branch or `fix:` title is a failed change; an issue labelled `bug` is an incident) and the code's health: tests, coverage, type errors, lint warnings, escapes (`cast`, `pyright: ignore`, `noqa`) and median PR size. Run it when a session starts and after each batch; quote it in **Dónde vamos** when a number moves. Falling coverage, rising escapes or a rising change failure rate mean: stop adding and review what came in.
+
 ## Branches and pull requests
 
 The user chose this on 2026-10-30: one short-lived branch and one pull request per issue, even while issues are done one after another, so each issue's change has its own page on GitHub.
