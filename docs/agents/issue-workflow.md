@@ -25,7 +25,7 @@ Never edit the body of a closed issue. If a decision changes during an issue, up
 
 ## Metrics
 
-`venv/bin/python -m scripts.metrics` prints the four DORA metrics over the last four weeks (a merge into `main` is a deploy; a `fix/` branch or `fix:` title is a failed change; an issue labelled `bug` is an incident) and the code's health: tests, coverage, type errors, lint warnings, escapes (`cast`, `pyright: ignore`, `noqa`) and median PR size. Run it when a session starts and after each batch; quote it in **Dónde vamos** when a number moves. Falling coverage, rising escapes or a rising change failure rate mean: stop adding and review what came in.
+`venv/bin/python -m scripts.metrics` prints the four DORA metrics over the last four weeks (a merge into `main` is a deploy; a `fix/` branch or `fix:` title is a failed change; an issue labelled `bug` is an incident) and the code's health: tests, coverage, mutation score (`[tool.mutmut]` lists the modules; add pure-logic modules as they appear), type errors, lint warnings, escapes (`cast`, `pyright: ignore`, `noqa`) and median PR size. Run it when a session starts and after each batch; quote it in **Dónde vamos** when a number moves. Falling coverage or mutation score, rising escapes or a rising change failure rate mean: stop adding and review what came in.
 
 ## Branches and pull requests
 
