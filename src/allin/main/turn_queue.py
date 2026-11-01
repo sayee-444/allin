@@ -897,6 +897,7 @@ class TurnQueue:
         if compacting:
             shown = "summary step started"
             self._reporter.record(session.id, "compaction_step_started", shown, need=need)
+            self.send_turn_state(session.id)  # its border says so while the Step runs
         else:
             self._reporter.record(session.id, "turn_started", "turn started", need=need)
         self._submit_turn(job)

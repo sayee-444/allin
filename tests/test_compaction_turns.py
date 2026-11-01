@@ -351,3 +351,15 @@ def test_a_compaction_running_when_main_stops_is_queued_again_never_given_back_a
     last = main.state.saved[-1]
     assert last.queue == [Prompt(session.id, "be brief", "compact")]
     assert last.running == []
+
+
+def test_the_border_says_compacting_while_its_summary_step_runs(main: MainHarness):
+    session = main.create_session()
+    main.llm = FakeLlm(*answers(6))
+    main.run(MainCommandEntered(f"/open {session.id}"), *talk(session, 6), settle=True)
+    main.hold_turns = True
+    main.run(compact(session), settle=True)
+    assert "compaction_step_started" in events(main, session)
+    window = main.windows(session.id)[-1]  # the second run is Main started again
+    states = [m for m in window.sent if isinstance(m, TurnState)]
+    assert states[-1] == TurnState(active=True, waiting="compacting…")
