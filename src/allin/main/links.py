@@ -21,17 +21,13 @@ class Link:
 
     def describe(self) -> str:
         """How Main's Chat and the Windows name it."""
-        return f"Supervisor {self.supervisor}" if self.supervisor else "the LLM server"
+        return f"Supervisor {self.supervisor}" if self.supervisor else "the Server"
 
 
 class LinkResolver:
     def __init__(self, servers: Path, base_url: str) -> None:
         self._servers = servers
         self._base_url = base_url
-
-    @property
-    def servers(self) -> Path:
-        return self._servers
 
     def observed(self) -> Link:
         """The Server at Main's ``base_url``, which Main only observes."""

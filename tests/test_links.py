@@ -156,6 +156,38 @@ def test_a_server_that_does_not_fit_in_vram_tells_who_holds_the_gpu_and_waits(
     assert main.servers.woken == ["gpu"]  # only for the Prompt: Main puts no one to sleep
 
 
+def test_new_work_does_not_wake_again_a_supervisor_that_did_not_fit(main: MainHarness):
+    session = main.create_session(server="gpu")
+    holder = (SupervisorName("cpu"),)
+    main.hold_turns = False
+    main.run(
+        InputReceived(session.id, "one"),
+        ServerChanged(GPU, ServerFailed("vram", "out of memory", holder)),
+        MainCommandEntered(f"/send {session.id} two"),
+        settle=True,
+    )
+    assert main.servers.woken == ["gpu"]
+
+
+def test_a_supervisor_that_failed_otherwise_is_a_notice_saying_why(main: MainHarness):
+    session = main.create_session(server="gpu")
+    reason = "port 9101 is used by pid 7 (llama)"
+    main.run(
+        InputReceived(session.id, "hi"),
+        ServerChanged(GPU, ServerFailed("port_in_use", reason)),
+        settle=True,
+    )
+    [box] = [update.box for update in main.main_screen if isinstance(update, ShowBox)]
+    assert "port_in_use" in box.title and box.text == reason
+
+
+def test_a_sessions_enlace_cannot_change_until_it_can_change_atomically(main: MainHarness):
+    session = main.create_session(server="gpu")
+    chat = main.run(MainCommandEntered(f"/session set {session.id} server=cpu"))
+    assert any("invalid_setting" in line for line in chat)
+    assert main.sessions.load(session.id).settings.server == "gpu"
+
+
 def test_once_the_supervisor_holding_the_gpu_falls_asleep_main_tries_again(main: MainHarness):
     session = main.create_session(server="gpu")
     holder = (SupervisorName("cpu"),)

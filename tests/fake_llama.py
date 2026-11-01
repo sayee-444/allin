@@ -3,12 +3,16 @@
 
 - ``ok``: answers 503 for ``--fake-load`` seconds, then ``/health`` and ``/props``.
 - ``crash``: exits with code 3 at once.
+- ``--fake-die-after S``: once ready, exits with code 3 after S seconds (``--fake-die-oom``:
+  saying first that it ran out of memory).
 - ``vram``: prints what llama.cpp prints when the model does not fit, and exits with 1.
 """
 
 import argparse
 import json
+import os
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -28,6 +32,8 @@ def main() -> None:
     parser.add_argument("--kv-unified", action="store_true")
     parser.add_argument("--fake-mode", default="ok")
     parser.add_argument("--fake-load", type=float, default=0.0)
+    parser.add_argument("--fake-die-after", type=float, default=None)  # once ready, exit 3
+    parser.add_argument("--fake-die-oom", action="store_true")  # saying it ran out of memory
     args, _ = parser.parse_known_args()
     say(f"fake llama on {args.port}")
     if args.fake_mode == "crash":
@@ -62,7 +68,14 @@ def main() -> None:
         def log_message(self, format: str, *args: object) -> None:
             del format, args
 
-    HTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
+    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    if args.fake_die_after is not None:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        time.sleep(args.fake_load + args.fake_die_after)
+        if args.fake_die_oom:
+            say("CUDA error: out of memory")
+        os._exit(3)
+    server.serve_forever()
 
 
 if __name__ == "__main__":

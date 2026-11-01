@@ -7,21 +7,25 @@ Supervisor never leaves a Server holding its port and its VRAM.
 """
 
 import ctypes
+import os
 import re
 import signal
 import subprocess
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 from allin.core.errors import ServerSettingsInvalid
+from allin.core.ids import SupervisorName
 from allin.supervisor.lock import SupervisorLock, lock_path
 from allin.supervisor.ports import port_free, port_holder
 from allin.supervisor.settings import ServerSettings, load_server_settings
 from allin.supervisor.state import FailureKind, SupervisorState, SupervisorStatus, write_state
 
 MAX_CRASHES = 5  # in a row: then it stays failed
+_STABLE = 60.0  # ready this long, a Server's next crash is the first in a row again
 _BACKOFF_CAP = 30.0
 _HEALTH_TIMEOUT = 2.0
 _TAIL_BYTES = 64 * 1024
@@ -34,20 +38,28 @@ _VRAM = re.compile(
 _PR_SET_PDEATHSIG = 1
 
 
-def _die_with_supervisor() -> None:
-    """In the Server's process, before it runs: SIGKILL it if the Supervisor ends."""
-    libc = ctypes.CDLL(None, use_errno=True)
-    libc.prctl(_PR_SET_PDEATHSIG, signal.SIGKILL)
+def _die_with(supervisor_pid: int) -> Callable[[], None]:
+    """What the Server's process runs before llama: SIGKILL it when the Supervisor ends."""
+
+    def die_with_supervisor() -> None:
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.prctl(_PR_SET_PDEATHSIG, signal.SIGKILL) != 0:
+            os._exit(1)  # without it the Server could outlive its Supervisor
+        if os.getppid() != supervisor_pid:  # it ended before prctl took
+            os._exit(1)
+
+    return die_with_supervisor
 
 
 class Supervisor:
     def __init__(
         self,
-        name: str,
+        name: SupervisorName,
         data_dir: Path,
         backoff: float = 1.0,
         poll: float = 0.25,
         stop_grace: float = 10.0,
+        stable: float = _STABLE,
     ) -> None:
         self._name = name
         self._servers = data_dir / "servers"
@@ -55,6 +67,8 @@ class Supervisor:
         self._backoff = backoff
         self._poll = poll
         self._stop_grace = stop_grace
+        self._stable = stable
+        self._ready_at: float | None = None  # when its Server got ready, this launch
         self._stopping = False  # set from a signal handler: a plain flag, no lock
         self._pid = 0
 
@@ -80,6 +94,9 @@ class Supervisor:
             return self._fail("settings", str(error), None)
         crashes = 0
         while True:
+            if self._stopping:  # asked before the model was loaded: not loaded at all
+                self._write("asleep", settings)
+                return 0
             if not port_free(settings.port):
                 holder = port_holder(settings.port)
                 return self._fail(
@@ -91,11 +108,12 @@ class Supervisor:
                 self._end(server)
                 self._write("asleep", settings)
                 return 0
-            tail = self._tail(log_start)
-            if (vram := _VRAM.search(tail)) is not None:
-                line = tail[tail.rfind("\n", 0, vram.start()) + 1 : tail.find("\n", vram.end())]
-                return self._fail("vram", line.strip(), settings, exit_code)
-            crashes = 0 if self._was_ready else crashes + 1
+            if self._ready_at is None and (line := self._vram_line(log_start)) is not None:
+                return self._fail("vram", line, settings, exit_code)  # it never fit
+            stable = (
+                self._ready_at is not None and time.monotonic() - self._ready_at >= self._stable
+            )
+            crashes = 1 if stable else crashes + 1
             if crashes >= MAX_CRASHES:
                 reason = f"{crashes} crashes in a row, last exit code {exit_code}"
                 return self._fail("crashes", reason, settings, exit_code)
@@ -117,9 +135,9 @@ class Supervisor:
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                preexec_fn=_die_with_supervisor,  # noqa: PLW1509 -- only this thread forks
+                preexec_fn=_die_with(os.getpid()),  # noqa: PLW1509 -- only this thread forks
             )
-        self._was_ready = False
+        self._ready_at = None
         self._write("starting", settings, server_pid=server.pid)
         return server, log_start
 
@@ -129,8 +147,8 @@ class Supervisor:
             exit_code = server.poll()
             if exit_code is not None:
                 return exit_code
-            if not self._was_ready and _healthy(settings.port):
-                self._was_ready = True
+            if self._ready_at is None and _healthy(settings.port):
+                self._ready_at = time.monotonic()
                 self._write("ready", settings, server_pid=server.pid)
             time.sleep(self._poll)
         return None
@@ -152,11 +170,14 @@ class Supervisor:
             time.sleep(min(self._poll, seconds))
         return not self._stopping
 
-    def _tail(self, start: int) -> str:
-        """What the Server printed since its last launch, at most its last 64 KiB."""
+    def _vram_line(self, start: int) -> str | None:
+        """The line where the Server said it ran out of memory since its last launch (its
+        last 64 KiB), if it did."""
         with (self._logs / "server.log").open("rb") as log:
             log.seek(max(start, log.seek(0, 2) - _TAIL_BYTES))
-            return log.read().decode(errors="replace")
+            tail = log.read().decode(errors="replace")
+        lines = [line for line in tail.splitlines() if _VRAM.search(line)]
+        return lines[-1].strip() if lines else None
 
     def _fail(
         self,

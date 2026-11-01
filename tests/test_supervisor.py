@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import ServerSettingsInvalid, SupervisorAlreadyRunning
+from allin.core.ids import SupervisorName
 from allin.supervisor.lock import supervisor_active
 from allin.supervisor.process import MAX_CRASHES, Supervisor
 from allin.supervisor.settings import ServerSettings, load_server_settings
@@ -48,7 +49,9 @@ class Running:
     def __init__(self, data_dir: Path, name: str = "gpu") -> None:
         self.data_dir = data_dir
         self.name = name
-        self.supervisor = Supervisor(name, data_dir, backoff=0.05, poll=0.05, stop_grace=2.0)
+        self.supervisor = Supervisor(
+            SupervisorName(name), data_dir, backoff=0.01, poll=0.05, stop_grace=2.0, stable=5.0
+        )
         self.exit_code: int | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -60,7 +63,7 @@ class Running:
         return self
 
     def state(self) -> SupervisorState | None:
-        return read_state(self.data_dir / "servers", self.name)
+        return read_state(self.data_dir / "servers", SupervisorName(self.name))
 
     def status_is(self, status: str) -> Callable[[], bool]:
         return lambda: (state := self.state()) is not None and state.status == status
@@ -133,6 +136,31 @@ def test_five_crashes_in_a_row_leave_it_failed(running: Callable[..., Running]):
     assert supervisor.exit_code == 1
 
 
+def test_crashes_after_getting_ready_count_too(running: Callable[..., Running]):
+    supervisor = running("--fake-die-after", "0.2")
+    wait_for(supervisor.ended, timeout=30)
+    state = supervisor.state()
+    assert state is not None and state.failure == "crashes"
+
+
+def test_running_out_of_memory_once_ready_is_a_crash_and_it_is_launched_again(
+    running: Callable[..., Running],
+):
+    supervisor = running("--fake-die-after", "0.2", "--fake-die-oom")
+    wait_for(supervisor.ended, timeout=30)
+    state = supervisor.state()
+    assert state is not None and state.failure == "crashes"  # never "vram": it had fit
+
+
+@pytest.mark.parametrize("flag", ["--kv-unified", "--no-kv-unified"])
+def test_the_unified_cache_is_set_by_its_key_not_by_extra_flags(tmp_path: Path, flag: str):
+    (tmp_path / "x.toml").write_text(
+        f'model = "m.gguf"\ncontext = 8192\nport = 9931\nextra = ["{flag}"]\n'
+    )
+    with pytest.raises(ServerSettingsInvalid):
+        load_server_settings(tmp_path / "x.toml")
+
+
 def test_a_server_that_does_not_fit_in_vram_fails_at_once_saying_so(
     running: Callable[..., Running],
 ):
@@ -161,7 +189,7 @@ def test_a_second_supervisor_with_the_same_name_leaves_without_touching_anything
     wait_for(supervisor.status_is("ready"))
     before = (supervisor.data_dir / "servers" / "gpu.json").read_bytes()
     with pytest.raises(SupervisorAlreadyRunning):
-        Supervisor("gpu", supervisor.data_dir).run(os.getpid())
+        Supervisor(SupervisorName("gpu"), supervisor.data_dir).run(os.getpid())
     assert (supervisor.data_dir / "servers" / "gpu.json").read_bytes() == before
     assert supervisor.status_is("ready")()
 
@@ -171,9 +199,9 @@ def test_stopped_it_ends_its_server_and_falls_asleep(running: Callable[..., Runn
     wait_for(supervisor.status_is("ready"))
     state = supervisor.state()
     assert state is not None and state.server_pid is not None
-    assert supervisor_active(supervisor.data_dir / "servers", "gpu")
+    assert supervisor_active(supervisor.data_dir / "servers", SupervisorName("gpu"))
     supervisor.stop()
     assert supervisor.status_is("asleep")() and supervisor.exit_code == 0
-    assert not supervisor_active(supervisor.data_dir / "servers", "gpu")
+    assert not supervisor_active(supervisor.data_dir / "servers", SupervisorName("gpu"))
     with pytest.raises(ProcessLookupError):
         os.kill(state.server_pid, 0)

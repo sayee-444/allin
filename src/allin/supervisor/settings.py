@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from allin.core.errors import ServerSettingsInvalid
 
 # Truncating the Conversation in silence is never allowed (ADR-0017).
-_FORBIDDEN = frozenset({"--context-shift"})
+# The unified cache has its own key, so the two never contradict each other.
+_FORBIDDEN = frozenset({"--context-shift", "--kv-unified", "--no-kv-unified"})
 
 
 class ServerSettings(BaseModel, frozen=True):

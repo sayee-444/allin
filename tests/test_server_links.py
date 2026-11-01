@@ -29,7 +29,7 @@ def test_a_failed_one_that_did_not_fit_in_vram_names_the_active_supervisors(tmp_
     write_state(tmp_path, GPU, SupervisorState(status="failed", failure="vram", reason="oom"))
     (tmp_path / "gpu.toml").write_text("")
     (tmp_path / "cpu.toml").write_text("")
-    holder = SupervisorLock(lock_path(tmp_path, "cpu"))
+    holder = SupervisorLock(lock_path(tmp_path, SupervisorName("cpu")))
     holder.acquire()
     try:
         assert supervisor_view(tmp_path, GPU) == ServerFailed(
@@ -86,3 +86,29 @@ def test_what_answers_on_the_port_of_a_supervisor_that_does_not_run_is_not_its_s
             assert next_state(inbox) == ServerAsleep()
         finally:
             watch.stop()
+
+
+def test_one_that_ended_since_it_was_woken_can_be_woken_again_at_once(tmp_path: Path):
+    servers = tmp_path / "servers"
+    servers.mkdir()
+    links = ServerLinks(tmp_path, queue.Queue[MainEvent]())
+    assert links.wake(GPU)  # no gpu.toml: it ends at once, failed
+    wait_for(lambda: (s := read_state(servers, GPU)) is not None and s.status == "failed")
+    wait_for(lambda: not supervisor_active(servers, GPU))
+    assert links.wake(GPU)  # e.g. tried again once the GPU's holder fell asleep
+    wait_for(lambda: not supervisor_active(servers, GPU))
+
+
+def test_one_just_woken_is_not_woken_twice(tmp_path: Path):
+    write_settings(tmp_path, "gpu", free_port(), "--fake-load", "5")
+    servers = tmp_path / "servers"
+    links = ServerLinks(tmp_path, queue.Queue[MainEvent]())
+    assert links.wake(GPU)
+    try:
+        assert not links.wake(GPU)
+    finally:
+        wait_for(lambda: (s := read_state(servers, GPU)) is not None and s.pid is not None)
+        state = read_state(servers, GPU)
+        assert state is not None and state.pid is not None
+        os.kill(state.pid, signal.SIGTERM)
+        wait_for(lambda: not supervisor_active(servers, GPU))

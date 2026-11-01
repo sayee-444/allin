@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError
 
 from allin.core.files import write_atomically
+from allin.core.ids import SupervisorName
 
 type SupervisorStatus = Literal["starting", "ready", "crashed", "failed", "draining", "asleep"]
 # Why it failed: the Server did not fit in VRAM, its port was taken, it crashed too often, or
@@ -29,11 +30,11 @@ class SupervisorState(BaseModel, frozen=True):
     reason: str | None = None  # the failure's details, as the Server or the system said them
 
 
-def state_path(servers: Path, name: str) -> Path:
+def state_path(servers: Path, name: SupervisorName) -> Path:
     return servers / f"{name}.json"
 
 
-def read_state(servers: Path, name: str) -> SupervisorState | None:
+def read_state(servers: Path, name: SupervisorName) -> SupervisorState | None:
     """``None`` for a Supervisor that never ran, or whose file cannot be read."""
     try:
         return SupervisorState.model_validate_json(state_path(servers, name).read_bytes())
@@ -41,6 +42,6 @@ def read_state(servers: Path, name: str) -> SupervisorState | None:
         return None
 
 
-def write_state(servers: Path, name: str, state: SupervisorState) -> None:
+def write_state(servers: Path, name: SupervisorName, state: SupervisorState) -> None:
     servers.mkdir(parents=True, exist_ok=True)
     write_atomically(state_path(servers, name), state.model_dump_json(indent=2))

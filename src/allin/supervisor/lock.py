@@ -10,13 +10,14 @@ import time
 from pathlib import Path
 
 from allin.core.errors import SupervisorAlreadyRunning
+from allin.core.ids import SupervisorName
 
 # Main's look holds the lock shared for an instant; a Supervisor starting then tries again.
 _TRIES = 10
 _PAUSE = 0.05
 
 
-def lock_path(servers: Path, name: str) -> Path:
+def lock_path(servers: Path, name: SupervisorName) -> Path:
     return servers / f"{name}.lock"
 
 
@@ -47,7 +48,7 @@ class SupervisorLock:
             os.close(fd)
 
 
-def supervisor_active(servers: Path, name: str) -> bool:
+def supervisor_active(servers: Path, name: SupervisorName) -> bool:
     """Whether a Supervisor process holds ``name``'s lock now."""
     try:
         fd = os.open(lock_path(servers, name), os.O_RDONLY)

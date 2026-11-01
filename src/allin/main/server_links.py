@@ -16,7 +16,7 @@ from allin.main.links import Link
 from allin.main.server_watch import ServerWatch
 from allin.main.slot_locks import SlotLock, SlotLocks, SlotWaiter
 from allin.supervisor.lock import supervisor_active
-from allin.supervisor.state import read_state
+from allin.supervisor.state import read_state, state_path
 
 # A Supervisor just woken takes a moment to hold its lock: not woken again meanwhile.
 _WAKE_GRACE = 10.0
@@ -36,6 +36,7 @@ class ServerLinks:
         self._inbox = inbox
         self._watched: dict[ServerKey, _Watched] = {}
         self._woken: dict[SupervisorName, float] = {}
+        self._started: list[subprocess.Popen[bytes]] = []  # reaped once they end
 
     def watch(self, link: Link) -> None:
         """Start watching the link's Server, if Main does not already."""
@@ -62,9 +63,15 @@ class ServerLinks:
         sleep; whether it was started."""
         if supervisor_active(self._servers, name):
             return False
-        if time.monotonic() - self._woken.get(name, -_WAKE_GRACE) < _WAKE_GRACE:
-            return False
+        self._started = [process for process in self._started if process.poll() is None]
         state = read_state(self._servers, name)
+        woken = self._woken.get(name)
+        if (
+            woken is not None
+            and time.monotonic() - woken < _WAKE_GRACE
+            and not _ended_since(self._servers, name, time.time() - (time.monotonic() - woken))
+        ):
+            return False
         if state is not None and state.slept_by_human:  # only /server wake undoes that
             return False
         self._woken[name] = time.monotonic()
@@ -76,16 +83,26 @@ class ServerLinks:
             "--data-dir",
             str(self._data_dir),
         ]
-        subprocess.Popen(
+        process = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # it outlives this Main, whatever ends it (ADR-0008)
         )
+        self._started.append(process)
         return True
 
     def stop(self) -> None:
         for watched in self._watched.values():
             watched.watch.stop()
             watched.waiter.stop()
+
+
+def _ended_since(servers: Path, name: SupervisorName, since: float) -> bool:
+    """Whether the Supervisor woken at ``since`` (wall clock) already ended: its ``.json``
+    was written after, and it holds no lock."""
+    try:
+        return state_path(servers, name).stat().st_mtime > since
+    except FileNotFoundError:
+        return False

@@ -171,10 +171,14 @@ class TurnQueue:
         label = session.settings.username
         self._windows.send(session.id, ChatAppend(role="user", label=label, text=prompt.text))
         self.send_turn_state(session.id)
-        link = self._link(session)
+        link = self._watched_link(session)
         if link is not None and not self._ready(link.key):
             self._windows.send(session.id, self._waiting_entry(link))
-            if link.supervisor is not None:  # new work wakes it (ADR-0022)
+            # New work wakes it (ADR-0022), but not one that did not fit in VRAM: that one is
+            # tried again when another falls asleep.
+            state = self._states.get(link.key)
+            vram = isinstance(state, ServerFailed) and state.failure == "vram"
+            if link.supervisor is not None and not vram:
                 self._wake(link.supervisor)
         self._start_turns()
 
@@ -185,7 +189,7 @@ class TurnQueue:
     def window_connected(self, session_id: SessionId) -> None:
         """Tell a Window that just connected its Turn state; its Server is watched from now on,
         so the Window gets its context limit."""
-        self._link_of(session_id)
+        self._watched_link_of(session_id)
         self.send_turn_state(session_id)
 
     def requeue(self, prompts: list[Prompt]) -> None:
@@ -288,7 +292,7 @@ class TurnQueue:
         """Tell each Session with queued Prompts why they wait, if their Server is not ready:
         on start, once the Windows are open."""
         for session_id in self._prompts.session_ids():
-            link = self._link_of(session_id)
+            link = self._watched_link_of(session_id)
             if link is not None and not self._ready(link.key):
                 self._windows.send(session_id, self._waiting_entry(link))
 
@@ -373,6 +377,7 @@ class TurnQueue:
                 self._windows.show_error(error, prompt.session_id)
                 self.send_turn_state(prompt.session_id)
                 return True
+            self._watch(link)  # its Enlace may be new since it was queued
             slot = self._slot_on(link.key, full)
             if slot is None:
                 continue
@@ -437,6 +442,9 @@ class TurnQueue:
                 self._windows.send(session_id, self._waiting_entry(link))
         if isinstance(state, ServerFailed) and state.failure == "vram":
             self._vram_failed(link, state, before)
+        elif isinstance(state, ServerFailed) and state != before:
+            title = f"Supervisor {link.supervisor} failed ({state.failure})"
+            self._boxes.notify(None, title, state.reason, "supervisor_failed")
         elif (
             isinstance(state, ServerAsleep)
             and not state.slept_by_human
@@ -468,7 +476,11 @@ class TurnQueue:
         """Main never puts a Supervisor to sleep to make room; it tries again when one falls
         asleep (ADR-0022)."""
         assert link.supervisor is not None
-        was = before.gpu_holders if isinstance(before, ServerFailed) else None
+        was = (
+            before.gpu_holders
+            if isinstance(before, ServerFailed) and before.failure == "vram"
+            else None
+        )
         if was is None or set(state.gpu_holders) - set(was):
             title = f"Supervisor {link.supervisor} does not fit in VRAM"
             self._boxes.notify(None, title, _gpu_holders(state.gpu_holders), "vram")
@@ -493,7 +505,7 @@ class TurnQueue:
     def _ready(self, server: ServerKey) -> bool:
         return isinstance(self._states.get(server), ServerReady)
 
-    def _link(self, session: Session) -> Link | None:
+    def _watched_link(self, session: Session) -> Link | None:
         """The Session's Enlace, watched from now on; ``None`` if it cannot be resolved, which
         its Prompt tells when it would start."""
         try:
@@ -503,9 +515,9 @@ class TurnQueue:
         self._watch(link)
         return link
 
-    def _link_of(self, session_id: SessionId) -> Link | None:
+    def _watched_link_of(self, session_id: SessionId) -> Link | None:
         try:
-            return self._link(self._sessions.load(session_id))
+            return self._watched_link(self._sessions.load(session_id))
         except AllInError:
             return None
 
@@ -514,7 +526,7 @@ class TurnQueue:
         return [
             session_id
             for session_id in self._prompts.session_ids()
-            if (link := self._link_of(session_id)) is not None and link.key == server
+            if (link := self._watched_link_of(session_id)) is not None and link.key == server
         ]
 
     def _has_work(self, server: ServerKey) -> bool:
