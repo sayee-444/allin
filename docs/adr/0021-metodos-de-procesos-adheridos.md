@@ -34,3 +34,5 @@ Lo que manda lleva el Origen de quien lo llamó, más el Proceso adherido como e
 ## Lo que devuelve una llamada humana
 
 Lo que devuelve sale en el Chat donde se tecleó la llamada y queda en el Log de Main. Con `@call`, queda también en el Log de la Sesión y le deja una Notificación de una línea, para que su LLM no siga trabajando sobre un estado que ya cambió; se apaga con `@conversation_logs off call`. Con `/call` desde el Chat de Main no deja Notificación a nadie, porque a las Sesiones que usan el proceso ya las protege la revisión.
+
+**Enmienda (2026-11-01, ADR-0012).** Un Proceso adherido puede atender varias llamadas a la vez, si su fscreen lo declara. Entonces cada Command session que ejecuta dice de qué llamada viene: lleva el Origen de esa llamada y se rechaza si esa llamada ya terminó. No abre un riesgo nuevo, porque el estado del proceso ya mezcla lo que escribieron varias Sesiones, y por eso su eslabón nunca cuenta como humano. La revisión la lleva ahora el propio proceso, y un `@writes` de un humano la sube igual que antes.
