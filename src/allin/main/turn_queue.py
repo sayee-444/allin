@@ -23,6 +23,7 @@ from typing import Protocol
 
 from pydantic import JsonValue
 
+from allin.core.cut import CutReason
 from allin.core.errors import (
     AllInError,
     LlmUnavailable,
@@ -34,8 +35,9 @@ from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
 from allin.core.slot_locks import SlotLock
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.boxes import MainBoxes
-from allin.main.chat_rebuild import dropped_entry, error_entry, tokens_entry
+from allin.main.chat_rebuild import cut_entry, dropped_entry, error_entry, tokens_entry
 from allin.main.conversation import Conversation, Step, Turn
+from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
 from allin.main.events import (
     ServerAsleep,
@@ -152,6 +154,9 @@ class _RunningTurn:
     # Exemption as they were when it started, so changing them only reaches the next Turn.
     auto_confirm: bool
     progress_at: float  # when its Step last showed progress: started, or a stream event
+    slot_context: int  # its Server's slot limit when it started
+    output_cap: int  # the most each of its Steps may generate, sent with each
+    cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     sent: bool = False  # whether its Step sent any stream event: until then it reads input
     streamed: Streamed = field(default_factory=Streamed)
     asking: BoxId | None = None  # the Confirmation it waits on, if any
@@ -305,6 +310,7 @@ class TurnQueue:
         if running is None:
             return
         running.streamed.steps.append(step)
+        running.cut = cut_reason(step, running.output_cap, running.slot_context)
         self._windows.show_context(running.session, running.streamed.steps)
         self._tell_notices(running)
 
@@ -335,11 +341,21 @@ class TurnQueue:
                     self._windows.send(session_id, self._waiting_entry(running.link))
         else:
             self._falls.pop(session_id, None)
-            self._reporter.record(session_id, "turn_finished", "turn finished", turn=turn)
-            if (tokens := tokens_entry(steps)) is not None:
-                self._windows.send(session_id, tokens)
+            self._turn_finished(running, turn, steps)
         self.send_turn_state(session_id)
         self._start_turns()
+
+    def _turn_finished(self, running: _RunningTurn, turn: int, steps: list[Step]) -> None:
+        """Tell the Turn ended and what it cost; a cut one also with its mark (ADR-0004)."""
+        session_id, cut = running.session.id, running.cut
+        if (tokens := tokens_entry(steps)) is not None:
+            self._windows.send(session_id, tokens)
+        if cut is None:
+            self._reporter.record(session_id, "turn_finished", "turn finished", turn=turn)
+            return
+        shown = f"turn finished, {cut_mark(cut)}"
+        self._reporter.record(session_id, "turn_finished", shown, turn=turn, cut=cut)
+        self._windows.send(session_id, cut_entry(cut))
 
     def cancel(self, session_id: SessionId, reason: str) -> None:
         """Drop a Session's queued Prompts and stop its running Turn.
@@ -515,15 +531,28 @@ class TurnQueue:
             self._windows.show_error(error, prompt.session_id)
             self.send_turn_state(prompt.session_id)
             return
+        state = self._states.get(link.key)
+        assert isinstance(state, ServerReady)  # a slot is only taken on a ready Server
+        slot_context = state.props.slot_context
+        cap = output_cap(session.settings.sampling, slot_context)
         request = TurnRequest(
             model=session.settings.model,
             input=conversation.request_input(prompt.text),
-            params=session.settings.sampling.request_params(),
+            params={**session.settings.sampling.request_params(), "max_output_tokens": cap},
         )
         job = TurnJob(session.id, request, link.base_url)
         auto_confirm = self._devastation.covers(session.settings)
         self._running[session.id] = _RunningTurn(
-            prompt, session, link, job.cancellation, job, slot, auto_confirm, self._clock()
+            prompt,
+            session,
+            link,
+            job.cancellation,
+            job,
+            slot,
+            auto_confirm,
+            self._clock(),
+            slot_context=slot_context,
+            output_cap=cap,
         )
         self._reporter.record(session.id, "turn_started", "turn started")
         self._submit_turn(job)
@@ -774,9 +803,11 @@ class TurnQueue:
     def _tell_notices(self, running: _RunningTurn) -> None:
         """Show the Notices a Step that just ended sets off for its Session."""
         session_id = running.session.id
-        state = self._states.get(running.link.key)
-        limit = state.props.slot_context if isinstance(state, ServerReady) else None
-        event = NoticeEvent(session_id, context_tokens(running.streamed.steps), limit)
+        context = context_tokens(running.streamed.steps)
+        # The limit its Steps ran with, which a Server restarted meanwhile may have changed.
+        event = NoticeEvent(
+            session_id, context, running.slot_context, running.cut, running.output_cap
+        )
 
         def notify(kind: str, title: str, text: str) -> None:
             fields = {"kind": kind, "title": title, "text": text}
@@ -833,7 +864,7 @@ class TurnQueue:
         """Save the finished Turn and return its index in the Conversation."""
         # Saved only now, whole, so a Turn that fails half-way never reaches the disk.
         conversation = self._conversation(running.session)
-        turn = Turn(prompt=running.prompt.text, steps=steps)
+        turn = Turn(prompt=running.prompt.text, steps=steps, cut=running.cut)
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return len(conversation.turns)
 

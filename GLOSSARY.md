@@ -296,7 +296,7 @@ Lo que Main superpone en el Chat de Main y en la Ventana de la Sesión a la que 
 _Avoid_: popup, diálogo
 
 **Aviso** (`Notice`):
-Recuadro superpuesto en una Ventana (y en el Chat de Main) que informa algo sin pedir decisión: se cierra con una tecla y nunca bloquea un Turno. Cada tipo de Aviso es un módulo de `notices/`, parte de Main y común a todos los Perfiles, que se declara con un decorador y tiene sus propios Ajustes: encendido, título y texto en todos, y los que su tipo necesite (el de Contexto, un umbral), así que su lectura no tiene que ser de alarma; el de Contexto sale al cruzar un umbral del límite. No es una Notificación: no entra en la Conversación.
+Recuadro superpuesto en una Ventana (y en el Chat de Main) que informa algo sin pedir decisión: se cierra con una tecla y nunca bloquea un Turno. Cada tipo de Aviso es un módulo de `notices/`, parte de Main y común a todos los Perfiles, que se declara con un decorador y tiene sus propios Ajustes; Main trae los suyos (el de Turno cortado, `cut_turn`) con los mismos Ajustes, y un módulo con su nombre los reemplaza: encendido, título y texto en todos, y los que su tipo necesite (el de Contexto, un umbral), así que su lectura no tiene que ser de alarma; el de Contexto sale al cruzar un umbral del límite. No es una Notificación: no entra en la Conversación.
 _Avoid_: advertencia (como nombre del concepto), alerta, popup
 
 ## Memoria

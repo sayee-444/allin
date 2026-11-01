@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from allin.core.cut import CutReason
 from allin.core.errors import SessionStorageFailed, SessionUnreadable
 from allin.core.files import write_atomically
 
@@ -28,6 +29,7 @@ class Step(BaseModel, frozen=True):
 class Turn(BaseModel, frozen=True):
     prompt: str
     steps: list[Step]
+    cut: CutReason | None = None  # a cut Turn keeps what it generated, marked
 
 
 class Conversation(BaseModel, frozen=True):

@@ -36,9 +36,14 @@ def answer(delta: str) -> ResponseTextDeltaEvent:
 
 
 def completed(
-    thinking: str, text: str, total_tokens: int = 10, timings: dict[str, Any] | None = None
+    thinking: str,
+    text: str,
+    total_tokens: int = 10,
+    timings: dict[str, Any] | None = None,
+    tokens: tuple[int, int] | None = None,
 ) -> ResponseCompletedEvent:
-    """``timings`` is the extra field llama-server adds to the event."""
+    """``timings`` is the extra field llama-server adds to the event; ``tokens``, the input and
+    output it says it read and generated, else ``total_tokens`` split in two."""
     output = [
         ResponseReasoningItem(
             id="rs_1",
@@ -54,10 +59,11 @@ def completed(
             content=[ResponseOutputText(type="output_text", text=text, annotations=[])],
         ),
     ]
+    input_tokens, output_tokens = tokens or (total_tokens // 2, total_tokens - total_tokens // 2)
     usage = ResponseUsage.model_construct(
-        input_tokens=total_tokens // 2,
-        output_tokens=total_tokens - total_tokens // 2,
-        total_tokens=total_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
     )
     response = Response.model_construct(id="resp_1", output=output, usage=usage)
     event = ResponseCompletedEvent.model_construct(type="response.completed", response=response)

@@ -21,6 +21,12 @@ def step(event, params):
     return {"tokens": event.context}
 """
 BROKEN = "raise RuntimeError('broken on purpose')\n"
+# Main's own Notice type, there with no module: a cut Turn (ADR-0004).
+CUT_TURN_KEYS = {
+    "notices.cut_turn.enabled": True,
+    "notices.cut_turn.title": "Turn cut",
+    "notices.cut_turn.text": "{why}; {how}",
+}
 EVENT = NoticeEvent(SessionId("abc123"), context=10, limit=100)
 
 
@@ -44,6 +50,7 @@ def test_a_module_in_notices_declares_a_type_with_its_settings(tmp_path: Path):
     assert loaded.problems == []
     keys = {key.name: key.default for key in loaded.types.setting_keys()}
     assert keys == {
+        **CUT_TURN_KEYS,
         "notices.step.enabled": True,
         "notices.step.title": "Step done",
         "notices.step.text": "{tokens} tokens, {missing} stays",
@@ -70,12 +77,20 @@ def test_a_module_that_fails_to_load_is_told_and_the_others_load(tmp_path: Path)
     loaded = load_notice_types(tmp_path)
     [problem] = loaded.problems
     assert problem.fields["notice"] == "a_broken.py"
-    assert len(loaded.types.setting_keys()) == 4
+    assert len(loaded.types.setting_keys()) == len(CUT_TURN_KEYS) + 4
 
 
-def test_no_notices_folder_means_no_types(tmp_path: Path):
+def test_no_notices_folder_means_only_mains_own_types(tmp_path: Path):
     loaded = load_notice_types(tmp_path / "missing")
-    assert loaded.types.setting_keys() == [] and loaded.problems == []
+    keys = {key.name: key.default for key in loaded.types.setting_keys()}
+    assert keys == CUT_TURN_KEYS and loaded.problems == []
+
+
+def test_a_module_declaring_one_of_mains_own_types_replaces_it(tmp_path: Path):
+    write(tmp_path, "cut.py", EVERY_STEP.replace('"step"', '"cut_turn"'))
+    keys = {str(key.name): key.default for key in load_notice_types(tmp_path).types.setting_keys()}
+    assert keys["notices.cut_turn.title"] == "Step done"
+    assert shown(tmp_path, SessionSettings()) == [("Step done", "10 tokens, {missing} stays")]
 
 
 @pytest.fixture
