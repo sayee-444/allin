@@ -21,6 +21,7 @@ from allin.ipc.messages import (
     InputDraft,
     InputRestore,
     MainToWindow,
+    PoolShared,
     TurnState,
     UserInput,
     WindowReady,
@@ -47,6 +48,18 @@ class _MainListener:
 
     def __init__(self, screen: ChatScreen) -> None:
         self._screen = screen
+        # What the border shows, as Main last said each part.
+        self._usage = ContextUsage(context=None, limit=None, tokens_per_second=None)
+        self._shared = False
+        self._waiting: str | None = None
+
+    def _border(self) -> BorderStatus:
+        usage = self._usage
+        return BorderStatus(
+            context_status(
+                usage.context, usage.limit, usage.tokens_per_second, self._shared, self._waiting
+            )
+        )
 
     def on_message(self, message: MainToWindow) -> None:
         match message:
@@ -54,10 +67,17 @@ class _MainListener:
                 self._screen.inbox.put(ChatLine(text, role, label))
             case ChatDelta(role=role, label=label, text=text):
                 self._screen.inbox.put(ChatStream(text, role, label))
-            case TurnState(active=active):
+            case TurnState(active=active, waiting=waiting):
                 self._screen.inbox.put(InputLock(active))
-            case ContextUsage(context=context, limit=limit, tokens_per_second=speed):
-                self._screen.inbox.put(BorderStatus(context_status(context, limit, speed)))
+                if waiting != self._waiting:
+                    self._waiting = waiting
+                    self._screen.inbox.put(self._border())
+            case ContextUsage():
+                self._usage = message
+                self._screen.inbox.put(self._border())
+            case PoolShared(shared=shared):
+                self._shared = shared
+                self._screen.inbox.put(self._border())
             case InputRestore(text=text):
                 self._screen.inbox.put(InputText(text))
             case BoxShow(box_id=box_id, kind=kind, title=title, text=text):

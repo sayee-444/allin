@@ -22,6 +22,7 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "base_url",
         "parallel",
         "step.stall",
+        "admission.patience",
         "session.assistant_name",
         "session.username",
         "session.sysprompt",

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
-from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore
+from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore, PoolShared
 from allin.main.chat_rebuild import error_entry, rebuild_chat
 from allin.main.conversation import Conversation, Step
 from allin.main.executors import SHUTTING_DOWN
@@ -63,6 +63,10 @@ class OpenWindows:
         self._drafts: dict[SessionId, list[str]] = {}
         # Each Server's slot context, once ready: the limit its Sessions' Windows show.
         self._limits: dict[ServerKey, int] = {}
+        # With a shared pool: the Sessions whose Steps are in course on each Server, and
+        # whether each open Window was last told another one uses its pool.
+        self._in_course: dict[ServerKey, frozenset[SessionId]] = {}
+        self._shared: dict[SessionId, bool] = {}
 
     def open(self, session: Session, streamed: Streamed | None) -> None:
         """Open the Session's Window and show it its Chat so far and its Draft.
@@ -75,6 +79,10 @@ class OpenWindows:
             self._send_chat(session, streamed)
         except AllInError as error:
             self.show_error(error, session.id)
+        self._shared.pop(session.id, None)
+        server = self._server_of(session)
+        if server is not None and server in self._in_course:
+            self._tell_shared(session.id, server)
         # Last block first: each one shown pushes the one before it back to wait.
         for block in reversed(self._drafts.get(session.id, [])):
             self.send(session.id, InputRestore(text=block))
@@ -121,6 +129,26 @@ class OpenWindows:
                 continue
             conversation = conversation or Conversation(sysprompt="")
             self.show_context(session, _last_steps(streamed.get(session_id), conversation))
+
+    def set_in_course(self, server: ServerKey, sessions: frozenset[SessionId]) -> None:
+        """The Sessions whose Steps are in course on ``server``'s shared pool, whatever Main
+        runs them: each open Window on it learns whether another one uses its pool now."""
+        if self._in_course.get(server) == sessions:
+            return
+        self._in_course[server] = sessions
+        for session_id in list(self._links):
+            try:
+                session = self._sessions.load(session_id)
+            except AllInError:
+                continue
+            if self._server_of(session) == server:
+                self._tell_shared(session_id, server)
+
+    def _tell_shared(self, session_id: SessionId, server: ServerKey) -> None:
+        shared = bool(self._in_course.get(server, frozenset()) - {session_id})
+        if self._shared.get(session_id) != shared:
+            self._shared[session_id] = shared
+            self.send(session_id, PoolShared(shared=shared))
 
     def _server_of(self, session: Session) -> ServerKey | None:
         try:

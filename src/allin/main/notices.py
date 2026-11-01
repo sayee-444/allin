@@ -1,7 +1,7 @@
 """The Notice types Main loaded from ``<data-dir>/notices/`` and when each one shows.
 
 Modules load once, when Main starts, without hot reload (ADR-0016). One that fails to load is
-told and left out; the others still load. Main's own types (``cut_turn``) come first, and a
+told and left out; the others still load. Main's own types (``cut_turn``, ``context``) come first, and a
 module that declares one of their names replaces it.
 """
 
@@ -16,6 +16,7 @@ from pydantic import TypeAdapter
 from allin import notices
 from allin.core.errors import AllInError, NoticeFailed
 from allin.core.settings import SessionSettings, SettingKey, SettingName
+from allin.main.context_notice import CONTEXT
 from allin.main.cut_turns import CUT_TURN
 from allin.notices import NoticeEvent, NoticeType
 
@@ -72,7 +73,7 @@ def load_notice_types(folder: Path) -> LoadedNotices:
     """Main's own types and those the modules in ``folder`` declare, and why any module failed
     to load."""
     problems: list[AllInError] = []
-    loaded: list[NoticeType] = [CUT_TURN]
+    loaded: list[NoticeType] = [CUT_TURN, CONTEXT]
     for path in sorted(folder.glob("*.py")) if folder.is_dir() else []:
         notices.declared.clear()
         try:

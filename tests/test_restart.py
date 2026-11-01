@@ -208,7 +208,7 @@ def test_no_slot_is_waited_for_while_the_supervisor_drains(tmp_path: Path):
     lock = SupervisorLock(lock_path(servers, GPU))
     lock.acquire()
     try:
-        links.wait_for_slot(ServerKey("gpu"), 1)
+        links.wait_for_slot(ServerKey("gpu"), 1, 0)
         time.sleep(0.3)
     finally:
         lock.release()

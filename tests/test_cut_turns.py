@@ -79,8 +79,9 @@ def ask(main: MainHarness, session: Session, *replies: list[ResponseStreamEvent]
 
 
 def notices(main: MainHarness, session: Session) -> list[BoxShow]:
+    """The cut Turn Notices its Window showed; a full slot also crosses the Context's."""
     [window] = main.windows(session.id)
-    return [message for message in window.sent if isinstance(message, BoxShow)]
+    return [m for m in window.sent if isinstance(m, BoxShow) and m.title == "Turn cut"]
 
 
 def test_a_turn_that_fills_the_slot_is_saved_cut_with_what_it_generated(main: MainHarness):

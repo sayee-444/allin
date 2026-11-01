@@ -15,6 +15,8 @@ in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_fail
 Prompt back to the input, only for a human one).
 """
 
+import itertools
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -27,16 +29,19 @@ from allin.core.cut import CutReason
 from allin.core.errors import (
     AllInError,
     LlmUnavailable,
+    PromptTooBig,
     StepStalled,
     TurnCancelled,
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
 from allin.core.slot_locks import SlotLock
+from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
+from allin.main.admission import Waiting, admit, server_waiting
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import cut_entry, dropped_entry, error_entry, tokens_entry
-from allin.main.conversation import Conversation, Step, Turn
+from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
 from allin.main.events import (
@@ -76,8 +81,19 @@ class Servers(Protocol):
         """A free lock among the Server's first ``slots``; ``None`` if every one is held."""
         ...
 
-    def wait_for_slot(self, server: ServerKey, slots: int) -> None:
-        """Wait for one of those locks to be free; then ``SlotFreed`` reaches the inbox."""
+    def wait_for_slot(self, server: ServerKey, slots: int, version: int) -> None:
+        """Wait for one of those locks to be freed or the Server's Wait list to move past
+        ``version``; then ``SlotFreed`` reaches the inbox."""
+        ...
+
+    def wait_list(self, server: ServerKey) -> WaitList:
+        """The Server's Wait list, shared by every Main that uses it (ADR-0022)."""
+        ...
+
+    def measure(
+        self, server: ServerKey, session_id: SessionId, ticket: int, items: list[Item]
+    ) -> None:
+        """Measure a Step's input on the Server; then ``InputMeasured`` reaches the inbox."""
         ...
 
     def recheck(self, server: ServerKey) -> None:
@@ -142,6 +158,17 @@ def _gpu_holders(holders: tuple[SupervisorName, ...]) -> str:
 
 
 @dataclass
+class _Measure:
+    """The measure of a Session's next Prompt on a Server, asked or done (ADR-0004)."""
+
+    prompt: Prompt
+    server: ServerKey
+    ticket: int
+    done: bool = False
+    tokens: int | None = None  # ``None`` once done: the Server could not measure it
+
+
+@dataclass
 class _RunningTurn:
     prompt: Prompt
     session: Session
@@ -156,16 +183,30 @@ class _RunningTurn:
     progress_at: float  # when its Step last showed progress: started, or a stream event
     slot_context: int  # its Server's slot limit when it started
     output_cap: int  # the most each of its Steps may generate, sent with each
+    need: int  # what its Step reserves of the pool: measured input plus Output cap
+    context_before: int | None  # its Session's Context when it started
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     sent: bool = False  # whether its Step sent any stream event: until then it reads input
     streamed: Streamed = field(default_factory=Streamed)
     asking: BoxId | None = None  # the Confirmation it waits on, if any
     answer: bool | None = None  # its answer, while it waits for a slot to go on
+    answered_at: float = 0.0  # wall clock: when it was answered, its place in the Wait list
 
     def release_slot(self) -> None:
         if self.slot is not None:
             self.slot.release()
             self.slot = None
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """A Step ready to start but for its Server: a Continuation or a Session's next Prompt."""
+
+    waiter: Waiter
+    link: Link
+    running: _RunningTurn | None = None
+    prompt: Prompt | None = None
+    session: Session | None = None
 
 
 class TurnQueue:
@@ -184,11 +225,27 @@ class TurnQueue:
         notices: NoticeTypes,
         main_id: MainId,
         stall: float,
+        patience: float,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
+        """``patience``: seconds a waiting Prompt may be overtaken (``admission.patience``);
+        ``wall_clock`` places each waiter in a Wait list other Mains read too."""
         self._main_id = main_id
+        self._pid = os.getpid()
         self._stall = stall
+        self._patience = patience
         self._clock = clock
+        self._wall = wall_clock
+        # Each Session's next Prompt as measured, or being measured (ADR-0004).
+        self._measures: dict[SessionId, _Measure] = {}
+        self._tickets = itertools.count(1)
+        # When each Session's next Step started waiting for its Server, by the wall clock.
+        self._since: dict[SessionId, float] = {}
+        self._published: set[ServerKey] = set()  # Servers whose Wait list has waiters of ours
+        self._shown_waiting: dict[SessionId, str] = {}  # why it waits, as its border says
+        # What each Session's last Step left counting against its limit, for the Context Notice.
+        self._used: dict[SessionId, int | None] = {}
         # How many falls in a row left each Session's current Step half-done (ADR-0023).
         self._falls: dict[SessionId, int] = {}
         self._contexts: dict[ServerKey, int] = {}  # each Server's slot context, last seen
@@ -294,6 +351,23 @@ class TurnQueue:
     def set_stall(self, stall: float) -> None:
         self._stall = stall
 
+    def set_patience(self, patience: float) -> None:
+        """For the Prompts that start waiting from now on."""
+        self._patience = patience
+
+    def measured(
+        self, server: ServerKey, session_id: SessionId, ticket: int, tokens: int | None
+    ) -> None:
+        """The Server measured the input of a Session's next Prompt."""
+        measure = self._measures.get(session_id)
+        if measure is None or measure.ticket != ticket or measure.server != server:
+            return  # a stale measure: the Prompt or its Server changed since
+        measure.done, measure.tokens = True, tokens
+        if tokens is None:
+            shown = "the Server could not measure the input: admitted by its slots only"
+            self._reporter.log_session(session_id, "input_unmeasured", text=shown)
+        self._start_turns()
+
     def output(self, session_id: SessionId, kind: OutputKind, text: str) -> None:
         running = self._running.get(session_id)
         if running is None:
@@ -320,7 +394,8 @@ class TurnQueue:
         running = self._running.pop(session_id, None)
         if running is None:
             return
-        running.release_slot()
+        self._release(running)
+        self._measures.pop(session_id, None)  # its Conversation changed
         self._withdraw(running)
         try:
             if error is not None or steps is None:
@@ -364,6 +439,8 @@ class TurnQueue:
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
         self._falls.pop(session_id, None)
+        self._measures.pop(session_id, None)
+        self._since.pop(session_id, None)
         texts: list[JsonValue] = [prompt.text for prompt in self._prompts.drop(session_id)]
         if texts:
             shown = dropped_entry(len(texts), reason).text
@@ -385,7 +462,7 @@ class TurnQueue:
             self._reporter.record(session_id, "confirmation_auto_answered", shown, **fields)
             running.job.confirmation.resume(True)
             return
-        running.release_slot()
+        self._release(running)
         self._reporter.record(session_id, "confirmation_asked", f"confirmation: {title}")
 
         def on_answer(answer: bool) -> None:
@@ -433,15 +510,17 @@ class TurnQueue:
         """
         for running in self._running.values():
             running.cancellation.cancel(SHUTTING_DOWN)
-            running.release_slot()
+            self._release(running)
             self._withdraw(running)
             self._fail_turn(running, TurnCancelled(reason=SHUTTING_DOWN))
         self._running.clear()
 
     def send_turn_state(self, session_id: SessionId) -> None:
-        """Tell the Session's Window whether it has a Turn running or waiting."""
+        """Tell the Session's Window whether it has a Turn running or waiting, and why its next
+        Step waits, if it does."""
         active = session_id in self._running or self._prompts.has(session_id)
-        self._windows.send(session_id, TurnState(active=active))
+        waiting = self._shown_waiting.get(session_id) if active else None
+        self._windows.send(session_id, TurnState(active=active, waiting=waiting))
 
     def streamed(self, session_id: SessionId) -> Streamed | None:
         """What the Session's running Turn has given so far; ``None`` if it has none."""
@@ -464,53 +543,172 @@ class TurnQueue:
     def _start_turns(self) -> None:
         """Hand Turns to executors while there is room (ADR-0004, ADR-0022).
 
-        Room is this Main's ``parallel``, summing every Server, and on each Server a free slot
-        lock, which Mains sharing it compete for (ADR-0008). A Server that is not ready, or full,
-        holds back only its own Sessions.
+        Room is this Main's ``parallel``, summing every Server; on each Server, a free slot
+        lock, which Mains sharing it compete for (ADR-0008), and the Admission by its Wait list
+        (``allin.main.admission``). A Server that is not ready, or full, holds back only its own
+        Sessions.
         """
         self._judge_changes()
-        while not self._stopping and self._room_in_main() and self._start_one():
-            pass
+        waiting: dict[SessionId, Waiting] = {}
+        while not self._stopping and self._start_one(waiting):
+            waiting = {}
+        self._show_waiting(waiting)
+        self._show_pools()
 
     def _room_in_main(self) -> bool:
         holding = sum(running.slot is not None for running in self._running.values())
         return self._parallel is None or holding < self._parallel
 
-    def _start_one(self) -> bool:
-        """Start one answered Turn or new Prompt; ``False`` if none can start now."""
+    def _start_one(self, waiting: dict[SessionId, Waiting]) -> bool:
+        """Start one answered Turn or new Prompt; ``False`` if none can start now. ``waiting``
+        gets why each of the others waits."""
+        candidates = self._candidates(waiting)
+        if candidates is None:  # one failed before it could wait: look again
+            return True
+        room = self._room_in_main()
+        views = self._publish(candidates if room else [])
         full: set[ServerKey] = set()  # no slot there now: what waits for it waits on
-        for running in self._continuations():
-            slot = self._slot_on(running.link.key, full)
-            if slot is not None:  # an answered Turn goes on before any new Prompt
-                self._resume_turn(running, slot)
-                return True
-        # A Session whose Enlace changes waits for it, but a suspended Turn repeats its Step.
-        held = self._changes.keys() - self._falls.keys()
-        for prompt in self._prompts.waiting(active=self._running.keys() | held):
-            try:
-                session = self._sessions.load(prompt.session_id)
-                link = self._links.resolve(session.settings)
-            except AllInError as error:
-                self._prompts.remove(prompt)
-                self._windows.show_error(error, prompt.session_id)
-                self.send_turn_state(prompt.session_id)
-                return True
-            self._watch(link)  # its Enlace may be new since it was queued
-            slot = self._slot_on(link.key, full)
-            if slot is None:
+        for candidate in candidates:
+            session_id, key = candidate.waiter.session, candidate.link.key
+            if not room or key in full:
+                waiting[session_id] = Waiting("slot")
                 continue
-            self._prompts.remove(prompt)
-            self._start_prompt(prompt, session, link, slot)
+            view = views[key]
+            admission = admit(candidate.waiter, view, self._pool(key), self._wall())
+            if admission.verdict != "go":
+                reason = "queued" if admission.verdict == "queued" else "pool"
+                waiting[session_id] = Waiting(reason, admission.position)
+                self._wait_on(key, view.version)
+                continue
+            slot = self._slot_on(key, full, view.version)
+            if slot is None:
+                waiting[session_id] = Waiting("slot")
+                continue
+            self._start_candidate(candidate, slot)
             return True
         return False
 
-    def _slot_on(self, server: ServerKey, full: set[ServerKey]) -> SlotLock | None:
-        """A slot of ``server`` if it is ready and has one free; else ``server`` joins
+    def _candidates(self, waiting: dict[SessionId, Waiting]) -> list[_Candidate] | None:
+        """The Steps ready to start but for their Server, Continuations first, then each
+        Session's next Prompt in queue order; ``None`` if one failed on the way. ``waiting``
+        gets why the others cannot even wait for a slot yet."""
+        candidates: list[_Candidate] = []
+        for running in self._continuations():
+            if not self._ready(running.link.key):
+                waiting[running.session.id] = self._server_waiting(running.link.key)
+                continue
+            since = running.answered_at
+            waiter = self._waiter(running.session.id, "continuation", since, running.need)
+            candidates.append(_Candidate(waiter, running.link, running=running))
+        for session_id in self._changes.keys() - self._falls.keys():
+            if self._prompts.has(session_id) and session_id not in self._running:
+                waiting[session_id] = Waiting("link")
+        # A Session whose Enlace changes waits for it, but a suspended Turn repeats its Step.
+        held = self._changes.keys() - self._falls.keys()
+        seen: set[SessionId] = set()
+        for prompt in self._prompts.waiting(active=self._running.keys() | held):
+            if prompt.session_id in seen:  # only a Session's next Prompt may start
+                continue
+            seen.add(prompt.session_id)
+            try:
+                candidate = self._prompt_candidate(prompt, waiting)
+            except AllInError as error:
+                self._drop_prompt(prompt, error)
+                return None
+            if candidate is not None:
+                candidates.append(candidate)
+        return candidates
+
+    def _prompt_candidate(
+        self, prompt: Prompt, waiting: dict[SessionId, Waiting]
+    ) -> _Candidate | None:
+        """The Prompt as a candidate; ``None`` while its Server is not ready or its input is
+        measured. Raises ``PromptTooBig`` if it would not fit even in an empty slot."""
+        session_id = prompt.session_id
+        session = self._sessions.load(session_id)
+        link = self._links.resolve(session.settings)
+        self._watch(link)  # its Enlace may be new since it was queued
+        state = self._states.get(link.key)
+        if not isinstance(state, ServerReady):
+            waiting[session_id] = self._server_waiting(link.key)
+            return None
+        need = self._need(prompt, session, link, state.props.slot_context)
+        if need is None:  # measured in a moment: nothing to tell meanwhile
+            return None
+        if need > state.props.slot_context:
+            raise PromptTooBig(need=need, limit=state.props.slot_context)
+        kind: WaitClass = "continuation" if session_id in self._falls else "prompt"
+        since = self._since.setdefault(session_id, self._wall())
+        waiter = self._waiter(session_id, kind, since, need)
+        return _Candidate(waiter, link, prompt=prompt, session=session)
+
+    def _need(self, prompt: Prompt, session: Session, link: Link, slot_context: int) -> int | None:
+        """What the Prompt's first Step needs: its input, as the Server measures it, plus its
+        Output cap; ``None`` until measured, which this asks for."""
+        measure = self._measures.get(session.id)
+        if measure is None or measure.prompt != prompt or measure.server != link.key:
+            items = self._conversation(session).request_input(prompt.text)
+            ticket = next(self._tickets)
+            self._measures[session.id] = _Measure(prompt, link.key, ticket)
+            self._servers.measure(link.key, session.id, ticket, items)
+            return None
+        if not measure.done:
+            return None
+        return (measure.tokens or 0) + output_cap(session.settings.sampling, slot_context)
+
+    def _waiter(self, session_id: SessionId, kind: WaitClass, since: float, need: int) -> Waiter:
+        return Waiter(
+            main=self._main_id,
+            pid=self._pid,
+            session=session_id,
+            kind=kind,
+            since=since,
+            need=need,
+            firm_at=since + self._patience,
+        )
+
+    def _drop_prompt(self, prompt: Prompt, error: AllInError) -> None:
+        """A Prompt that cannot start: it leaves the queue, and back to its input if it never
+        waited for its Server, since it is in no Conversation."""
+        session_id = prompt.session_id
+        self._prompts.remove(prompt)
+        self._measures.pop(session_id, None)
+        self._since.pop(session_id, None)
+        self._windows.show_error(error, session_id)
+        if isinstance(error, PromptTooBig):
+            self._windows.send(session_id, InputRestore(text=prompt.text))
+        self.send_turn_state(session_id)
+
+    def _publish(self, candidates: list[_Candidate]) -> dict[ServerKey, WaitListView]:
+        """Put this Main's waiters in their Servers' Wait lists, taking out the ones that no
+        longer wait; each list as it is after."""
+        by_server: dict[ServerKey, list[Waiter]] = {key: [] for key in self._published}
+        for candidate in candidates:
+            by_server.setdefault(candidate.link.key, []).append(candidate.waiter)
+        views = {
+            key: self._servers.wait_list(key).publish(self._main_id, self._pid, waiters)
+            for key, waiters in by_server.items()
+        }
+        self._published = {key for key, waiters in by_server.items() if waiters}
+        return views
+
+    def _pool(self, server: ServerKey) -> int | None:
+        """The Server's shared pool, in tokens; ``None`` if its slots do not share one."""
+        state = self._states.get(server)
+        if not isinstance(state, ServerReady) or not state.shared_pool:
+            return None
+        return state.props.slot_context if state.props.total_slots > 1 else None
+
+    def _wait_on(self, server: ServerKey, version: int) -> None:
+        state = self._states.get(server)
+        if isinstance(state, ServerReady):
+            self._servers.wait_for_slot(server, state.props.total_slots, version)
+
+    def _slot_on(self, server: ServerKey, full: set[ServerKey], version: int) -> SlotLock | None:
+        """A slot of ``server``, which is ready, if it has one free; else ``server`` joins
         ``full`` until the next look."""
         state = self._states.get(server)
-        if server in full or not isinstance(state, ServerReady):
-            full.add(server)
-            return None
+        assert isinstance(state, ServerReady)  # only a ready Server's Steps are candidates
         slots = state.props.total_slots
         holding = sum(
             running.slot is not None and running.link.key == server
@@ -520,10 +718,64 @@ class TurnQueue:
         if slot is None:
             full.add(server)
             if holding < slots:  # another Main holds it
-                self._servers.wait_for_slot(server, slots)
+                self._servers.wait_for_slot(server, slots, version)
         return slot
 
-    def _start_prompt(self, prompt: Prompt, session: Session, link: Link, slot: SlotLock) -> None:
+    def _start_candidate(self, candidate: _Candidate, slot: SlotLock) -> None:
+        if candidate.running is not None:
+            self._resume_turn(candidate.running, slot)
+            return
+        assert candidate.prompt is not None and candidate.session is not None
+        self._prompts.remove(candidate.prompt)
+        self._measures.pop(candidate.waiter.session, None)
+        self._since.pop(candidate.waiter.session, None)
+        self._start_prompt(
+            candidate.prompt, candidate.session, candidate.link, slot, candidate.waiter.need
+        )
+
+    def _reserve(self, running: _RunningTurn) -> None:
+        reservation = Reservation(
+            main=self._main_id, pid=self._pid, session=running.session.id, tokens=running.need
+        )
+        self._servers.wait_list(running.link.key).reserve(reservation)
+
+    def _release(self, running: _RunningTurn) -> None:
+        """Its Step ended or paused: its slot and what it reserved of the pool are free."""
+        if running.slot is not None:
+            self._servers.wait_list(running.link.key).release(
+                self._main_id, self._pid, running.session.id
+            )
+        running.release_slot()
+
+    def _server_waiting(self, server: ServerKey) -> Waiting:
+        return server_waiting(self._states.get(server)) or Waiting("slot")
+
+    def _show_waiting(self, waiting: dict[SessionId, Waiting]) -> None:
+        """Tell each Window whose reason to wait changed."""
+        texts = {session_id: why.text() for session_id, why in waiting.items()}
+        for session_id in self._shown_waiting.keys() | texts.keys():
+            text = texts.get(session_id)
+            if self._shown_waiting.get(session_id) == text:
+                continue
+            if text is None:
+                del self._shown_waiting[session_id]
+            else:
+                self._shown_waiting[session_id] = text
+            self.send_turn_state(session_id)
+
+    def _show_pools(self) -> None:
+        """Tell the Windows on a shared pool whether another Session's Step uses it now."""
+        for server in self._watched:
+            if self._pool(server) is None:
+                continue
+            in_course = frozenset(
+                r.session for r in self._servers.wait_list(server).look().reserved
+            )
+            self._windows.set_in_course(server, in_course)
+
+    def _start_prompt(
+        self, prompt: Prompt, session: Session, link: Link, slot: SlotLock, need: int
+    ) -> None:
         try:
             conversation = self._conversation(session)
         except AllInError as error:
@@ -553,8 +805,13 @@ class TurnQueue:
             self._clock(),
             slot_context=slot_context,
             output_cap=cap,
+            need=need,
+            context_before=context_tokens(conversation.turns[-1].steps)
+            if conversation.turns
+            else None,
         )
-        self._reporter.record(session.id, "turn_started", "turn started")
+        self._reserve(self._running[session.id])
+        self._reporter.record(session.id, "turn_started", "turn started", need=need)
         self._submit_turn(job)
 
     def _server_changed(self, server: ServerKey, state: ServerState) -> None:
@@ -804,9 +1061,22 @@ class TurnQueue:
         """Show the Notices a Step that just ended sets off for its Session."""
         session_id = running.session.id
         context = context_tokens(running.streamed.steps)
+        shared = self._pool(running.link.key) is not None
+        # With a shared pool, what the Steps of other Sessions reserve counts too.
+        others = self._others_reserved(running) if shared else 0
+        used = None if context is None else context + others
+        before = self._used.get(session_id, running.context_before)
+        self._used[session_id] = used
         # The limit its Steps ran with, which a Server restarted meanwhile may have changed.
         event = NoticeEvent(
-            session_id, context, running.slot_context, running.cut, running.output_cap
+            session_id,
+            context,
+            running.slot_context,
+            running.cut,
+            running.output_cap,
+            used=used,
+            used_before=before,
+            shared=shared,
         )
 
         def notify(kind: str, title: str, text: str) -> None:
@@ -817,13 +1087,21 @@ class TurnQueue:
         for failure in self._notices.happened(event, running.session.settings, notify):
             self._reporter.error(failure, session_id)
 
+    def _others_reserved(self, running: _RunningTurn) -> int:
+        """What the Steps in course of the other Sessions on its Server reserve."""
+        mine = (self._main_id, self._pid, running.session.id)
+        reserved = self._servers.wait_list(running.link.key).look().reserved
+        return sum(r.tokens for r in reserved if (r.main, r.pid, r.session) != mine)
+
     def _answered(self, running: _RunningTurn, answer: bool) -> None:
         running.asking = None
         running.answer = answer
+        running.answered_at = self._wall()
         self._start_turns()
 
     def _resume_turn(self, running: _RunningTurn, slot: SlotLock) -> None:
         answer, running.answer, running.slot = running.answer, None, slot
+        self._reserve(running)
         running.progress_at = self._clock()
         assert answer is not None
         running.job.confirmation.resume(answer)

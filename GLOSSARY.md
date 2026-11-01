@@ -188,6 +188,14 @@ _Avoid_: Paso congelado, timeout del Paso
 Tokens totales que ocupa la Conversación en el último Paso (entrada + salida), comparados contra el límite que el Servidor da a cada slot (no un Ajuste). Con caché KV unificada, ese límite lo comparten los Pasos en curso de todas las Sesiones enlazadas al mismo Supervisor. Cuando una Sesión se acerca a su límite, se compacta.
 _Avoid_: tokens gastados (ambiguo)
 
+**Admisión** (`Admission`):
+La decisión de si un Paso empieza ya en su Servidor. Lo que necesita es su entrada, medida con la plantilla y el tokenizador del propio Servidor, más su Tope de salida. Necesita un slot libre y su turno en la Lista de espera. Con caché KV unificada, además, tiene que caber en el pool menos lo que reservan los Pasos en curso de todos los Mains. Uno que no cabe puede ser adelantado por otro que sí, hasta que lleva esperando `admission.patience` segundos (Ajuste de Main): desde entonces nadie lo adelanta. Un Paso que no cabría ni en el slot vacío falla enseguida, sin hacer cola (ADR-0004, ADR-0022).
+_Avoid_: entrada al pool, cupo
+
+**Lista de espera** (`Wait list`):
+Lista de cada Servidor, compartida por todos los Mains que lo usan, junto a sus candados de slot: quién espera para empezar un Paso y lo que reserva del pool cada Paso en curso. Se ordena por clase (Continuaciones, Prompts nuevos y, al final, `describir`) y, dentro de cada clase, por orden de llegada. El Main que suelta un slot no lo vuelve a tomar si otro espera desde antes (ADR-0022).
+_Avoid_: cola del Servidor (la cola es la de cada Main)
+
 **Tope de salida** (`max_output_tokens`):
 Ajuste de Sesión: lo más que el LLM puede generar en un Paso. Es también la reserva con que se admite un Paso y se decide compactar; por defecto 16 384, o un cuarto del límite del slot si es menor (ADR-0004).
 _Avoid_: max tokens, límite de salida

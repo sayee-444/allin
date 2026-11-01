@@ -21,11 +21,15 @@ def step(event, params):
     return {"tokens": event.context}
 """
 BROKEN = "raise RuntimeError('broken on purpose')\n"
-# Main's own Notice type, there with no module: a cut Turn (ADR-0004).
+# Main's own Notice types, there with no module: a cut Turn (ADR-0004) and the Context (#29).
 CUT_TURN_KEYS = {
     "notices.cut_turn.enabled": True,
     "notices.cut_turn.title": "Turn cut",
     "notices.cut_turn.text": "{why}; {how}",
+    "notices.context.enabled": True,
+    "notices.context.title": "Context",
+    "notices.context.text": "{what} is at {pct}% of {limit} tokens",
+    "notices.context.threshold": 0.8,
 }
 EVENT = NoticeEvent(SessionId("abc123"), context=10, limit=100)
 

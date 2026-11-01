@@ -164,6 +164,8 @@ class SettingsCommands:
             self._turns.set_parallel(settings.parallel)
         if settings.step.stall != before.step.stall:
             self._turns.set_stall(settings.step.stall)
+        if settings.admission.patience != before.admission.patience:
+            self._turns.set_patience(settings.admission.patience)
         if settings.base_url != before.base_url:
             self._reporter.report(None, "settings_restart_needed", _RESTART_NOTE)
 
