@@ -1,0 +1,43 @@
+#31 Perfiles 2/3: /profile switch — prueba a mano (2026-11-01)
+Código: rama feature/31-profile-switch (2481519).
+Servidor: llama serve -m Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+Main: python -m allin --data-dir <scratch>/d31, en su xterm; las Ventanas se escriben con XSendEvent.
+
+1. Sin --now, el cambio espera al Turno en curso; la cola y el Borrador se guardan con el Perfil saliente
+   /set parallel=1, /profile new tesis, /new dos veces: nvsh1o y x5xz42 (Perfil default).
+   En nvsh1o, Prompt «Escribe un cuento de unas 400 palabras sobre un faro» (Turno en curso).
+   En x5xz42, Prompt «Dime tres colores»: queda en cola por parallel=1.
+   En nvsh1o, Borrador «borrador de A» sin enviar (a-s1-turno.png).
+   /profile switch tesis → «profile switch to tesis: waiting for 1 turn to end» (a-main-espera.png).
+   El Turno de nvsh1o termina (cortado por su Tope de salida, el IQ3 entró en bucle; no tiene que ver).
+   Después: «window closed: profile switched» en las dos y «profile tesis active» (b-main-cambiado.png).
+   profiles/default/state.json: windows {nvsh1o, x5xz42}, drafts {nvsh1o: ["borrador de A"]},
+   queue [x5xz42 «Dime tres colores»], running []. state/last_profile.json = tesis.
+
+2. Una Sesión compartida conserva su Ventana; un Perfil con otro Enlace por defecto no mueve ninguna Sesión
+   (Main reiniciado con el código que junta los Borradores de una Ventana compartida; abre tesis, el último.)
+   En tesis: /open nvsh1o (queda compartida: profiles/tesis/sessions.json = [nvsh1o, j6wwh5]).
+   /server new gpu model=Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf port=9940 (dormido), /set session.server=gpu, /new → j6wwh5.
+   En nvsh1o, Borrador «escrito en tesis».
+   /profile switch default (c-main-vuelta.png):
+   - nvsh1o no se cierra; su input muestra «borrador de A» delante y «+1 waiting» («escrito en tesis»)
+     (c-compartida.png).
+   - j6wwh5 se cierra; x5xz42 se reabre y su Prompt en cola corre («turn started», «turn finished»).
+   Enlaces en session.json: nvsh1o server=None, x5xz42 server=None, j6wwh5 server=gpu.
+   Ajustes: tesis session.server=gpu, default session.server=None. La compartida no cambió de Supervisor
+   y la /new de tesis tomó el de tesis.
+
+3. Con --now, un Prompt de Origen humano vuelve al input
+   En x5xz42, Prompt «Escribe un poema largo sobre el mar»; a los 3 s, /profile switch tesis --now.
+   Log de x5xz42: turn_started → turn_cancelled (reason='profile switched') → window_closed (profile switched).
+   profiles/default/state.json: drafts {x5xz42: ["Escribe un poema largo sobre el mar"], nvsh1o: [...]},
+   queue [], running [] (d-main-now.png).
+   /profile switch default → x5xz42 se reabre con el Prompt en su input (e-vuelve-al-input.png).
+
+4. Un nombre que no existe es un error y no cambia nada
+   /profile switch nadie → «error profile_not_found: profile='nadie'»; /profile → default (active), tesis
+   (f-main-errores.png).
+
+5. Tests: tests/test_profile_switch.py (17, con ejecutores y Ventanas falsas). 765 tests, basedpyright y ruff limpios.
+
+Al final: /exit en Main. El Servidor de 9931 sigue arriba para los issues siguientes.
