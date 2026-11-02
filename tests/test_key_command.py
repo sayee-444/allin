@@ -7,6 +7,7 @@ import pytest
 from allin.ipc.messages import KeyTable
 from allin.main.events import MainCommandEntered
 from allin.ui.screen import KeyBindings
+from tests.origins import A_SESSION
 from tests.test_dispatcher import MainHarness
 
 
@@ -69,7 +70,7 @@ def test_the_last_key_to_send_cannot_go(main: MainHarness):
 
 def test_key_from_a_session_is_refused(main: MainHarness):
     session = main.create_session()
-    main.run(MainCommandEntered(f"/key {session.id} f5 older", origin="session"), settle=True)
+    main.run(MainCommandEntered(f"/key {session.id} f5 older", origin=A_SESSION), settle=True)
     assert results(main)[-1].startswith("error human_only")
     assert main.sessions.load(session.id).settings.keys == {}
 

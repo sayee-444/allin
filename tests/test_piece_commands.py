@@ -13,6 +13,7 @@ from allin.core.origin import Origin
 from allin.main.descriptions import Descriptions
 from allin.main.events import MainCommandEntered
 from allin.main.quarantine import Quarantine
+from tests.origins import A_SESSION
 from tests.test_dispatcher import MainHarness
 
 needs_landlock = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6")
@@ -111,7 +112,7 @@ def test_a_piece_is_approved_only_after_its_screen_and_then_offered(main: MainHa
 def test_neither_another_origin_nor_y_nor_devastation_approves(main: MainHarness):
     package(main, "fetch", FETCH)
     main.devastation = True
-    chat = run_as(main, "session", "/piece approve --all")
+    chat = run_as(main, A_SESSION, "/piece approve --all")
     assert any("human_only" in line for line in chat)
     chat = main.run(
         MainCommandEntered("/piece show function:fetch"),
@@ -135,7 +136,7 @@ def test_only_a_human_points_the_workspace_and_never_into_allin(
 ):
     session = main.create_session()
     repo = tmp_path_factory.mktemp("repo")  # out of the data folder, which is tmp_path
-    refused = run_as(main, "session", f"/session workspace {session.id} {repo}")
+    refused = run_as(main, A_SESSION, f"/session workspace {session.id} {repo}")
     assert any("human_only" in line for line in refused)
     assert main.sessions.workspace(session.id) == tmp_path / "workspaces" / session.id
     main.run(MainCommandEntered(f"/session workspace {session.id} {repo}"))

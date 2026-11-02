@@ -82,8 +82,8 @@ def parse_session_command(args: list[str]) -> SessionCommand | None:
 def _check_authority(assignments: Mapping[SettingName, str], origin: Origin) -> None:
     """Only a human gives or takes away the Exemption (ADR-0013)."""
     for name in assignments:
-        if name in _HUMAN_ONLY and origin != HUMAN:
-            raise HumanOnly(action=name, origin=origin)
+        if name in _HUMAN_ONLY and not origin.is_human:
+            raise HumanOnly(action=name, origin=str(origin))
 
 
 class SettingsCommands:

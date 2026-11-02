@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import ChatAppend, ChatClear, InputRestore
 from allin.main.chat_rebuild import compacted_entries
 from allin.main.conversation import Conversation, Step, Turn
@@ -157,11 +158,11 @@ def test_a_bad_count_is_an_error(main: MainHarness):
 
 
 def test_a_prompt_of_another_origin_is_undone_but_its_text_stays_in_the_log(main: MainHarness):
-    session = main.create_session()
+    session, other = main.create_session(), main.create_session()
     main.llm = FakeLlm(*answers(1))
     main.run(
         MainCommandEntered(f"/open {session.id}"),
-        MainCommandEntered(f"/send {session.id} desde otra", origin="session"),
+        MainCommandEntered(f"/send {session.id} desde otra", origin=from_session(HUMAN, other.id)),
         rewind_cmd(session),
         settle=True,
     )
@@ -169,7 +170,8 @@ def test_a_prompt_of_another_origin_is_undone_but_its_text_stays_in_the_log(main
     [window] = main.windows(session.id)
     assert restored(window.sent) == []
     [entry] = rewound(main, session)
-    assert entry["texts"] == ["desde otra"] and entry["origins"] == ["session"]
+    assert entry["texts"] == [f"[from Session {other.id}]\ndesde otra"]
+    assert entry["origins"] == [["human", f"session:{other.id}"]]
 
 
 def test_after_a_compaction_a_rewind_to_before_the_cut_brings_back_the_archive(

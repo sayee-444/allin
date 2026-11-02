@@ -35,7 +35,7 @@ from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import parse_prompt
-from allin.main.prompts import Prompt
+from allin.main.prompts import Prompt, origin_header
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
 from allin.main.server_commands import USAGE as SERVER_USAGE
@@ -340,12 +340,10 @@ class MainCommands:
             )
             if not len(command.params) <= len(args) <= len(names):
                 raise InvalidArguments(usage=command.usage(name))
-            if (yes or command.only_human(args)) and origin != HUMAN:
-                raise HumanOnly(action=name, origin=origin)
+            if (yes or command.only_human(args)) and not origin.is_human:
+                raise HumanOnly(action=name, origin=str(origin))
             delicate = command.delicate(args)
-            # --devastation answers the Confirmations of Main's own Chat; one asked from a
-            # Session waits for its chain's Exemption, which arrives with F2 (ADR-0013).
-            answered_by_main = self._devastation.on and origin != "session"
+            answered_by_main = self._devastation.answers(origin)
             if delicate and not yes and not answered_by_main:
                 self._ask(command, args, text, session_id, origin)
                 return True
@@ -396,8 +394,12 @@ class MainCommands:
     ) -> None:
         result = "ok" if error is None else f"error {error}"
         shown = f"{_summary(text)}: {result}"
-        fields: dict[str, JsonValue] = {"command": text, "result": result, "origin": origin}
+        fields: dict[str, JsonValue] = {"command": text, "result": result}
+        fields["origin"] = list[JsonValue](origin.labels)
         self._reporter.report(session_id, "command", shown, **fields)
+        sender = _sender(origin)
+        if sender is not None:  # what its LLM ran: its own Log keeps how it went (ADR-0013)
+            self._reporter.log_session(sender, "command", **fields)
 
     def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
         chosen, background = None, False
@@ -421,7 +423,7 @@ class MainCommands:
         if background:
             self._windows.to_background(session.id)
         else:
-            self._windows.show(session, self._turns.streamed(session.id), origin == HUMAN)
+            self._windows.show(session, self._turns.streamed(session.id), origin.is_human)
 
     def _session(self, first: str, rest: str = "", origin: Origin = HUMAN) -> bool:
         target = parse_session_command([first, rest] if rest else [first])
@@ -502,8 +504,9 @@ class MainCommands:
 
     def _send(self, session_id: str, text: str, origin: Origin = HUMAN) -> bool:
         session = self._sessions.load_owned(session_id, self._main_id)
-        if origin != HUMAN:  # @… in text from anyone else is literal (ADR-0013)
-            self._turns.push(session, Prompt(session.id, text, origin=origin))
+        if not origin.is_human:  # data: @… and /… in it are never run (ADR-0013)
+            sent = f"{origin_header(origin)}\n{text}"
+            self._turns.push(session, Prompt(session.id, sent, origin=origin))
             return True
         try:
             prompt = self._human_prompt(session.id, text)
@@ -557,14 +560,14 @@ class MainCommands:
         if undone < n:
             shown += f": only {undone} to undo, back at the start of the session"
         texts: list[JsonValue] = [turn.as_typed for turn in result.undone]
-        origins: list[JsonValue] = [turn.origin for turn in result.undone]
+        origins: list[JsonValue] = [list[JsonValue](turn.origin.labels) for turn in result.undone]
         self._reporter.record(
             session.id, "rewound", shown, turn=result.turn, asked=n, texts=texts, origins=origins
         )
         # A human's texts go back to its input, the first one undone shown first; anyone
         # else's stay in the Log only.
         for turn in reversed(result.undone):
-            if turn.origin == HUMAN:
+            if turn.origin.is_human:
                 self._windows.put_back(session.id, turn.as_typed)
         self._windows.rebuild_chat(session)
         return True
@@ -618,3 +621,9 @@ def _split_rest(text: str, params: int) -> list[str]:
         return []
     *args, rest = match.groups()
     return [*args, rest] if rest and rest.strip() else args
+
+
+def _sender(origin: Origin) -> SessionId | None:
+    """The Session whose LLM sent a command, when one did."""
+    last = origin.chain[-1]
+    return SessionId(last.id) if last.kind == "session" and last.id else None
