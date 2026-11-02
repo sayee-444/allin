@@ -40,5 +40,5 @@ C. Rechazos (rechazos.py carga variantes de k39 en otro con el mismo código que
    .pyc, binario, Atajos, Servidor con port, con mmproj, con el modelo por ruta, referencia sin resolver y formato 7:
    todos rechazados enteros, y el Perfil otro queda byte a byte igual.
 
-D. Tests: tests/test_profile_copy.py (8) y tests/test_kits.py (24). 816 tests, basedpyright y ruff limpios.
+D. Tests: tests/test_profile_copy.py (8) y tests/test_kits.py (24). 809 tests, basedpyright y ruff limpios.
 Al final: /exit en Main.
