@@ -8,16 +8,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #102 Encierro de descripción (2026-11-02).
-  - Main describe una function sin importarla: `ToolLauncher.describe` manda al vigilante un mensaje `describe`, y el proceso importa el módulo leyendo solo el mínimo (el sistema, el código de AllIn, el venv y su package), sin Carpeta de trabajo, sin escribir, sin red ni sockets unix, y con timeout.
-  - La Descripción (glosario) trae el schema para `tools=[...]` (uno por método público en una fproc), su Alcance y las marcas de sus decoradores (`__allin_<nombre>__`), así que `@confirm`, `@human`, `@writes` y `@concurrent` se describirán sin tocarla. Un módulo define exactamente una función o clase pública.
-  - Main la guarda en `descriptions/<hash>.<módulo>.json` con el hash de las piezas sobre todo el package, `__pycache__` incluido, y la saca de nuevo cuando cambia. Lo que vuelve lo pudo escribir el módulo: Main pone su hash, exige que hable de ese módulo y valida el Alcance, cuyas reglas viven ahora en `Reach`.
-  - En un kernel sin soporte, una pieza que no escribió el usuario no se describe (`DescriptionRefused`).
-  - El vigilante importa `allin` de la carpeta de la que lo importa Main (`-I` ignora `PYTHONPATH`). Lo destapó el hook, que prueba una copia del índice.
-  - Coste: la primera descripción, 63 ms; la guardada, 0,1 ms. Un módulo que se cuelga se corta al timeout y Main sigue.
-  - Aún sin cablear: nada de `src/` describe ni pasa `Description.reach` al `ToolCall` (#106); la cuarentena que muestra el código y su Aviso, con #104.
-  - Métricas: 1229 tests. Antes: #101 `@reach` y el Alcance.
-- **Siguiente:** #103 Batería de fugas.
+- **Último hecho:** #103 Batería de fugas (2026-11-02).
+  - `tests/test_leak_battery.py`: una tool con el Alcance mínimo intenta cada salida de ADR-0016 (D-Bus, X11 por ruta y abstracto, io_uring, señales y `ptrace` a Main, la terminal con `TIOCSTI`, el agente SSH, un `.pyc` preparado y los puertos de los Servidores) y todas fallan. Corre en la suite y en el pre-commit.
+  - Cada blanco que podría faltar tiene un control: los sockets se alcanzan antes con `display`, y las señales y `ptrace` con un proceso sin encierro y Main rastreable, para que el rechazo no sea el de Yama (el módulo del kernel que ya limita `ptrace` en Ubuntu).
+  - Destapó una salida abierta: un `.pyc` preparado en el package se importaba en vez de su fuente. Ahora Main no lanza ni describe un package con `__pycache__`, `.pyc` o módulos compilados (`PackageNotSource`), porque los hijos de la tool importan como Python; y el vigilante importa del package solo fuentes.
+  - Abrir a propósito io_uring, `TIOCSTI`, el import solo de fuentes o los puertos de los Servidores hace fallar su test. Las señales no se reabrieron a mano: sin su scope, el `kill(-1)` del vigilante alcanzaría todos los procesos del usuario.
+  - Métricas: 1243 tests, cobertura 84 %, mutación 94 %, 22 escapes. Antes: #102 Encierro de descripción.
+- **Siguiente:** #104 Cuarentena y Aprobación.
 - **Preguntas abiertas para el usuario:** ¿le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
@@ -92,7 +89,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 2. ✅ #100 Lanzador de tools encerrado
 3. ✅ #101 `@reach` y el Alcance
 4. ✅ #102 Encierro de descripción
-5. #103 Batería de fugas
+5. ✅ #103 Batería de fugas
 6. #104 Cuarentena y Aprobación
 7. #105 Origen con cadena y eslabón más débil
 8. #106 Function tools en el Turno
