@@ -1,0 +1,66 @@
+# #53 El Organizador de Ventanas — evidencia de pruebas (2026-11-01)
+
+## Suite completa, basedpyright y ruff
+1158 passed in 18.26s
+0 errors, 0 warnings, 0 notes
+All checks passed!
+
+## Tests de #53
+tests/test_organizer.py::test_a_title_left_empty_is_the_id_and_the_start_of_its_first_prompt PASSED
+tests/test_organizer.py::test_a_row_says_where_it_is_its_turn_its_boxes_its_context_and_its_supervisor PASSED
+tests/test_organizer.py::test_a_title_with_control_characters_is_drawn_with_visible_marks PASSED
+tests/test_organizer.py::test_the_list_has_the_open_sessions_and_below_the_closed_ones PASSED
+tests/test_organizer.py::test_each_action_is_the_command_main_of_its_name_or_nothing PASSED
+tests/test_organizer.py::test_fit_cuts_to_terminal_cells_and_pads PASSED
+tests/test_organizer.py::test_arrows_move_enter_brings_b_backgrounds_x_closes_and_esc_quits PASSED
+tests/test_organizer.py::test_the_closed_sessions_are_folded_until_asked_for PASSED
+tests/test_organizer.py::test_a_click_on_a_row_brings_it_and_on_its_buttons_backgrounds_or_closes_it PASSED
+tests/test_organizer.py::test_a_click_on_the_fold_unfolds_it PASSED
+tests/test_organizer.py::test_only_the_line_under_the_mouse_is_highlighted PASSED
+tests/test_organizer.py::test_new_rows_keep_the_same_session_selected PASSED
+tests/test_organizer.py::test_windows_opens_the_organizer_with_a_row_per_open_session_and_the_closed_below PASSED
+tests/test_organizer.py::test_a_click_brings_a_session_and_without_room_sends_away_the_least_used PASSED
+tests/test_organizer.py::test_its_actions_are_command_mains_of_a_human_in_mains_log PASSED
+tests/test_organizer.py::test_a_turn_and_a_confirmation_show_in_the_organizer_as_they_happen PASSED
+tests/test_organizer.py::test_windows_again_replaces_it_and_closing_it_touches_no_session PASSED
+tests/test_organizer.py::test_windows_list_writes_the_same_list_in_mains_chat PASSED
+tests/test_organizer.py::test_only_a_human_opens_the_organizer PASSED
+tests/test_organizer.py::test_the_title_setting_names_the_row PASSED
+tests/test_organizer.py::test_the_closed_sessions_go_most_recent_first PASSED
+============================== 21 passed in 0.23s ==============================
+
+## Pasos a mano (data dir limpio, <scratch>/d53)
+
+Las teclas se mandan al xterm del Organizador como eventos de teclado. Los clics se mandan como
+el informe de ratón SGR que xterm escribe al hacer clic (ESC [ < b ; col ; fila M/m): este xterm
+de pruebas no convierte en informe un clic sintético de X, y el informe es justo lo que curses lee
+de un clic real.
+
+1. /new uno1, dos2, tres3 y cuatro4; /send uno1 «Di hola…»; /close cuatro4; /bg tres3; /windows.
+   Una fila por Sesión abierta (uno1 y dos2 a la vista, tres3 en segundo plano), con su Contexto
+   y su Supervisor, y las cerradas plegadas debajo (a-organizador.png).
+2. /session set dos2 title="Informe de ventas": la fila cambia sin reabrir. El ratón sobre dos2
+   la resalta (b-titulo-y-hover.png). Un clic en la fila de tres3 la trae a la vista y abre su
+   Ventana (c-clic-trae.png).
+3. /set windows.max=3 con tres a la vista; c despliega las cerradas (d-cerradas.png); un clic en
+   cuatro4 la abre y manda a segundo plano a uno1, la menos usada (d-desplaza.png).
+4. ↑↑ y b en dos2: segundo plano (e-tecla-b.png); clic en el botón [x] de tres3: se cierra
+   (e-boton-x.png). Log de Main:
+     "command": "/open cuatro4", "result": "ok", "origin": "human"
+     "command": "/bg dos2", "result": "ok", "origin": "human"
+     "command": "/close tres3", "result": "ok", "origin": "human"
+5. /send uno1 «Cuenta del 1 al 200…» y /send uno1 «Ahora di adiós.» con uno1 en segundo plano: la
+   fila dice «turn running · 1 queued» (f-turno-en-curso.png) y, al acabar, su Contexto pasa de
+   120 a 4007 sin reabrir el Organizador (f-turno-terminado.png).
+6. Un title con ESC [2J, BEL y un CSI de C1 escrito en session.json de cuatro4: se dibuja con
+   marcas visibles y no borra la pantalla (g-control.png).
+7. /windows list escribe la misma lista en el Chat de Main (h-lista.png).
+8. /windows con uno abierto: Main cierra el primero y abre otro. Esc lo cierra. El estado de Main
+   es el mismo antes y después:
+     ventanas ['cuatro4'] segundo plano ['uno1', 'dos2']
+   y el Log de Main dice organizer_opened, organizer_closed, organizer_opened, organizer_closed.
+9. /exit con el Organizador abierto: se cierra con Main, que no lo guarda en su Estado.
+
+La Confirmación que llega se prueba con
+test_a_turn_and_a_confirmation_show_in_the_organizer_as_they_happen: en F1 ningún Turno pide
+todavía una Confirmación (las tools de las Sesiones llegan en F2).
