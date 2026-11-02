@@ -1,0 +1,32 @@
+#56 Escribir durante un Turno: Enter sin bloqueo, la cola, ↑ para retirar y Shift+Enter para interrumpir — prueba a mano (2026-11-01)
+Código: rama feature/56-escribir-durante-un-turno. Servidor: el IQ3_XXS de 9931; para saber cuándo empieza la respuesta, Main
+pasó por fallproxy.py (issues/14/), que marca un archivo al ver el primer `output_text.delta`. Datos en <scratch>/d56.
+Shift+Enter se manda como evento de X con ShiftMask; xterm lo envía como ESC [27;2;13~.
+
+1. Enter durante un Turno (a-en-cola.png, c-corre-al-terminar.png). Sesión 4rtm22.
+   «Escribe los numeros del 1 al 150 en palabras…» y, mientras razona, «Di solo OK» y «y otro mas».
+   → bajo el Chat salen «[queued] Di solo OK» y «[queued] y otro mas»; el input queda libre.
+   Al terminar el primer Turno, «Di solo OK» entra en el Chat como [sayee] y corre: «OK».
+   Log: prompt, turn_started, prompt {queued: true} ×2, prompt_withdrawn, turn_finished, prompt_started, turn_started, turn_finished.
+2. ↑ retira (b-retirado-con-flecha.png)
+   Con el input vacío, ↑ trae «y otro mas» al input; ya no está en cola y no corre. Queda «[queued] Di solo OK».
+3. Shift+Enter a mitad de la respuesta (d-interrumpido-con-shift-enter.png). Sesión 7qte2c.
+   «Escribe en cifras los numeros del 1 al 800 separados por comas», «Di solo ADIOS» (en cola), y escrito en el input
+   «Para. Hasta que numero llegaste?». Un segundo después de que empieza la respuesta: Shift+Enter.
+   → «[cut] turn cut: interrupted with Shift+Enter» tras «…88,89,90,9». La Conversación guarda el Turno con
+     cut=interrupted y su mensaje `incomplete`, que llama acepta en la petición siguiente.
+   → «Para. Hasta que numero llegaste?» corre enseguida, antes que «Di solo ADIOS», con notifications =
+     ['The human interrupted your last answer; it is kept as far as it got.']; el razonamiento cita la línea
+     bajo [LOGS @COMMANDS] y responde «90». Luego corre «Di solo ADIOS».
+   Antes, en 4rtm22, un corte durante el razonamiento guardó solo el razonamiento, y el modelo contestó que no
+   había escrito ningún número: la plantilla quita el razonamiento de los Turnos anteriores.
+4. Cerrar la Ventana con dos en cola (e-dos-en-cola.png, f-reabierta-borrador.png)
+   Un Turno largo y «primero en cola», «segundo en cola». Se cierra la xterm de la Ventana.
+   Log: window_closed, prompts_dropped {texts: [primero…, segundo…]}, turn_cancelled.
+   /open 7qte2c → el input muestra «primero en cola» con «+1 waiting»: los dos, como bloques y en orden.
+5. ↑ sin nada en cola (g-arriba-sin-cola.png): recorre el historial de #22 («segundo en cola» fue lo último enviado),
+   y el bloque apartado sigue en el Borrador.
+
+Tests: tests/test_write_during_turn.py (MainHarness: cola, Chat reconstruido, retirar, Shift+Enter con y sin texto,
+Turno que terminó antes del corte, cerrar con dos en cola) y tests/test_ui_chat.py (lo encolado bajo el Chat).
+Al final: /exit en Main y se para el proxy.
