@@ -360,8 +360,8 @@ class InvalidSessionCommand(AllInError):
 
 
 class SessionCommandNotListed(AllInError):
-    """A Session's LLM asked for a Command session that ``session``, on its chain, does not
-    have in its list (ADR-0025)."""
+    """A Session's LLM asked for a Command session that the Sessions ``not_in``, on its chain,
+    do not have in their lists (ADR-0025)."""
 
     code: ClassVar[str] = "session_command_not_listed"
 

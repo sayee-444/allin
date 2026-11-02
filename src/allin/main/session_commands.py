@@ -89,21 +89,29 @@ BUILT_IN = LoadedSessionCommands(
 
 def chain_allows(sessions: SessionStore, origin: Origin) -> frozenset[CommandName] | None:
     """The Command sessions every Session of ``origin``'s chain has: what it may use, the
-    weakest link (ADR-0013). ``None`` for a human's, which may use any; a Session that no
-    longer exists has none."""
+    weakest link (ADR-0013). ``None`` for a human's, which may use any."""
     if origin.is_human:
         return None
-    allowed: frozenset[CommandName] | None = None
-    for link in origin.chain:
-        if link.kind != "session" or not link.id:
-            continue
-        has = (
-            frozenset(sessions.load(link.id).commands)
-            if SessionId(link.id) in sessions.ids()
-            else frozenset[CommandName]()
-        )
-        allowed = has if allowed is None else allowed & has
-    return allowed
+    lists = [_listed(sessions, sid) for sid in _chain_sessions(origin)]
+    return lists[0].intersection(*lists[1:]) if lists else None
+
+
+def lacking(sessions: SessionStore, origin: Origin, name: CommandName) -> list[str]:
+    """The Sessions of ``origin``'s chain that do not have ``name`` in their list."""
+    if origin.is_human:
+        return []
+    return [sid for sid in _chain_sessions(origin) if name not in _listed(sessions, sid)]
+
+
+def _chain_sessions(origin: Origin) -> list[str]:
+    return [link.id for link in origin.chain if link.kind == "session" and link.id]
+
+
+def _listed(sessions: SessionStore, session_id: str) -> frozenset[CommandName]:
+    """A Session's list; one that no longer exists has none."""
+    if SessionId(session_id) not in sessions.ids():
+        return frozenset()
+    return frozenset(sessions.load(session_id).commands)
 
 
 def load_session_command_types(folder: Path) -> LoadedSessionCommands:
@@ -221,9 +229,9 @@ class SessionCommands:
 
     def _check_listed(self, name: CommandName, origin: Origin) -> None:
         """A human may run any; anyone else only one every Session of its chain has."""
-        allowed = chain_allows(self._sessions, origin)
-        if allowed is not None and name not in allowed:
-            raise SessionCommandNotListed(command=name, chain=list[JsonValue](origin.labels))
+        missing = lacking(self._sessions, origin, name)
+        if missing:
+            raise SessionCommandNotListed(command=name, not_in=list[JsonValue](missing))
 
 
 def _translate(kind: SessionCommandType, call: SessionCommandCall) -> str:
