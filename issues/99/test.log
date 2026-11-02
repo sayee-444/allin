@@ -1,0 +1,67 @@
+# #99 Prototipo del encierro — 2026-11-02T06:35:05Z
+kernel 7.0.0-38-generic x86_64; Python 3.14.4; Landlock ABI 8
+legacy_tiocsti=0
+
+## $ python -I prototypes/encierro/ports.py
+{
+  "abi": 8,
+  "rules": 65534,
+  "inline_build_ms_median": 29.41,
+  "inline_restrict_ms_median": 5.51,
+  "inline_total_ms_median": 35.0,
+  "inline_total_ms_max": 37.08,
+  "main_build_once_ms": 27.34,
+  "inherited_apply_ms_median": 7.01,
+  "check_with_net_layer": {
+    "9931": "EACCES (Landlock)",
+    "9932": "EACCES (Landlock)",
+    "9933": "allowed by Landlock (ConnectionRefusedError)",
+    "443": "allowed by Landlock (ConnectionRefusedError)",
+    "bind 9931": "EACCES (Landlock)",
+    "connect_refused_us": 3.817056000116281
+  },
+  "check_without_any_layer_connect_refused_us_per_1000": 3.7872190005145967
+}
+
+## $ python -I prototypes/encierro/ports_memory.py
+per process, 1 port rule: -14 KiB; 65 535 port rules: 4531 KiB
+
+## $ python -I prototypes/encierro/reaper.py
+Main alive: True (this line)
+escaped grandchild of the ending call alive: False
+sibling call alive: True
+sibling's grandchild alive: True
+
+## $ python -I prototypes/encierro/warden.py
+fork of the worker: median 0.21 ms; cancel (kill(-1) + reap): median 0.40 ms; escaped grandchildren left: 0
+
+## $ python -I prototypes/encierro/shm.py
+rw /dev/shm: Lock(): ok; listdir: ok; read another program's segment: b'secret'
+create/remove only, no READ_DIR: Lock(): ok; listdir: Permission denied; read another program's segment: b'secret'
+
+## $ python -I prototypes/encierro/inode.py <scratch>
+1. rule on a file; the file is rewritten in place
+    before: read b'v1' | after: shared.txt: read b'v2'
+2. rule on a file; the file is replaced atomically (tmp + rename), as editors save
+    before: read b'v1' | after: shared.txt: Permission denied
+3. rule on a folder; a file inside it is replaced atomically
+    before: read b'v1' | after: inner.txt: read b'v2'
+4. rule on a folder; the folder is moved away and a new one made in its place
+    before: read b'v2' | after: inner.txt: Permission denied; inner.txt: read b'v2'
+
+## $ python -I prototypes/encierro/launch.py tiocsti <scratch>
+{
+  "without filter": "OSError: [Errno 5] Input/output error",
+  "with filter": "PermissionError: [Errno 1] Operation not permitted"
+}
+
+## $ python -I prototypes/encierro/launch.py pickle <scratch>
+{"main_got": "<_io.TextIOWrapper name='<scratch>/unpickled-in-main' mode='w' encoding='UTF-8'>", "marker_created_by_main": true}
+
+## $ python -I prototypes/encierro/launch.py born <scratch>  (resumen: del entorno solo se nombran las variables que puso la prueba)
+multiprocessing spawn: own session=False, own group=False, fds={'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4', '3': 'pipe', '4': '/usr/lib/x86_64-linux-gnu/libffi.so.8.2.0', '5': '/dev/null', '6': '(closed', '7': 'pipe', '8': 'pipe', '10': 'pipe', '11': 'pipe'}, ttys={'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4'}, env vars=80 (ALLIN_PROBE_TOKEN=True, DBUS_SESSION_BUS_ADDRESS=True, SSH_AUTH_SOCK=True), cwd is Main's=True
+subprocess + socketpair: own session=True, own group=True, fds={'0': '/dev/null', '1': 'pipe', '2': 'pipe', '3': '/usr/lib/x86_64-linux-gnu/libffi.so.8.2.0', '4': '(closed', '12': 'socket'}, ttys={}, env vars=4 (ALLIN_PROBE_TOKEN=False, DBUS_SESSION_BUS_ADDRESS=False, SSH_AUTH_SOCK=False), cwd is Main's=False
+
+## $ python -I prototypes/encierro/launch.py probe <scratch>  → probe.json
+
+## $ python -I prototypes/encierro/launch.py cost <scratch>  → cost.json
