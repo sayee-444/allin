@@ -8,17 +8,16 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #101 `@reach` y el Alcance (2026-11-02).
-  - Una function declara su Alcance con `@reach` (`allin.decorators`, solo biblioteca estándar, porque corre en el proceso de la tool): `read`, `write`, `net`, `display` y `commands`, con raíces simbólicas `work`, `home` y `/`. Sin decorador, el mínimo.
-  - Main resuelve el Alcance en cada llamada y recorta toda raíz que contenga algo de AllIn. La carpeta de datos nunca se lee ni se escribe (salvo la Carpeta de trabajo, el `TMPDIR` y el package). La instalación, que es la carpeta del proyecto con `.git` y sus hooks, solo se lee. Las terminales nunca entran, y los enlaces entre las hermanas no se siguen.
-  - Red: con una lista de puertos, solo esos y UDP abierto; con `net=False`, UDP también cerrado; con `net=True`, una capa compartida que Main construye una vez deja todo menos los puertos de los Servidores (`LinkResolver.server_ports`: cada `servers/*.toml` y el observado). El filtro seccomp es ya una lista de familias permitidas.
-  - `display` abre X11 y Wayland: se probó con `xmessage` desde una tool encerrada. Hizo falta quitar con `display` el scope de sockets abstractos, porque libxcb no prueba el socket con ruta si el abstracto da `EPERM`.
-  - Coste por llamada: 20 ms sin red o con lista; 28 ms con `net=True` (la primera llamada, 71 ms, construye la capa).
-  - La revisión encontró que la instalación protegida era solo `src/`, y una tool con `write` sobre `~/Pictures` podía dejar un hook en `.githooks`: corregido, con test en el kernel real.
-  - Main todavía no lee `@reach` de ninguna function (llega con #102) ni crea el `ToolLauncher` con los puertos de sus Servidores (#106).
-  - `/dev/shm` no entra en el mínimo: quien use los semáforos de `multiprocessing` lo declara (`write=["/dev/shm"]`). Enmienda en ADR-0016; README con el Alcance y el recorte.
-  - Métricas: 1214 tests. Antes: #100 Lanzador de tools encerrado.
-- **Siguiente:** #102 Encierro de descripción.
+- **Último hecho:** #102 Encierro de descripción (2026-11-02).
+  - Main describe una function sin importarla: `ToolLauncher.describe` manda al vigilante un mensaje `describe`, y el proceso importa el módulo leyendo solo el mínimo (el sistema, el código de AllIn, el venv y su package), sin Carpeta de trabajo, sin escribir, sin red ni sockets unix, y con timeout.
+  - La Descripción (glosario) trae el schema para `tools=[...]` (uno por método público en una fproc), su Alcance y las marcas de sus decoradores (`__allin_<nombre>__`), así que `@confirm`, `@human`, `@writes` y `@concurrent` se describirán sin tocarla. Un módulo define exactamente una función o clase pública.
+  - Main la guarda en `descriptions/<hash>.<módulo>.json` con el hash de las piezas sobre todo el package, `__pycache__` incluido, y la saca de nuevo cuando cambia. Lo que vuelve lo pudo escribir el módulo: Main pone su hash, exige que hable de ese módulo y valida el Alcance, cuyas reglas viven ahora en `Reach`.
+  - En un kernel sin soporte, una pieza que no escribió el usuario no se describe (`DescriptionRefused`).
+  - El vigilante importa `allin` de la carpeta de la que lo importa Main (`-I` ignora `PYTHONPATH`). Lo destapó el hook, que prueba una copia del índice.
+  - Coste: la primera descripción, 63 ms; la guardada, 0,1 ms. Un módulo que se cuelga se corta al timeout y Main sigue.
+  - Aún sin cablear: nada de `src/` describe ni pasa `Description.reach` al `ToolCall` (#106); la cuarentena que muestra el código y su Aviso, con #104.
+  - Métricas: 1229 tests. Antes: #101 `@reach` y el Alcance.
+- **Siguiente:** #103 Batería de fugas.
 - **Preguntas abiertas para el usuario:** ¿le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
@@ -92,7 +91,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 1. ✅ #99 Prototipo desechable del encierro
 2. ✅ #100 Lanzador de tools encerrado
 3. ✅ #101 `@reach` y el Alcance
-4. #102 Encierro de descripción
+4. ✅ #102 Encierro de descripción
 5. #103 Batería de fugas
 6. #104 Cuarentena y Aprobación
 7. #105 Origen con cadena y eslabón más débil
