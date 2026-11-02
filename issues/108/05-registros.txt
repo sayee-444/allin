@@ -1,0 +1,41 @@
+# #108: registros de la prueba con llama serve (Q6 bajo el Supervisor gpu)
+# A=ok2g99 (@send, @server), B=zy45ml, C=6k6xi3 (solo @server; /new -cs=server,nope)
+
+## Log de la Sesión ok2g99 (session_command, command, prompt, tools, server)
+{"ts": "2026-11-02T15:58:17.949553-06:00", "event": "prompt", "text": "Usa tu tool tell para mandarle a la Sesion zy45ml el texto: hola desde A. Luego dime en una linea que te contesto Main.", "origin": ["human"]}
+{"ts": "2026-11-02T15:58:27.240353-06:00", "event": "tools_called", "tools": ["tell"]}
+{"ts": "2026-11-02T15:58:27.262752-06:00", "event": "session_command", "command": "@send zy45ml hola desde A", "runs": "/send zy45ml hola desde A", "origin": ["human", "session:ok2g99"]}
+{"ts": "2026-11-02T15:58:27.263836-06:00", "event": "command", "command": "/send zy45ml hola desde A", "result": "ok", "origin": ["human", "session:ok2g99"]}
+{"ts": "2026-11-02T15:58:27.264948-06:00", "event": "tools_returned", "grows": 96}
+{"ts": "2026-11-02T15:58:56.555712-06:00", "event": "prompt", "text": "Reinicia tu Servidor con la tool restart_server y copia literal lo que te devolvio.", "origin": ["human"]}
+{"ts": "2026-11-02T15:58:57.179169-06:00", "event": "tools_called", "tools": ["restart_server"]}
+{"ts": "2026-11-02T15:58:57.201284-06:00", "event": "session_command", "command": "@server restart", "runs": "/server restart gpu", "origin": ["human", "session:ok2g99"]}
+{"ts": "2026-11-02T15:58:57.201473-06:00", "event": "command", "command": "/server restart gpu", "result": "ok", "origin": ["human", "session:ok2g99"]}
+{"ts": "2026-11-02T15:59:05.494006-06:00", "event": "tools_returned", "grows": 73}
+{"ts": "2026-11-02T16:00:15.046806-06:00", "event": "session_command", "command": "@send zy45ml hola desde la Ventana de A", "runs": "/send zy45ml hola desde la Ventana de A", "origin": ["human"]}
+
+## Log de la Sesión zy45ml (session_command, command, prompt, tools, server)
+{"ts": "2026-11-02T15:58:27.262888-06:00", "event": "prompt", "text": "[from Session ok2g99]\nhola desde A", "origin": ["human", "session:ok2g99"]}
+{"ts": "2026-11-02T16:00:15.047148-06:00", "event": "prompt", "text": "hola desde la Ventana de A", "origin": ["human"]}
+
+## Log de la Sesión 6k6xi3 (session_command, command, prompt, tools, server)
+{"ts": "2026-11-02T15:58:42.423217-06:00", "event": "prompt", "text": "Usa tu tool tell para mandarle a la Sesion zy45ml el texto: hola desde C. Luego copia literal lo que te devolvio la tool.", "origin": ["human"]}
+{"ts": "2026-11-02T15:58:43.285130-06:00", "event": "tools_called", "tools": ["tell"]}
+{"ts": "2026-11-02T15:58:43.308554-06:00", "event": "tools_returned", "grows": 173}
+{"ts": "2026-11-02T16:01:29.010408-06:00", "event": "prompt", "text": "Otra vez: usa tu tool tell para mandarle a la Sesion zy45ml el texto: hola de nuevo desde C. Luego copia literal lo que te devolvio la tool.", "origin": ["human"]}
+{"ts": "2026-11-02T16:01:29.998414-06:00", "event": "tools_called", "tools": ["tell"]}
+{"ts": "2026-11-02T16:01:30.021716-06:00", "event": "tools_returned", "grows": 151}
+
+## Log de Main: Command sessions rechazados y estados del Servidor
+{"ts": "2026-11-02T15:58:26.271734-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 64000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "vision": true, "server": "gpu", "capacity": 2, "parallel": null}
+{"ts": "2026-11-02T15:58:43.307438-06:00", "event": "session_command", "command": "@send zy45ml hola desde C", "result": "session_command_not_listed: command='send', chain=['human', 'session:6k6xi3']"}
+{"ts": "2026-11-02T15:59:05.492142-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 64000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "vision": true, "server": "gpu", "capacity": 2, "parallel": null}
+{"ts": "2026-11-02T16:00:03.717977-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 64000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "vision": true, "server": "gpu", "capacity": 2, "parallel": null}
+{"ts": "2026-11-02T16:00:18.203975-06:00", "event": "session_command", "command": "@nope algo", "result": "unknown_session_command: command='nope'"}
+{"ts": "2026-11-02T16:01:21.700089-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 64000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "vision": true, "server": "gpu", "capacity": 2, "parallel": null}
+{"ts": "2026-11-02T16:01:30.020534-06:00", "event": "session_command", "command": "@send zy45ml hola de nuevo desde C", "result": "session_command_not_listed: command='send', not_in=['6k6xi3']"}
+
+## Listas de cada Sesión (session.json)
+ok2g99 ['send', 'server'] ['function:server', 'function:teller']
+zy45ml ['send', 'server'] ['function:server', 'function:teller']
+6k6xi3 ['server'] ['function:server', 'function:teller']
