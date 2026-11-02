@@ -89,6 +89,11 @@ class ProfileCommands:
             self._reporter.log_main("session_shared", session=session_id, profile=active.name)
         self._profiles.add_session(active, session_id)
 
+    def in_active(self, session_id: SessionId) -> bool:
+        """Whether the Session is one of the active Profile's: all a Session reaches with
+        ``/send`` (ADR-0010)."""
+        return self._switch.active.name in self._profiles.profiles_of(session_id)
+
     def profiles_of(self, session_id: SessionId) -> list[str]:
         return list(self._profiles.profiles_of(session_id))
 

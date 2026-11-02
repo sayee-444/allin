@@ -27,6 +27,7 @@ GPU_TOML = 'model = "m.gguf"\ncontext = 8192\nport = 9101\n'
 @pytest.fixture
 def main(tmp_path: Path) -> MainHarness:
     harness = MainHarness(tmp_path)
+    harness.sessions_join_profile = False  # these tests make each Profile's list themselves
     harness.slot_locks_dir.mkdir(parents=True, exist_ok=True)
     (harness.slot_locks_dir / "gpu.toml").write_text(GPU_TOML)
     return harness

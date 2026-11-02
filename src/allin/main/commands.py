@@ -41,10 +41,11 @@ from allin.main.piece_commands import USAGE as PIECE_USAGE
 from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
-from allin.main.prompt_commands import parse_prompt
-from allin.main.prompts import Prompt, origin_header
+from allin.main.prompt_commands import SendOptions, parse_prompt, parse_send
+from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
+from allin.main.sends import SessionSends
 from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
@@ -92,6 +93,9 @@ class CommandSpec:
     takes_origin: bool = False  # ``run`` also gets the Origin, as ``origin=``
     # ``-y`` reaches ``run`` as ``yes=``, for what it starts later: /send's Turn (#107).
     takes_yes: bool = False
+    # ``run`` gets ``answer=`` and calls it itself once it is done, maybe later: /send, when an
+    # attachment waits for a human's Approval (#110).
+    takes_answer: bool = False
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -137,6 +141,7 @@ class MainCommands:
         self._settings = settings
         self._sysprompts = sysprompts
         self._profiles = profiles
+        self._sends = SessionSends(sessions, turns, boxes, reporter, profiles.in_active)
         self._organizer: Organizer | None = None
         self._organizer_rows: Callable[[], list[OrganizerRow]] = list
         # Command mains are registered once, when Main starts.
@@ -193,12 +198,14 @@ class MainCommands:
                 "queue a Prompt for a Session's next Turn",
                 args={
                     "sid": "the Session's id",
-                    "text": "the Prompt, up to the end; @key=value and @./file go first",
+                    "text": "the Prompt, up to the end; @key=value and @./file go first, or ahead"
+                    " of it --attach=<path> and --<param>=<value>, then --",
                 },
-                usage_text="/send [-y] <sid> <text>",
+                usage_text=SEND_USAGE,
                 rest=True,
                 takes_origin=True,
                 takes_yes=True,
+                takes_answer=True,
             ),
             "/raw": CommandSpec(
                 ("state",),
@@ -403,21 +410,42 @@ class MainCommands:
             if delicate and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
                 self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
-            keep_running = self._call(command, args, origin, yes)
+            keep_running = self._call(command, args, origin, yes, answer, session_id, text)
         except AllInError as error:
             self._report(session_id, text, error, origin)
             answer(error)
         else:
-            self._report(session_id, text, None, origin)
-            answer("ok")
+            if not command.takes_answer:
+                self._report(session_id, text, None, origin)
+                answer("ok")
         return keep_running
 
-    def _call(self, command: CommandSpec, args: list[str], origin: Origin, yes: bool) -> bool:
+    def _call(
+        self,
+        command: CommandSpec,
+        args: list[str],
+        origin: Origin,
+        yes: bool,
+        answer: Callable[[CommandOutcome], None],
+        session_id: str | None,
+        text: str,
+    ) -> bool:
         options: dict[str, object] = {}
         if command.takes_origin:
             options["origin"] = origin
         if command.takes_yes:
             options["yes"] = yes
+        if command.takes_answer:
+
+            def reported(outcome: CommandOutcome) -> None:
+                """It went as ``outcome`` says, maybe later: only then is it logged."""
+                if outcome == "rejected":
+                    self._log_command(session_id, "command", text, "rejected", origin)
+                else:
+                    self._report(session_id, text, outcome if outcome != "ok" else None, origin)
+                answer(outcome)
+
+            options["answer"] = reported
         return command.run(*args, **options)
 
     def _ask(
@@ -438,13 +466,14 @@ class MainCommands:
                 answer("rejected")
                 return
             try:
-                self._call(command, args, origin, yes=False)
+                self._call(command, args, origin, False, answer, session_id, text)
             except AllInError as error:
                 self._report(session_id, text, error, origin)
                 answer(error)
             else:
-                self._report(session_id, text, None, origin)
-                answer("ok")
+                if not command.takes_answer:
+                    self._report(session_id, text, None, origin)
+                    answer("ok")
 
         self._log_command(session_id, "confirmation_asked", text, None, origin)
         self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
@@ -582,37 +611,55 @@ class MainCommands:
         self._turns.cancel(session.id, "window closed")
         return True
 
-    def _send(self, session_id: str, text: str, origin: Origin = HUMAN, yes: bool = False) -> bool:
-        """``yes``: ``-y``, a human's only: its Turn's Confirmations are answered yes."""
+    def _send(
+        self,
+        session_id: str,
+        text: str,
+        origin: Origin = HUMAN,
+        yes: bool = False,
+        answer: Callable[[CommandOutcome], None] | None = None,
+    ) -> bool:
+        """``yes``: ``-y``, a human's only: its Turn's Confirmations are answered yes. Options
+        ahead of the text are the structured form of its Command prompts (ADR-0013)."""
+        answer = answer or _ignored
         session = self._sessions.load_owned(session_id, self._main_id)
-        if not origin.is_human:  # data: @… and /… in it are never run (ADR-0013)
-            sent = f"{origin_header(origin)}\n{text}"
-            self._turns.push(session, Prompt(session.id, sent, origin=origin))
+        options = parse_send(text)
+        if not options.text.strip():
+            raise InvalidArguments(usage=SEND_USAGE)
+        if not origin.is_human:
+            self._sends.send(session, options, origin, answer)
             return True
         try:
-            prompt = self._human_prompt(session.id, text)
+            prompt = self._human_prompt(session.id, options)
         except AllInError as error:
             # It was not sent: its Window says why, and the text is the human's again.
             self._windows.send(session.id, error_entry(str(error)))
             self._windows.put_back(session.id, text)
             raise
         self._turns.push(session, replace(prompt, answered_by="-y" if yes else None))
+        answer("ok")
         return True
 
-    def _human_prompt(self, session_id: SessionId, text: str) -> Prompt:
-        """A human's Prompt with its Command prompts done (#14): its overrides taken out and
-        its files copied to the Carpeta de trabajo, which the text then names."""
+    def _human_prompt(self, session_id: SessionId, options: SendOptions) -> Prompt:
+        """A human's Prompt with its Command prompts done (#14), those in its text and those
+        ahead of it: its overrides taken out and its files copied to the Carpeta de trabajo,
+        which the text then names."""
+        text = options.text
         parsed = parse_prompt(text)
-        prompt_id = new_prompt_id() if parsed.references else ""  # names its attachments
+        references = [*options.attach, *parsed.references]
+        prompt_id = new_prompt_id() if references else ""  # names its attachments
         workspace = self._sessions.workspace(session_id)
-        names, attachments = attach(parsed.references, workspace, prompt_id, Path.cwd())
+        names, attachments = attach(references, workspace, prompt_id, Path.cwd())
         sent = parsed.text_with(names)
+        overrides = options.overrides.model_copy(
+            update=parsed.overrides.model_dump(exclude_none=True)
+        )
         return Prompt(
             session_id,
             sent,
             prompt_id=prompt_id,
             attachments=tuple(attachments),
-            overrides=parsed.overrides,
+            overrides=overrides,
             typed=text if text != sent else "",
         )
 
@@ -666,6 +713,9 @@ class MainCommands:
             session_id = self._sessions.load_owned(session_id, self._main_id).id
         self._reporter.show_raw(state == "on", session_id)
         return True
+
+
+SEND_USAGE = "/send [-y] <sid> [--attach=<path>]… [--<param>=<value>]… [--] <text>"
 
 
 def _ignored(_: CommandOutcome) -> None:

@@ -28,7 +28,7 @@ def attach(
     Every one is checked before any is copied, so a bad one leaves nothing behind; a file
     named twice is attached once."""
     references = list(dict.fromkeys(references))
-    sources = [_source(reference, cwd) for reference in references]
+    sources = [source_of(reference, cwd) for reference in references]
     root = workspace.resolve()
     names: dict[str, str] = {}
     attachments: list[Attachment] = []
@@ -50,7 +50,8 @@ def attach(
     return names, attachments
 
 
-def _source(reference: str, cwd: Path) -> Path:
+def source_of(reference: str, cwd: Path) -> Path:
+    """The file ``reference`` names, resolved through any link: what is copied."""
     path = Path(reference).expanduser()
     path = (cwd / path if not path.is_absolute() else path).resolve()
     if not path.exists():

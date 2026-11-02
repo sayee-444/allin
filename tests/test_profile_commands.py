@@ -15,7 +15,9 @@ from tests.test_dispatcher import MainHarness, restored
 
 @pytest.fixture
 def main(tmp_path: Path) -> MainHarness:
-    return MainHarness(tmp_path)
+    harness = MainHarness(tmp_path)
+    harness.sessions_join_profile = False  # these tests make each Profile's list themselves
+    return harness
 
 
 def test_new_puts_the_session_in_the_active_profiles_list(main: MainHarness):

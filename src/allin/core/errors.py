@@ -341,6 +341,20 @@ class SessionCommandInPrompt(AllInError):
     code: ClassVar[str] = "session_command_in_prompt"
 
 
+class AttachmentNotApproved(AllInError):
+    """A Session attached a file from outside its Carpeta de trabajo and the human did not
+    approve copying it: the Prompt was not sent (ADR-0013)."""
+
+    code: ClassVar[str] = "attachment_not_approved"
+
+
+class OutsideProfile(AllInError):
+    """A Session sent to one that is not of the active Profile: a Profile is private, and only
+    a human crosses it (ADR-0010)."""
+
+    code: ClassVar[str] = "outside_profile"
+
+
 class SessionCommandFailed(AllInError):
     """A Command session module failed to load; the other Command sessions go on."""
 
