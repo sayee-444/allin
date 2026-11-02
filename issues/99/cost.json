@@ -1,58 +1,62 @@
 {
   "end_to_end": {
-    "multiprocessing spawn, no confinement (ADR-0005 today)": {
-      "median_ms": 26.3,
-      "p90_ms": 27.1
+    "multiprocessing spawn, no confinement, no result": {
+      "median_ms": 26.6,
+      "p90_ms": 27.3
+    },
+    "multiprocessing spawn + Queue with the result (ADR-0005 today)": {
+      "median_ms": 28.3,
+      "p90_ms": 29.7
     },
     "subprocess+socketpair, no confinement": {
-      "median_ms": 15.7,
-      "p90_ms": 16.2
+      "median_ms": 16.6,
+      "p90_ms": 17.6
     },
     "+ confinement, net=False": {
-      "median_ms": 16.0,
+      "median_ms": 16.8,
       "p90_ms": 17.3
     },
     "+ confinement, net=[443]": {
-      "median_ms": 16.1,
-      "p90_ms": 17.6
+      "median_ms": 16.8,
+      "p90_ms": 17.2
     },
     "+ confinement, net=True built in the child": {
-      "median_ms": 53.5,
-      "p90_ms": 57.3
+      "median_ms": 54.8,
+      "p90_ms": 59.1
     },
     "+ confinement, net=True, Main's shared layer below the fs layer": {
-      "median_ms": 30.0,
-      "p90_ms": 33.5
+      "median_ms": 30.4,
+      "p90_ms": 34.5
     },
     "+ confinement, net=True, Main's shared layer last": {
-      "median_ms": 24.6,
-      "p90_ms": 26.0
+      "median_ms": 24.7,
+      "p90_ms": 27.7
     }
   },
   "inside_child": {
     "subprocess+socketpair, no confinement": {
-      "boot_to_confine_ms": 4.9,
+      "boot_to_confine_ms": 5.9,
       "confine_ms": 0.0
     },
     "+ confinement, net=False": {
-      "boot_to_confine_ms": 4.9,
+      "boot_to_confine_ms": 5.9,
       "confine_ms": 0.2
     },
     "+ confinement, net=[443]": {
-      "boot_to_confine_ms": 4.9,
+      "boot_to_confine_ms": 5.9,
       "confine_ms": 0.2
     },
     "+ confinement, net=True built in the child": {
-      "boot_to_confine_ms": 5.0,
-      "confine_ms": 36.7
+      "boot_to_confine_ms": 5.9,
+      "confine_ms": 37.7
     },
     "+ confinement, net=True, Main's shared layer below the fs layer": {
-      "boot_to_confine_ms": 4.9,
-      "confine_ms": 13.9
+      "boot_to_confine_ms": 5.9,
+      "confine_ms": 13.6
     },
     "+ confinement, net=True, Main's shared layer last": {
-      "boot_to_confine_ms": 4.9,
-      "confine_ms": 8.4
+      "boot_to_confine_ms": 6.0,
+      "confine_ms": 7.4
     }
   }
 }

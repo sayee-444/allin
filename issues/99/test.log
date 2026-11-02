@@ -1,30 +1,37 @@
-# #99 Prototipo del encierro — 2026-11-02T06:35:05Z
-kernel 7.0.0-38-generic x86_64; Python 3.14.4; Landlock ABI 8
-legacy_tiocsti=0
+# #99 Prototipo del encierro — 2026-11-02T06:43:42Z
+kernel 7.0.0-38-generic x86_64; Python 3.14.4; legacy_tiocsti=0
+Landlock ABI 8
 
 ## $ python -I prototypes/encierro/ports.py
 {
   "abi": 8,
   "rules": 65534,
-  "inline_build_ms_median": 29.41,
-  "inline_restrict_ms_median": 5.51,
-  "inline_total_ms_median": 35.0,
-  "inline_total_ms_max": 37.08,
-  "main_build_once_ms": 27.34,
-  "inherited_apply_ms_median": 7.01,
+  "inline_build_ms_median": 28.76,
+  "inline_restrict_ms_median": 5.7,
+  "inline_total_ms_median": 34.55,
+  "inline_total_ms_max": 37.71,
+  "main_build_once_ms": 30.51,
+  "inherited_apply_ms_median": 7.1,
   "check_with_net_layer": {
     "9931": "EACCES (Landlock)",
     "9932": "EACCES (Landlock)",
     "9933": "allowed by Landlock (ConnectionRefusedError)",
     "443": "allowed by Landlock (ConnectionRefusedError)",
     "bind 9931": "EACCES (Landlock)",
-    "connect_refused_us": 3.817056000116281
+    "connect_refused_us": 3.8340979954227805
   },
-  "check_without_any_layer_connect_refused_us_per_1000": 3.7872190005145967
+  "check_without_any_layer_connect_refused_us_per_1000": 3.785656997933984
 }
 
 ## $ python -I prototypes/encierro/ports_memory.py
-per process, 1 port rule: -14 KiB; 65 535 port rules: 4531 KiB
+per process, 1 port rule: -11 KiB; 65 535 port rules: 4514 KiB
+
+## $ python -I prototypes/encierro/tsync.py
+restrict_self flag 1<<0: accepted
+restrict_self flag 1<<1: accepted
+restrict_self flag 1<<2: accepted
+restrict_self flag 1<<3: accepted
+restrict_self flag 1<<4: Invalid argument
 
 ## $ python -I prototypes/encierro/reaper.py
 Main alive: True (this line)
@@ -59,8 +66,18 @@ create/remove only, no READ_DIR: Lock(): ok; listdir: Permission denied; read an
 {"main_got": "<_io.TextIOWrapper name='<scratch>/unpickled-in-main' mode='w' encoding='UTF-8'>", "marker_created_by_main": true}
 
 ## $ python -I prototypes/encierro/launch.py born <scratch>  (resumen: del entorno solo se nombran las variables que puso la prueba)
-multiprocessing spawn: own session=False, own group=False, fds={'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4', '3': 'pipe', '4': '/usr/lib/x86_64-linux-gnu/libffi.so.8.2.0', '5': '/dev/null', '6': '(closed', '7': 'pipe', '8': 'pipe', '10': 'pipe', '11': 'pipe'}, ttys={'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4'}, env vars=80 (ALLIN_PROBE_TOKEN=True, DBUS_SESSION_BUS_ADDRESS=True, SSH_AUTH_SOCK=True), cwd is Main's=True
-subprocess + socketpair: own session=True, own group=True, fds={'0': '/dev/null', '1': 'pipe', '2': 'pipe', '3': '/usr/lib/x86_64-linux-gnu/libffi.so.8.2.0', '4': '(closed', '12': 'socket'}, ttys={}, env vars=4 (ALLIN_PROBE_TOKEN=False, DBUS_SESSION_BUS_ADDRESS=False, SSH_AUTH_SOCK=False), cwd is Main's=False
+multiprocessing spawn:
+  own session=False, own group=False, ttys={'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4'}
+  fds={'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4', '3': 'pipe', '4': '/usr/lib/x86_64-linux-gnu/libffi.so.8.2.0', '5': '/dev/null', '6': '(closed', '7': 'pipe', '8': 'pipe', '10': 'pipe', '11': 'pipe'}
+  env vars=80 (ALLIN_PROBE_TOKEN=True, DBUS_SESSION_BUS_ADDRESS=True, SSH_AUTH_SOCK=True)
+  sys.path=['<repo>/prototypes/encierro', '<repo>/prototypes/encierro', '<repo>/prototypes/encierro', '/usr/lib/python314.zip', '/usr/lib/python3.14', '/usr/lib/python3.14/lib-dynload', '<repo>/venv/lib/python3.14/site-packages', '<repo>/src']
+  cwd is Main's=True
+subprocess + socketpair:
+  own session=True, own group=True, ttys={}
+  fds={'0': '/dev/null', '1': 'pipe', '2': 'pipe', '3': '/usr/lib/x86_64-linux-gnu/libffi.so.8.2.0', '4': '(closed', '12': 'socket'}
+  env vars=4 (ALLIN_PROBE_TOKEN=False, DBUS_SESSION_BUS_ADDRESS=False, SSH_AUTH_SOCK=False)
+  sys.path=['<repo>/prototypes/encierro', '/usr/lib/python314.zip', '/usr/lib/python3.14', '/usr/lib/python3.14/lib-dynload', '<repo>/venv/lib/python3.14/site-packages', '<repo>/src']
+  cwd is Main's=False
 
 ## $ python -I prototypes/encierro/launch.py probe <scratch>  → probe.json
 
