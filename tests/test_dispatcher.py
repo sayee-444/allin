@@ -313,6 +313,7 @@ class MainHarness:
             lambda: self.now,
             lambda: self.now,
         )
+        self.dispatcher = dispatcher
         for event in () if settle else events:
             assert not callable(event)
             inbox.put(event)

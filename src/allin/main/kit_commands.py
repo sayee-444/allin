@@ -14,7 +14,7 @@ from allin.main.settings_commands import SettingsCommands
 from allin.supervisor.ports import port_free
 from allin.supervisor.settings import ServerSettings, load_server_settings, save_server_settings
 
-_USAGE = (
+USAGE = (
     "/kit export <folder> [piece…] [--version <v>]"
     " | /kit load <folder> [--take <piece>…] [--both <piece>…]"
 )
@@ -49,7 +49,7 @@ class KitCommands:
             case ["load", folder, *rest]:
                 self._load(Path(folder).expanduser(), _choices(rest))
             case _:
-                raise InvalidArguments(usage=_USAGE)
+                raise InvalidArguments(usage=USAGE)
         return True
 
     def _export(self, folder: Path, rest: list[str]) -> None:
@@ -57,7 +57,7 @@ class KitCommands:
         if "--version" in rest:
             at = rest.index("--version")
             if at + 1 >= len(rest):
-                raise InvalidArguments(usage=_USAGE)
+                raise InvalidArguments(usage=USAGE)
             version = rest[at + 1]
             rest = rest[:at] + rest[at + 2 :]
         manifest = self._kits.export(
@@ -138,6 +138,6 @@ def _choices(words: list[str]) -> dict[str, Choice]:
         choice = _FLAGS.get(flag)
         piece = next(pairs, None)
         if choice is None or piece is None:
-            raise InvalidArguments(usage=_USAGE)
+            raise InvalidArguments(usage=USAGE)
         choices[piece] = choice
     return choices

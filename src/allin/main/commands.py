@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from allin.core.errors import (
@@ -18,18 +18,26 @@ from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
+from allin.main.key_commands import USAGE as KEY_USAGE
 from allin.main.key_commands import KeyCommands
+from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
 from allin.main.open_windows import OpenWindows
+from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import parse_prompt
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
+from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
 from allin.main.server_commands import human_only as server_human_only
 from allin.main.sessions import SessionStore
-from allin.main.settings_commands import SettingsCommands, parse_session_command
+from allin.main.settings_commands import (
+    SESSION_USAGE,
+    SettingsCommands,
+    parse_session_command,
+)
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
@@ -38,9 +46,15 @@ type ByArguments = Callable[[list[str]], bool]
 
 
 @dataclass(frozen=True)
-class _MainCommand:
+class CommandSpec:
+    """A Command main as registered: how it is called, what ``/help`` says of it and what it
+    runs."""
+
     params: tuple[str, ...]
     run: Callable[..., bool]  # takes one str per param; returns whether Main keeps running
+    summary: str  # one line for /help: every Command main declares it (#23)
+    args: dict[str, str] = field(default_factory=dict[str, str])  # param -> its line in /help
+    usage_text: str | None = None  # for one with actions, its usage; else built from params
     rest: bool = False  # the last param takes the rest of the line verbatim, newlines included
     optional: tuple[str, ...] = ()  # params after ``params`` that may be left out
     # The Session it concerns, from its arguments; by default its ``sid`` param.
@@ -57,6 +71,8 @@ class _MainCommand:
         return self.human_only(args) if callable(self.human_only) else self.human_only
 
     def usage(self, name: str) -> str:
+        if self.usage_text is not None:
+            return self.usage_text
         words = [name, *(f"<{param}>" for param in self.params)]
         return " ".join(words + [f"[{param}]" for param in self.optional])
 
@@ -89,46 +105,138 @@ class MainCommands:
         self._sysprompts = sysprompts
         self._profiles = profiles
         # Command mains are registered once, when Main starts.
-        self._commands: dict[str, _MainCommand] = {
-            "/new": _MainCommand((), self._new),
-            "/open": _MainCommand(("sid",), self._open),
+        self._commands: dict[str, CommandSpec] = {
+            "/new": CommandSpec((), self._new, "create a Session from the template and open it"),
+            "/open": CommandSpec(
+                ("sid",),
+                self._open,
+                "open the Window of a Session of this Main",
+                args={"sid": "the Session's id"},
+            ),
             # The only Command main that queues Prompts; Enter in a Window is /send to its own.
-            "/send": _MainCommand(("sid", "text"), self._send, rest=True, takes_origin=True),
-            "/raw": _MainCommand(("state",), self._set_raw, optional=("sid",)),
-            "/set": _MainCommand(
-                (), settings.set, rest=True, optional=("key=value",), takes_origin=True
+            "/send": CommandSpec(
+                ("sid", "text"),
+                self._send,
+                "queue a Prompt for a Session's next Turn",
+                args={
+                    "sid": "the Session's id",
+                    "text": "the Prompt, up to the end; @key=value and @./file go first",
+                },
+                rest=True,
+                takes_origin=True,
+            ),
+            "/raw": CommandSpec(
+                ("state",),
+                self._set_raw,
+                "show each event's raw JSON in the Chat, or stop",
+                args={"state": "on or off", "sid": "one Session's Window; else Main's Chat"},
+                optional=("sid",),
+            ),
+            "/set": CommandSpec(
+                (),
+                settings.set,
+                "list Main's Settings, or change them",
+                args={"key=value": "one or more Settings to change"},
+                rest=True,
+                optional=("key=value",),
+                takes_origin=True,
             ),
             # Delicate: the current Settings are lost unless they were also the defaults.
-            "/reset": _MainCommand((), settings.reset, confirm=True),
-            "/session": _MainCommand(
+            "/reset": CommandSpec(
+                (), settings.reset, "put Main's Settings back to the defaults", confirm=True
+            ),
+            "/session": CommandSpec(
                 ("sid",),
                 settings.session,
+                "list a Session's Settings, change them or compact its Conversation",
+                usage_text=SESSION_USAGE,
                 rest=True,
                 optional=("key=value",),
                 session_of=_session_of_session_command,
                 takes_origin=True,
             ),
-            "/devastation": _MainCommand(("state",), self._switch_devastation, human_only=True),
-            "/server": _MainCommand(
+            "/devastation": CommandSpec(
+                ("state",),
+                self._switch_devastation,
+                "let Main answer the Confirmations of its own Chat by itself",
+                args={"state": "on or off"},
+                human_only=True,
+            ),
+            "/server": CommandSpec(
                 (),
                 server.run,
+                "list the Servers, or add, change, restart, adopt, sleep or wake one",
+                usage_text=SERVER_USAGE,
                 rest=True,
                 optional=("action…",),
                 takes_origin=True,
                 confirm=server_delicate,
                 human_only=server_human_only,
             ),
-            "/profile": _MainCommand((), profiles.run, rest=True, optional=("action…",)),
+            "/profile": CommandSpec(
+                (),
+                profiles.run,
+                "list the Profiles, or create, switch, share, export or import one",
+                usage_text=PROFILE_USAGE,
+                rest=True,
+                optional=("action…",),
+            ),
             # A Kit writes pieces into the Profile and may suggest Supervisors (ADR-0014).
-            "/kit": _MainCommand((), kits.run, rest=True, optional=("action…",), human_only=True),
+            "/kit": CommandSpec(
+                (),
+                kits.run,
+                "export pieces of the Profile as a Kit, or load one",
+                usage_text=KIT_USAGE,
+                rest=True,
+                optional=("action…",),
+                human_only=True,
+            ),
             # Only a human changes which key does what (#57, ADR-0013).
-            "/key": _MainCommand((), keys.run, rest=True, optional=("key…",), human_only=True),
-            "/exit": _MainCommand((), lambda: False),
+            "/key": CommandSpec(
+                (),
+                keys.run,
+                "list the keyboard Shortcuts, or bind a key",
+                usage_text=KEY_USAGE,
+                rest=True,
+                optional=("key…",),
+                human_only=True,
+            ),
+            # Built from this registry, so a new Command main shows by itself (#23).
+            "/help": CommandSpec(
+                (),
+                self._help,
+                "list the Command mains, or show how one is used",
+                args={"command": "a Command main, with or without its slash"},
+                optional=("command",),
+                human_only=True,
+            ),
+            "/exit": CommandSpec((), lambda: False, "close Main; Sessions and Windows stay saved"),
         }
 
     def use_sysprompts(self, sysprompts: Path) -> None:
         """The active Profile's, which Sessions are born with, once Main switched to it."""
         self._sysprompts = sysprompts
+
+    def help_entries(self) -> dict[str, CommandSpec]:
+        """Every Command main registered, in the order /help lists them."""
+        return dict(self._commands)
+
+    def _help(self, asked: str | None = None) -> bool:
+        if asked is None:
+            width = max(map(len, self._commands))
+            for name, command in self._commands.items():
+                self._reporter.show(None, f"{name:<{width}}  {command.summary}")
+            return True
+        name = asked if asked.startswith("/") else f"/{asked}"
+        command = self._commands.get(name)
+        if command is None:
+            raise UnknownCommand(command=name)
+        self._reporter.show(None, f"{name}: {command.summary}")
+        self._reporter.show(None, f"usage: {command.usage(name)}")
+        for param in (*command.params, *command.optional):
+            if param in command.args:
+                self._reporter.show(None, f"  <{param}>: {command.args[param]}")
+        return True
 
     def run(self, text: str, origin: Origin = HUMAN) -> bool:
         """Run a Command main and report how it went; return whether Main keeps running.
@@ -176,14 +284,14 @@ class MainCommands:
             self._report(session_id, text, None)
         return keep_running
 
-    def _call(self, command: _MainCommand, args: list[str], origin: Origin) -> bool:
+    def _call(self, command: CommandSpec, args: list[str], origin: Origin) -> bool:
         if command.takes_origin:
             return command.run(*args, origin=origin)
         return command.run(*args)
 
     def _ask(
         self,
-        command: _MainCommand,
+        command: CommandSpec,
         args: list[str],
         text: str,
         session_id: str | None,

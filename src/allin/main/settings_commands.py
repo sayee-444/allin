@@ -37,7 +37,7 @@ _SYSPROMPT_KEYS = ("sysprompt", "assistant_name", "username")
 _RESTART_NOTE = "base_url takes effect when Main restarts"
 
 
-_SESSION_USAGE = (
+SESSION_USAGE = (
     "/session <sid> | /session set <sid> [key=value…] | /session compact <sid> [instructions]"
 )
 
@@ -151,7 +151,7 @@ class SettingsCommands:
         without a Confirmation since a Rewind undoes it (ADR-0017)."""
         target = parse_session_command([first, rest] if rest else [first])
         if target is None:
-            raise InvalidArguments(usage=_SESSION_USAGE)
+            raise InvalidArguments(usage=SESSION_USAGE)
         session = self._sessions.load_owned(target.session_id, self._main_id)
         if target.compact:
             self._turns.compact(session, target.rest)
