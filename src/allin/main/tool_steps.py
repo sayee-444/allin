@@ -21,12 +21,16 @@ from allin.confinement.launcher import ToolCall, ToolLauncher
 from allin.core.errors import AllInError, ToolCancelled
 from allin.core.ids import PieceId, SessionId
 from allin.decorators import Reach
+from allin.main.confirmation import ConfirmationGate
 from allin.main.conversation import TOOL_ERROR, Item, Step
 from allin.main.events import MainEvent, ToolsEnded, ToolsStarted
 from allin.main.quarantine import OfferedFunction
 from allin.main.turn import Cancellation
 
 _POLL = 0.1  # how often a Turn waiting for its slot looks whether it was cancelled
+_SHOWN_ARGUMENTS = 600  # of a call's arguments, what its Confirmation shows
+# What the LLM reads of a call a human said no to: it did not run (ADR-0009).
+REFUSED = "the user refused this call: it did not run"
 
 type Emit = Callable[[MainEvent], None]
 
@@ -40,14 +44,14 @@ class SessionTool:
     module: str
     reach: Reach  # as its description read it, or as its Approval reduced it
     schema: Item  # as ``tools=[...]`` takes it
+    confirm: bool = False  # it asks a Confirmation before each call: ``@confirm`` or its Approval
 
 
 def session_tools(
     offered: Iterable[OfferedFunction], functions: Iterable[PieceId]
 ) -> list[SessionTool]:
-    """The tools of the approved pieces among a Session's ``functions``. A tool its Approval
-    marked to ask a Confirmation is left out until ``@confirm`` asks it (#107); so is one
-    whose name another tool took first."""
+    """The tools of the approved pieces among a Session's ``functions``, but one whose name
+    another tool took first."""
     wanted = set(functions)
     tools: dict[str, SessionTool] = {}
     for function in offered:
@@ -55,7 +59,7 @@ def session_tools(
         if function.piece.id not in wanted or described.kind != "function":
             continue  # an fproc's methods arrive with the Procesos adheridos (#113)
         for tool in described.tools:
-            if tool.name in tools or tool.name in function.confirm:
+            if tool.name in tools:
                 continue
             schema: Item = {
                 "type": "function",
@@ -63,8 +67,9 @@ def session_tools(
                 "description": tool.description,
                 "parameters": tool.parameters,
             }
+            confirm = tool.name in function.confirm or tool.marks.get("confirm") is True
             tools[tool.name] = SessionTool(
-                tool.name, function.package, described.module, described.reach, schema
+                tool.name, function.package, described.module, described.reach, schema, confirm
             )
     return list(tools.values())
 
@@ -88,6 +93,11 @@ class SessionTools:
     @property
     def schemas(self) -> list[Item]:
         return [tool.schema for tool in self._tools.values()]
+
+    def confirms(self, call: Item) -> bool:
+        """Whether a human answers yes before ``call`` runs (ADR-0009)."""
+        tool = self._tools.get(_name(call))
+        return tool is not None and tool.confirm
 
     def run(self, call: Item, stop: Callable[[], bool]) -> Item:
         """What a ``function_call`` gave back, as its ``function_call_output``: its value as
@@ -150,6 +160,7 @@ class _Turn:
     session_id: SessionId
     cancellation: Cancellation
     emit: Emit
+    confirmation: ConfirmationGate
 
 
 class ToolGate:
@@ -165,24 +176,37 @@ class ToolGate:
         """What goes in ``tools=[...]`` at each Step; none without tools."""
         return self._tools.schemas if self._tools is not None else []
 
-    def connect(self, session_id: SessionId, cancellation: Cancellation, emit: Emit) -> None:
-        """The Turn it belongs to and where its events go; its executor connects it."""
-        self._turn = _Turn(session_id, cancellation, emit)
+    def connect(
+        self,
+        session_id: SessionId,
+        cancellation: Cancellation,
+        emit: Emit,
+        confirmation: ConfirmationGate,
+    ) -> None:
+        """The Turn it belongs to, where its events go and how it asks a Confirmation; its
+        executor connects it."""
+        self._turn = _Turn(session_id, cancellation, emit, confirmation)
 
     def run(self, step: Step) -> list[Item]:
         """From the Turn's thread: run the calls ``step`` made, in order, and give back their
-        outputs once the Turn holds a slot again. Raises ``TurnCancelled`` if the Turn is
-        cancelled meanwhile, which also takes down the call that runs."""
+        outputs once the Turn holds a slot again. The ones marked ``@confirm`` ask first, all
+        before any runs, while the Turn still holds its slot; one a human says no to does not
+        run. Raises ``TurnCancelled`` if the Turn is cancelled meanwhile, which also takes down
+        the call that runs."""
         assert self._turn is not None, "run() before the executor connected the gate"
         turn = self._turn
         calls = step.calls
+        allowed = [self._allowed(call, turn) for call in calls]
         names = tuple(_name(call) for call in calls)
         turn.emit(ToolsStarted(turn.session_id, names))
         results: list[Item] = []
-        for call in calls:
+        for call, yes in zip(calls, allowed, strict=True):
             turn.cancellation.check()
             if self._tools is None:  # a Turn without tools: the LLM called one it does not have
                 results.append(_call_output(call, _no_tool(_name(call))))
+                continue
+            if not yes:
+                results.append(_call_output(call, REFUSED))
                 continue
             try:
                 results.append(self._tools.run(call, lambda: turn.cancellation.reason is not None))
@@ -203,6 +227,16 @@ class ToolGate:
     def resume(self) -> None:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
+
+    def _allowed(self, call: Item, turn: _Turn) -> bool:
+        """Whether ``call`` may run: yes, unless it asks a Confirmation and a human says no."""
+        if self._tools is None or not self._tools.confirms(call):
+            return True
+        arguments: object = call.get("arguments")
+        shown = str(arguments)
+        if len(shown) > _SHOWN_ARGUMENTS:
+            shown = shown[:_SHOWN_ARGUMENTS] + "\N{HORIZONTAL ELLIPSIS}"
+        return turn.confirmation.ask(f"run {_name(call)}?", f"{_name(call)} {shown}")
 
 
 def _name(call: Item) -> str:

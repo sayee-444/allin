@@ -31,6 +31,9 @@ class Prompt:
     # Sent while its Session was busy: its Chat shows it once its Turn starts (ADR-0024).
     queued: bool = False
     origin: Origin = HUMAN  # a Rewind gives back to the input only a human's (#58)
+    # Sent with ``-y`` by a human: its Turn's Confirmations are answered yes, and only its own,
+    # not those of what it sets going (ADR-0013).
+    yes: bool = False
     # The Steps its Turn had ended when a fall suspended it, which it goes on from (ADR-0023).
     steps: tuple[Step, ...] = ()
 

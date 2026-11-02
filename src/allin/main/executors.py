@@ -35,7 +35,7 @@ class TurnJob:
 def execute(llm: Llm, job: TurnJob, emit: Callable[[MainEvent], None]) -> None:
     """Run one Turn, reporting its output and its end through ``emit``."""
     job.confirmation.connect(job.session_id, job.cancellation, emit)
-    job.tools.connect(job.session_id, job.cancellation, emit)
+    job.tools.connect(job.session_id, job.cancellation, emit, job.confirmation)
     try:
         steps = run_turn(
             llm,

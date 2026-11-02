@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -85,6 +85,8 @@ class CommandSpec:
     confirm: bool | ByArguments = False
     human_only: bool | ByArguments = False  # any other Origin is an error (ADR-0013)
     takes_origin: bool = False  # ``run`` also gets the Origin, as ``origin=``
+    # ``-y`` reaches ``run`` as ``yes=``, for what it starts later: /send's Turn (#107).
+    takes_yes: bool = False
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -186,8 +188,10 @@ class MainCommands:
                     "sid": "the Session's id",
                     "text": "the Prompt, up to the end; @key=value and @./file go first",
                 },
+                usage_text="/send [-y] <sid> <text>",
                 rest=True,
                 takes_origin=True,
+                takes_yes=True,
             ),
             "/raw": CommandSpec(
                 ("state",),
@@ -344,7 +348,7 @@ class MainCommands:
         name = (text.split(maxsplit=1) or [""])[0]
         command = self._commands.get(name)
         yes = False
-        if command is not None and command.confirm is not False:
+        if command is not None and (command.confirm is not False or command.takes_yes):
             yes, text = _take_yes(text)
         args = text.split()[1:]
         if command is not None and command.rest:
@@ -372,17 +376,20 @@ class MainCommands:
             if delicate and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
                 self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
-            keep_running = self._call(command, args, origin)
+            keep_running = self._call(command, args, origin, yes)
         except AllInError as error:
             self._report(session_id, text, error, origin)
         else:
             self._report(session_id, text, None, origin)
         return keep_running
 
-    def _call(self, command: CommandSpec, args: list[str], origin: Origin) -> bool:
+    def _call(self, command: CommandSpec, args: list[str], origin: Origin, yes: bool) -> bool:
+        options: dict[str, object] = {}
         if command.takes_origin:
-            return command.run(*args, origin=origin)
-        return command.run(*args)
+            options["origin"] = origin
+        if command.takes_yes:
+            options["yes"] = yes
+        return command.run(*args, **options)
 
     def _ask(
         self,
@@ -400,7 +407,7 @@ class MainCommands:
                 self._log_command(session_id, "command", text, "rejected", origin)
                 return
             try:
-                self._call(command, args, origin)
+                self._call(command, args, origin, yes=False)
             except AllInError as error:
                 self._report(session_id, text, error, origin)
             else:
@@ -536,7 +543,8 @@ class MainCommands:
         self._turns.cancel(session.id, "window closed")
         return True
 
-    def _send(self, session_id: str, text: str, origin: Origin = HUMAN) -> bool:
+    def _send(self, session_id: str, text: str, origin: Origin = HUMAN, yes: bool = False) -> bool:
+        """``yes``: ``-y``, a human's only: its Turn's Confirmations are answered yes."""
         session = self._sessions.load_owned(session_id, self._main_id)
         if not origin.is_human:  # data: @… and /… in it are never run (ADR-0013)
             sent = f"{origin_header(origin)}\n{text}"
@@ -549,7 +557,7 @@ class MainCommands:
             self._windows.send(session.id, error_entry(str(error)))
             self._windows.put_back(session.id, text)
             raise
-        self._turns.push(session, prompt)
+        self._turns.push(session, replace(prompt, yes=yes))
         return True
 
     def _human_prompt(self, session_id: SessionId, text: str) -> Prompt:
