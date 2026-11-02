@@ -36,6 +36,7 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "session.exempt",
         "session.compact.auto",
         "session.tools.timeout",
+        "session.conversation_logs.every",
         "session.compact.threshold",
         "session.compact.keep",
         "session.compact.sysprompt",

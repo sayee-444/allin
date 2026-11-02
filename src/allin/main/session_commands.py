@@ -10,6 +10,7 @@ those at the folder's root being what a new Session gets by default.
 """
 
 import importlib.util
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,7 +25,7 @@ from allin.core.errors import (
     SessionCommandNotListed,
     UnknownSessionCommand,
 )
-from allin.core.ids import CommandName, ServerKey, SessionId
+from allin.core.ids import CommandName, NotificationSource, ServerKey, SessionId
 from allin.core.origin import Origin
 from allin.main.events import (
     CommandOutcome,
@@ -33,13 +34,16 @@ from allin.main.events import (
     ServerState,
     SessionCommandResult,
 )
+from allin.main.notifications import Notifications
 from allin.main.prompt_commands import session_command_name
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.session_commands import SessionCommandCall, SessionCommandType
 
 FOLDER = "comsession"  # in the data dir: the human's Command session modules
-type Answer = Callable[[SessionCommandResult], None]
+# Gives how it went to who asked; ``False`` if nobody waits for it any more: a tool whose Turn
+# was cancelled meanwhile, say while a human took long to answer its Confirmation.
+type Answer = Callable[[SessionCommandResult], bool]
 # Runs a Command main with an Origin; calls back with how it went once it did, maybe after a
 # Confirmation. Returns whether Main keeps running.
 type RunMain = Callable[[str, Origin, Callable[[CommandOutcome], None]], bool]
@@ -67,18 +71,21 @@ def _server(call: SessionCommandCall) -> str:
             raise ValueError(msg)
 
 
+_CONVERSATION_LOGS_USAGE = "@conversation_logs on|off|list [source]"
+
+
 def _conversation_logs(call: SessionCommandCall) -> str:
+    """Its action is checked by the Command main it becomes."""
     words = call.args.split()
-    if not 1 <= len(words) <= 2 or words[0] not in ("on", "off", "list"):
-        msg = "@conversation_logs on|off|list [source]"
-        raise ValueError(msg)
+    if not 1 <= len(words) <= 2:
+        raise ValueError(_CONVERSATION_LOGS_USAGE)
     return " ".join(["/conversation_logs", call.session_id, *words])
 
 
 SEND = SessionCommandType("send", "@send <sid> <text>", "send a Prompt to a Session", _send)
 CONVERSATION_LOGS = SessionCommandType(
     "conversation_logs",
-    "@conversation_logs on|off|list [source]",
+    _CONVERSATION_LOGS_USAGE,
     "whether this Session's Notificaciones enter its Conversation",
     _conversation_logs,
 )
@@ -173,6 +180,7 @@ class SessionCommands:
         load: Callable[[str], Session],
         run_main: RunMain,
         reporter: Reporter,
+        notifications: Notifications,
     ) -> None:
         """``load`` gives a Session of this Main by id; ``run_main`` runs a Command main."""
         self._types = loaded.types
@@ -180,13 +188,14 @@ class SessionCommands:
         self._load = load
         self._run_main = run_main
         self._reporter = reporter
+        self._notifications = notifications
         # The tools waiting for a Server their ``@server restart`` restarts to be up again.
         self._restarting: dict[ServerKey, list[Answer]] = {}
 
     def run(self, session_id: str, text: str, origin: Origin, answer: Answer | None = None) -> bool:
         """Run ``text``, ``@name …``, asked in ``session_id``'s Window or by a tool of its Turn
         with ``origin``; ``answer`` gets how it went. Returns whether Main keeps running."""
-        reply = answer or _ignored
+        answer = answer or _ignored
         try:
             session = self._load(session_id)
             name, kind = self._kind(text)
@@ -197,7 +206,7 @@ class SessionCommands:
         except AllInError as error:
             shown = f"[{session_id}] {text.strip()[:60]}: error {error}"
             self._reporter.report(None, "session_command", shown, command=text, result=str(error))
-            reply(SessionCommandResult(error=str(error)))
+            answer(SessionCommandResult(error=str(error)))
             return True
         self._reporter.log_session(
             session.id,
@@ -207,6 +216,14 @@ class SessionCommands:
             origin=list[JsonValue](origin.labels),
         )
         restarts = server if kind is SERVER and args == "restart" else None
+
+        def reply(result: SessionCommandResult) -> bool:
+            """One nobody waits for any more reaches its Session's LLM as a Notificación, by
+            its Conversation logs (ADR-0013)."""
+            if not answer(result):
+                told = f"{text.strip()}: {json.dumps(result.as_json(), ensure_ascii=False)}"
+                self._notifications.leave(session.id, NotificationSource(f"@{name}"), told)
+            return True
 
         def done(outcome: CommandOutcome) -> None:
             match outcome:
@@ -258,5 +275,5 @@ def _translate(kind: SessionCommandType, call: SessionCommandCall) -> str:
     return command
 
 
-def _ignored(_: SessionCommandResult) -> None:
-    pass
+def _ignored(_: SessionCommandResult) -> bool:
+    return True  # nobody asked to hear it

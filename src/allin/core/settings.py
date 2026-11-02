@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, Valid
 from pydantic_core import ErrorDetails
 
 from allin.core.errors import InvalidSetting, MalformedAssignment, UnknownSetting
-from allin.core.ids import SUPERVISOR_NAME_PATTERN
+from allin.core.ids import SUPERVISOR_NAME_PATTERN, NotificationSource
 from allin.core.themes import (
     DEFAULT_THEME,
     BorderKeys,
@@ -94,6 +94,23 @@ class ToolSettings(BaseModel, frozen=True):
     )
 
 
+class ConversationLogs(BaseModel, frozen=True):
+    """Whether each source's Notificaciones enter the Conversation; never the Log or the
+    Chat (#109)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    every: bool = Field(
+        default=True,
+        description="whether Notificaciones enter the Conversation, for each source without its"
+        " own (/conversation_logs)",
+    )
+    sources: dict[NotificationSource, bool] = Field(default_factory=dict[NotificationSource, bool])
+
+    def enters(self, source: NotificationSource) -> bool:
+        return self.sources.get(source, self.every)
+
+
 class SessionSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -134,9 +151,7 @@ class SessionSettings(BaseModel, frozen=True):
     )
     compact: CompactSettings = CompactSettings()
     tools: ToolSettings = ToolSettings()
-    # Conversation logs: whether each source's Notificaciones enter the Conversation, by source
-    # (``/func``), and ``all`` for every source without its own; never the Log or the Chat.
-    conversation_logs: dict[str, bool] = Field(default_factory=dict[str, bool])
+    conversation_logs: ConversationLogs = ConversationLogs()
     # Its Window's Atajos as they differ from the defaults (``ui.shortcuts``); only ``/key``
     # changes them, so only a human does (#57).
     keys: dict[str, str] = Field(default_factory=dict[str, str])

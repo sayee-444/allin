@@ -23,7 +23,7 @@ from allin.main.notifications import FUNC, Notifications
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
 from allin.main.session_commands import LoadedSessionCommands, chain_allows
-from allin.main.sessions import Session, SessionStore
+from allin.main.sessions import Change, Session, SessionStore
 
 USAGE = (
     "/func list [sid] | /func add <sid> <piece|@command>… | /func remove <sid> <piece|@command>…"
@@ -146,23 +146,14 @@ class FuncCommands:
             return
         listed = tuple(dict.fromkeys([*session.commands, *names]))
         self._save_commands(session, listed, "commands_added", names)
-        for name in dict.fromkeys(n for n in names if n not in session.commands):
-            self._tell(
-                session, f"@{name}", f"@{name} was given to you: your tools may run it", added=True
-            )
+        self._tell(session, [f"@{n}" for n in names if n not in session.commands], given=True)
 
     def _remove_commands(self, session: Session, names: list[CommandName]) -> None:
         if not names:
             return
         listed = tuple(name for name in session.commands if name not in names)
         self._save_commands(session, listed, "commands_removed", names)
-        for name in (n for n in session.commands if n in names):
-            self._tell(
-                session,
-                f"@{name}",
-                f"@{name} was taken away: your tools may no longer run it",
-                added=False,
-            )
+        self._tell(session, [f"@{n}" for n in session.commands if n in names], given=False)
 
     def _save_commands(
         self,
@@ -201,24 +192,20 @@ class FuncCommands:
             quarantine.piece(ref)  # it must exist; it may wait for its Approval
         functions = _unique([*session.functions, *(ref.id for ref in refs)])
         self._save(session, functions, "functions_added", refs)
-        for piece in _unique([r.id for r in refs if r.id not in session.functions]):
-            self._tell(session, piece, f"{piece} was given to you: its tools are yours", added=True)
+        self._tell(session, [r.id for r in refs if r.id not in session.functions], given=True)
 
     def _remove(self, session: Session, refs: list[PieceRef]) -> None:
         gone = {ref.id for ref in refs}
         functions = tuple(f for f in session.functions if f not in gone)
         self._save(session, functions, "functions_removed", refs)
-        for piece in (f for f in session.functions if f in gone):
-            self._tell(
-                session,
-                piece,
-                f"{piece} was taken away: its tools are no longer yours",
-                added=False,
-            )
+        self._tell(session, [f for f in session.functions if f in gone], given=False)
 
-    def _tell(self, session: Session, subject: str, text: str, *, added: bool) -> None:
-        """Leave the Session a Notificación of what it was given or lost (#109)."""
-        self._notifications.leave(session.id, FUNC, text, subject, added=added)
+    def _tell(self, session: Session, subjects: Iterable[str], *, given: bool) -> None:
+        """Leave the Session a Notificación for each piece or Command session (``@send``) it
+        was given or lost (#109)."""
+        for subject in dict.fromkeys(subjects):
+            change = Change(subject=subject, given=given)
+            self._notifications.leave(session.id, FUNC, _told_line(change), change)
 
     def _save(
         self, session: Session, functions: tuple[PieceId, ...], event: str, refs: list[PieceRef]
@@ -227,6 +214,16 @@ class FuncCommands:
         changed: list[JsonValue] = [ref.id for ref in refs]
         shown = f"functions: {', '.join(functions) or 'none'}"
         self._reporter.record(session.id, event, shown, pieces=changed)
+
+
+def _told_line(change: Change) -> str:
+    """How a Notificación tells the LLM what it was given or lost."""
+    command = change.subject.startswith("@")
+    if change.given:
+        what = "your tools may run it" if command else "its tools are yours"
+        return f"{change.subject} was given to you: {what}"
+    what = "your tools may no longer run it" if command else "its tools are no longer yours"
+    return f"{change.subject} was taken away: {what}"
 
 
 def _shown(names: Iterable[CommandName]) -> str:

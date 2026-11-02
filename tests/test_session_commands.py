@@ -13,8 +13,9 @@ from pydantic import JsonValue
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
-from allin.core.ids import CommandName, PieceId, ServerKey
+from allin.core.ids import CommandName, PieceId, ServerKey, SessionId
 from allin.core.origin import HUMAN, Link, Origin
+from allin.core.themes import Theme
 from allin.main.conversation import Item
 from allin.main.descriptions import Descriptions
 from allin.main.events import (
@@ -23,8 +24,12 @@ from allin.main.events import (
     MainCommandEntered,
     ServerFailed,
     ServerReady,
+    SessionCommandResult,
 )
+from allin.main.links import LinkResolver
 from allin.main.log import Log
+from allin.main.notifications import Notifications
+from allin.main.open_windows import OpenWindows
 from allin.main.quarantine import PieceRef, Quarantine
 from allin.main.reporting import Reporter
 from allin.main.session_commands import (
@@ -36,7 +41,7 @@ from allin.main.sessions import Session
 from allin.ui.screen import ShowBox
 from tests.llm_fakes import FakeLlm, full_reply, tool_call
 from tests.origins import A_SESSION
-from tests.test_dispatcher import MainHarness, server
+from tests.test_dispatcher import FakeWindowLink, MainHarness, server
 
 TELLER = PieceId("function:teller")
 TOOLS = {
@@ -282,26 +287,62 @@ def test_server_restart_answers_once_its_server_is_ready_or_failed(
         done("ok")
         return True
 
+    reporter, notifications = notifications_of(main)
     commands = SessionCommands(
-        BUILT_IN,
-        main.sessions,
-        main.sessions.load,
-        run_main,
-        Reporter(lambda _: None, Log(main.main_log_path), main.sessions),
+        BUILT_IN, main.sessions, main.sessions.load, run_main, reporter, notifications
     )
     answers: list[JsonValue] = []
+
+    def heard(result: SessionCommandResult) -> bool:
+        answers.append(result.as_json())
+        return True
+
     from_a = Origin(chain=(*HUMAN.chain, Link("session", a.id)))
-    commands.run(a.id, "@server restart", from_a, lambda result: answers.append(result.as_json()))
+    commands.run(a.id, "@server restart", from_a, heard)
     [refused] = answers
     assert ran == [] and "session_command_not_listed" in str(refused)
     main.sessions.save_commands(main.sessions.load(a.id), (CommandName("server"),))
     answers.clear()
-    commands.run(a.id, "@server restart", from_a, lambda result: answers.append(result.as_json()))
+    commands.run(a.id, "@server restart", from_a, heard)
     assert ran == ["/server restart gpu"] and answers == []  # it waits for its Server
     commands.server_changed(ServerKey("other"), state)
     assert answers == []
     commands.server_changed(ServerKey("gpu"), state)
     assert answers == [answered]
+
+
+def test_a_result_nobody_waits_for_reaches_its_session_as_a_notification(main: MainHarness):
+    # Its tool's Turn was cancelled while a human took long to answer the Confirmation.
+    a = main.create_session(server="gpu")
+    main.sessions.save_commands(a, (CommandName("server"),))
+    reporter, notifications = notifications_of(main)
+    later: list[Callable[[CommandOutcome], None]] = []
+
+    def run_main(text: str, origin: Origin, done: Callable[[CommandOutcome], None]) -> bool:
+        later.append(done)
+        return True
+
+    commands = SessionCommands(
+        BUILT_IN, main.sessions, main.sessions.load, run_main, reporter, notifications
+    )
+    from_a = Origin(chain=(*HUMAN.chain, Link("session", a.id)))
+    commands.run(a.id, "@server", from_a, lambda _: False)
+    later[0]("rejected")
+    [pending] = main.sessions.load(a.id).notifications
+    assert pending.source == "@server"
+    assert pending.text == '@server: {"error": "rejected"}'
+
+
+def notifications_of(main: MainHarness) -> tuple[Reporter, Notifications]:
+    """A Reporter and the Notificaciones of ``main``'s Sessions, for SessionCommands alone."""
+    reporter = Reporter(lambda _: None, Log(main.main_log_path), main.sessions)
+
+    def open_window(_: SessionId, __: Theme) -> FakeWindowLink:
+        return FakeWindowLink(pid=1)
+
+    resolver = LinkResolver(main.root, "http://127.0.0.1:9931/v1")
+    windows = OpenWindows(open_window, reporter, main.sessions, resolver)
+    return reporter, Notifications(main.sessions, reporter, windows)
 
 
 def _created(main: MainHarness) -> Callable[[str], datetime]:

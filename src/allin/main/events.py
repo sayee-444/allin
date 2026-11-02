@@ -269,7 +269,7 @@ class SessionCommandAsked:
     session_id: SessionId
     text: str
     origin: Origin
-    answer: Callable[[SessionCommandResult], None]
+    answer: Callable[[SessionCommandResult], bool]  # ``False``: its tool no longer waits
 
 
 @dataclass(frozen=True)

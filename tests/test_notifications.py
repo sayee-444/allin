@@ -7,12 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from allin.core.errors import LlmUnavailable
+from allin.core.errors import LlmUnavailable, TurnCancelled
 from allin.ipc.messages import ChatAppend
 from allin.main.conversation import NOTIFICATIONS_HEADER, Item
+from allin.main.cut_turns import INTERRUPTED_LINE
 from allin.main.events import InputReceived, MainCommandEntered, TurnEnded
 from allin.main.sessions import Session
-from tests.test_dispatcher import MainHarness, ended
+from allin.main.turn_queue import INTERRUPTED
+from tests.test_dispatcher import MainHarness, ended, server, server_ready
 
 GIVEN = "@send was given to you: your tools may run it"
 TAKEN = "@send was taken away: your tools may no longer run it"
@@ -156,3 +158,53 @@ def test_the_rebuilt_chat_shows_them(main: MainHarness):
         settle=True,
     )
     assert logs_shown(main, session) == [GIVEN]
+
+
+def test_off_also_drops_those_already_pending(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/func add {session.id} @send"),
+        MainCommandEntered(f"/conversation_logs {session.id} off /func"),
+        InputReceived(session.id, "hola"),
+        settle=True,
+    )
+    assert prompt_item(main, 0)["content"] == "hola"
+
+
+def test_they_wait_across_a_restart_of_main(main: MainHarness):
+    session = main.create_session()
+    main.run(MainCommandEntered(f"/func add {session.id} @send"), settle=True)
+    main.run(InputReceived(session.id, "hola"), settle=True)  # another Main, same data
+    assert prompt_item(main, 0)["content"] == opened_with(GIVEN) + "hola"
+
+
+def test_a_suspended_turn_goes_on_with_what_it_told_and_it_never_cancels_out(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/func add {session.id} @send"),
+        InputReceived(session.id, "uno"),
+        TurnEnded(session.id, error=LlmUnavailable(reason="fell")),  # a fall suspends it
+        MainCommandEntered(f"/func remove {session.id} @send"),
+        server_ready(server()),
+        ended(session),
+        InputReceived(session.id, "dos"),
+        settle=True,
+    )
+    first, resumed, second = (job.request.input[-1]["content"] for job in main.held)
+    assert first == resumed == opened_with(GIVEN) + "uno"
+    assert second == opened_with(TAKEN) + "dos"
+
+
+def test_an_interrupted_turn_is_saved_with_them(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/func add {session.id} @send"),
+        InputReceived(session.id, "uno"),
+        InputReceived(session.id, "dos", interrupt=True),
+        TurnEnded(session.id, error=TurnCancelled(reason=INTERRUPTED)),
+        settle=True,
+    )
+    assert prompt_item(main, 1)["content"] == opened_with(INTERRUPTED_LINE) + "dos"
+    assert main.sessions.load(session.id).notifications == ()

@@ -11,29 +11,34 @@ away again leaves nothing. A Turn tells the ones pending when it starts; they le
 once it is saved, so a Turn that fails or is suspended tells them again.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from allin.core.errors import InvalidArguments
-from allin.core.ids import SessionId
-from allin.core.settings import SessionSettings
+from allin.core.ids import NotificationSource, SessionId
+from allin.core.settings import ConversationLogs
 from allin.main.chat_rebuild import logs_entry
+from allin.main.conversation import Conversation
+from allin.main.cut_turns import pending_notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
-from allin.main.sessions import Notification, Session, SessionStore
+from allin.main.sessions import Change, Notification, Session, SessionStore
 
-ALL = "all"  # the Conversation logs key every source without its own follows
-INTERRUPTED = "interrupted"  # the source of the line a Turn interrupted with Shift+Enter leaves
-FUNC = "/func"  # functions and Command sessions given or taken away
+# The line a Turn interrupted with Shift+Enter leaves for the next Prompt.
+INTERRUPTED = NotificationSource("interrupted")
+FUNC = NotificationSource("/func")  # functions and Command sessions given or taken away
 # The sources Main itself leaves Notificaciones from, listed even before any did.
 SOURCES = (FUNC, INTERRUPTED)
 USAGE = "/conversation_logs <sid> on|off|list [source]"
+_ACTION = TypeAdapter[Literal["on", "off", "list"]](Literal["on", "off", "list"])
 
 
 @dataclass(frozen=True)
 class Told:
-    """The Notificaciones a Turn opens its Prompt with."""
+    """The pending Notificaciones a Turn opens its Prompt with."""
 
     ids: tuple[int, ...]
     lines: tuple[str, ...]
@@ -42,73 +47,72 @@ class Told:
 NOTHING_TOLD = Told((), ())
 
 
-def enters(settings: SessionSettings, source: str) -> bool:
-    """Whether the Notificaciones of ``source`` enter the Session's Conversation."""
-    logs = settings.conversation_logs
-    return logs.get(source, logs.get(ALL, True))
-
-
 class Notifications:
     def __init__(self, sessions: SessionStore, reporter: Reporter, windows: OpenWindows) -> None:
         self._sessions = sessions
         self._reporter = reporter
         self._windows = windows
-        # What each Session's running Turn told: those never cancel out any more.
-        self._told: dict[SessionId, frozenset[int]] = {}
+        # What each Session's running or suspended Turn told: those never cancel out any more,
+        # and a suspended one opens its Prompt with them again when it goes on.
+        self._told: dict[SessionId, Told] = {}
 
     def leave(
         self,
         session_id: SessionId,
-        source: str,
+        source: NotificationSource,
         text: str,
-        subject: str | None = None,
-        *,
-        added: bool = True,
+        change: Change | None = None,
     ) -> None:
         """Leave a Notificación for the Session's next Prompt; it shows in its Log and Chat
         whether or not its Conversation logs let it in."""
         session = self._sessions.load(session_id)
-        enters_it = enters(session.settings, source)
+        enters = session.settings.conversation_logs.enters(source)
         self._reporter.log_session(
-            session.id, "notification", source=source, text=text, conversation=enters_it
+            session.id, "notification", source=source, text=text, conversation=enters
         )
         self._windows.send(session.id, logs_entry(text))
-        if not enters_it:
+        if not enters:
             return
-        told = self._told.get(session.id, frozenset())
         pending = list(session.notifications)
-        undone = next(
-            (
-                n
-                for n in pending
-                if subject is not None
-                and n.subject == subject
-                and n.added != added
-                and n.id not in told
-            ),
-            None,
-        )
+        undone = self._undone(session.id, pending, change)
         if undone is not None:
             pending.remove(undone)
-            self._reporter.log_session(
-                session.id, "notifications_cancelled", texts=list[JsonValue]([undone.text, text])
-            )
+            texts: list[JsonValue] = [undone.text, text]
+            self._reporter.log_session(session.id, "notifications_cancelled", texts=texts)
         else:
             number = max((n.id for n in pending), default=0) + 1
-            pending.append(
-                Notification(id=number, source=source, text=text, subject=subject, added=added)
-            )
+            pending.append(Notification(id=number, source=source, text=text, change=change))
         self._sessions.save_notifications(session, tuple(pending))
 
-    def pending(self, session: Session) -> Told:
+    def _undone(
+        self, session_id: SessionId, pending: Sequence[Notification], change: Change | None
+    ) -> Notification | None:
+        """The pending one ``change`` undoes, if no running Turn told it yet."""
+        if change is None:
+            return None
+        told = self._told.get(session_id, NOTHING_TOLD).ids
+        opposite = change.model_copy(update={"given": not change.given})
+        return next((n for n in pending if n.change == opposite and n.id not in told), None)
+
+    def opening(self, session: Session, conversation: Conversation, told: Told) -> list[str]:
+        """What a Prompt of the Session opens with: that its last Turn was interrupted, then
+        ``told``, as far as its Conversation logs let each in."""
+        logs = session.settings.conversation_logs
+        cut = pending_notifications(conversation) if logs.enters(INTERRUPTED) else []
+        return [*cut, *told.lines]
+
+    def pending(self, session_id: SessionId) -> Told:
         """What its next Prompt would open with now; nothing is marked told."""
-        pending = self._sessions.load(session.id).notifications
+        if session_id in self._told:  # a suspended Turn's, which goes on with them
+            return self._told[session_id]
+        pending = self._sessions.load(session_id).notifications
         return Told(tuple(n.id for n in pending), tuple(n.text for n in pending))
 
-    def tell(self, session: Session) -> Told:
-        """What its Turn starting now opens its Prompt with: those no longer cancel out."""
-        told = self.pending(session)
-        self._told[session.id] = frozenset(told.ids)
+    def tell(self, session_id: SessionId) -> Told:
+        """What its Turn starting now opens its Prompt with: those no longer cancel out. A
+        suspended Turn going on gets what it told before."""
+        told = self.pending(session_id)
+        self._told[session_id] = told
         return told
 
     def saved(self, session_id: SessionId, told: Told) -> None:
@@ -127,21 +131,28 @@ class Notifications:
     def run(self, session_id: str, action: str, source: str | None = None) -> bool:
         """``/conversation_logs <sid> on|off|list [source]``: whether a source's Notificaciones,
         or every source's, enter the Conversation; never the Log or the Chat."""
+        try:
+            chosen = _ACTION.validate_python(action)
+        except ValidationError as error:
+            raise InvalidArguments(usage=USAGE) from error
         session = self._sessions.load(session_id)
-        logs = dict(session.settings.conversation_logs)
-        if action == "list":
-            for name in sorted({*SOURCES, *logs} - {ALL}):
-                state = "on" if enters(session.settings, name) else "off"
-                self._reporter.show(session.id, f"{name}: {state}")
+        logs = session.settings.conversation_logs
+        if chosen == "list":
+            for name in sorted({*SOURCES, *logs.sources}):
+                self._reporter.show(session.id, f"{name}: {'on' if logs.enters(name) else 'off'}")
             return True
-        if action not in ("on", "off"):
-            raise InvalidArguments(usage=USAGE)
-        if source is None:  # every source, those set on their own too
-            logs = {ALL: action == "on"}
-        else:
-            logs[source] = action == "on"
-        settings = session.settings.model_copy(update={"conversation_logs": logs})
-        self._sessions.save_settings(session, settings)
-        shown = f"conversation logs {action}" + (f" for {source}" if source else "")
-        self._reporter.record(session.id, "conversation_logs", shown, action=action, source=source)
+        on = chosen == "on"
+        changed = (
+            ConversationLogs(every=on)  # every source, those set on their own too
+            if source is None
+            else logs.model_copy(update={"sources": {**logs.sources, source: on}})
+        )
+        settings = session.settings.model_copy(update={"conversation_logs": changed})
+        session = self._sessions.save_settings(session, settings)
+        # What waits from a source now off stays in the Log and the Chat only.
+        told = self._told.get(session.id, NOTHING_TOLD).ids
+        kept = tuple(n for n in session.notifications if changed.enters(n.source) or n.id in told)
+        self._sessions.save_notifications(session, kept)
+        shown = f"conversation logs {chosen}" + (f" for {source}" if source else "")
+        self._reporter.record(session.id, "conversation_logs", shown, action=chosen, source=source)
         return True

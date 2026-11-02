@@ -280,6 +280,7 @@ class Dispatcher:
             lambda sid: sessions.load_owned(sid, main_id),
             self._commands.run,
             self._reporter,
+            self._notifications,
         )
         self._rows = RowSource(
             sessions,
@@ -313,10 +314,11 @@ class Dispatcher:
         """A Command session a human typed in a Window: one that fails says why there, and its
         text goes back to the input."""
 
-        def answer(result: SessionCommandResult) -> None:
+        def answer(result: SessionCommandResult) -> bool:
             if result.error is not None:
                 self._windows.send(session_id, error_entry(f"{text.strip()}: {result.error}"))
                 self._windows.put_back(session_id, text)
+            return True
 
         self._session_commands.run(session_id, text, HUMAN, answer)
 
