@@ -105,8 +105,11 @@ Papel de una Sesión que recibe trabajo de una Sesión coordinadora; suele nacer
 _Avoid_: esclava, subventana
 
 **Molde** (`Mold`):
-Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajustes, sus functions y, si se quiere, un historial inicial (mensajes que cuentan como inicio de la Conversación, no como Turnos) y una tarea inicial. La usan el usuario, las fsources y los submains para crear Sesiones que a su vez pueden crear otras. No es un Perfil.
+Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajustes, sus functions y, si se quiere, un historial inicial (mensajes que cuentan como inicio de la Conversación, no como Turnos) y una tarea inicial. La usan el usuario, las fsources y los submains para crear Sesiones que a su vez pueden crear otras. No es un Perfil. Es una pieza del Perfil (`molds/<nombre>.toml`, `mold:<nombre>`) y solo se usa aprobada: `/new --mold=<nombre>`. La tarea inicial sale como un `/send` con el Origen de quien crea, y una Sesión que crea solo pasa lo que tiene (#112).
 _Avoid_: perfil, plantilla, preset
+
+**Crear** (`Create`):
+Primitiva que hace algo nuevo: una Sesión, desde la plantilla o un Molde, o una pieza. Una pieza se crea con `/create <sysprompt:archivo|mold:nombre> <contenido>`, o con `@create` desde una Sesión. La de un humano queda aprobada. La de una Sesión pide un recuadro que la muestra entera y es Confirmación y Aprobación a la vez; si `--devastation` contesta por él, queda en cuarentena hasta que un humano la apruebe (ADR-0013).
 
 **Plano** (`Blueprint`):
 Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde qué Moldes, cuáles abren Ventana o nacen en segundo plano y cuál coordina. Viaja en un Kit; crear desde un Plano solo añade, nunca toca lo que ya existe.
