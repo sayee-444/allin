@@ -1,0 +1,28 @@
+#59 Elegir y cambiar el id de una Sesión — prueba a mano (2026-11-01)
+Código: rama feature/59-id-de-sesion. Main con datos limpios en <scratch>/d59 (solo los Ajustes) y el
+Server IQ3_XXS de 9931.
+
+1. /new --id=ab → «error session_id_invalid: session_id='ab', rule='4 to 12 characters of a-z and 0-9'».
+   /new --id=tesis → crea y abre la Sesión «tesis». Otra vez /new --id=tesis → «error session_id_taken».
+   /new → una Sesión con id al azar, y1nfmv (a-main-new-id-y-errores.png).
+2. En la Ventana de y1nfmv se escribe «borrador que sigue» sin Enter. /session id y1nfmv cap1 →
+   «[y1nfmv] window closed: renamed to cap1», «[cap1] renamed from y1nfmv; y1nfmv still reaches it» y la
+   Ventana se abre otra vez como «AllIn · cap1», con su Borrador (b-ventana-renombrada.png).
+   En disco: sessions/cap1/ (con su Log de antes) y sessions/aliases.json = {"y1nfmv": "cap1"}.
+3. /send y1nfmv Responde solo: HOLA → el Turno corre en cap1 y responde HOLA (c-send-al-id-viejo.png).
+4. Con un Turno en marcha en tesis (un poema), /session id tesis tesis2 → «error turn_active:
+   session_id='tesis', advice='interrupt it with Shift+Enter in its Window, or wait for it to end'»;
+   tesis sigue llamándose tesis.
+5. /exit y Main otra vez: reabre las Ventanas de tesis y de cap1 (e-main-reiniciado.png); cap1 con su
+   Borrador. /send y1nfmv Responde solo: OTRA VEZ → llega a cap1 (d-tras-reiniciar.png).
+   Al final: /exit en Main.
+
+Con un Origen de Sesión falso: en F1 no hay camino a mano; lo cubre test_only_a_human_renames_a_session
+(error human_only, nada cambia).
+
+Tests: tests/test_session_id.py (21): la forma del id (4 a 12 de a-z y 0-9), el almacén (id malo o tomado,
+también como alias; alias que siguen a una Sesión renombrada dos veces), /new --id, el renombrado con la
+Ventana abierta (se cierra, se abre con el id nuevo y su Borrador, la carpeta se mueve con su Log, el
+MainState guardado la nombra con el id nuevo), /send al id viejo, el reinicio, solo un humano, con un
+Turno activo, ids malos o tomados, las listas de todos los Perfiles y el Log al que llega algo tardío.
+1041 tests; basedpyright y ruff limpios.
