@@ -61,6 +61,8 @@ _BG_OPTION = "--bg"  # /new and /open in the background (#52)
 _NO_SOURCES = "-sf=off"  # /new without the Profile's fsources (#106)
 _AGENTS_OPTION = "-fa="  # /new with these fagents (#106)
 _AGENTS_USAGE = f"{_AGENTS_OPTION}<packages>"
+_COMMANDS_OPTION = "-cs="  # /new with these Command sessions instead of the root's (#108)
+_COMMANDS_USAGE = f"{_COMMANDS_OPTION}<names>"
 CLOSED = "closed with /close"
 
 # Whether a command, by its arguments, is delicate or only a human's.
@@ -144,8 +146,9 @@ class MainCommands:
                     _BG_OPTION: "open it in the background, without its Window",
                     _NO_SOURCES: "without the Profile's fsources",
                     _AGENTS_USAGE: "the fagents it gets, by package, comma separated",
+                    _COMMANDS_USAGE: "its Command sessions instead of the root's, comma separated",
                 },
-                optional=("--id=<id>", _BG_OPTION, _NO_SOURCES, _AGENTS_USAGE),
+                optional=("--id=<id>", _BG_OPTION, _NO_SOURCES, _AGENTS_USAGE, _COMMANDS_USAGE),
                 takes_origin=True,
             ),
             "/open": CommandSpec(
@@ -339,12 +342,16 @@ class MainCommands:
                 self._reporter.show(None, f"  <{param}>: {command.args[param]}")
         return True
 
-    def run(self, text: str, origin: Origin = HUMAN) -> bool:
+    def run(
+        self, text: str, origin: Origin = HUMAN, answer: Callable[[str], None] | None = None
+    ) -> bool:
         """Run a Command main and report how it went; return whether Main keeps running.
 
         A delicate one first asks a Confirmation, unless ``-y`` (only from a human) or
-        ``--devastation`` answers it; it then runs when the answer comes.
+        ``--devastation`` answers it; it then runs when the answer comes. ``answer`` gets how
+        it went once it did: ``ok``, ``error …`` or ``rejected`` (for a tool, ADR-0025).
         """
+        answer = answer or _ignored
         name = (text.split(maxsplit=1) or [""])[0]
         command = self._commands.get(name)
         yes = False
@@ -371,7 +378,7 @@ class MainCommands:
             delicate = command.delicate(args)
             answered_by_main = self._devastation.answers(origin)
             if delicate and not yes and not answered_by_main:
-                self._ask(command, args, text, session_id, origin)
+                self._ask(command, args, text, session_id, origin, answer)
                 return True
             if delicate and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
@@ -379,8 +386,10 @@ class MainCommands:
             keep_running = self._call(command, args, origin, yes)
         except AllInError as error:
             self._report(session_id, text, error, origin)
+            answer(f"error {error}")
         else:
             self._report(session_id, text, None, origin)
+            answer("ok")
         return keep_running
 
     def _call(self, command: CommandSpec, args: list[str], origin: Origin, yes: bool) -> bool:
@@ -398,20 +407,24 @@ class MainCommands:
         text: str,
         session_id: str | None,
         origin: Origin,
+        answer: Callable[[str], None],
     ) -> None:
         """Ask before a delicate command; once answered yes it runs with the Origin it came
         with, never more."""
 
-        def on_answer(answer: bool) -> None:
-            if not answer:
+        def on_answer(yes: bool) -> None:
+            if not yes:
                 self._log_command(session_id, "command", text, "rejected", origin)
+                answer("rejected")
                 return
             try:
                 self._call(command, args, origin, yes=False)
             except AllInError as error:
                 self._report(session_id, text, error, origin)
+                answer(f"error {error}")
             else:
                 self._report(session_id, text, None, origin)
+                answer("ok")
 
         self._log_command(session_id, "confirmation_asked", text, None, origin)
         self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
@@ -439,6 +452,7 @@ class MainCommands:
 
     def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
         chosen, background, sources, agents = None, False, True, list[str]()
+        commands: list[str] | None = None
         for option in options:
             if option == _BG_OPTION and not background:
                 background = True
@@ -448,12 +462,17 @@ class MainCommands:
                 sources = False
             elif option.startswith(_AGENTS_OPTION) and not agents:
                 agents = [a for a in option.removeprefix(_AGENTS_OPTION).split(",") if a]
+            elif option.startswith(_COMMANDS_OPTION) and commands is None:
+                commands = [c for c in option.removeprefix(_COMMANDS_OPTION).split(",") if c]
             else:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
         settings = self._settings.current.session  # copied: later changes never reach it
         sysprompt = render_sysprompt(self._sysprompts, settings)
         functions = self._functions.born_with(sources, agents)
-        session = self._sessions.create(self._main_id, settings, sysprompt, chosen, functions)
+        listed = self._functions.commands_born_with(commands, origin)
+        session = self._sessions.create(
+            self._main_id, settings, sysprompt, chosen, functions, listed
+        )
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
         self._profiles.created(session.id)
         self._place(session, background, origin)
@@ -627,6 +646,10 @@ class MainCommands:
             session_id = self._sessions.load_owned(session_id, self._main_id).id
         self._reporter.show_raw(state == "on", session_id)
         return True
+
+
+def _ignored(_: str) -> None:
+    pass
 
 
 def _take_yes(text: str) -> tuple[bool, str]:

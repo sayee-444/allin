@@ -10,6 +10,8 @@ import queue
 import time
 from collections.abc import Callable
 
+from pydantic import JsonValue
+
 from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
 from allin.core.errors import AllInError
@@ -18,6 +20,7 @@ from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
 from allin.main.boxes import MainBoxes
+from allin.main.chat_rebuild import error_entry
 from allin.main.commands import MainCommands
 from allin.main.descriptions import Descriptions
 from allin.main.devastation import Devastation
@@ -36,6 +39,7 @@ from allin.main.events import (
     QueuedWithdrawn,
     ServerChanged,
     ServerProgress,
+    SessionCommandAsked,
     Shutdown,
     SlotFreed,
     StepEnded,
@@ -64,10 +68,16 @@ from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import ProfileCommands
 from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
+from allin.main.prompt_commands import session_command_name
 from allin.main.quarantine import Quarantine
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
+from allin.main.session_commands import (
+    LoadedSessionCommands,
+    SessionCommands,
+    load_session_command_types,
+)
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
@@ -108,6 +118,7 @@ class Dispatcher:
         open_organizer: OpenOrganizer = no_organizer,
         confinement: ConfinementSupport = FULL_SUPPORT,
         describer: ToolLauncher | None = None,
+        session_commands: LoadedSessionCommands | None = None,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
@@ -180,7 +191,10 @@ class Dispatcher:
             state,
             close_orphan_window,
         )
-        self._start_problems = [*settings.problems, *notices.problems]
+        command_types = session_commands or load_session_command_types(
+            profiles.data_dir / "comsession"
+        )
+        self._start_problems = [*settings.problems, *notices.problems, *command_types.problems]
         self._links = links
         self._settings_commands = settings_commands = SettingsCommands(
             self._reporter,
@@ -254,7 +268,16 @@ class Dispatcher:
                 sessions,
                 lambda sid: sessions.load_owned(sid, main_id),
                 self._quarantine,
+                command_types,
+                lambda title, text: self._boxes.notify(None, title, text),
             ),
+        )
+        self._session_commands = SessionCommands(
+            command_types,
+            sessions,
+            lambda sid: sessions.load_owned(sid, main_id),
+            self._commands.run,
+            self._reporter,
         )
         self._rows = RowSource(
             sessions,
@@ -283,6 +306,17 @@ class Dispatcher:
     def commands(self) -> MainCommands:
         """The Command mains, as registered: what /help is built from."""
         return self._commands
+
+    def _typed_session_command(self, session_id: SessionId, text: str) -> None:
+        """A Command session a human typed in a Window: one that fails says why there, and its
+        text goes back to the input."""
+
+        def answer(result: JsonValue) -> None:
+            if isinstance(result, dict) and "error" in result:
+                self._windows.send(session_id, error_entry(f"{text.strip()}: {result['error']}"))
+                self._windows.put_back(session_id, text)
+
+        self._session_commands.run(session_id, text, HUMAN, answer)
 
     def _session_tools(
         self, session: Session, sessions: SessionStore, launcher: ToolLauncher | None
@@ -377,7 +411,9 @@ class Dispatcher:
                 self._windows.clear_draft(session_id)  # the Window's input is empty now
                 if interrupt:  # Shift+Enter: the running Turn is cut, its text goes next
                     self._turns.interrupt(session_id)
-                if text.strip():
+                if session_command_name(text) is not None:  # typed alone: never a Prompt
+                    self._typed_session_command(session_id, text)
+                elif text.strip():
                     queued = self._turns.queued_count(session_id)
                     self._commands.run(f"/send {session_id} {text}")
                     if interrupt and self._turns.queued_count(session_id) > queued:
@@ -412,6 +448,7 @@ class Dispatcher:
                 self._windows.show_error(error, session_id)
             case ServerChanged(server, state):
                 self._turns.server_changed(server, state)
+                self._session_commands.server_changed(server, state)
             case SlotFreed(server):
                 self._turns.slot_freed(server)
             case SupervisorAdopted(name):
@@ -422,6 +459,8 @@ class Dispatcher:
                 self._turns.tools_started(session_id, names)
             case ToolsEnded(session_id, grows, failed):
                 self._turns.tools_ended(session_id, grows, failed)
+            case SessionCommandAsked(session_id, text, origin, answer):
+                self._session_commands.run(session_id, text, origin, answer)
             case BoxAnswered(box_id, answer):
                 self._boxes.answered(box_id, answer)
             case MainCommandEntered(text, origin):

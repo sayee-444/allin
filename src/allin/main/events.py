@@ -1,7 +1,10 @@
 """Events consumed by Main's dispatcher, in arrival order (ADR-0001)."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+from pydantic import JsonValue
 
 from allin.core.errors import AllInError
 from allin.core.ids import BoxId, ServerKey, SessionId, SupervisorName
@@ -237,6 +240,17 @@ class ToolsStarted:
 
 
 @dataclass(frozen=True)
+class SessionCommandAsked:
+    """A tool of a running Turn asks for a Command session, ``@name …``, with the Turn's
+    ``origin``; ``answer`` gets how it went, from Main's thread (ADR-0025)."""
+
+    session_id: SessionId
+    text: str
+    origin: Origin
+    answer: Callable[[JsonValue], None]
+
+
+@dataclass(frozen=True)
 class ToolsEnded:
     """A running Turn's tools gave back what they said: its next Step, a Continuation, waits
     for a slot. It reads ``grows`` more tokens at most than the Step before: what that one
@@ -296,6 +310,7 @@ type MainEvent = (
     | ConfirmationRequested
     | ToolsStarted
     | ToolsEnded
+    | SessionCommandAsked
     | BoxAnswered
     | Shutdown
 )

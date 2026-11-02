@@ -7,7 +7,8 @@ Only a human's input has them; in text from another Session ``@…`` is literal 
   it leaves the text.
 - ``@/…``, ``@~…`` or ``@./…`` after a space or at the start: a Referencia a archivo, which
   ``attachments.attach`` copies into the Carpeta de trabajo; the text then names the copy.
-- ``@word …`` at the very start: a Command session, which arrives with F2.
+- ``@word …`` at the very start: a Command session, typed alone in a Window, which never
+  goes as a Prompt (``session_commands``).
 - Any other ``@`` (an address, ``hola @juan``) is literal.
 """
 
@@ -18,7 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
-from allin.core.errors import CommandSessionsNotYet, ParamOverrideInvalid
+from allin.core.errors import ParamOverrideInvalid, SessionCommandInPrompt
 from allin.core.settings import Sampling
 
 _OVERRIDE = re.compile(r"@([a-z_]+)=(\S*)")
@@ -88,12 +89,18 @@ class ParsedPrompt:
         )
 
 
+def session_command_name(text: str) -> str | None:
+    """The name of the Command session ``text`` is, if it starts with one (``@word``)."""
+    command = _COMMAND_SESSION.match(text)
+    return command.group(1) if command is not None else None
+
+
 def parse_prompt(text: str) -> ParsedPrompt:
     """Find the Command prompts in a human's Prompt; raise if one cannot be used, so the
     Prompt is not sent."""
-    command = _COMMAND_SESSION.match(text)
-    if command is not None:
-        raise CommandSessionsNotYet(command=command.group(1))
+    name = session_command_name(text)
+    if name is not None:
+        raise SessionCommandInPrompt(command=name)
     parts: list[str | _Reference] = []
     overrides: dict[str, str] = {}
     # An override leaves with the space before it, or the one after it if it starts the text;

@@ -2,7 +2,7 @@
 
 import pytest
 
-from allin.core.errors import CommandSessionsNotYet, ParamOverrideInvalid
+from allin.core.errors import ParamOverrideInvalid, SessionCommandInPrompt
 from allin.core.settings import Sampling
 from allin.main.prompt_commands import TurnOverrides, parse_prompt
 
@@ -70,6 +70,6 @@ def test_an_at_that_is_none_of_them_is_literal(text: str):
 
 @pytest.mark.parametrize("text", ["@clone", "@server wake gpu", "  @tools list"])
 def test_a_command_session_at_the_start_is_recognised_and_not_sent(text: str):
-    with pytest.raises(CommandSessionsNotYet) as refused:
+    with pytest.raises(SessionCommandInPrompt) as refused:
         parse_prompt(text)
     assert refused.value.fields["command"] == text.split(maxsplit=1)[0].removeprefix("@")

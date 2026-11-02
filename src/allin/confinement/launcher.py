@@ -32,10 +32,13 @@ from allin.confinement import landlock
 from allin.confinement.messages import (
     CallTool,
     Cancel,
+    CommandResult,
     DescribeModule,
     Died,
     Raised,
     Returned,
+    RunCommand,
+    ToMain,
     Unconfined,
     encode,
     parse_to_main,
@@ -64,6 +67,11 @@ from allin.decorators import MINIMUM, Reach
 _OUTPUT_KEPT = 64 * 1024  # of stdout and of stderr, each; the rest is read and dropped
 _ANSWER_MAX = 16 * 1024 * 1024
 _STOP_POLL = 0.1  # how often a waiting call asks whether its Turn was cancelled
+# What a call that cannot run Command sessions gets when it asks for one: a description.
+_NO_COMMANDS: JsonValue = {"error": "this call cannot run Command sessions"}
+
+# Runs a Command session a tool asked for, as typed (``@name …``), and gives back its result.
+type OnCommand = Callable[[str], JsonValue]
 _STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
 # What a graphical client needs from Main's environment, and only with ``display``.
@@ -161,11 +169,17 @@ class ToolLauncher:
         self._thread.join()
 
     def run(
-        self, call: ToolCall, timeout: float, stop: Callable[[], bool] = lambda: False
+        self,
+        call: ToolCall,
+        timeout: float,
+        stop: Callable[[], bool] = lambda: False,
+        on_command: OnCommand | None = None,
     ) -> ToolOutcome:
-        """Run ``call`` in its own confined process and wait for its answer. Raises
-        ``ToolTimedOut`` after ``timeout`` seconds, ``ToolCancelled`` as soon as ``stop`` says
-        so (it is asked a few times a second), ``ToolDied`` if it ended without one and
+        """Run ``call`` in its own confined process and wait for its answer. Each Command
+        session it asks for goes to ``on_command``, whose result goes back to it; the time that
+        takes is not counted in ``timeout`` (ADR-0005). Without ``on_command`` it is refused.
+        Raises ``ToolTimedOut`` after ``timeout`` seconds, ``ToolCancelled`` as soon as ``stop``
+        says so (it is asked a few times a second), ``ToolDied`` if it ended without one and
         ``ConfinementFailed`` if it could not confine itself, ``ToolNotStarted`` if it could
         not be started and ``PackageNotSource`` if its package holds compiled code."""
         _refuse_compiled(call.package)
@@ -181,6 +195,7 @@ class ToolLauncher:
                 lambda net_layer: self._message(call, tmp, servers, net_layer),
                 timeout,
                 stop,
+                on_command,
             )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -204,9 +219,11 @@ class ToolLauncher:
         message: Callable[[int | None], CallTool | DescribeModule],
         timeout: float,
         stop: Callable[[], bool] = lambda: False,
+        on_command: OnCommand | None = None,
     ) -> ToolOutcome:
         """Start a warden, send it ``message`` (made once the shared layer is known) and wait
-        for its answer, taking the call down after ``timeout``."""
+        for its answer, taking the call down after ``timeout``; meanwhile, answer each Command
+        session it asks for with ``on_command``, off the clock."""
         main_end, tool_end = socket.socketpair()
         try:
             started = self._launch(workspace, reach, tmp, tool_end, servers)
@@ -215,7 +232,7 @@ class ToolLauncher:
             out, err = _Capture(process.stdout), _Capture(process.stderr)
             main_end.sendall(encode(message(started.net_layer)))
             try:
-                line = _read_line(main_end, time.monotonic() + timeout, stop)
+                answer = _answer(main_end, time.monotonic() + timeout, stop, on_command)
             except TimeoutError as error:
                 self._cancel(main_end, process)
                 raise ToolTimedOut(seconds=timeout) from error
@@ -223,7 +240,7 @@ class ToolLauncher:
                 self._cancel(main_end, process)
                 raise
             self._end(process)
-            return _outcome(line, out.text(), err.text())
+            return _outcome(answer, out.text(), err.text())
         finally:
             main_end.close()
             tool_end.close()
@@ -345,31 +362,62 @@ def _refuse_compiled(package: Path) -> None:
         raise PackageNotSource(package=str(package), files=list[JsonValue](files))
 
 
-def _read_line(channel: socket.socket, deadline: float, stop: Callable[[], bool]) -> bytes:
-    """One line from the warden, or what came before it closed; TimeoutError at the deadline,
-    ``ToolCancelled`` once ``stop`` says so."""
-    data = b""
-    while b"\n" not in data:
-        if stop():
-            raise ToolCancelled
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError
-        channel.settimeout(min(remaining, _STOP_POLL))
-        try:
-            chunk = channel.recv(1 << 16)
-        except TimeoutError:
-            continue
-        if not chunk or len(data) > _ANSWER_MAX:
-            break
-        data += chunk
-    return data.split(b"\n", 1)[0]
+def _answer(
+    channel: socket.socket,
+    deadline: float,
+    stop: Callable[[], bool],
+    on_command: OnCommand | None,
+) -> ToMain | None:
+    """The warden's last message, once it has asked every Command session it wanted; ``None``
+    if it closed without one. Waiting for Main moves the deadline: it does not count."""
+    lines = _Lines(channel)
+    while True:
+        line = lines.next(deadline, stop)
+        if not line:
+            return None
+        message = parse_to_main(line)
+        if not isinstance(message, RunCommand):
+            return message
+        asked = time.monotonic()
+        result = on_command(message.text) if on_command is not None else _NO_COMMANDS
+        deadline += time.monotonic() - asked
+        channel.sendall(encode(CommandResult(result=result)))
 
 
-def _outcome(line: bytes, stdout: str, stderr: str) -> ToolOutcome:
-    if not line:
+class _Lines:
+    """The lines the warden sends on a call's channel, one at a time."""
+
+    def __init__(self, channel: socket.socket) -> None:
+        self._channel = channel
+        self._data = b""
+        self._closed = False
+
+    def next(self, deadline: float, stop: Callable[[], bool]) -> bytes:
+        """The next line, or what came before the warden closed (empty once nothing did);
+        TimeoutError at the deadline, ``ToolCancelled`` once ``stop`` says so."""
+        while b"\n" not in self._data and not self._closed:
+            if stop():
+                raise ToolCancelled
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            self._channel.settimeout(min(remaining, _STOP_POLL))
+            try:
+                chunk = self._channel.recv(1 << 16)
+            except TimeoutError:
+                continue
+            if not chunk or len(self._data) > _ANSWER_MAX:
+                self._closed = True
+                break
+            self._data += chunk
+        line, _, self._data = self._data.partition(b"\n")
+        return line
+
+
+def _outcome(message: ToMain | None, stdout: str, stderr: str) -> ToolOutcome:
+    if message is None or isinstance(message, RunCommand):
         raise ToolDied(exit_code=None, stderr=stderr[-_STDERR_TOLD:])
-    match parse_to_main(line):
+    match message:
         case Returned(value=value):
             return ToolOutcome(value=value, error=None, stdout=stdout, stderr=stderr)
         case Raised(error=error):

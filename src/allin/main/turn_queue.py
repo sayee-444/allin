@@ -1083,7 +1083,8 @@ class TurnQueue:
         )
         tools = None if compacting else self._tools_for(session)
         request = replace(request, done=list(prompt.steps))
-        job = TurnJob(session.id, request, link.base_url, tools=ToolGate(tools))
+        gate = ToolGate(tools, from_session(prompt.origin, session.id))
+        job = TurnJob(session.id, request, link.base_url, tools=gate)
         auto_confirm = self._auto_confirm(prompt, session)
         self._running[session.id] = _RunningTurn(
             prompt,

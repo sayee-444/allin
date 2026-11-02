@@ -45,6 +45,24 @@ class Cancel(BaseModel, frozen=True):
     type: Literal["cancel"] = "cancel"
 
 
+COMMAND_MAX = 64 * 1024  # of a Command session's text, in characters
+
+
+class RunCommand(BaseModel, frozen=True):
+    """The function asks Main to run a Command session, ``@name …`` as a Window takes it, and
+    waits for its result (ADR-0025): the only way a confined process reaches Main."""
+
+    type: Literal["command"] = "command"
+    text: str = Field(max_length=COMMAND_MAX)
+
+
+class CommandResult(BaseModel, frozen=True):
+    """Main to the warden, for the function: how the Command session it asked went."""
+
+    type: Literal["command_result"] = "command_result"
+    result: JsonValue
+
+
 class Returned(BaseModel, frozen=True):
     """The function returned this value."""
 
@@ -74,7 +92,7 @@ class Unconfined(BaseModel, frozen=True):
     errno: int
 
 
-type ToMain = Returned | Raised | Died | Unconfined
+type ToMain = Returned | Raised | Died | Unconfined | RunCommand
 
 _to_main: TypeAdapter[ToMain] = TypeAdapter(Annotated[ToMain, Field(discriminator="type")])
 

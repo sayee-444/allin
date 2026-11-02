@@ -18,12 +18,14 @@ from pathlib import Path
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from allin.confinement.launcher import ToolCall, ToolLauncher
-from allin.core.errors import AllInError, ToolCancelled
+from allin.core.errors import AllInError, SessionCommandNotDeclared, ToolCancelled
 from allin.core.ids import PieceId, SessionId
+from allin.core.origin import MAIN, Origin
 from allin.decorators import CONFIRM, Reach
 from allin.main.confirmation import ConfirmationGate
 from allin.main.conversation import TOOL_ERROR, Item, Step
-from allin.main.events import MainEvent, ToolsEnded, ToolsStarted
+from allin.main.events import MainEvent, SessionCommandAsked, ToolsEnded, ToolsStarted
+from allin.main.prompt_commands import session_command_name
 from allin.main.quarantine import OfferedFunction
 from allin.main.turn import Cancellation
 
@@ -74,6 +76,23 @@ def session_tools(
     return list(tools.values())
 
 
+# Runs a Command session a tool asked for, with its Turn's Origin, and gives back how it went.
+type AskMain = Callable[[str], JsonValue]
+
+
+def _no_main(text: str) -> JsonValue:
+    return {"error": f"no Main to run {text[:40]!r}"}
+
+
+def _declared(tool: SessionTool, text: str, ask_main: AskMain) -> JsonValue:
+    """Main runs only the Command sessions a function declares in its Alcance (ADR-0025)."""
+    name = session_command_name(text)
+    if name is None or name not in tool.reach.commands:
+        refused = SessionCommandNotDeclared(command=name or text[:40], tool=tool.name)
+        return {"error": str(refused)}
+    return ask_main(text)
+
+
 class SessionTools:
     """A Session's tools for one Turn, and how to run a call to one of them."""
 
@@ -99,13 +118,14 @@ class SessionTools:
         tool = self._tools.get(_name(call))
         return tool is not None and tool.confirm
 
-    def run(self, call: Item, stop: Callable[[], bool]) -> Item:
+    def run(self, call: Item, stop: Callable[[], bool], ask_main: AskMain = _no_main) -> Item:
         """What a ``function_call`` gave back, as its ``function_call_output``: its value as
-        JSON, or ``error …`` with why it failed, which the LLM reads as data. Raises
+        JSON, or ``error …`` with why it failed, which the LLM reads as data. Each Command
+        session it asks for that its function declares goes to ``ask_main``. Raises
         ``ToolCancelled`` if ``stop`` took it down."""
-        return _call_output(call, self._output(call, stop))
+        return _call_output(call, self._output(call, stop, ask_main))
 
-    def _output(self, call: Item, stop: Callable[[], bool]) -> str:
+    def _output(self, call: Item, stop: Callable[[], bool], ask_main: AskMain) -> str:
         name: object = call.get("name")
         tool = self._tools.get(name) if isinstance(name, str) else None
         if tool is None:
@@ -125,6 +145,7 @@ class SessionTools:
                 ),
                 self._timeout,
                 stop,
+                lambda text: _declared(tool, text, ask_main),
             )
         except ToolCancelled:
             raise
@@ -166,8 +187,10 @@ class _Turn:
 class ToolGate:
     """How a running Turn runs the tools a Step called and waits for a slot to go on."""
 
-    def __init__(self, tools: SessionTools | None = None) -> None:
+    def __init__(self, tools: SessionTools | None = None, origin: Origin = MAIN) -> None:
+        """``origin``: the chain its tools act with, the Turn's Prompt's and its Session."""
         self._tools = tools
+        self._origin = origin
         self._turn: _Turn | None = None
         self._resumed: queue.Queue[None] = queue.Queue()
 
@@ -209,7 +232,13 @@ class ToolGate:
                 results.append(_call_output(call, REFUSED))
                 continue
             try:
-                results.append(self._tools.run(call, lambda: turn.cancellation.reason is not None))
+                results.append(
+                    self._tools.run(
+                        call,
+                        lambda: turn.cancellation.reason is not None,
+                        lambda text: self._ask_main(turn, text),
+                    )
+                )
             except ToolCancelled:
                 turn.cancellation.check()
                 raise
@@ -227,6 +256,19 @@ class ToolGate:
     def resume(self) -> None:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
+
+    def _ask_main(self, turn: _Turn, text: str) -> JsonValue:
+        """From the call's thread: Main runs the Command session with the Turn's Origin; wait
+        for how it went. Raises ``ToolCancelled`` if the Turn is cancelled meanwhile."""
+        answers: queue.Queue[JsonValue] = queue.Queue()
+        turn.emit(SessionCommandAsked(turn.session_id, text, self._origin, answers.put))
+        while True:
+            if turn.cancellation.reason is not None:
+                raise ToolCancelled
+            try:
+                return answers.get(timeout=_POLL)
+            except queue.Empty:
+                continue
 
     def _may_run(self, call: Item, turn: _Turn) -> bool:
         """Whether ``call`` may run: yes, unless it asks a Confirmation and a human says no."""

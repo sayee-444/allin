@@ -27,6 +27,7 @@ from allin.main.log import Log
 from allin.main.notices import load_notice_types
 from allin.main.profiles import Profile, ProfileStore
 from allin.main.server_links import ServerLinks
+from allin.main.session_commands import load_session_command_types
 from allin.main.sessions import SessionStore
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.signals import ShutdownSignals
@@ -131,6 +132,8 @@ def _run(
         open_organizer=OrganizerOpener(data_dir, inbox),
         confinement=kernel_support(),  # checked once, as Main starts (ADR-0016)
         describer=tools,
+        # Part of Main, like the Notices: loaded once, here (ADR-0025).
+        session_commands=load_session_command_types(data_dir / "comsession"),
     )
     # Main looks once a second at its Themes' files (#47), as at the Servers'.
     theme_watch = ThemeWatch(dispatcher.theme_stamps, lambda: inbox.put(ThemesChanged()))

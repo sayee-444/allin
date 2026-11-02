@@ -11,14 +11,22 @@ from collections.abc import Callable
 
 from pydantic import JsonValue
 
-from allin.core.errors import AllInError, InvalidArguments, PieceNotFound
-from allin.core.ids import PieceId
+from allin.core.errors import (
+    AllInError,
+    InvalidArguments,
+    PieceNotFound,
+    UnknownSessionCommand,
+)
+from allin.core.ids import PieceId, SessionId
 from allin.core.origin import HUMAN, Origin
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
+from allin.main.session_commands import LoadedSessionCommands
 from allin.main.sessions import Session, SessionStore
 
-USAGE = "/func list [sid] | /func add <sid> <piece>… | /func remove <sid> <piece>…"
+USAGE = (
+    "/func list [sid] | /func add <sid> <piece|@command>… | /func remove <sid> <piece|@command>…"
+)
 _STATES: dict[PieceState, str] = {
     "approved": "approved",
     "quarantined": "in quarantine",
@@ -48,12 +56,18 @@ class FuncCommands:
         sessions: SessionStore,
         load: Callable[[str], Session],
         quarantine: Callable[[], Quarantine],
+        commands: LoadedSessionCommands,
+        notify: Callable[[str, str], object],
     ) -> None:
-        """``load`` gives a Session of this Main by id; ``quarantine``, the active Profile's."""
+        """``load`` gives a Session of this Main by id; ``quarantine``, the active Profile's;
+        ``commands``, the Command sessions Main loaded; ``notify`` shows an Aviso with a title
+        and a text in Main's Chat."""
         self._reporter = reporter
         self._sessions = sessions
         self._load = load
         self._quarantine = quarantine
+        self._commands = commands
+        self._notify = notify
 
     def run(self, text: str = "", origin: Origin = HUMAN) -> bool:
         del origin  # who may add is checked before: ``only_human``
@@ -62,10 +76,18 @@ class FuncCommands:
                 self._list_profile()
             case ["list", sid]:
                 self._list_session(self._load(sid))
-            case ["add", sid, *pieces] if pieces:
-                self._add(self._load(sid), [_ref(p) for p in pieces])
-            case ["remove", sid, *pieces] if pieces:
-                self._remove(self._load(sid), [_ref(p) for p in pieces])
+            case ["add", sid, *named] if named:
+                pieces, commands = _split(named)
+                refs = [_ref(p) for p in pieces]
+                self._add_commands(self._load(sid), commands)
+                if refs:
+                    self._add(self._load(sid), refs)
+            case ["remove", sid, *named] if named:
+                pieces, commands = _split(named)
+                refs = [_ref(p) for p in pieces]
+                self._remove_commands(self._load(sid), commands)
+                if refs:
+                    self._remove(self._load(sid), refs)
             case _:
                 raise InvalidArguments(usage=USAGE)
         return True
@@ -87,6 +109,47 @@ class FuncCommands:
         ]
         return _unique([*inherited, *given])
 
+    def commands_born_with(self, named: list[str] | None, origin: Origin) -> tuple[str, ...]:
+        """What Command sessions a new Session has: those at the folder's root, or those
+        ``named``; one Main does not have is left out with an Aviso. Created by a Session, only
+        what that one has too, since it passes on no more than it has (ADR-0025)."""
+        wanted = list(self._commands.root) if named is None else named
+        missing = [name for name in wanted if name not in self._commands.types]
+        if missing:  # it is still created, without them
+            shown = ", ".join(f"@{name}" for name in missing)
+            self._notify(
+                "Command sessions missing",
+                f"The new Session does not get {shown}: no module on this machine declares them.",
+            )
+        listed = [name for name in wanted if name in self._commands.types]
+        sender = origin.sender
+        if sender is not None and SessionId(sender) in self._sessions.ids():
+            has = set(self._sessions.load(sender).commands)
+            listed = [name for name in listed if name in has]
+        return tuple(dict.fromkeys(listed))
+
+    def _add_commands(self, session: Session, names: list[str]) -> None:
+        if not names:
+            return
+        unknown = [name for name in names if name not in self._commands.types]
+        if unknown:
+            raise UnknownSessionCommand(command=unknown[0])
+        listed = tuple(dict.fromkeys([*session.commands, *names]))
+        self._save_commands(session, listed, "commands_added", names)
+
+    def _remove_commands(self, session: Session, names: list[str]) -> None:
+        if not names:
+            return
+        listed = tuple(name for name in session.commands if name not in names)
+        self._save_commands(session, listed, "commands_removed", names)
+
+    def _save_commands(
+        self, session: Session, listed: tuple[str, ...], event: str, names: list[str]
+    ) -> None:
+        self._sessions.save_commands(session, listed)
+        shown = f"Command sessions: {', '.join(f'@{name}' for name in listed) or 'none'}"
+        self._reporter.record(session.id, event, shown, commands=list[JsonValue](names))
+
     def _list_profile(self) -> None:
         pieces = [p for p in self._quarantine().pieces() if p.ref.is_code]
         if not pieces:
@@ -95,6 +158,8 @@ class FuncCommands:
             self._reporter.show(None, f"{piece.ref.id}  {_STATES[piece.state]}")
 
     def _list_session(self, session: Session) -> None:
+        listed = ", ".join(f"@{name}" for name in session.commands) or "none"
+        self._reporter.show(session.id, f"Command sessions: {listed}")
         if not session.functions:
             self._reporter.show(session.id, "no functions")
         quarantine = self._quarantine()
@@ -125,6 +190,12 @@ class FuncCommands:
         changed: list[JsonValue] = [ref.id for ref in refs]
         shown = f"functions: {', '.join(functions) or 'none'}"
         self._reporter.record(session.id, event, shown, pieces=changed)
+
+
+def _split(named: list[str]) -> tuple[list[str], list[str]]:
+    """The pieces and the Command sessions (``@name``) a ``/func`` line names."""
+    commands = [name.removeprefix("@") for name in named if name.startswith("@")]
+    return [name for name in named if not name.startswith("@")], commands
 
 
 def _unique(ids: list[PieceId]) -> tuple[PieceId, ...]:

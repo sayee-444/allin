@@ -61,6 +61,9 @@ class Session(BaseModel, frozen=True):
     # Its Function tools, as pieces (``function:<package>``, ``agent:<package>``): what its
     # LLM may get in ``tools=[...]``, once each is approved (#106).
     functions: tuple[PieceId, ...] = ()
+    # The Command sessions its LLM may use, by name (``send``): it limits its tools, not a
+    # human (ADR-0025). One saved before them has none.
+    commands: tuple[str, ...] = ()
 
 
 class SessionStore:
@@ -115,6 +118,7 @@ class SessionStore:
         sysprompt: str,
         chosen: str | None = None,
         functions: tuple[PieceId, ...] = (),
+        commands: tuple[str, ...] = (),
     ) -> Session:
         """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
         ``sysprompt`` is already rendered."""
@@ -130,6 +134,7 @@ class SessionStore:
                 settings=settings,
                 border_color=pick_border_color(self._border_colors(but=session_id)),
                 functions=functions,
+                commands=commands,
             )
             save_conversation(folder, Conversation(sysprompt=sysprompt))
             write_atomically(folder / _METADATA, session.model_dump_json(indent=2))
@@ -244,6 +249,10 @@ class SessionStore:
     def save_functions(self, session: Session, functions: tuple[PieceId, ...]) -> Session:
         """The Session with other Function tools, already on disk."""
         return self._save(session.model_copy(update={"functions": functions}))
+
+    def save_commands(self, session: Session, commands: tuple[str, ...]) -> Session:
+        """The Session with another list of Command sessions, already on disk."""
+        return self._save(session.model_copy(update={"commands": commands}))
 
     def _save(self, changed: Session) -> Session:
         try:
