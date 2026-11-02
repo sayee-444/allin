@@ -112,6 +112,7 @@ class SettingsCommands:
         # look like is resolved again after any change.
         self.check_theme: Callable[[str], None] = lambda _: None
         self.looks_changed: Callable[[], None] = lambda: None
+        self.windows_max_changed: Callable[[int], None] = lambda _: None  # (#52)
 
     def show_profiles(self, profiles_of: Callable[[SessionId], list[str]]) -> None:
         """``/session <sid>`` also shows the Profiles the Session belongs to (ADR-0010)."""
@@ -228,6 +229,8 @@ class SettingsCommands:
             self._reporter.report(None, "settings_restart_needed", _RESTART_NOTE)
         if settings.keys != before.keys:
             self.keys_changed(settings.keys)
+        if settings.windows.max != before.windows.max:
+            self.windows_max_changed(settings.windows.max)
         self.looks_changed()
 
     def _save_session(self, session: Session, settings: SessionSettings) -> None:

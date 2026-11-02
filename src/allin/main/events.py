@@ -40,6 +40,13 @@ class DraftReceived:
 
 
 @dataclass(frozen=True)
+class WindowUsed:
+    """The human clicked in a Session's Window (#52)."""
+
+    session_id: SessionId
+
+
+@dataclass(frozen=True)
 class WindowClosed:
     session_id: SessionId
     returncode: int
@@ -224,6 +231,7 @@ class Shutdown:
 
 type MainEvent = (
     ThemesChanged
+    | WindowUsed
     | WindowConnected
     | InputReceived
     | QueuedWithdrawn

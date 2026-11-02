@@ -9,6 +9,7 @@ from pydantic import BaseModel, JsonValue
 from allin.core.drafts import put_back
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
+from allin.core.settings import WINDOWS_MAX_DEFAULT
 from allin.core.themes import BUILTIN, Theme
 from allin.ipc.messages import (
     ChatClear,
@@ -30,6 +31,7 @@ from allin.main.sessions import Session, SessionStore
 from allin.main.themes import ThemeKeeper
 from allin.main.turn import OutputKind
 from allin.main.usage import context_tokens, tokens_per_second
+from allin.main.window_room import displaced, fits
 from allin.ui.shortcuts import effective_keys
 
 
@@ -50,6 +52,8 @@ class WindowLink(Protocol):
 
 # Opens a Session's Window, its xterm born with the letter, size and colours of its Theme.
 type OpenWindow = Callable[[SessionId, Theme], WindowLink]
+
+IN_BACKGROUND = "sent to the background"
 
 
 @dataclass
@@ -85,6 +89,14 @@ class OpenWindows:
         # Windows Main closed itself whose xterm has not said it is gone yet, by Session.
         self._closing: dict[SessionId, int] = {}
         self._themes: ThemeKeeper | None = None
+        # Sessions open without their Window in view (#52): they go on as with one.
+        self._background: dict[SessionId, None] = {}
+        # When the human last used each open Session (wrote in it, clicked it, opened it): a
+        # count, higher is later, for the Máximo de Ventanas to send the least used away.
+        self._used: dict[SessionId, int] = {}
+        self._uses = 0
+        self._maximum = WINDOWS_MAX_DEFAULT
+        self._asking: Callable[[SessionId], bool] = lambda _: False
 
     def use_themes(self, themes: ThemeKeeper) -> None:
         """What resolves each Window's Theme (#47); without it, Windows show the built-in."""
@@ -93,13 +105,82 @@ class OpenWindows:
     def open_ids(self) -> list[SessionId]:
         return list(self._links)
 
+    def watch_asking(self, asking: Callable[[SessionId], bool]) -> None:
+        """Whether a Session waits for a Confirmation: it leaves the view last."""
+        self._asking = asking
+
+    @property
+    def maximum(self) -> int:
+        return self._maximum
+
+    def set_maximum(self, maximum: int) -> None:
+        """``windows.max``; when it goes down, those over it go to the background at once,
+        least used first."""
+        self._maximum = maximum
+        for session_id in self._displaced(coming=0):
+            self.to_background(session_id)
+
+    def touch(self, session_id: SessionId) -> None:
+        """The human used the Session's Window: it leaves the view after the others."""
+        if session_id in self._links or session_id in self._background:
+            self._uses += 1
+            self._used[session_id] = self._uses
+
+    def show(self, session: Session, streamed: Streamed | None, human: bool = True) -> bool:
+        """Open the Session's Window under the Máximo de Ventanas; whether it is in view.
+
+        What a human opens always shows, sending the least used Session to the background if
+        there is no room. What anyone else opens never displaces another: without room, it
+        stays in the background (ADR-0020).
+        """
+        if not human and not fits(len(self._links), self._maximum):
+            self.keep_in_background(session.id)
+            return False
+        for session_id in self._displaced(coming=1):
+            self.to_background(session_id)
+        self.open(session, streamed)
+        return True
+
+    def _displaced(self, coming: int) -> list[SessionId]:
+        asking = {session_id for session_id in self._links if self._asking(session_id)}
+        return displaced(list(self._links), self._used, asking, self._maximum, coming)
+
+    def to_background(self, session_id: SessionId) -> None:
+        """Close the Session's xterm and keep it open in the background: nothing is
+        cancelled, its Draft is kept, and its Notices and Confirmations wait in Main's Chat."""
+        if session_id in self._links:
+            self.close(session_id, IN_BACKGROUND)
+        self.keep_in_background(session_id)
+
+    def keep_in_background(self, session_id: SessionId) -> None:
+        """The Session is open in the background, with no xterm to close."""
+        if session_id in self._background:
+            return
+        self._background[session_id] = None
+        self.touch(session_id)
+        self._reporter.record(session_id, "window_background", "in the background")
+
+    def is_background(self, session_id: SessionId) -> bool:
+        return session_id in self._background
+
+    def background_ids(self) -> list[SessionId]:
+        """The Sessions in the background, in the order they went there."""
+        return list(self._background)
+
+    def forget(self, session_id: SessionId) -> None:
+        """The Session is no longer open in the background (``/close``, a Profile left)."""
+        self._background.pop(session_id, None)
+        self._used.pop(session_id, None)
+
     def open(self, session: Session, streamed: Streamed | None) -> None:
         """Open the Session's Window and show it its Chat so far and its Draft.
 
         ``streamed`` is what its running Turn has given so far, if it has one.
         """
+        self._background.pop(session.id, None)
         theme = BUILTIN if self._themes is None else self._themes.opening(session)
         self._links[session.id] = self._open_window(session.id, theme)
+        self.touch(session.id)
         self._reporter.record(session.id, "window_opened", "opening window")
         self.send(session.id, ThemeSet(theme=theme))  # before its Chat (#47)
         if self._themes is not None:
@@ -222,6 +303,7 @@ class OpenWindows:
         if link is not None:
             link.close()
         self._forget_theme(session_id)
+        self._used.pop(session_id, None)
         text = f"window closed (exit code {returncode})"
         self._reporter.record(session_id, "window_closed", text, returncode=returncode)
         return True
@@ -268,6 +350,10 @@ class OpenWindows:
         closed already, and opens again under the new id."""
         if old in self._drafts:
             self._drafts[new] = self._drafts.pop(old)
+        if old in self._background:
+            self._background = {new if sid == old else sid: None for sid in self._background}
+        if old in self._used:
+            self._used[new] = self._used.pop(old)
 
     def put_back(self, session_id: SessionId, text: str) -> None:
         """A Prompt that did not run goes back to its input, ahead of the Draft."""

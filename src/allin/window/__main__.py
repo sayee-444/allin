@@ -8,6 +8,7 @@ import curses
 import json
 import sys
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ from allin.ipc.messages import (
     TurnState,
     UserInput,
     WindowReady,
+    WindowUsed,
     WithdrawQueued,
     decode_main_message,
 )
@@ -87,6 +89,27 @@ class MainLink:
     def send(self, message: BaseModel) -> None:
         if not self._gone.is_set():
             self._send(message)
+
+
+_CLICK_EVERY = 2.0  # seconds between two clicks told to Main
+
+
+class ClickReporter:
+    """Tells Main the Window was clicked, at most once every few seconds: enough for the
+    Máximo de Ventanas to know which Window the human uses (#52)."""
+
+    def __init__(
+        self, send: Callable[[], None], clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._send = send
+        self._clock = clock
+        self._last: float | None = None
+
+    def __call__(self) -> None:
+        now = self._clock()
+        if self._last is None or now - self._last >= _CLICK_EVERY:
+            self._last = now
+            self._send()
 
 
 class MainListener:
@@ -192,6 +215,7 @@ def _run(
             box_closed,
             on_interrupt=interrupt,
             on_withdraw=lambda: link.send(WithdrawQueued()),
+            on_click=ClickReporter(lambda: link.send(WindowUsed())),
         )
     except KeyboardInterrupt:
         pass

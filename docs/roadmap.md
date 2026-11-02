@@ -8,12 +8,12 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #47 Temas en las Ventanas y el Chat de Main, por nombre y en vivo (2026-11-01).
+- **Último hecho:** #52 Segundo plano y Máximo de Ventanas (2026-11-01).
   - `/new --id=<id>` lo elige al crearla y `/session id <sid> <nuevo>` lo cambia después: de 4 a 12 caracteres de `[a-z0-9]`, nunca uno que ya use otra Sesión, como id o como alias. Solo lo cambia un humano, y con un Turno en marcha se niega.
   - El viejo sigue valiendo como alias (`sessions/aliases.json`): `SessionStore.resolve` es la única función que busca una Sesión por su id, y resuelve los alias. Un id al azar nunca toma uno.
   - Main cambia el id en lo que guarda: la carpeta de la Sesión (con su Log), su Carpeta de trabajo, el Estado de Main de cada Perfil, las listas de los Perfiles y el Borrador. Si la Ventana estaba abierta, se cierra y se abre con el id nuevo, que muestra su título. Los Encargos, las Suscripciones y los Segmentos del RAG se sumarán cuando existan.
   - Métricas: 1043 tests. Antes: #58 Rewind de una Sesión.
-- **Siguiente:** #52, Segundo plano y Máximo de Ventanas. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
+- **Siguiente:** #53, el Organizador de Ventanas. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -75,7 +75,7 @@ Ya tienen código; verificados y comentados.
 12. ✅ #58 Rewind de una Sesión
 13. ✅ #59 Elegir y cambiar el id de una Sesión
 14. ✅ #47 Temas en las Ventanas y el Chat de Main, por nombre y en vivo
-15. #52 Segundo plano y Máximo de Ventanas
+15. ✅ #52 Segundo plano y Máximo de Ventanas
 16. #53 El Organizador de Ventanas
 
 ## F2 · Command sessions y fsource

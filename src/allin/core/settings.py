@@ -164,6 +164,19 @@ class AdmissionSettings(BaseModel, frozen=True):
     )
 
 
+WINDOWS_MAX_DEFAULT = 6
+
+
+class WindowsSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    max: int = Field(
+        default=WINDOWS_MAX_DEFAULT,
+        ge=0,
+        description="Sessions in view at once; the rest wait in the background; 0: no limit",
+    )
+
+
 class MainSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,6 +192,7 @@ class MainSettings(BaseModel, frozen=True):
     )
     step: StepSettings = StepSettings()
     admission: AdmissionSettings = AdmissionSettings()
+    windows: WindowsSettings = WindowsSettings()  # the Máximo de Ventanas (#52, ADR-0020)
     # The Atajos of Main's own Chat as they differ from the defaults; only ``/key`` changes them.
     keys: dict[str, str] = Field(default_factory=dict[str, str])
     theme: ThemeName = Field(

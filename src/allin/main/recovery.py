@@ -15,6 +15,7 @@ from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
 from allin.main.state import MainState, MainStateStore
 from allin.main.turn_queue import TurnQueue
+from allin.main.window_room import NO_LIMIT
 
 # Closes the Window of a Session (by its xterm's pid) that a killed Main left open; returns
 # whether there was one.
@@ -96,6 +97,15 @@ class Recovery:
             drafts[prompt.session_id] = put_back(draft, prompt.text)
         self._windows.replace_drafts(drafts)
         self._turns.requeue(saved.queue)
+        for session_id in saved.background:
+            if not self._windows.is_open(session_id):
+                self._windows.keep_in_background(session_id)
+        reopened = [sid for sid in saved.windows if not self._windows.is_open(sid)]
+        # In view again up to the Máximo de Ventanas, the last ones opened; the rest in the
+        # background (ADR-0020).
+        maximum = self._windows.maximum
+        room = len(reopened) if maximum == NO_LIMIT else maximum - len(self._windows.open_ids())
+        hidden = reopened[: max(0, len(reopened) - room)]
         for session_id, pid in saved.windows.items():
             if self._windows.is_open(session_id):
                 continue
@@ -103,6 +113,9 @@ class Recovery:
             if self._close_orphan_window(session_id, pid):
                 shown = "window left open by the last main closed"
                 self._reporter.record(session_id, "orphan_window_closed", shown, pid=pid)
+            if session_id in hidden:
+                self._windows.keep_in_background(session_id)
+                continue
             try:
                 session = self._sessions.load_owned(session_id, self._main_id)
                 self._windows.open(session, self._turns.streamed(session.id))
@@ -114,7 +127,12 @@ class Recovery:
     def leave(self, queue: list[Prompt]) -> None:
         """Keep the MainState of the Profile Main leaves (``/profile switch``): its Windows and
         Drafts as they are, and ``queue``, the Prompts it takes with it; no Turn runs."""
-        state = MainState(windows=self._windows.pids(), drafts=self._windows.drafts(), queue=queue)
+        state = MainState(
+            windows=self._windows.pids(),
+            drafts=self._windows.drafts(),
+            queue=queue,
+            background=self._windows.background_ids(),
+        )
         try:
             self._state.save(state)
         except AllInError as error:
@@ -127,6 +145,7 @@ class Recovery:
             drafts=self._windows.drafts(),
             queue=self._turns.queued(),
             running=self._turns.running_prompts(),
+            background=self._windows.background_ids(),
         )
         if state == self._saved:
             return

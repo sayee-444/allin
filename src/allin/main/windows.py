@@ -22,6 +22,7 @@ from allin.ipc.messages import (
     WithdrawQueued,
     decode_window_message,
 )
+from allin.ipc.messages import WindowUsed as WindowUsedMessage
 from allin.main.events import (
     BoxAnswered,
     DraftReceived,
@@ -31,6 +32,7 @@ from allin.main.events import (
     QueuedWithdrawn,
     WindowClosed,
     WindowConnected,
+    WindowUsed,
 )
 from allin.main.launcher import Launcher, xterm_command
 from allin.main.open_windows import WindowLink
@@ -57,6 +59,8 @@ class _WindowListener:
                 self._inbox.put(QueuedWithdrawn(self._session_id))
             case InputDraft(blocks=blocks):
                 self._inbox.put(DraftReceived(self._session_id, tuple(blocks)))
+            case WindowUsedMessage():
+                self._inbox.put(WindowUsed(self._session_id))
             case BoxAnswer(box_id=box_id, answer=answer):
                 self._inbox.put(BoxAnswered(box_id, answer))
 
