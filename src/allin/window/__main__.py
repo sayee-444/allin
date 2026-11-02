@@ -21,6 +21,7 @@ from allin.ipc.messages import (
     BoxHide,
     BoxShow,
     ChatAppend,
+    ChatClear,
     ChatDelta,
     Close,
     ContextUsage,
@@ -44,6 +45,7 @@ from allin.ui.screen import (
     ChatLine,
     ChatScreen,
     ChatStream,
+    ClearChat,
     HideBox,
     InputHistory,
     InputLock,
@@ -110,6 +112,8 @@ class MainListener:
         match message:
             case ChatAppend(role=role, label=label, text=text):
                 self._show(ChatLine(text, role, label))
+            case ChatClear():
+                self._show(ClearChat())
             case ChatDelta(role=role, label=label, text=text):
                 self._show(ChatStream(text, role, label))
             case TurnState(active=active, waiting=waiting, queued=queued):

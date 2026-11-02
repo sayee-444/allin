@@ -10,6 +10,7 @@ from allin.core.drafts import put_back
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
 from allin.ipc.messages import (
+    ChatClear,
     ChatDelta,
     Close,
     ContextUsage,
@@ -267,6 +268,16 @@ class OpenWindows:
     def drafts(self) -> dict[SessionId, list[str]]:
         """Every Session's Draft that is not empty."""
         return {session_id: draft for session_id, draft in self._drafts.items() if draft}
+
+    def rebuild_chat(self, session: Session) -> None:
+        """Show an open Window its Chat again from scratch, as after a Rewind (#58)."""
+        if session.id not in self._links:
+            return
+        self.send(session.id, ChatClear())
+        try:
+            self._send_chat(session, None)
+        except AllInError as error:
+            self.show_error(error, session.id)
 
     def _send_chat(self, session: Session, streamed: Streamed | None) -> None:
         """Show a Window the Session's Chat so far, rebuilt from its Conversation and Log."""

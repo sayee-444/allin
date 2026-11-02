@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from allin.core.cut import CutReason
 from allin.core.errors import SessionStorageFailed, SessionUnreadable
 from allin.core.files import write_atomically
+from allin.core.origin import HUMAN, Origin
 
 _FILE = "conversation.json"
 _ARCHIVE = "compacted"  # what each Compaction replaced, numbered from 1
@@ -46,6 +47,14 @@ class Turn(BaseModel, frozen=True):
     attachments: list[Attachment] = []
     cut: CutReason | None = None  # a cut Turn keeps what it generated, marked
     notifications: list[str] = []  # what Main told the LLM ahead of its Prompt
+    # What a Rewind needs of its Prompt (#58): what the human typed, if its Command prompts
+    # changed it, and who sent it.
+    typed: str = ""
+    origin: Origin = HUMAN
+
+    @property
+    def as_typed(self) -> str:
+        return self.typed or self.prompt
 
 
 class Conversation(BaseModel, frozen=True):

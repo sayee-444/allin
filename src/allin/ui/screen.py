@@ -106,6 +106,11 @@ class InputText:
 
 
 @dataclass(frozen=True)
+class ClearChat:
+    """Every entry of the Chat gone: a rebuilt one follows (#58)."""
+
+
+@dataclass(frozen=True)
 class KeyBindings:
     """The screen's Atajos, key name to action or Command main (``ui.shortcuts``) (#57)."""
 
@@ -155,6 +160,7 @@ type ScreenUpdate = (
     | InputHistory
     | QueuedPrompts
     | KeyBindings
+    | ClearChat
     | ShowBox
     | HideBox
     | None
@@ -487,6 +493,9 @@ class ChatScreen:
                     self._reveal_cursor = True
                 case InputHistory(prompts):
                     self._input.load_history(prompts)
+                case ClearChat():
+                    self._chat.clear()
+                    self._clear_selection()
                 case KeyBindings(table):
                     self._bindings = dict(table)
                 case QueuedPrompts(texts):

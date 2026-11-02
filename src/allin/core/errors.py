@@ -376,3 +376,16 @@ class ShortcutInvalid(AllInError):
     """An Atajo runs an action of the input or, in Main's Chat, a Command main (``allowed``)."""
 
     code: ClassVar[str] = "shortcut_invalid"
+
+
+class TurnActive(AllInError):
+    """The Session has a Turn, a queued Prompt or a Compaction under way: interrupt it
+    (Shift+Enter) or wait for it to end first."""
+
+    code: ClassVar[str] = "turn_active"
+
+
+class ArchiveMissing(AllInError):
+    """A Rewind to before a Compaction needs what it archived, and it is not there."""
+
+    code: ClassVar[str] = "archive_missing"

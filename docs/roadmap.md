@@ -8,11 +8,14 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #33 Una Ventana desconectada de Main deja de mandar (2026-11-01).
-  - Tras el EOF de Main, `MainLink` (por donde pasa todo lo que la Ventana manda) no envía nada más: ni Borradores ni Prompts. La pantalla en solo lectura solo acepta las teclas que mueven la vista, y el input se queda como estaba, que Main ya guardó como Borrador y devuelve al reiniciar.
-  - Una FIFO rota (`ChannelBroken`) ya no sale cruda en el Chat: va al registro propio de la Ventana, `logs/windows/<sid>.jsonl`, que Main le pasa al abrirla, y la Ventana se da por desconectada.
-  - Métricas: 1006 tests. Antes: #19 una señal durante el arranque de Main.
-- **Siguiente:** #58, Rewind de una Sesión. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
+- **Último hecho:** #58 Rewind de una Sesión (2026-11-01).
+  - `/rewind <sid> [n]` (Command main, solo) recorta la Conversación hasta antes de los últimos `n` Prompts, 1 por defecto, de cualquier Origen; `n=0` no hace nada, y uno mayor que los que hay se queda en el inicio y lo dice. Con un Turno, un Prompt en cola o una Compactación en marcha se niega sin tocar nada, y aconseja interrumpir con Shift+Enter o esperar.
+  - Los textos de los Prompts humanos deshechos vuelven al input como bloques del Borrador, en orden; los de otro Origen quedan en el Log (`rewound`, con `texts` y `origins`). Para eso cada Turno guarda ahora su Origen y lo tecleado (`Turn.origin`, `Turn.typed`), y el Prompt su Origen.
+  - A antes de una Compactación toma la Conversación archivada y quita el resumen; nada se borra (`main/rewind.py`).
+  - La Ventana abierta vacía su Chat (`ChatClear`) y lo recibe reconstruido; la reconstrucción desde el Log quita lo que deshizo cada `rewound`.
+  - Queda para F2 y el RAG lo que el issue deja en sus fases: Encargos y Suscripciones, métodos recibidos, revisiones de Procesos adheridos, el evento suscribible y las marcas de deshecho.
+  - Métricas: 1020 tests. Antes: #33 una Ventana desconectada de Main deja de mandar.
+- **Siguiente:** #59, elegir y cambiar el id de una Sesión. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -71,7 +74,7 @@ Ya tienen código; verificados y comentados.
 9. ✅ #19 Lo que quede de la señal durante el arranque
 10. ✅ #33 Una Ventana desconectada sigue mandando Borradores (Broken pipe)
 11. ✅ #34 Los textos que vuelven al input se mezclan con lo escrito
-12. #58 Rewind de una Sesión
+12. ✅ #58 Rewind de una Sesión
 13. #59 Elegir y cambiar el id de una Sesión
 14. #47 Temas en las Ventanas y el Chat de Main, por nombre y en vivo
 15. #52 Segundo plano y Máximo de Ventanas

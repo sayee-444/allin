@@ -40,7 +40,7 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
                     for text, kind in zip(dropped, kinds, strict=False)
                     if isinstance(text, str) and kind == "prompt"  # never a queued Compaction
                 ]
-            case "prompt" | "prompt_returned" | "turn_finished" | "turn_cancelled":
+            case "prompt" | "prompt_returned" | "turn_finished" | "turn_cancelled" | "rewound":
                 texts = []
             case _:
                 pass
@@ -74,17 +74,28 @@ def rebuild_chat(
         ]
     turns = _every_turn([*archived, conversation])
     chat: list[ChatAppend] = []
+    shown_at = 0  # where the last Prompt shown starts: the Turn that finishes next is its
+    starts: dict[int, int] = {}  # where each Turn the Conversation has starts in the Chat
     for entry in log:
         fields = entry.fields
         match entry.event:
             case "prompt" if not fields.get("queued"):
+                shown_at = len(chat)
                 chat.append(_prompt(fields["text"], settings))
             case "prompt_started":  # a queued Prompt, shown where its Turn started (ADR-0024)
+                shown_at = len(chat)
                 chat.append(_prompt(fields["text"], settings))
             case "turn_finished":
                 index: int = fields["turn"]
+                starts[index] = shown_at
                 if index in turns:
                     chat += _turn_output(turns[index], settings)
+            case "rewound":  # what it undid leaves the Chat, and what came after it (#58)
+                first: int = fields["turn"]
+                undone = [start for number, start in starts.items() if number >= first]
+                if undone:
+                    del chat[min(undone) :]
+                starts = {number: start for number, start in starts.items() if number < first}
             case "prompts_dropped":
                 chat.append(dropped_entry(len(fields["texts"]), fields["reason"]))
             case "turn_failed" | "turn_cancelled":

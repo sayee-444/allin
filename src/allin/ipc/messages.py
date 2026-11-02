@@ -75,6 +75,12 @@ class ChatDelta(BaseModel):
     text: str
 
 
+class ChatClear(BaseModel):
+    """Empty the Window's Chat: what follows rebuilds it, as after a Rewind (#58)."""
+
+    type: Literal["chat_clear"] = "chat_clear"
+
+
 class TurnState(BaseModel):
     """Whether the Session has a Turn running or waiting. ``waiting`` says why its next Step
     has not started, for its border (ADR-0022); ``queued``, the Prompts sent while a Turn ran
@@ -161,6 +167,7 @@ class KeyTable(BaseModel):
 type MainToWindow = (
     ChatAppend
     | ChatDelta
+    | ChatClear
     | TurnState
     | ContextUsage
     | PoolShared
