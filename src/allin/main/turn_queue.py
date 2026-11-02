@@ -72,6 +72,8 @@ from allin.main.executors import SHUTTING_DOWN, TurnJob
 from allin.main.link_changes import LinkChange, failure_text, judge
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
+from allin.main.notifications import INTERRUPTED as INTERRUPTED_SOURCE
+from allin.main.notifications import NOTHING_TOLD, Notifications, Told, enters
 from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
@@ -210,6 +212,7 @@ class _RunningTurn:
     # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
     interrupted: bool = False
     notifications: list[str] = field(default_factory=list)  # told the LLM ahead of its Prompt
+    told: Told = NOTHING_TOLD  # the pending Notificaciones among them (#109)
     # Where its current Step's text starts in ``streamed``: (reasoning, answer).
     step_from: tuple[int, int] = (0, 0)
     sent: bool = False  # whether its Step sent any stream event: until then it reads input
@@ -257,11 +260,13 @@ class TurnQueue:
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
         tools_for: Callable[[Session], SessionTools | None] = lambda _: None,
+        notifications: Notifications | None = None,
     ) -> None:
         """``patience``: seconds a waiting Prompt may be overtaken (``admission.patience``);
         ``wall_clock`` places each waiter in a Wait list other Mains read too."""
         self._main_id = main_id
         self._tools_for = tools_for  # each Turn's tools, as its Session has them when it starts
+        self._notifications = notifications or Notifications(sessions, reporter, windows)
         self._pid = os.getpid()
         self._stall = stall
         self._patience = patience
@@ -479,7 +484,9 @@ class TurnQueue:
                 self._prompts.push_front(running.prompt)
             else:
                 turn = self._save_turn(running, steps)
+                self._notifications.saved(session_id, running.told)
         except AllInError as failure:
+            self._notifications.not_saved(session_id)
             if _reason(failure) == STALLED:
                 self._stalled(running)
             elif not self._suspend(running, failure):
@@ -899,8 +906,8 @@ class TurnQueue:
         vision = isinstance(state, ServerReady) and state.props.vision
         reader = AttachmentReader(self._sessions.workspace(session.id), vision)
         conversation = self._conversation(session)
-        notifications = pending_notifications(conversation)
-        items = conversation.request_input(prompt.text, prompt.attachments, reader, notifications)
+        lines = self._lines(session, conversation, self._notifications.pending(session))
+        items = conversation.request_input(prompt.text, prompt.attachments, reader, lines)
         return [*items, *(item for step in prompt.steps for item in step.items)]
 
     def _compacts_first(
@@ -1082,6 +1089,7 @@ class TurnQueue:
             },
         )
         tools = None if compacting else self._tools_for(session)
+        told = NOTHING_TOLD if compacting else self._notifications.tell(session)
         request = replace(request, done=list(prompt.steps))
         gate = ToolGate(tools, from_session(prompt.origin, session.id))
         job = TurnJob(session.id, request, link.base_url, tools=gate)
@@ -1101,7 +1109,8 @@ class TurnQueue:
             context_before=context_tokens(conversation.turns[-1].steps)
             if conversation.turns
             else None,
-            notifications=[] if compacting else pending_notifications(conversation),
+            notifications=[] if compacting else self._lines(session, conversation, told),
+            told=told,
         )
         self._running[session.id].streamed.steps.extend(prompt.steps)
         self._reserve(self._running[session.id])
@@ -1521,6 +1530,16 @@ class TurnQueue:
         for text in reversed(texts):  # each one shown pushes the one before it back
             self._windows.send(session_id, InputRestore(text=text))
         self._reporter.log_session(session_id, "prompt_returned", texts=list[JsonValue](texts))
+
+    def _lines(self, session: Session, conversation: Conversation, told: Told) -> list[str]:
+        """What a Prompt opens with: that the last Turn was interrupted, then the pending
+        Notificaciones, as far as the Session's Conversation logs let each in (#109)."""
+        cut = (
+            pending_notifications(conversation)
+            if enters(session.settings, INTERRUPTED_SOURCE)
+            else []
+        )
+        return [*cut, *told.lines]
 
     def _save_turn(self, running: _RunningTurn, steps: list[Step]) -> int:
         """Save the finished Turn and return its index in the Conversation."""

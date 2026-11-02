@@ -19,6 +19,7 @@ from allin.core.errors import (
 )
 from allin.core.ids import CommandName, PieceId
 from allin.core.origin import HUMAN, Origin
+from allin.main.notifications import FUNC, Notifications
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
 from allin.main.session_commands import LoadedSessionCommands, chain_allows
@@ -58,6 +59,7 @@ class FuncCommands:
         quarantine: Callable[[], Quarantine],
         commands: LoadedSessionCommands,
         notify: Callable[[str, str], object],
+        notifications: Notifications,
     ) -> None:
         """``load`` gives a Session of this Main by id; ``quarantine``, the active Profile's;
         ``commands``, the Command sessions Main loaded; ``notify`` shows an Aviso with a title
@@ -68,6 +70,7 @@ class FuncCommands:
         self._quarantine = quarantine
         self._commands = commands
         self._notify = notify
+        self._notifications = notifications
 
     def run(self, text: str = "", origin: Origin = HUMAN) -> bool:
         del origin  # who may add is checked before: ``only_human``
@@ -143,12 +146,23 @@ class FuncCommands:
             return
         listed = tuple(dict.fromkeys([*session.commands, *names]))
         self._save_commands(session, listed, "commands_added", names)
+        for name in dict.fromkeys(n for n in names if n not in session.commands):
+            self._tell(
+                session, f"@{name}", f"@{name} was given to you: your tools may run it", added=True
+            )
 
     def _remove_commands(self, session: Session, names: list[CommandName]) -> None:
         if not names:
             return
         listed = tuple(name for name in session.commands if name not in names)
         self._save_commands(session, listed, "commands_removed", names)
+        for name in (n for n in session.commands if n in names):
+            self._tell(
+                session,
+                f"@{name}",
+                f"@{name} was taken away: your tools may no longer run it",
+                added=False,
+            )
 
     def _save_commands(
         self,
@@ -187,11 +201,24 @@ class FuncCommands:
             quarantine.piece(ref)  # it must exist; it may wait for its Approval
         functions = _unique([*session.functions, *(ref.id for ref in refs)])
         self._save(session, functions, "functions_added", refs)
+        for piece in _unique([r.id for r in refs if r.id not in session.functions]):
+            self._tell(session, piece, f"{piece} was given to you: its tools are yours", added=True)
 
     def _remove(self, session: Session, refs: list[PieceRef]) -> None:
         gone = {ref.id for ref in refs}
         functions = tuple(f for f in session.functions if f not in gone)
         self._save(session, functions, "functions_removed", refs)
+        for piece in (f for f in session.functions if f in gone):
+            self._tell(
+                session,
+                piece,
+                f"{piece} was taken away: its tools are no longer yours",
+                added=False,
+            )
+
+    def _tell(self, session: Session, subject: str, text: str, *, added: bool) -> None:
+        """Leave the Session a Notificación of what it was given or lost (#109)."""
+        self._notifications.leave(session.id, FUNC, text, subject, added=added)
 
     def _save(
         self, session: Session, functions: tuple[PieceId, ...], event: str, refs: list[PieceRef]

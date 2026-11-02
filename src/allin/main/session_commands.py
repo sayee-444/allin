@@ -67,7 +67,21 @@ def _server(call: SessionCommandCall) -> str:
             raise ValueError(msg)
 
 
+def _conversation_logs(call: SessionCommandCall) -> str:
+    words = call.args.split()
+    if not 1 <= len(words) <= 2 or words[0] not in ("on", "off", "list"):
+        msg = "@conversation_logs on|off|list [source]"
+        raise ValueError(msg)
+    return " ".join(["/conversation_logs", call.session_id, *words])
+
+
 SEND = SessionCommandType("send", "@send <sid> <text>", "send a Prompt to a Session", _send)
+CONVERSATION_LOGS = SessionCommandType(
+    "conversation_logs",
+    "@conversation_logs on|off|list [source]",
+    "whether this Session's Notificaciones enter its Conversation",
+    _conversation_logs,
+)
 SERVER = SessionCommandType(
     "server", "@server [restart]", "show or restart its Session's Server", _server
 )
@@ -82,8 +96,8 @@ class LoadedSessionCommands:
 
 # Main's own, when no folder is loaded (a Main in tests).
 BUILT_IN = LoadedSessionCommands(
-    {CommandName(SEND.name): SEND, CommandName(SERVER.name): SERVER},
-    (CommandName(SEND.name), CommandName(SERVER.name)),
+    {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS)},
+    tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
 )
 
 

@@ -103,6 +103,8 @@ def rebuild_chat(
                 chat.append(error_entry(fields["error"]))
             case "error":
                 chat.append(error_entry(fields["error"]))
+            case "notification":
+                chat.append(logs_entry(fields["text"]))
             case "compacted":
                 chat += compacted_entries(fields["summarized"], fields["summary"])
             case "compaction_failed":
@@ -169,6 +171,11 @@ def dropped_entry(count: int, reason: str) -> ChatAppend:
     return ChatAppend(
         role="info", label="dropped", text=f"{count} queued prompt(s) dropped: {reason}"
     )
+
+
+def logs_entry(text: str) -> ChatAppend:
+    """A Notificación as its Window's Chat shows it, live and rebuilt (#109)."""
+    return ChatAppend(role="info", label="logs", text=text)
 
 
 def tools_entry(names: Sequence[str]) -> ChatAppend:

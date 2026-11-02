@@ -134,6 +134,9 @@ class SessionSettings(BaseModel, frozen=True):
     )
     compact: CompactSettings = CompactSettings()
     tools: ToolSettings = ToolSettings()
+    # Conversation logs: whether each source's Notificaciones enter the Conversation, by source
+    # (``/func``), and ``all`` for every source without its own; never the Log or the Chat.
+    conversation_logs: dict[str, bool] = Field(default_factory=dict[str, bool])
     # Its Window's Atajos as they differ from the defaults (``ui.shortcuts``); only ``/key``
     # changes them, so only a human does (#57).
     keys: dict[str, str] = Field(default_factory=dict[str, str])

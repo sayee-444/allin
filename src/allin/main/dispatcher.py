@@ -61,6 +61,7 @@ from allin.main.kits import Kits
 from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
 from allin.main.notices import LoadedNotices
+from allin.main.notifications import Notifications
 from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.organizer import OpenOrganizer, Organizer, RowSource, command_for, no_organizer
 from allin.main.piece_commands import PieceCommands
@@ -162,6 +163,7 @@ class Dispatcher:
         self._devastation = Devastation(
             devastation, self._marks, self._windows, sessions, self._boxes, self._reporter, main_id
         )
+        self._notifications = Notifications(sessions, self._reporter, self._windows)
         self._turns = TurnQueue(
             self._reporter,
             self._windows,
@@ -180,6 +182,7 @@ class Dispatcher:
             clock,
             wall_clock,
             tools_for=lambda session: self._session_tools(session, sessions, describer),
+            notifications=self._notifications,
         )
         self._recovery = Recovery(
             self._reporter,
@@ -267,7 +270,9 @@ class Dispatcher:
                 self._quarantine,
                 command_types,
                 lambda title, text: self._boxes.notify(None, title, text),
+                self._notifications,
             ),
+            self._notifications,
         )
         self._session_commands = SessionCommands(
             command_types,
