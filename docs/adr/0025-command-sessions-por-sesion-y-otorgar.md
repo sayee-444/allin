@@ -36,10 +36,16 @@ Todavía no hay Moldes (#112), Clon ni Restablecer, así que lo que esta decisi�
 
 Otorgar es el Command session `@grant <sid> <pieza|@comando>…`, que se convierte en el Command main `/grant`. Es de Main, como `@send`, pero no va en la lista por defecto.
 
-- **Quién lo da.** Se tiene Otorgar cuando `@grant` está en la lista de la Sesión. Solo lo pone un humano con `/func add`. Dar la fsource que lo declara también da `@grant`, y quitarla lo quita. `/new` nunca lo trae, aunque se nombre en `-cs=`: la Sesión nace sin él y sale un Aviso.
+- **Quién lo da.** Se tiene Otorgar cuando `@grant` está en la lista de la Sesión. Solo lo pone un humano con `/func add`. Dar la fsource que lo declara, ya aprobada, también da `@grant`, y quitarla lo quita, también si ya no está en el Perfil o no se puede describir. `/new` nunca lo trae, aunque se nombre en `-cs=`: la Sesión nace sin él y sale un Aviso.
 - **El Aviso y el borde.** Al dárselo, sale un Aviso en la Ventana de la Sesión, y su borde lo marca (`@grant: it may give functions and Command sessions`) mientras lo tenga.
 - **Qué da.**
   - Solo da piezas aprobadas del Perfil y Command sessions que existen.
-  - Una pieza en cuarentena o rechazada da error, y lo mismo `@grant` o una pieza que lo declare (`grant_not_givable`).
+  - Una pieza en cuarentena o rechazada da error, y lo mismo `@grant` o una pieza que lo declare (`grant_not_givable`). Una que no se puede describir cuenta como si lo declarara.
+  - No da `-y`, `--devastation` ni Exenciones: ninguna es una pieza ni un Command session.
   - Solo da a Sesiones del Perfil activo. Lo que da deja sus Notificaciones en la Sesión que lo recibe, como `/func add`.
-- **Confirmación y Log.** `/grant` es delicado: pide Confirmación antes de mirar lo que da, como todo Command main delicado, y queda en el Log con la cadena entera. `--devastation` la contesta solo si cubre la cadena y también la Sesión que recibe.
+- **Confirmación y Log.**
+  - `/grant` es delicado. Antes de preguntar comprueba lo que da, para que un humano no confirme lo que se va a rechazar, y lo vuelve a comprobar al correr.
+  - El recuadro dice quién lo pide (`asked by human > session:…`), igual que toda Confirmación que no pidió un humano.
+  - Queda con la cadena entera en el Log de la Sesión que lo usa y en el de la que recibe.
+  - `--devastation` la contesta solo si cubre la cadena y también la Sesión que recibe.
+- **Lo que llega después.** Molde y Clon (#112) tampoco lo traerán. La fproc que lo declare solo la adherirá un humano (#113).

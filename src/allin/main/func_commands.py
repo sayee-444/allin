@@ -93,56 +93,60 @@ class FuncCommands:
         self._in_profile = in_profile
 
     def run(self, text: str = "", origin: Origin = HUMAN) -> bool:
-        del origin  # who may add is checked before: ``only_human``
+        # Who may add is checked before (``only_human``); who did goes in the Log.
         match text.split():
             case [] | ["list"]:
                 self._list_profile()
             case ["list", sid]:
                 self._list_session(self._load(sid))
             case ["add", sid, *named] if named:
-                refs, commands = self._named(named)
+                refs, commands = self._named(named, USAGE)
+                if self._gives_grant(refs):  # its approved fsource gives Otorgar too
+                    commands = [*commands, GRANT]
                 if refs:  # the pieces first: one that fails leaves the list as it was
-                    self._add(self._load(sid), refs)
-                if self._any_grants(refs):  # its fsource gives Otorgar too
-                    commands = [*commands, GRANT]
-                self._add_commands(self._load(sid), commands)
+                    self._add(self._load(sid), refs, origin)
+                self._add_commands(self._load(sid), commands, origin)
             case ["remove", sid, *named] if named:
-                refs, commands = self._named(named)
-                if refs:
-                    self._remove(self._load(sid), refs)
-                if self._any_grants(refs):
+                refs, commands = self._named(named, USAGE)
+                if self._may_grant(refs):  # Otorgar leaves with its fsource
                     commands = [*commands, GRANT]
-                self._remove_commands(self._load(sid), commands)
+                if refs:
+                    self._remove(self._load(sid), refs, origin)
+                self._remove_commands(self._load(sid), commands, origin)
             case _:
                 raise InvalidArguments(usage=USAGE)
         return True
 
     def grant(self, session_id: str, named: str, origin: Origin = HUMAN) -> bool:
         """``/grant <sid> <piece|@command>…``: Otorgar. It gives a Session of the active
-        Profile what exists and is approved there, never Otorgar; its Confirmation is asked
-        before, as for any delicate Command main."""
+        Profile what exists and is approved there, never Otorgar. Checked before its
+        Confirmation is asked (``check_grant``) and again once answered, since the Profile
+        may have changed meanwhile."""
+        session, refs, commands = self._givable(session_id, named)
+        if refs:
+            self._add(session, refs, origin)
+        self._add_commands(self._load(session.id), commands, origin)
+        return True
+
+    def check_grant(self, args: list[str]) -> None:
+        """Raise what ``/grant`` would, before a human is asked to confirm it."""
+        self._givable(*args)
+
+    def _givable(
+        self, session_id: str, named: str
+    ) -> tuple[Session, list[PieceRef], list[CommandName]]:
         session = self._load(session_id)
         if not self._in_profile(session.id):
             raise OutsideProfile(session_id=session.id)
-        refs, commands = self._named(named.split())
+        refs, commands = self._named(named.split(), GRANT_USAGE)
         if not refs and not commands:
             raise InvalidArguments(usage=GRANT_USAGE)
         if GRANT in commands:
             raise GrantNotGivable(what=f"@{GRANT}")
         quarantine = self._quarantine()
         for ref in refs:
-            piece = quarantine.piece(ref)
-            if piece.state == "quarantined":
-                raise PieceInQuarantine(piece=ref.id)
-            if piece.state == "rejected":
-                raise PieceRejected(piece=ref.id)
-            if _grants(quarantine, piece):
-                raise GrantNotGivable(what=ref.id)
-        del origin  # who asked goes in the Log, with the whole chain, as for any Command main
-        if refs:
-            self._add(session, refs)
-        self._add_commands(self._load(session.id), commands)
-        return True
+            _check_givable(quarantine, quarantine.piece(ref))
+        return session, refs, commands
 
     def mark(self, session_id: SessionId) -> None:
         """Tell the Session's Window whether it has Otorgar, for its border."""
@@ -153,11 +157,27 @@ class FuncCommands:
             return
         self._windows.send(session_id, GrantHeld(held=held))
 
-    def _any_grants(self, refs: list[PieceRef]) -> bool:
+    def _gives_grant(self, refs: list[PieceRef]) -> bool:
+        """Whether one of these is an approved fsource that declares Otorgar."""
         if not refs:
             return False
         quarantine = self._quarantine()
-        return any(_grants(quarantine, quarantine.piece(ref)) for ref in refs)
+        pieces = [quarantine.piece(ref) for ref in refs]
+        return any(p.state == "approved" and _grants(quarantine, p) for p in pieces)
+
+    def _may_grant(self, refs: list[PieceRef]) -> bool:
+        """Whether one of these may declare Otorgar: one that cannot be described, or is gone
+        from the Profile, may."""
+        if not refs:
+            return False
+        quarantine = self._quarantine()
+        for ref in refs:
+            try:
+                if _may_grant(quarantine, quarantine.piece(ref)):
+                    return True
+            except PieceNotFound:
+                return True
+        return False
 
     def born_with(self, sources: bool, agents: list[str]) -> tuple[PieceId, ...]:
         """What a new Session has: the approved fsources, unless ``sources`` is off, but the one
@@ -206,20 +226,21 @@ class FuncCommands:
         ]
         return tuple(dict.fromkeys(listed))
 
-    def _named(self, named: list[str]) -> tuple[list[PieceRef], list[CommandName]]:
-        """The pieces and the Command sessions (``@name``) a ``/func`` line names; raises
-        before anything changes if one of either does not exist."""
+    def _named(self, named: list[str], usage: str) -> tuple[list[PieceRef], list[CommandName]]:
+        """The pieces and the Command sessions (``@name``) a line names; raises before
+        anything changes if one of either does not exist, with ``usage`` for a word that is
+        neither."""
         commands = [CommandName(n.removeprefix("@")) for n in named if n.startswith("@")]
         unknown = [name for name in commands if name not in self._commands.types]
         if unknown:
             raise UnknownSessionCommand(command=unknown[0])
-        return [_ref(n) for n in named if not n.startswith("@")], commands
+        return [_ref(n, usage) for n in named if not n.startswith("@")], commands
 
-    def _add_commands(self, session: Session, names: list[CommandName]) -> None:
+    def _add_commands(self, session: Session, names: list[CommandName], origin: Origin) -> None:
         if not names:
             return
         listed = tuple(dict.fromkeys([*session.commands, *names]))
-        self._save_commands(session, listed, "commands_added", names)
+        self._save_commands(session, listed, "commands_added", names, origin)
         self._tell(session, [f"@{n}" for n in names if n not in session.commands], given=True)
         if GRANT in names and GRANT not in session.commands:
             text = (
@@ -229,11 +250,11 @@ class FuncCommands:
             self._boxes.notify(session.id, "Otorgar given", text)
             self.mark(session.id)
 
-    def _remove_commands(self, session: Session, names: list[CommandName]) -> None:
+    def _remove_commands(self, session: Session, names: list[CommandName], origin: Origin) -> None:
         if not names:
             return
         listed = tuple(name for name in session.commands if name not in names)
-        self._save_commands(session, listed, "commands_removed", names)
+        self._save_commands(session, listed, "commands_removed", names, origin)
         self._tell(session, [f"@{n}" for n in session.commands if n in names], given=False)
         if GRANT in names and GRANT in session.commands:
             self.mark(session.id)
@@ -244,10 +265,17 @@ class FuncCommands:
         listed: tuple[CommandName, ...],
         event: str,
         names: list[CommandName],
+        origin: Origin,
     ) -> None:
         self._sessions.save_commands(session, listed)
         shown = f"Command sessions: {_shown(listed) or 'none'}"
-        self._reporter.record(session.id, event, shown, commands=list[JsonValue](names))
+        self._reporter.record(
+            session.id,
+            event,
+            shown,
+            commands=list[JsonValue](names),
+            origin=list[JsonValue](origin.labels),
+        )
 
     def _list_profile(self) -> None:
         pieces = [p for p in self._quarantine().pieces() if p.ref.is_code]
@@ -269,18 +297,18 @@ class FuncCommands:
                 state = "gone from the Profile"
             self._reporter.show(session.id, f"{piece_id}  {state}")
 
-    def _add(self, session: Session, refs: list[PieceRef]) -> None:
+    def _add(self, session: Session, refs: list[PieceRef], origin: Origin) -> None:
         quarantine = self._quarantine()
         for ref in refs:
             quarantine.piece(ref)  # it must exist; it may wait for its Approval
         functions = _unique([*session.functions, *(ref.id for ref in refs)])
-        self._save(session, functions, "functions_added", refs)
+        self._save(session, functions, "functions_added", refs, origin)
         self._tell(session, [r.id for r in refs if r.id not in session.functions], given=True)
 
-    def _remove(self, session: Session, refs: list[PieceRef]) -> None:
+    def _remove(self, session: Session, refs: list[PieceRef], origin: Origin) -> None:
         gone = {ref.id for ref in refs}
         functions = tuple(f for f in session.functions if f not in gone)
-        self._save(session, functions, "functions_removed", refs)
+        self._save(session, functions, "functions_removed", refs, origin)
         self._tell(session, [f for f in session.functions if f in gone], given=False)
 
     def _tell(self, session: Session, subjects: Iterable[str], *, given: bool) -> None:
@@ -291,12 +319,18 @@ class FuncCommands:
             self._notifications.leave(session.id, FUNC, _told_line(change), change)
 
     def _save(
-        self, session: Session, functions: tuple[PieceId, ...], event: str, refs: list[PieceRef]
+        self,
+        session: Session,
+        functions: tuple[PieceId, ...],
+        event: str,
+        refs: list[PieceRef],
+        origin: Origin,
     ) -> None:
         self._sessions.save_functions(session, functions)
         changed: list[JsonValue] = [ref.id for ref in refs]
         shown = f"functions: {', '.join(functions) or 'none'}"
-        self._reporter.record(session.id, event, shown, pieces=changed)
+        origin_labels = list[JsonValue](origin.labels)
+        self._reporter.record(session.id, event, shown, pieces=changed, origin=origin_labels)
 
 
 def _told_line(change: Change) -> str:
@@ -317,11 +351,30 @@ def _unique(ids: list[PieceId]) -> tuple[PieceId, ...]:
     return tuple(dict.fromkeys(ids))  # in order, each once
 
 
-def _ref(text: str) -> PieceRef:
+def _ref(text: str, usage: str) -> PieceRef:
     ref = parse_piece_ref(text)
     if ref is None or not ref.is_code:
-        raise InvalidArguments(usage=USAGE)
+        raise InvalidArguments(usage=usage)
     return ref
+
+
+def _check_givable(quarantine: Quarantine, piece: Piece) -> None:
+    """Otorgar gives only an approved piece that does not declare it: one it cannot tell
+    about, since it cannot be described, is not given (ADR-0025)."""
+    if piece.state == "quarantined":
+        raise PieceInQuarantine(piece=piece.ref.id)
+    if piece.state == "rejected":
+        raise PieceRejected(piece=piece.ref.id)
+    if _may_grant(quarantine, piece):
+        raise GrantNotGivable(what=piece.ref.id)
+
+
+def _may_grant(quarantine: Quarantine, piece: Piece) -> bool:
+    """Whether it declares Otorgar, or cannot be described to tell."""
+    return any(
+        isinstance(described, AllInError) or described.reach.grants
+        for described in quarantine.describe(piece).values()
+    )
 
 
 def _grants(quarantine: Quarantine, piece: Piece) -> bool:

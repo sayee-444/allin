@@ -99,6 +99,8 @@ class CommandSpec:
     # ``--devastation`` answers its Confirmation only if it also covers the Session it concerns:
     # Otorgar's must cover all it touches (ADR-0025).
     covers_its_session: bool = False
+    # Raises what running it would, before a Confirmation asks a human about it: /grant.
+    check: Callable[[list[str]], None] | None = None
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -324,6 +326,7 @@ class MainCommands:
                 takes_origin=True,
                 confirm=True,
                 covers_its_session=True,
+                check=functions.check_grant,
             ),
             # Only a human approves, on purpose: never delicate, so neither -y nor
             # --devastation answers for it (ADR-0013).
@@ -426,6 +429,8 @@ class MainCommands:
                 raise InvalidArguments(usage=command.usage(name))
             if (yes or command.only_human(args)) and not origin.is_human:
                 raise HumanOnly(action=name, origin=list[JsonValue](origin.labels))
+            if command.check is not None:
+                command.check(args)
             delicate = command.delicate(args)
             answered_by_main = self._devastation.answers(origin) and (
                 not command.covers_its_session
@@ -481,7 +486,9 @@ class MainCommands:
                 done(error)
 
         self._log_command(session_id, "confirmation_asked", text, None, origin)
-        self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
+        # The human sees who asks: an LLM may have been fooled by something it read (ADR-0025).
+        asker = "" if origin.is_human else f"\nasked by {origin}"
+        self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?{asker}", on_answer)
 
     def _report(
         self, session_id: str | None, text: str, outcome: CommandOutcome, origin: Origin

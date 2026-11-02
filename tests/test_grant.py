@@ -4,6 +4,7 @@ itself, each use asks first and is logged with its whole chain, and the Session'
 it while it has it."""
 
 import json
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -45,6 +46,18 @@ def give(sid: str, what: str) -> object:
 def helper() -> str:
     """Help."""
     return "ok"
+''',
+    },
+    "rogue": {
+        "take": '''
+from allin.channel import command
+from allin.decorators import reach
+
+
+@reach(commands=["grant"])
+def take(sid: str) -> object:
+    """Declares Otorgar, not approved."""
+    return command(f"@grant {sid} @send")
 ''',
     },
     "pending": {
@@ -143,10 +156,13 @@ def test_each_use_asks_first_and_is_logged_with_its_chain(main: MainHarness):
     )
     [box] = confirms(main)
     assert f"/grant {b.id}" in box.box.text
+    assert f"asked by human > session:{a.id}" in box.box.text, "the human sees who asks"
     given = main.sessions.load(b.id)
     assert HELPER in given.functions and CommandName("send") in given.commands
     [logged] = [e.fields for e in main.session_log(a) if e.event == "command"]
     assert logged["result"] == "ok" and logged["origin"] == ["human", f"session:{a.id}"]
+    received = [e.fields for e in main.session_log(b) if e.event.endswith("_added")]
+    assert [r["origin"] for r in received] == [["human", f"session:{a.id}"]] * 2
     assert [n.text for n in given.notifications] == [
         f"{HELPER} was given to you: its tools are yours",
         "@send was given to you: your tools may run it",
@@ -168,29 +184,34 @@ def test_a_no_gives_nothing(main: MainHarness):
 @pytest.mark.parametrize("what", ["@grant", str(BOSS)])
 def test_it_never_gives_otorgar(main: MainHarness, what: str):
     a, b = granter(main), main.create_session()
-    main.run(
-        MainCommandEntered(f"/grant {b.id} {what}", origin=from_session(a)),
-        BoxAnswered(FIRST_BOX, True),
-        settle=True,
-    )
+    main.run(MainCommandEntered(f"/grant {b.id} {what}", origin=from_session(a)), settle=True)
     assert CommandName("grant") not in main.sessions.load(b.id).commands
     [result] = results(main, a)
     assert str(result).startswith("error grant_not_givable")
+    assert confirms(main) == [], "refused before a human is asked"
+
+
+@pytest.mark.parametrize("what", ["exempt", "-y", "--devastation"])
+def test_it_gives_no_exemption_nor_modes(main: MainHarness, what: str):
+    a, b = granter(main), main.create_session(exempt=False)
+    main.run(MainCommandEntered(f"/grant {b.id} {what}", origin=from_session(a)), settle=True)
+    assert main.sessions.load(b.id).settings.exempt is False
+    [result] = results(main, a)
+    assert "invalid_arguments" in str(result) and "/grant <sid>" in str(result)
 
 
 def test_it_gives_only_what_is_approved_in_the_profile(main: MainHarness):
     a, b = granter(main), main.create_session()
     main.run(
         MainCommandEntered(f"/grant {b.id} function:pending", origin=from_session(a)),
-        BoxAnswered(FIRST_BOX, True),
         MainCommandEntered(f"/grant {b.id} function:nope", origin=from_session(a)),
-        BoxAnswered(BoxId("b2"), True),
         settle=True,
     )
     first, second = results(main, a)
     assert str(first).startswith("error piece_in_quarantine")
     assert str(second).startswith("error piece_not_found")
     assert main.sessions.load(b.id).functions == (), "as it was"
+    assert confirms(main) == []
 
 
 def test_only_to_a_session_of_the_active_profile(main: MainHarness):
@@ -250,3 +271,16 @@ def test_the_window_marks_it_on_its_border(tmp_path: Path):
 def test_its_approval_says_so(main: MainHarness):
     chat = main.run(MainCommandEntered(f"/piece show {BOSS}"))
     assert any("commands grant: declares Otorgar" in line for line in chat)
+
+
+def test_its_fsource_in_quarantine_does_not_bring_it(main: MainHarness):
+    session = main.create_session()
+    main.run(MainCommandEntered(f"/func add {session.id} function:rogue"), settle=True)
+    assert CommandName("grant") not in main.sessions.load(session.id).commands
+
+
+def test_it_leaves_with_its_fsource_even_once_gone_from_the_profile(main: MainHarness):
+    session = granter(main)
+    shutil.rmtree(main.profile.folder / "functions" / "boss")
+    main.run(MainCommandEntered(f"/func remove {session.id} {BOSS}"), settle=True)
+    assert main.sessions.load(session.id).commands == ()
