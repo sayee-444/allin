@@ -1,4 +1,6 @@
+import contextlib
 import queue
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -179,6 +181,14 @@ class FakeWindowLink:
 type Between = Callable[[], None]  # something a test does between two events
 
 
+class _TurnsEnded:
+    """A step of ``later``: Main goes on handling what comes in until the Turns that run in
+    threads have ended, and only then takes the next event."""
+
+
+TURNS_ENDED = _TurnsEnded()
+
+
 class DrainingInbox(queue.Queue[MainEvent]):
     """An inbox that says Shutdown once it is empty, so a test's dispatcher always stops.
 
@@ -187,24 +197,36 @@ class DrainingInbox(queue.Queue[MainEvent]):
     turn instead, e.g. to move Main's clock.
     """
 
-    def __init__(self, later: list[MainEvent | Between]) -> None:
+    def __init__(self, later: list[MainEvent | Between | _TurnsEnded]) -> None:
         super().__init__()
         self._later = later
+        self.workers: list[threading.Thread] = []  # Turns run in threads of their own
+
+    def _waits(self) -> bool:
+        """Whether the next event waits for the Turns in threads: there is none yet, or the
+        next one is ``TURNS_ENDED``."""
+        return not self._later or self._later[0] is TURNS_ENDED
 
     def get(self, block: bool = True, timeout: float | None = None) -> MainEvent:
         if not block:  # only Main stopping asks this way, to take what is left
             return super().get(block=False)
-        try:
-            return super().get(block=False)
-        except queue.Empty:
-            while self._later:
-                event = self._later.pop(0)
-                if not callable(event):
-                    return event
-                event()
-                if not super().empty():
-                    return super().get(block=False)
-            return Shutdown()
+        while True:
+            with contextlib.suppress(queue.Empty):
+                return super().get(block=False)
+            # With Turns in threads, the next event comes once the inbox is empty, maybe while
+            # a Turn still runs; but ``TURNS_ENDED`` and Shutdown only once they all ended.
+            if self._waits() and any(worker.is_alive() for worker in self.workers):
+                with contextlib.suppress(queue.Empty):
+                    return super().get(timeout=0.05)
+                continue
+            if not self._later:
+                return Shutdown()
+            event = self._later.pop(0)
+            if isinstance(event, _TurnsEnded):
+                continue
+            if not callable(event):
+                return event
+            event()
 
 
 class RecordingStateStore(MainStateStore):
@@ -247,6 +269,9 @@ class MainHarness:
         # Whether another Main could have taken a slot lock as each Turn was submitted.
         self.slot_free_at_submit: list[bool] = []
         self.hold_turns = False
+        # Turns run each in a thread, as Main runs them: needed by a Turn that waits for Main,
+        # such as one whose tools run (#106).
+        self.threaded_turns = False
         self.now = 0.0  # Main's clock, as the test moves it
         self.main_screen: list[ScreenUpdate] = []  # boxes and marks of Main's Chat, in order
         self.devastation = False  # lit on the command line
@@ -280,7 +305,7 @@ class MainHarness:
     def windows(self, session_id: str) -> list[FakeWindowLink]:
         return [link for sid, link in self.opened if sid == session_id]
 
-    def run(self, *events: MainEvent | Between, settle: bool = False) -> list[str]:
+    def run(self, *events: MainEvent | Between | _TurnsEnded, settle: bool = False) -> list[str]:
         """Feed events to a dispatcher, run it until nothing is left and return Main's Chat.
 
         With ``settle``, each event arrives only once Main has handled all that came before it
@@ -302,6 +327,10 @@ class MainHarness:
             if self.hold_turns:
                 job.confirmation.connect(job.session_id, job.cancellation, inbox.put)
                 self.held.append(job)
+            elif self.threaded_turns:
+                worker = threading.Thread(target=execute, args=(self.llm, job, inbox.put))
+                inbox.workers.append(worker)
+                worker.start()
             else:
                 execute(self.llm, job, inbox.put)
 
@@ -333,7 +362,7 @@ class MainHarness:
         )
         self.dispatcher = dispatcher
         for event in () if settle else events:
-            assert not callable(event)
+            assert not callable(event) and not isinstance(event, _TurnsEnded)
             inbox.put(event)
         dispatcher.run()
         return main_chat

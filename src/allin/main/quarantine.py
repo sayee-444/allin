@@ -1,8 +1,9 @@
 """Quarantine and Approval (ADR-0013, ADR-0016): every new or changed piece waits until a human
 approves it, and only what is approved is offered to the LLM or used.
 
-A piece is a function's package (``functions/<package>/``, each top-level module that does not
-start with ``_`` one function or fproc) or a Sysprompt (``sysprompts/<file>``). Each Profile
+A piece is a function's package (an fsource's, ``functions/<package>/``, or an fagent's,
+``agents/<package>/``: each top-level module that does not start with ``_`` one function or
+fproc) or a Sysprompt (``sysprompts/<file>``). Each Profile
 keeps the hash each piece was approved with (``approvals.json``): a piece whose hash differs,
 whoever changed it, is in quarantine. A package with compiled code or binaries is rejected and
 never approved. What a human adjusts when approving (a smaller Alcance, tools that ask a
@@ -27,17 +28,23 @@ from allin.core.errors import (
 )
 from allin.core.files import write_atomically
 from allin.core.hashing import content_hash, folder_hash
+from allin.core.ids import PieceId
 from allin.core.sources import binary_files, compiled_files
 from allin.decorators import Reach
 from allin.main.descriptions import Description, Descriptions
 from allin.main.provenance import kit_origins
 
-type PieceKind = Literal["function", "sysprompt"]
+type PieceKind = Literal["function", "agent", "sysprompt"]
 type PieceState = Literal["approved", "quarantined", "rejected"]
 type Author = Literal["user", "kit", "session"]
 
 _APPROVALS = "approvals.json"
-_FOLDERS: dict[PieceKind, str] = {"function": "functions", "sysprompt": "sysprompts"}
+# fsources, inherited by /new, and fagents, given one by one (ADR-0005, #106)
+_FOLDERS: dict[PieceKind, str] = {
+    "function": "functions",
+    "agent": "agents",
+    "sysprompt": "sysprompts",
+}
 
 
 @dataclass(frozen=True)
@@ -49,8 +56,13 @@ class PieceRef:
     name: str
 
     @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.name}"
+    def id(self) -> PieceId:
+        return PieceId(f"{self.kind}:{self.name}")
+
+    @property
+    def is_code(self) -> bool:
+        """A package of functions (an fsource's or an fagent's), not a piece of data."""
+        return self.kind != "sysprompt"
 
 
 def parse_piece_ref(text: str) -> PieceRef | None:
@@ -58,7 +70,7 @@ def parse_piece_ref(text: str) -> PieceRef | None:
     if not name or "/" in name or name.startswith("."):
         return None
     match kind:
-        case "function" | "sysprompt":
+        case "function" | "agent" | "sysprompt":
             return PieceRef(kind, name)
         case _:
             return None
@@ -104,7 +116,7 @@ class Piece:
     @property
     def modules(self) -> tuple[str, ...]:
         """A package's functions, by module; none for a Sysprompt."""
-        if self.ref.kind != "function":
+        if not self.ref.is_code:
             return ()
         return tuple(sorted(p.stem for p in self.path.glob("*.py") if not p.name.startswith("_")))
 
@@ -121,6 +133,7 @@ class Adjustments:
 class OfferedFunction:
     """An approved function, as Main offers it: its description with the approved Alcance."""
 
+    piece: PieceRef
     package: Path
     description: Description
     confirm: frozenset[str]  # its tools that ask a Confirmation, added at approval
@@ -194,7 +207,7 @@ class Quarantine:
             reach=dict(adjustments.reach),
             confirm=tuple(sorted(set(adjustments.confirm))),
         )
-        if ref.kind == "function":
+        if ref.is_code:
             _check_adjustments(ref, _described(ref, self.describe(piece)), adjustments)
         self._save({**self._approvals().pieces, ref.id: approval})
         return approval
@@ -223,7 +236,7 @@ class Quarantine:
         approvals = self._approvals().pieces
         offered: list[OfferedFunction] = []
         for piece in self.pieces():
-            if piece.ref.kind != "function" or piece.state != "approved":
+            if not piece.ref.is_code or piece.state != "approved":
                 continue
             approval = approvals[piece.ref.id]
             for module, description in self.describe(piece).items():
@@ -233,6 +246,7 @@ class Quarantine:
                 tools = {tool.name for tool in description.tools}
                 offered.append(
                     OfferedFunction(
+                        piece=piece.ref,
                         package=piece.path,
                         description=description.model_copy(update={"reach": reach}),
                         confirm=frozenset(approval.confirm) & tools,
@@ -246,7 +260,7 @@ class Quarantine:
     def _kept_from_bulk(self, piece: Piece) -> str | None:
         if piece.provenance.by != "user":
             return f"written by {piece.provenance.writer}"
-        if piece.ref.kind != "function":
+        if not piece.ref.is_code:
             return None
         if not piece.modules:  # as approving it alone refuses it
             return "no functions"
@@ -261,7 +275,7 @@ class Quarantine:
 
     def _piece(self, ref: PieceRef, approvals: _Approvals) -> Piece:
         path = self._path(ref)
-        if ref.kind == "function":
+        if ref.is_code:
             digest: str = folder_hash(path)
             rejected = tuple(sorted({*compiled_files(path), *binary_files(path)}))
         else:
@@ -339,7 +353,7 @@ def _load_approvals(profile_folder: Path) -> _Approvals:
 
 
 def _is_piece(kind: PieceKind, path: Path) -> bool:
-    return path.is_dir() if kind == "function" else path.is_file()
+    return path.is_file() if kind == "sysprompt" else path.is_dir()
 
 
 def _described(ref: PieceRef, described: Described) -> dict[str, Description]:

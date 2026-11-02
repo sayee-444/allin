@@ -84,6 +84,16 @@ class CompactSettings(BaseModel, frozen=True):
     )
 
 
+class ToolSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    timeout: float = Field(
+        default=60.0,
+        gt=0,
+        description="seconds each call to a Function tool may run before Main takes it down",
+    )
+
+
 class SessionSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -123,6 +133,7 @@ class SessionSettings(BaseModel, frozen=True):
         " only a human changes it",
     )
     compact: CompactSettings = CompactSettings()
+    tools: ToolSettings = ToolSettings()
     # Its Window's Atajos as they differ from the defaults (``ui.shortcuts``); only ``/key``
     # changes them, so only a human does (#57).
     keys: dict[str, str] = Field(default_factory=dict[str, str])

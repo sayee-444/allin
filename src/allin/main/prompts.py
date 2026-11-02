@@ -9,7 +9,7 @@ from typing import Literal
 
 from allin.core.ids import SessionId
 from allin.core.origin import HUMAN, LinkKind, Origin
-from allin.main.conversation import Attachment
+from allin.main.conversation import Attachment, Step
 from allin.main.prompt_commands import TurnOverrides
 
 # What a queue entry asks: a Turn for its text, a Compaction asked with ``/session compact``
@@ -31,6 +31,8 @@ class Prompt:
     # Sent while its Session was busy: its Chat shows it once its Turn starts (ADR-0024).
     queued: bool = False
     origin: Origin = HUMAN  # a Rewind gives back to the input only a human's (#58)
+    # The Steps its Turn had ended when a fall suspended it, which it goes on from (ADR-0023).
+    steps: tuple[Step, ...] = ()
 
     @property
     def as_typed(self) -> str:

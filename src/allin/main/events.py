@@ -229,6 +229,26 @@ class SlotFreed:
 
 
 @dataclass(frozen=True)
+class ToolsStarted:
+    """A running Turn's Step called tools: they run now, without its slot (ADR-0004)."""
+
+    session_id: SessionId
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ToolsEnded:
+    """A running Turn's tools gave back what they said: its next Step, a Continuation, waits
+    for a slot. It reads ``grows`` more tokens at most than the Step before: what that one
+    generated, and what the tools gave back, a character each. ``failed``: each tool that gave
+    back an error, with it."""
+
+    session_id: SessionId
+    grows: int
+    failed: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
 class ConfirmationRequested:
     """A running Turn asks the user yes or no; it waits, without its slot, for the answer."""
 
@@ -274,6 +294,8 @@ type MainEvent = (
     | InputMeasured
     | Tick
     | ConfirmationRequested
+    | ToolsStarted
+    | ToolsEnded
     | BoxAnswered
     | Shutdown
 )

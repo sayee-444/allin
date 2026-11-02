@@ -16,7 +16,7 @@ import pytest
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolCall, ToolLauncher
 from allin.confinement.reach import install_root
-from allin.core.errors import ToolNotStarted, ToolTimedOut
+from allin.core.errors import ToolCancelled, ToolNotStarted, ToolTimedOut
 from allin.decorators import MINIMUM, Reach
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
@@ -561,3 +561,20 @@ def test_a_reach_around_allins_installation_never_writes_into_it(
         planted.unlink(missing_ok=True)
     assert wrote.value == "PermissionError"
     assert config.value == {"c": "PermissionError"}, "the minimum does not read the project's root"
+
+
+def test_stopping_a_call_takes_it_and_its_descendants_down_at_once(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    title = unique_title()
+    started = time.monotonic()
+    stop_at = started + 0.5
+    with pytest.raises(ToolCancelled):
+        launcher.run(
+            call(package, workspace, "hang", title=title),
+            timeout=30,
+            stop=lambda: time.monotonic() > stop_at,
+        )
+    assert time.monotonic() - started < 5
+    time.sleep(0.2)
+    assert not alive(title)

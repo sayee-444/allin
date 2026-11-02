@@ -128,7 +128,7 @@ _Avoid_: opción, campo
 Los que Main usa para sí mismo (su idioma, su Tema, `parallel`…); no se comparten con las Sesiones.
 
 **Ajustes de Sesión** (`SessionSettings`):
-Los que usa una Sesión y su Ventana: parámetros del LLM y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que se copian a la Sesión en `/new` y que no usa, salvo el Enlace por defecto para sus propios Pasos; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
+Los que usa una Sesión y su Ventana: parámetros del LLM, de sus tools (`tools.timeout`) y de interfaz (idioma, Tema, fuente…). Main guarda unos de plantilla que se copian a la Sesión en `/new` y que no usa, salvo el Enlace por defecto para sus propios Pasos; después se cambian por Sesión con `/session set`, con efecto en su Ventana aunque esté abierta.
 
 **Ajustes actuales** (`current settings`):
 La versión de los Ajustes de Main (incluida la plantilla de Sesión) que rige ahora; se cambian con `/set` y son los que copian las Sesiones nuevas y los submains. Se guardan en `settings/current.json` de la carpeta del Perfil; si ese archivo no es válido, Main dice qué clave falla y arranca con los por defecto. `/set` a secas los muestra.
@@ -271,11 +271,11 @@ Función que invoca el LLM (va en `tools=[...]`); un módulo = una tool, salvo u
 _Avoid_: skill, comando
 
 **fsource**:
-Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`, y salvo la que declara Otorgar, que solo da un humano) y que puede ejecutar los Command sessions que declara; es, con los métodos de una fproc, la vía por la que el LLM actúa sobre AllIn.
+Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`, y salvo la que declara Otorgar, que solo da un humano) y que puede ejecutar los Command sessions que declara; es, con los métodos de una fproc, la vía por la que el LLM actúa sobre AllIn. Sus packages viven en `functions/` del Perfil.
 _Avoid_: source, function source
 
 **fagent**:
-Function tool escrita por el usuario o por el LLM; se pasa explícitamente en `/new` o se añade después. Puede agruparse en packages fuera de las Sesiones. No es un agente.
+Function tool escrita por el usuario o por el LLM; se pasa explícitamente en `/new` (`-fa=<package>`) o se añade después con `/func add`. Sus packages viven en `agents/` del Perfil, fuera de las Sesiones. No es un agente.
 _Avoid_: agent, function agent, agente
 
 **fproc**:

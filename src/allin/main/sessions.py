@@ -23,7 +23,7 @@ from allin.core.errors import (
     WorkspaceRefused,
 )
 from allin.core.files import write_atomically
-from allin.core.ids import MainId, SessionId, new_session_id, parse_session_id
+from allin.core.ids import MainId, PieceId, SessionId, new_session_id, parse_session_id
 from allin.core.settings import SessionSettings
 from allin.core.themes import pick_border_color
 from allin.main.conversation import (
@@ -58,6 +58,9 @@ class Session(BaseModel, frozen=True):
     # when it is born, the one the other Sessions use least, and kept, like its id. ``None`` for
     # a Session from before, which gets one the first time it is shown.
     border_color: str | None = None
+    # Its Function tools, as pieces (``function:<package>``, ``agent:<package>``): what its
+    # LLM may get in ``tools=[...]``, once each is approved (#106).
+    functions: tuple[PieceId, ...] = ()
 
 
 class SessionStore:
@@ -106,7 +109,12 @@ class SessionStore:
         return self._root.parent / "workspaces" / f"{session_id}.path.json"
 
     def create(
-        self, owner: MainId, settings: SessionSettings, sysprompt: str, chosen: str | None = None
+        self,
+        owner: MainId,
+        settings: SessionSettings,
+        sysprompt: str,
+        chosen: str | None = None,
+        functions: tuple[PieceId, ...] = (),
     ) -> Session:
         """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
         ``sysprompt`` is already rendered."""
@@ -121,6 +129,7 @@ class SessionStore:
                 created_at=datetime.now(UTC),
                 settings=settings,
                 border_color=pick_border_color(self._border_colors(but=session_id)),
+                functions=functions,
             )
             save_conversation(folder, Conversation(sysprompt=sysprompt))
             write_atomically(folder / _METADATA, session.model_dump_json(indent=2))
@@ -230,9 +239,15 @@ class SessionStore:
 
     def save_settings(self, session: Session, settings: SessionSettings) -> Session:
         """The Session with new Settings, already on disk."""
-        changed = session.model_copy(update={"settings": settings})
+        return self._save(session.model_copy(update={"settings": settings}))
+
+    def save_functions(self, session: Session, functions: tuple[PieceId, ...]) -> Session:
+        """The Session with other Function tools, already on disk."""
+        return self._save(session.model_copy(update={"functions": functions}))
+
+    def _save(self, changed: Session) -> Session:
         try:
-            write_atomically(self._root / session.id / _METADATA, changed.model_dump_json(indent=2))
+            write_atomically(self._root / changed.id / _METADATA, changed.model_dump_json(indent=2))
         except OSError as error:
             raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
         return changed

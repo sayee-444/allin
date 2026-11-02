@@ -10,6 +10,7 @@ from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
     ResponseFailedEvent,
+    ResponseFunctionToolCall,
     ResponseOutputMessage,
     ResponseOutputText,
     ResponseReasoningItem,
@@ -168,3 +169,13 @@ class FakeLlm:
         stream = script if isinstance(script, FakeStream) else FakeStream(script)
         self.opened.append(stream)
         return stream
+
+
+def tool_call(name: str, arguments: str, call_id: str = "call_1") -> list[ResponseStreamEvent]:
+    """A Step that ends calling one tool, with ``arguments`` as the LLM wrote them."""
+    call = ResponseFunctionToolCall(
+        type="function_call", id=f"fc_{call_id}", call_id=call_id, name=name, arguments=arguments
+    )
+    usage = ResponseUsage.model_construct(input_tokens=5, output_tokens=5, total_tokens=10)
+    response = Response.model_construct(id="resp_1", output=[call], usage=usage)
+    return [ResponseCompletedEvent.model_construct(type="response.completed", response=response)]

@@ -35,6 +35,7 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "session.server",
         "session.exempt",
         "session.compact.auto",
+        "session.tools.timeout",
         "session.compact.threshold",
         "session.compact.keep",
         "session.compact.sysprompt",

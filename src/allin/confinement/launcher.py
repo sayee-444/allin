@@ -53,6 +53,7 @@ from allin.confinement.reach import (
 from allin.core.errors import (
     ConfinementFailed,
     PackageNotSource,
+    ToolCancelled,
     ToolDied,
     ToolNotStarted,
     ToolTimedOut,
@@ -62,6 +63,7 @@ from allin.decorators import MINIMUM, Reach
 
 _OUTPUT_KEPT = 64 * 1024  # of stdout and of stderr, each; the rest is read and dropped
 _ANSWER_MAX = 16 * 1024 * 1024
+_STOP_POLL = 0.1  # how often a waiting call asks whether its Turn was cancelled
 _STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
 # What a graphical client needs from Main's environment, and only with ``display``.
@@ -158,9 +160,12 @@ class ToolLauncher:
         self._requests.put(None)
         self._thread.join()
 
-    def run(self, call: ToolCall, timeout: float) -> ToolOutcome:
+    def run(
+        self, call: ToolCall, timeout: float, stop: Callable[[], bool] = lambda: False
+    ) -> ToolOutcome:
         """Run ``call`` in its own confined process and wait for its answer. Raises
-        ``ToolTimedOut`` after ``timeout`` seconds, ``ToolDied`` if it ended without one and
+        ``ToolTimedOut`` after ``timeout`` seconds, ``ToolCancelled`` as soon as ``stop`` says
+        so (it is asked a few times a second), ``ToolDied`` if it ended without one and
         ``ConfinementFailed`` if it could not confine itself, ``ToolNotStarted`` if it could
         not be started and ``PackageNotSource`` if its package holds compiled code."""
         _refuse_compiled(call.package)
@@ -175,6 +180,7 @@ class ToolLauncher:
                 servers,
                 lambda net_layer: self._message(call, tmp, servers, net_layer),
                 timeout,
+                stop,
             )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -197,6 +203,7 @@ class ToolLauncher:
         servers: frozenset[int],
         message: Callable[[int | None], CallTool | DescribeModule],
         timeout: float,
+        stop: Callable[[], bool] = lambda: False,
     ) -> ToolOutcome:
         """Start a warden, send it ``message`` (made once the shared layer is known) and wait
         for its answer, taking the call down after ``timeout``."""
@@ -208,10 +215,13 @@ class ToolLauncher:
             out, err = _Capture(process.stdout), _Capture(process.stderr)
             main_end.sendall(encode(message(started.net_layer)))
             try:
-                line = _read_line(main_end, time.monotonic() + timeout)
+                line = _read_line(main_end, time.monotonic() + timeout, stop)
             except TimeoutError as error:
                 self._cancel(main_end, process)
                 raise ToolTimedOut(seconds=timeout) from error
+            except ToolCancelled:
+                self._cancel(main_end, process)
+                raise
             self._end(process)
             return _outcome(line, out.text(), err.text())
         finally:
@@ -335,15 +345,21 @@ def _refuse_compiled(package: Path) -> None:
         raise PackageNotSource(package=str(package), files=list[JsonValue](files))
 
 
-def _read_line(channel: socket.socket, deadline: float) -> bytes:
-    """One line from the warden, or what came before it closed; TimeoutError at the deadline."""
+def _read_line(channel: socket.socket, deadline: float, stop: Callable[[], bool]) -> bytes:
+    """One line from the warden, or what came before it closed; TimeoutError at the deadline,
+    ``ToolCancelled`` once ``stop`` says so."""
     data = b""
     while b"\n" not in data:
+        if stop():
+            raise ToolCancelled
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError
-        channel.settimeout(remaining)
-        chunk = channel.recv(1 << 16)
+        channel.settimeout(min(remaining, _STOP_POLL))
+        try:
+            chunk = channel.recv(1 << 16)
+        except TimeoutError:
+            continue
         if not chunk or len(data) > _ANSWER_MAX:
             break
         data += chunk
