@@ -17,6 +17,35 @@ from allin.main.cut_turns import cut_mark
 from allin.main.log import LogEntry
 from allin.main.usage import turn_tokens
 
+# Why a Session's queued Prompts left the queue when the Turn before them failed (#16).
+FAILED_BEFORE = "the turn before failed"
+
+
+def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
+    """What goes back to a Window's input as it opens: the Prompt of the Session's last failed
+    Turn and those dropped with it, in the order they were sent (#15). Nothing once a later
+    Prompt was sent, a later Turn ended, or they were given back to an open Window already."""
+    texts: list[str] = []
+    for entry in log:
+        fields = entry.fields
+        match entry.event:
+            case "turn_failed":
+                prompt = fields.get("prompt")
+                texts = [prompt] if isinstance(prompt, str) else []
+            case "prompts_dropped" if texts and fields.get("reason") == FAILED_BEFORE:
+                dropped: list[object] = fields.get("texts", [])
+                kinds: list[object] = fields.get("kinds", ["prompt"] * len(dropped))
+                texts += [
+                    text
+                    for text, kind in zip(dropped, kinds, strict=False)
+                    if isinstance(text, str) and kind == "prompt"  # never a queued Compaction
+                ]
+            case "prompt" | "prompt_returned" | "turn_finished" | "turn_cancelled":
+                texts = []
+            case _:
+                pass
+    return texts
+
 
 def rebuild_chat(
     conversation: Conversation,
