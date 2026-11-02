@@ -217,7 +217,7 @@ Paso aparte con que una Compactación pide al modelo del Enlace de la Sesión el
 Comando de Main, escrito con `/`. Es la única vía para modificar el estado; se carga al arrancar Main y no se recarga en caliente. Una pieza no puede añadir los suyos: a los métodos de un Proceso adherido, un humano los llama con `/call`.
 
 **Command session** (`SessionCommand`):
-Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016). Cada Sesión tiene su lista, que se hereda como sus functions (por defecto, los de la raíz de su carpeta) y que limita a su LLM, no al humano; una function solo ejecuta los que declara en su Alcance (ADR-0025).
+Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016). Main trae `@send` y `@server`; los demás, los módulos de `comsession/`. Cada Sesión tiene su lista, que se hereda como sus functions (por defecto, los de la raíz de su carpeta; `/new -cs=` nombra otros) y que limita a su LLM, no al humano; una function solo ejecuta los que declara en su Alcance, por su canal de vuelta (`allin.channel.command`), y su resultado le vuelve por el mismo canal (ADR-0025).
 _Avoid_: comsession (salvo como nombre de carpeta)
 
 **Command prompt** (`PromptCommand`):
