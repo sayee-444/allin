@@ -15,9 +15,11 @@ from allin.core.errors import (
     TurnActive,
     UnknownCommand,
     WindowAlreadyOpen,
+    WindowLaunchFailed,
 )
 from allin.core.ids import MainId, SessionId, new_prompt_id
 from allin.core.origin import HUMAN, Origin
+from allin.ipc.messages import OrganizerRow
 from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
@@ -27,6 +29,7 @@ from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
 from allin.main.open_windows import OpenWindows
+from allin.main.organizer import Organizer
 from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import parse_prompt
@@ -45,6 +48,7 @@ from allin.main.settings_commands import (
 )
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
+from allin.ui.organizer_view import windows_list
 
 _ID_OPTION = "--id="  # /new --id=<id> (#59)
 _BG_OPTION = "--bg"  # /new and /open in the background (#52)
@@ -113,6 +117,8 @@ class MainCommands:
         self._settings = settings
         self._sysprompts = sysprompts
         self._profiles = profiles
+        self._organizer: Organizer | None = None
+        self._organizer_rows: Callable[[], list[OrganizerRow]] = list
         # Command mains are registered once, when Main starts.
         self._commands: dict[str, CommandSpec] = {
             "/new": CommandSpec(
@@ -140,6 +146,14 @@ class MainCommands:
                 "send a Session to the background: its Window closes, its Turns go on",
                 args={"sid": "the Session's id"},
                 human_only=True,
+            ),
+            "/windows": CommandSpec(
+                (),
+                self._organize,
+                "open the Organizer: the open Sessions, to bring, send to the background or close",
+                args={"list": "write its list in Main's Chat instead"},
+                optional=("list",),
+                human_only=lambda args: not args,  # it is a screen for the human (ADR-0020)
             ),
             # Like the Window's X: cancels a running Turn, so only a human closes (ADR-0020).
             "/close": CommandSpec(
@@ -325,9 +339,9 @@ class MainCommands:
                 self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
             keep_running = self._call(command, args, origin)
         except AllInError as error:
-            self._report(session_id, text, error)
+            self._report(session_id, text, error, origin)
         else:
-            self._report(session_id, text, None)
+            self._report(session_id, text, None, origin)
         return keep_running
 
     def _call(self, command: CommandSpec, args: list[str], origin: Origin) -> bool:
@@ -354,18 +368,21 @@ class MainCommands:
             try:
                 self._call(command, args, origin)
             except AllInError as error:
-                self._report(session_id, text, error)
+                self._report(session_id, text, error, origin)
             else:
-                self._report(session_id, text, None)
+                self._report(session_id, text, None, origin)
 
         shown = f"{_summary(text)}: waiting for confirmation"
         self._reporter.report(session_id, "confirmation_asked", shown, command=text)
         self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
 
-    def _report(self, session_id: str | None, text: str, error: AllInError | None) -> None:
+    def _report(
+        self, session_id: str | None, text: str, error: AllInError | None, origin: Origin
+    ) -> None:
         result = "ok" if error is None else f"error {error}"
         shown = f"{_summary(text)}: {result}"
-        self._reporter.report(session_id, "command", shown, command=text, result=result)
+        fields: dict[str, JsonValue] = {"command": text, "result": result, "origin": origin}
+        self._reporter.report(session_id, "command", shown, **fields)
 
     def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
         chosen, background = None, False
@@ -428,6 +445,22 @@ class MainCommands:
             raise WindowAlreadyOpen(session_id=session.id)
         self._profiles.opened(session.id)  # opening another Profile's Session shares it
         self._place(session, background, origin)
+        return True
+
+    def use_organizer(self, organizer: Organizer, rows: Callable[[], list[OrganizerRow]]) -> None:
+        """What ``/windows`` opens and lists (#53)."""
+        self._organizer, self._organizer_rows = organizer, rows
+
+    def _organize(self, option: str | None = None) -> bool:
+        if option is None:
+            if self._organizer is None:
+                raise WindowLaunchFailed(session_id="organizer", reason="no Organizer here")
+            self._organizer.open()
+            return True
+        if option != "list":
+            raise InvalidArguments(usage=self._commands["/windows"].usage("/windows"))
+        for line in windows_list(self._organizer_rows()):
+            self._reporter.show(None, line)
         return True
 
     def _background(self, session_id: str) -> bool:

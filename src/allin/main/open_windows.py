@@ -231,7 +231,7 @@ class OpenWindows:
         """Show the Window the Context ``steps`` leave and how fast the last one generated."""
         usage = ContextUsage(
             context=context_tokens(steps),
-            limit=self._limit(session),
+            limit=self.context_limit(session),
             tokens_per_second=tokens_per_second(steps),
         )
         self.send(session.id, usage)
@@ -283,7 +283,8 @@ class OpenWindows:
         except AllInError:  # its Prompt tells it when it would start
             return None
 
-    def _limit(self, session: Session) -> int | None:
+    def context_limit(self, session: Session) -> int | None:
+        """The slot of the Session's Server, once Main knows it."""
         server = self._server_of(session)
         return None if server is None else self._limits.get(server)
 

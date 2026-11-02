@@ -32,7 +32,7 @@ from allin.main.state import MainStateStore
 from allin.main.themes import ThemeWatch, fontconfig_probe
 from allin.main.ticker import Ticker
 from allin.main.turn import OpenAiLlm
-from allin.main.windows import WindowOpener, close_orphan_window
+from allin.main.windows import OrganizerOpener, WindowOpener, close_orphan_window
 from allin.ui.screen import ChatScreen
 
 _SHUTDOWN_GRACE = 2.0
@@ -124,6 +124,7 @@ def _run(
         devastation,
         load_notice_types(data_dir / "notices"),  # part of Main: loaded once, here (ADR-0016)
         fonts=fontconfig_probe(),
+        open_organizer=OrganizerOpener(data_dir, inbox),
     )
     # Main looks once a second at its Themes' files (#47), as at the Servers'.
     theme_watch = ThemeWatch(dispatcher.theme_stamps, lambda: inbox.put(ThemesChanged()))

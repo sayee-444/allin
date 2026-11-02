@@ -253,6 +253,7 @@ class MainHarness:
         self.opened: list[tuple[str, FakeWindowLink]] = []
         self.born_with: list[tuple[str, Theme]] = []  # the Theme each Window's xterm had
         self.fonts = NO_FONT_PROBE  # what fontconfig says: every letter there (#47)
+        self.organizers: list[FakeWindowLink] = []  # each Organizer opened (#53)
         self.main_log_path = tmp_path / "main.jsonl"
         self.state = RecordingStateStore(self.profile.state)
         self.server_up = True  # the queue, paused on start, resumes before any event
@@ -322,6 +323,7 @@ class MainHarness:
             lambda: self.now,
             lambda: self.now,
             fonts=self.fonts,
+            open_organizer=self._open_organizer,
         )
         self.dispatcher = dispatcher
         for event in () if settle else events:
@@ -329,6 +331,12 @@ class MainHarness:
             inbox.put(event)
         dispatcher.run()
         return main_chat
+
+    def _open_organizer(self, theme: Theme) -> FakeWindowLink:
+        link = FakeWindowLink(pid=9000 + len(self.organizers))
+        link.send(ThemeSet(theme=theme))
+        self.organizers.append(link)
+        return link
 
     def _open_last_profile(self) -> None:
         """Start on the Profile used last, as Main does without ``--profile``."""

@@ -5,6 +5,7 @@ The folder outlives the Session's Window; ``session.json`` holds its metadata an
 renamed Sessions had, which still reach them (#59): other Conversations keep them.
 """
 
+import os
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -204,6 +205,15 @@ class SessionStore:
             return []
         parsed = (parse_session_id(path.name) for path in self._root.iterdir())
         return [session_id for session_id in parsed if session_id is not None]
+
+    def changed_at(self, session_id: SessionId) -> int:
+        """When anything in the Session's folder last changed, in nanoseconds; 0 if it has no
+        folder. Cheap: the Organizer asks it for each row (#53)."""
+        try:
+            with os.scandir(self._root / session_id) as entries:
+                return max((entry.stat().st_mtime_ns for entry in entries), default=0)
+        except OSError:
+            return 0
 
     def load_conversation(self, session: Session) -> Conversation | None:
         """``None`` for a Session created before Sessions had a Conversation."""

@@ -220,3 +220,64 @@ def _decode[T](adapter: TypeAdapter[T], line: str) -> T:
         return adapter.validate_json(raw)
     except ValidationError as error:
         raise MalformedMessage(line=raw, reason=str(error.errors()[0]["msg"])) from error
+
+
+# Main <-> the Organizer (#53, ADR-0020): Main's own screen in its own xterm, over a FIFO pair.
+
+type Place = Literal["view", "background", "closed"]
+type OrganizerAction = Literal["open", "bg", "close"]
+
+
+class OrganizerRow(BaseModel, frozen=True):
+    """One Session as the Organizer shows it."""
+
+    session_id: str
+    title: str  # its ``title`` Setting, else its id and the start of its first Prompt
+    place: Place
+    running: bool = False  # a Turn, a Compaction or a queued Prompt under way
+    queued: int = 0  # Prompts waiting behind it
+    asking: bool = False  # a Confirmation waits for its answer
+    notice: bool = False  # a Notice is on screen
+    context: int | None = None  # tokens of its last Context
+    limit: int | None = None  # its Server's slot, once known
+    supervisor: str = ""  # its Enlace (ADR-0022); empty: Main's base_url
+
+
+class OrganizerRows(BaseModel):
+    """Every row, as they are now: sent on connecting and whenever one changes."""
+
+    type: Literal["organizer_rows"] = "organizer_rows"
+    rows: list[OrganizerRow]
+
+
+class OrganizerReady(BaseModel):
+    """The Organizer is up and listening."""
+
+    type: Literal["organizer_ready"] = "organizer_ready"
+
+
+class OrganizerAct(BaseModel):
+    """The human asked, with a click or a key, for one of the Organizer's actions on a
+    Session; Main runs it as the Command main of the same name, with a human Origin."""
+
+    type: Literal["organizer_act"] = "organizer_act"
+    action: OrganizerAction
+    session_id: str
+
+
+type MainToOrganizer = OrganizerRows | ThemeSet | Close
+type OrganizerToMain = OrganizerReady | OrganizerAct
+_organizer_adapter: TypeAdapter[OrganizerToMain] = TypeAdapter(
+    Annotated[OrganizerToMain, Field(discriminator="type")]
+)
+_to_organizer_adapter: TypeAdapter[MainToOrganizer] = TypeAdapter(
+    Annotated[MainToOrganizer, Field(discriminator="type")]
+)
+
+
+def decode_organizer_message(line: str) -> OrganizerToMain:
+    return _decode(_organizer_adapter, line)
+
+
+def decode_message_to_organizer(line: str) -> MainToOrganizer:
+    return _decode(_to_organizer_adapter, line)
