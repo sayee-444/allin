@@ -8,18 +8,18 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #108 Command sessions (2026-11-02).
-  - Un `@nombre …` tecleado solo en una Ventana no es un Prompt: se traduce a un Command main con Origen humano y queda en el Log. Main trae `@send <sid> <texto>` y `@server [restart]`, y los módulos de `<data-dir>/comsession/` añaden más con `@session_command`.
-  - Cada Sesión tiene su lista. `/new` le da la de la raíz, o la que nombra `-cs=`, y solo lo que tiene toda la cadena que la crea. Si falta alguno, sale un Aviso. `/func add <sid> @nombre` la amplía y solo lo puede hacer un humano; `/func remove` la reduce.
-  - Una tool pide uno con `allin.channel.command("@…")`. Main solo ejecuta lo que la function declara en `@reach(commands=[…])` y lo que tienen todas las Sesiones de su cadena, y le contesta por el mismo canal; esa espera no cuenta en su timeout. `@server restart` contesta cuando el Servidor vuelve `ready`, o con `failed`. Las functions de la instalación viven en `functions/`, y un test comprueba que ninguna pide un Command session que no declara.
-  - Probado con `llama serve` (Q6, bajo un Supervisor):
-    - A mandó un Prompt a B con su tool `tell`, y B lo recibió con la cadena `human → session:A`.
-    - C, sin `@send`, fue rechazada.
-    - `restart_server` contestó `{"result": "ok", "server": "ready"}` tras unos 8 s de reinicio.
-    - `@send` tecleado en la Ventana de A llegó a B como humano, y `@nope` volvió al input con su error.
-  - Métricas: 1374 tests, cobertura 84 %, mutación 94 %, 28 escapes (+4, todos justificados en el código). Antes: #107 `@confirm` en las tools.
-- **Siguiente:** #109 Notificaciones y Conversation logs.
-- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
+- **Último hecho:** #109 Notificaciones y Conversation logs (2026-11-02).
+  - Una Notificación es lo que `/func` deja al dar o quitar una function o un Command session. Queda pendiente en la Sesión, también tras reiniciar Main, y abre su siguiente Prompt bajo `[LOGS @COMMANDS]`, en el mismo mensaje `user`. Además entra en el Log y en el Chat de la Ventana (etiqueta `logs`).
+  - Dar y quitar lo mismo antes de que un Turno lo cuente se anula. Una que ya contó un Turno en curso, o uno suspendido por una caída, no se anula. Salen del pendiente cuando se guarda el Turno que las contó; si falla, las cuenta el siguiente.
+  - El resultado de un Command session que ya nadie espera (su tool cayó con su Turno mientras un humano contestaba la Confirmación) llega a su Sesión como Notificación (ADR-0013).
+  - `@conversation_logs on|off|list [fuente]` desde la Ventana, o `/conversation_logs <sid> …` desde Main, decide por fuente (`/func`, `interrupted`, `@send`…) si entran en la Conversación. Sin fuente, vale para todas. `off` también quita las que esperaban, y nunca toca el Log ni el Chat.
+  - Probado con `llama serve` (Q6):
+    - el modelo citó literalmente «@send was given to you…»;
+    - tras quitar y volver a dar `@send`, contestó «ninguna»;
+    - con `@conversation_logs off /func`, el «taken away» quedó en el Chat y el Log y no le llegó.
+  - Métricas: 1387 tests, cobertura 85 %, mutación 94 %, 28 escapes. Antes: #108 Command sessions.
+- **Siguiente:** #110 `/send` entre Sesiones.
+- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -99,7 +99,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 8. ✅ #106 Function tools en el Turno
 9. ✅ #107 `@confirm` en las tools
 10. ✅ #108 Command sessions
-11. #109 Notificaciones y Conversation logs
+11. ✅ #109 Notificaciones y Conversation logs
 12. #110 `/send` entre Sesiones
 13. #111 Otorgar
 14. #112 Moldes y Crear
