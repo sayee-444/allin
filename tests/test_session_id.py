@@ -5,12 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from allin.core.errors import SessionIdInvalid, SessionIdTaken
+from allin.core.errors import SessionIdInvalid, SessionIdTaken, SessionStorageFailed
 from allin.core.ids import SessionId, parse_session_id
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import Close
 from allin.main.events import DraftReceived, InputReceived, MainCommandEntered
 from allin.main.sessions import Session, SessionStore
+from allin.main.state import MainState, MainStateStore
 from tests.llm_fakes import FakeLlm
 from tests.test_compaction_turns import answers
 from tests.test_dispatcher import ME, MainHarness, ended
@@ -176,3 +177,27 @@ def test_a_late_message_from_the_old_window_still_reaches_its_log(main: MainHarn
     main.run(MainCommandEntered(f"/session id {session.id} tesis"))
     main.sessions.log(session.id).append("probe")
     assert main.session_log(main.sessions.load("tesis"))[-1].event == "probe"
+
+
+def test_a_rename_that_fails_half_way_leaves_the_session_as_it_was(tmp_path: Path):
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create(ME, SessionSettings(), "s", "tesis")
+    workspace = store.workspace(session.id)
+    workspace.mkdir(parents=True)
+    store.workspace(SessionId("final")).mkdir()  # the workspace cannot move there
+    (store.workspace(SessionId("final")) / "x").touch()
+    with pytest.raises(SessionStorageFailed):
+        store.rename(session, "final")
+    assert store.load("tesis") == session
+    assert workspace.is_dir() and not (tmp_path / "sessions" / "final").exists()
+
+
+def test_the_active_profiles_mainstate_is_left_to_the_running_main(main: MainHarness):
+    session = main.create_session()
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/profile new otro"))
+    other = main.profiles.open("otro")
+    main.profiles.add_session(other, session.id)
+    MainStateStore(other.state).save(MainState(drafts={session.id: ["en otro"]}))
+    main.run(MainCommandEntered(f"/session id {session.id} tesis"))
+    assert MainStateStore(other.state).load().drafts == {SessionId("tesis"): ["en otro"]}
+    assert session.id not in main.state.load().windows

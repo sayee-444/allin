@@ -6,6 +6,7 @@ renamed Sessions had, which still reach them (#59): other Conversations keep the
 """
 
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -114,16 +115,27 @@ class SessionStore:
             for alias, target in self._aliases().items()
         }
         aliases[session.id] = new_id
+        old_folder, new_folder = self._root / session.id, self._root / new_id
+        old_workspace, new_workspace = self.workspace(session.id), self.workspace(new_id)
+        undo: list[Callable[[], object]] = []  # what was done so far, to put back on a failure
         try:
-            (self._root / session.id).rename(self._root / new_id)
-            workspace = self.workspace(session.id)
-            if workspace.is_dir():
-                workspace.rename(self.workspace(new_id))
-            write_atomically(self._root / new_id / _METADATA, renamed.model_dump_json(indent=2))
+            write_atomically(old_folder / _METADATA, renamed.model_dump_json(indent=2))
+            undo.append(
+                lambda: write_atomically(old_folder / _METADATA, session.model_dump_json(indent=2))
+            )
+            old_folder.rename(new_folder)
+            undo.append(lambda: new_folder.rename(old_folder))
+            if old_workspace.is_dir():
+                old_workspace.rename(new_workspace)
+                undo.append(lambda: new_workspace.rename(old_workspace))
+            # Last: once the old id is an alias, the rename is done.
             write_atomically(
                 self._root / _ALIASES, _Aliases(aliases=aliases).model_dump_json(indent=2)
             )
         except OSError as error:
+            for step in reversed(undo):
+                with suppress(OSError):  # the first failure is the one to tell
+                    step()
             raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
         return renamed
 

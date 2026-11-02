@@ -74,7 +74,7 @@ class ProfileCommands:
 
     def renamed(self, old: SessionId, new: SessionId) -> None:
         """A Session took a new id: every Profile follows it (#59)."""
-        self._profiles.rename_session(old, new)
+        self._profiles.rename_session(old, new, self._switch.active.name)
 
     def opened(self, session_id: SessionId) -> None:
         """A Session a human opened: it belongs to the active Profile from now on, and if it

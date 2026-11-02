@@ -197,9 +197,10 @@ class ProfileStore:
         except OSError as error:
             raise ProfileStorageFailed(path=str(profile.folder), reason=str(error)) from error
 
-    def rename_session(self, old: SessionId, new: SessionId) -> None:
+    def rename_session(self, old: SessionId, new: SessionId, active: ProfileName) -> None:
         """A Session renamed (#59): every Profile lists it, and keeps its MainState, under its
-        new id. The running Main keeps the active Profile's in memory and saves it itself."""
+        new id; but ``active``'s MainState, which the running Main keeps in memory and saves
+        itself."""
         for name in self.names():
             profile = self._profile(name)
             listed = self.sessions(profile)
@@ -210,6 +211,8 @@ class ProfileStore:
                     raise ProfileStorageFailed(
                         path=str(profile.folder), reason=str(error)
                     ) from error
+            if name == active:
+                continue
             store = MainStateStore(profile.state)
             state = store.load()
             renamed = state.renamed(old, new)
