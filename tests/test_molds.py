@@ -13,6 +13,7 @@ from allin.confinement.launcher import ToolLauncher
 from allin.core.errors import ProfileStorageFailed
 from allin.core.ids import BoxId, CommandName, MainId, PieceId
 from allin.core.origin import HUMAN, Link, Origin
+from allin.main.conversation import Item
 from allin.main.descriptions import Descriptions
 from allin.main.events import BoxAnswered, InputReceived, MainCommandEntered
 from allin.main.quarantine import PieceRef, Quarantine
@@ -136,10 +137,11 @@ def test_a_mold_gives_its_recipe_and_sends_its_task(main: MainHarness):
     [job] = main.held
     first = job.request.input
     assert first[0] == {"role": "developer", "content": "You code, AllIn."}
+    said: Item = {"type": "output_text", "text": "De acuerdo.", "annotations": []}
     assert first[1:3] == [
         {"role": "user", "content": "Contesta siempre en castellano."},
-        {"role": "assistant", "content": "De acuerdo."},
-    ], "the history opens the Conversation"
+        {"type": "message", "role": "assistant", "status": "completed", "content": [said]},
+    ], "the history opens the Conversation, its answers as the LLM's own"
     assert first[-1]["content"] == "Resume el proyecto."
     [sent] = [e.fields for e in main.session_log(session) if e.event == "prompt"]
     assert sent["origin"] == ["human"]

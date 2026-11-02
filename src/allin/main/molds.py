@@ -31,7 +31,7 @@ from allin.core.errors import MoldInvalid, PieceInQuarantine
 from allin.core.hashing import content_hash
 from allin.core.ids import CommandName, PieceId
 from allin.core.settings import SessionSettings
-from allin.main.conversation import Item
+from allin.main.conversation import Item, user_item
 from allin.main.quarantine import PieceRef, Quarantine
 from allin.main.sessions import MoldVersion
 
@@ -45,7 +45,11 @@ class HistoryMessage(BaseModel, frozen=True):
     content: str = Field(min_length=1)
 
     def item(self) -> Item:
-        return {"role": self.role, "content": self.content}
+        """As the Responses API takes it: an assistant's, as the LLM's own answers are."""
+        if self.role == "user":
+            return user_item(self.content)
+        text: Item = {"type": "output_text", "text": self.content, "annotations": []}
+        return {"type": "message", "role": "assistant", "status": "completed", "content": [text]}
 
 
 class Mold(BaseModel, frozen=True):
