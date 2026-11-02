@@ -33,4 +33,4 @@ Archivos de prueba en <scratch>: compra.txt («Lista de la compra: pan, leche, t
 Tests: tests/test_prompt_commands.py (parser: overrides, claves y valores rechazados, referencias, @ literales, Command session),
 tests/test_attachments.py (copia, ya dentro, ~, rutas que no son archivo, nombres repetidos, binarios, qué recibe el LLM) y
 tests/test_command_prompts.py (MainHarness: de la Ventana al LLM, Servidor con y sin visión, cola guardada en el estado de Main).
-905 tests, basedpyright y ruff limpios. Al final: /exit en Main y se para el proxy.
+906 tests (con el de un archivo nombrado dos veces, de la revisión de código), basedpyright y ruff limpios. Al final: /exit en Main y se para el proxy.
