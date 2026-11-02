@@ -269,9 +269,11 @@ class ChatScreen:
             if closed is not None:
                 self._on_box_closed(closed)
             return
+        shortcut = resolve(chord, self._bindings) if isinstance(chord, KeyChord) else None
+        if self._locked and not read_only_allows(chord, shortcut):
+            return  # Main is gone: the input stays as it was, which Main kept as a Draft (#33)
         if not _is_view_key(chord) or chord == KeyChord(Key.RESIZE):
             self._clear_selection()  # a key that edits, or new rows: its places are gone
-        shortcut = resolve(chord, self._bindings) if isinstance(chord, KeyChord) else None
         if shortcut is not None:
             self._run_shortcut(shortcut, on_submit, draft)
             self._reveal_cursor = True
@@ -613,6 +615,11 @@ def _pad_at(layout: Layout, event: Mouse) -> PadName | None:
         if inside_rows and area.left <= event.x < area.left + area.width:
             return name
     return None
+
+
+def read_only_allows(chord: KeyEvent, shortcut: Action | Command | None) -> bool:
+    """Whether a read-only screen takes this key: only those that move the view do (#33)."""
+    return chord == KeyChord(Key.RESIZE) or shortcut in ("scroll_up", "scroll_down")
 
 
 def _is_view_key(chord: KeyEvent) -> bool:
