@@ -27,4 +27,4 @@ Las teclas se mandan a la xterm como eventos de X (Left, Right, Up, Down, Home, 
 
 Tests: tests/test_ui_input_buffer.py (cursor, borrar en el cursor, filas visuales, historial y Borrador),
 tests/test_ui_keys.py (las teclas nuevas), tests/test_ui_viewport.py (Viewport.show) y tests/test_prompt_history.py
-(el historial del Log y la Ventana reabierta). Al final: /exit en Main.
+(el historial del Log y la Ventana reabierta). 936 tests, con el de la revisión de código (enviar un Prompt del historial devuelve el Borrador apartado); basedpyright y ruff limpios. Al final: /exit en Main.
