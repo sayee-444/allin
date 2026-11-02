@@ -22,7 +22,7 @@ from allin.ui.boxes import VIEW_KEYS, Box, BoxClosed, BoxStack, box_rows
 from allin.ui.chat import Chat, Row
 from allin.ui.clipboard import Clipboard, system_clipboard
 from allin.ui.draft import DraftReporter
-from allin.ui.input_buffer import InputBuffer
+from allin.ui.input_buffer import InputBuffer, cursor_place
 from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
 from allin.ui.layout import Layout, Rect, compute_layout
 from allin.ui.mouse import (
@@ -104,6 +104,13 @@ class InputText:
 
 
 @dataclass(frozen=True)
+class InputHistory:
+    """The Session's earlier Prompts, oldest first, which Up brings back to the input."""
+
+    prompts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ShowBox:
     """Show a Notice or Confirmation over the Chat; it waits behind any already shown."""
 
@@ -128,6 +135,7 @@ type ScreenUpdate = (
     | BorderStatus
     | TitleMark
     | InputText
+    | InputHistory
     | ShowBox
     | HideBox
     | None
@@ -152,6 +160,7 @@ class ChatScreen:
         self._input = InputBuffer()
         self._input_rows: list[Row] = []  # the input wrapped to its pad's width
         self._input_view = Viewport()
+        self._reveal_cursor = True  # bring the cursor's row into view on the next draw
         # Text selected with the mouse, in one pad; _dragging while its button is held, at
         # _pointer (y, x) once it moved, which may be outside the pad (autoscroll).
         self._selection = Selection()
@@ -245,6 +254,7 @@ class ChatScreen:
             case KeyChord(key=Key.ENTER) if not self._locked:
                 text = self._input.take()  # an empty block is dropped: the next one shows
                 if text.strip():
+                    self._input.remember(text)
                     on_submit(text)
                     if draft is not None and self._input.blocks:
                         # So a Main that dies right after keeps the blocks still waiting.
@@ -253,13 +263,33 @@ class ChatScreen:
                 self._input.delete_word()
             case KeyChord(key=Key.BACKSPACE):
                 self._input.backspace()
+            case KeyChord(key=Key.DELETE):
+                self._input.delete()
+            case KeyChord(key=Key.LEFT):
+                self._input.left()
+            case KeyChord(key=Key.RIGHT):
+                self._input.right()
+            case KeyChord(key=Key.HOME):
+                self._input.home()
+            case KeyChord(key=Key.END):
+                self._input.end()
+            case KeyChord(key=Key.UP):
+                if not self._input.up(self._input_width()):  # on the first row: the history
+                    self._input.older()
+            case KeyChord(key=Key.DOWN):
+                if not self._input.down(self._input_width()):
+                    self._input.newer()
             case KeyChord(key=Key.PAGE_UP | Key.PAGE_DOWN as key):
                 self._scroll_chat(-1 if key == Key.PAGE_UP else 1)
             case KeyChord(key=str() as char, ctrl=False, alt=False) if char.isprintable():
                 self._input.insert(char)
             case _:
                 pass
-        self._input_view.follow()  # the cursor, at the end of the input, is in view again
+        self._reveal_cursor = True
+
+    def _input_width(self) -> int:
+        """The columns the input wraps at, as ``_draw`` wraps it."""
+        return max(1, self._stdscr.getmaxyx()[1] - 2)
 
     def _paste(self) -> None:
         """Ctrl+V: the clipboard's text into the input, as a paste from the terminal."""
@@ -387,6 +417,9 @@ class ChatScreen:
                     self._mark = visible(text)
                 case InputText(text):
                     self._input.restore(text)
+                    self._reveal_cursor = True
+                case InputHistory(prompts):
+                    self._input.load_history(prompts)
                 case ShowBox(box):
                     self._boxes_shown.show(box)
                 case HideBox(box_id):
@@ -444,17 +477,18 @@ class ChatScreen:
 
         self._draw_chat(chat_pad, layout.chat_pad)
         input_area = layout.input_pad
+        cursor_row, cursor_cell = cursor_place(self._input.text, self._input.cursor, width - 2)
+        if self._reveal_cursor:  # a key was pressed: the cursor comes back into view
+            self._reveal_cursor = False
+            self._input_view.show(cursor_row, len(input_rows), input_area.height)
         input_top = self._input_view.top(len(input_rows), input_area.height)
         shown = input_rows[input_top : input_top + input_area.height]
         _paint(input_pad, shown, input_area, first=input_top, selection=self._selected("input"))
 
         self._draw_box(layout.chat_pad)
-        last_row = input_rows[-1].text[:-1]
-        # Scrolled up with the wheel, the cursor waits on the pad's last row.
-        cursor_row = min(len(input_rows) - 1 - input_top, input_area.height - 1)
-        cursor_y = input_area.top + cursor_row
-        cursor_x = input_area.left + sum(cell_width(c) for c in last_row)
-        curses.setsyx(cursor_y, cursor_x)
+        # Scrolled away with the wheel, the cursor waits on the nearest row in view.
+        shown_row = min(max(cursor_row - input_top, 0), input_area.height - 1)
+        curses.setsyx(input_area.top + shown_row, input_area.left + cursor_cell)
         curses.doupdate()
 
     def _draw_chat(self, pad: curses.window, area: Rect) -> None:

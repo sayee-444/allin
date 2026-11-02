@@ -9,8 +9,15 @@ from pydantic import BaseModel, JsonValue
 from allin.core.drafts import put_back
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
-from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore, PoolShared
-from allin.main.chat_rebuild import error_entry, rebuild_chat, returned_prompts
+from allin.ipc.messages import (
+    ChatDelta,
+    Close,
+    ContextUsage,
+    InputRestore,
+    PoolShared,
+    PromptHistory,
+)
+from allin.main.chat_rebuild import error_entry, prompt_history, rebuild_chat, returned_prompts
 from allin.main.conversation import Conversation, Step
 from allin.main.executors import SHUTTING_DOWN
 from allin.main.links import LinkResolver
@@ -263,6 +270,9 @@ class OpenWindows:
         log, archived = self._sessions.read_log(session), self._sessions.load_archived(session)
         for message in rebuild_chat(conversation, log, session.settings, archived):
             self.send(session.id, message)
+        history = prompt_history(log)
+        if history:  # what Up brings back to its input (#22)
+            self.send(session.id, PromptHistory(prompts=history))
         self.show_context(session, _last_steps(streamed, conversation))
         if streamed is not None:  # what the running Turn has streamed so far; it goes on
             if streamed.reasoning:

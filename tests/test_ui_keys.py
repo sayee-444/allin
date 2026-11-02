@@ -31,6 +31,13 @@ def test_a_printable_character_is_a_chord_of_itself():
         (curses.KEY_NPAGE, KeyChord(Key.PAGE_DOWN)),
         (curses.KEY_RESIZE, KeyChord(Key.RESIZE)),
         ("\x16", KeyChord("v", ctrl=True)),  # Ctrl+V without modifyOtherKeys
+        (curses.KEY_LEFT, KeyChord(Key.LEFT)),
+        (curses.KEY_RIGHT, KeyChord(Key.RIGHT)),
+        (curses.KEY_UP, KeyChord(Key.UP)),
+        (curses.KEY_DOWN, KeyChord(Key.DOWN)),
+        (curses.KEY_HOME, KeyChord(Key.HOME)),
+        (curses.KEY_END, KeyChord(Key.END)),
+        (curses.KEY_DC, KeyChord(Key.DELETE)),
     ],
 )
 def test_control_bytes_and_curses_codes_become_keys(key: str | int, expected: KeyChord):

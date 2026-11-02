@@ -26,6 +26,7 @@ class Prompt:
     prompt_id: str = ""
     attachments: tuple[Attachment, ...] = ()
     overrides: TurnOverrides = field(default_factory=TurnOverrides)
+    typed: str = ""  # what the human typed, when its Command prompts changed it (#22)
 
 
 class PromptQueue:

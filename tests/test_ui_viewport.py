@@ -41,3 +41,20 @@ def test_follow_goes_back_to_the_last_lines():
     view.scroll(-50, total=100, rows=10)
     view.follow()
     assert view.top(total=100, rows=10) == 90
+
+
+def test_show_scrolls_just_enough_to_bring_a_row_into_view():
+    view = Viewport()
+    view.show(2, total=20, rows=5)
+    assert view.top(20, 5) == 2
+    view.show(4, total=20, rows=5)  # already in view: nothing moves
+    assert view.top(20, 5) == 2
+    view.show(10, total=20, rows=5)
+    assert view.top(20, 5) == 6
+
+
+def test_show_on_the_last_rows_follows_them_again():
+    view = Viewport()
+    view.show(0, total=20, rows=5)
+    view.show(19, total=20, rows=5)
+    assert view.top(21, 5) == 16  # it follows: a new row keeps the last ones in view

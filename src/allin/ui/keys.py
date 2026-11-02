@@ -14,6 +14,13 @@ class Key(StrEnum):
     PAGE_UP = "page_up"
     PAGE_DOWN = "page_down"
     RESIZE = "resize"  # not a key: curses reports terminal resizes as one
+    LEFT = "left"
+    RIGHT = "right"
+    UP = "up"
+    DOWN = "down"
+    HOME = "home"
+    END = "end"
+    DELETE = "delete"
 
 
 @dataclass(frozen=True)
@@ -45,6 +52,13 @@ _SINGLE: dict[str | int, KeyChord] = {
     curses.KEY_NPAGE: KeyChord(Key.PAGE_DOWN),
     curses.KEY_RESIZE: KeyChord(Key.RESIZE),
     "\x16": KeyChord("v", ctrl=True),  # Ctrl+V, when xterm does not send it as CSI 27
+    curses.KEY_LEFT: KeyChord(Key.LEFT),
+    curses.KEY_RIGHT: KeyChord(Key.RIGHT),
+    curses.KEY_UP: KeyChord(Key.UP),
+    curses.KEY_DOWN: KeyChord(Key.DOWN),
+    curses.KEY_HOME: KeyChord(Key.HOME),
+    curses.KEY_END: KeyChord(Key.END),
+    curses.KEY_DC: KeyChord(Key.DELETE),
 }
 
 

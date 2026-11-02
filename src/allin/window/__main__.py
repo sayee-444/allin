@@ -22,6 +22,7 @@ from allin.ipc.messages import (
     InputRestore,
     MainToWindow,
     PoolShared,
+    PromptHistory,
     TurnState,
     UserInput,
     WindowReady,
@@ -35,6 +36,7 @@ from allin.ui.screen import (
     ChatScreen,
     ChatStream,
     HideBox,
+    InputHistory,
     InputLock,
     InputText,
     ShowBox,
@@ -80,6 +82,8 @@ class _MainListener:
                 self._screen.inbox.put(self._border())
             case InputRestore(text=text):
                 self._screen.inbox.put(InputText(text))
+            case PromptHistory(prompts=prompts):
+                self._screen.inbox.put(InputHistory(tuple(prompts)))
             case BoxShow(box_id=box_id, kind=kind, title=title, text=text):
                 self._screen.inbox.put(ShowBox(Box(box_id, kind, title, text)))
             case BoxHide(box_id=box_id):

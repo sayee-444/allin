@@ -1,6 +1,6 @@
 import pytest
 
-from allin.ui.input_buffer import InputBuffer
+from allin.ui.input_buffer import InputBuffer, cursor_place
 
 
 def typed(text: str) -> InputBuffer:
@@ -107,3 +107,145 @@ def test_an_empty_shown_block_is_left_out_of_the_draft():
     assert buffer.blocks == ("typing",)
     assert buffer.take() == ""
     assert buffer.text == "typing"
+
+
+# The cursor (#22)
+
+
+def test_a_word_in_the_middle_is_corrected_without_touching_what_follows():
+    buffer = typed("el gato negro")
+    for _ in range(6):
+        buffer.left()
+    buffer.backspace()  # "gato" loses its "o"
+    buffer.insert("a")
+    assert buffer.text == "el gata negro"
+    assert buffer.cursor == len("el gata")
+
+
+def test_delete_removes_the_character_under_the_cursor():
+    buffer = typed("hola")
+    buffer.home()
+    buffer.delete()
+    assert buffer.text == "ola"
+    buffer.end()
+    buffer.delete()
+    assert buffer.text == "ola"
+
+
+def test_the_cursor_crosses_line_breaks_and_stops_at_both_ends():
+    buffer = typed("ab\ncd")
+    buffer.home()
+    buffer.left()
+    assert buffer.cursor == 0
+    for _ in range(3):
+        buffer.right()
+    assert buffer.text[buffer.cursor] == "c"
+    buffer.end()
+    buffer.right()
+    assert buffer.cursor == 5
+
+
+def test_delete_word_works_back_from_the_cursor():
+    buffer = typed("hola mundo cruel")
+    for _ in range(6):
+        buffer.left()
+    buffer.delete_word()
+    assert buffer.text == "hola  cruel"
+    assert buffer.cursor == len("hola ")
+
+
+@pytest.mark.parametrize(
+    ("text", "cursor", "width", "place"),
+    [
+        ("hola", 4, 10, (0, 4)),
+        ("abcdef", 4, 4, (1, 0)),  # wrapped: the 5th character starts the second row
+        ("abcd", 4, 4, (1, 0)),  # a full row: the cursor's cell is on the next one
+        ("ab\ncd", 3, 10, (1, 0)),
+        ("ab\ncd", 2, 10, (0, 2)),
+        ("日本", 1, 10, (0, 2)),
+    ],
+)
+def test_the_cursor_is_placed_where_the_wrapped_text_draws_it(
+    text: str, cursor: int, width: int, place: tuple[int, int]
+):
+    assert cursor_place(text, cursor, width) == place
+
+
+def test_up_and_down_move_between_visual_rows_keeping_the_column():
+    buffer = typed("primera linea\nsegunda\ntercera linea")
+    assert buffer.up(width=40)
+    assert buffer.cursor == len("primera linea\nsegunda")  # "tercera linea" is longer
+    assert buffer.up(width=40)
+    assert buffer.cursor == len("primera")
+    assert not buffer.up(width=40)  # already on the first row
+    assert buffer.down(width=40)
+    assert buffer.cursor == len("primera linea\nsegunda")
+
+
+def test_up_and_down_move_inside_a_wrapped_line():
+    buffer = typed("abcdefghij")
+    assert buffer.up(width=4)  # from row 2 ("ij") to row 1 ("efgh")
+    assert buffer.cursor == len("abcdef")
+    assert buffer.down(width=4)
+    assert buffer.cursor == len("abcdefghij")
+    assert not buffer.down(width=4)
+
+
+# The history of Prompts (#22)
+
+
+def test_older_brings_the_prompts_back_and_newer_returns_the_draft_intact():
+    buffer = typed("a medio escribir")
+    buffer.history = ["primero", "segundo"]
+    buffer.older()
+    assert buffer.text == "segundo"
+    assert buffer.cursor == len("segundo")
+    buffer.older()
+    buffer.older()  # there is none older: it stays
+    assert buffer.text == "primero"
+    buffer.newer()
+    assert buffer.text == "segundo"
+    buffer.newer()
+    assert buffer.text == "a medio escribir"
+    buffer.newer()
+    assert buffer.text == "a medio escribir"
+
+
+def test_a_recalled_prompt_can_be_edited_and_sent():
+    buffer = typed("")
+    buffer.history = ["hola"]
+    buffer.older()
+    buffer.insert(" otra vez")
+    assert buffer.take() == "hola otra vez"
+    assert buffer.text == ""
+    buffer.newer()  # browsing ended with the send
+    assert buffer.text == ""
+
+
+def test_the_draft_put_aside_while_browsing_is_still_part_of_the_draft():
+    buffer = typed("borrador")
+    buffer.history = ["viejo"]
+    buffer.older()
+    assert buffer.blocks == ("viejo", "borrador")
+
+
+def test_a_prompt_coming_back_while_browsing_lands_on_the_draft():
+    buffer = typed("borrador")
+    buffer.history = ["viejo"]
+    buffer.older()
+    buffer.restore("devuelto")
+    assert buffer.blocks == ("devuelto", "borrador")
+
+
+def test_remember_adds_to_the_history_but_not_twice_in_a_row():
+    buffer = InputBuffer()
+    buffer.remember("uno")
+    buffer.remember("uno")
+    buffer.remember("dos")
+    assert buffer.history == ["uno", "dos"]
+
+
+def test_a_loaded_history_is_kept_as_the_pad_draws_it():
+    buffer = InputBuffer()
+    buffer.load_history(["uno\r\ndos", "tres", "tres"])
+    assert buffer.history == ["uno\ndos", "tres"]
