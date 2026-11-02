@@ -1,0 +1,36 @@
+#14 Command prompts: Referencia a archivo y Sobrescritura de parámetro — prueba a mano (2026-11-01)
+Código: rama feature/14-command-prompts. Servidor: el IQ3_XXS de 9931 (/props: modalities.vision = true).
+Main lanzado desde <scratch> (así ./ es relativo a esa carpeta), datos en <scratch>/d14, Sesión c8iebn.
+Archivos de prueba en <scratch>: compra.txt («Lista de la compra: pan, leche, tomates»), formas.png (círculo rojo y cuadrado azul).
+
+1. Sobrescritura para un solo Turno (a-sobrescritura-un-turno.png)
+   «Cuenta del 1 al 50 separados por comas @max_output_tokens=40 @temperature=0.1»
+     → el Chat y la Conversación tienen «Cuenta del 1 al 50 separados por comas» (sin las directivas);
+       Log: prompt {'overrides': {'temperature': 0.1, 'max_output_tokens': 40}}; el Turno se corta: «turn cut: it reached its output cap».
+   «Cuenta del 1 al 10 separados por comas» → sin overrides en el Log, termina entero: «1, 2, …, 10».
+   «Di solo hola @effort=medium» → el Chat muestra «Di solo hola» y el Turno termina (el modelo acepta medium).
+2. Clave fuera de la lista (b-clave-fuera-de-la-lista.png)
+   «Y esto @tools=all» → «[error] param_override_invalid: key='tools', reason='not in the closed list', allowed=[…]» en la Ventana;
+   el texto vuelve al input y no hay evento prompt en el Log.
+3. Correo literal y ruta inexistente (c-correo-literal-y-ruta-inexistente.png)
+   «Repite literalmente: correo@dominio.com» → llega tal cual; el modelo responde «correo@dominio.com».
+   «Lee @./no-existe.txt» → «[error] file_reference_invalid: path='./no-existe.txt', reason='no such file'»; el texto vuelve al input.
+4. Referencias a archivo e imagen con visión (d-archivos-e-imagen-con-vision.png)
+   «Resume en una linea @./compra.txt» → copiado a workspaces/c8iebn/.allin/adjuntos/xo10l6/compra.txt;
+     el Chat dice «Resume en una linea .allin/adjuntos/xo10l6/compra.txt»; el modelo: «Lista de la compra con pan, leche y tomates.»
+   Uno que ya está dentro: workspaces/c8iebn/datos.txt («El tren sale a las 9.»), referido como @./d14/workspaces/c8iebn/datos.txt
+     → el Chat dice «A que hora sale el tren? datos.txt»; no se copia (find: solo datos.txt fuera de .allin); el modelo: «El tren sale a las 9.»
+   «Que formas y colores ves? @./formas.png» → copiado a .allin/adjuntos/etztk8/formas.png y enviado como imagen:
+     «Veo un círculo rojo y un cuadrado azul».
+   conversation.json: cada Turno guarda su prompt con la ruta relativa y attachments [{path, kind}].
+5. Imagen con un Servidor sin visión (e-imagen-sin-vision.png)
+   fallproxy.py en 9951 delante de 9931, con <scratch>/novision: su /props dice vision=false. Main con base_url en 9951.
+   Sesión nueva, «Que formas y colores ves? @./formas.png» → el proxy apunta la petición: 0 partes input_image, y en su lugar la
+   línea «[image .allin/adjuntos/…/formas.png: the current model does not see images]». El modelo responde «No puedo ver la imagen…».
+   Al probarlo salió un detalle, ya corregido: la plantilla juntaba esa línea con el texto («…formas.png[image …»); ahora cada
+   parte de un adjunto empieza en su propia línea, como muestra el razonamiento de la captura.
+
+Tests: tests/test_prompt_commands.py (parser: overrides, claves y valores rechazados, referencias, @ literales, Command session),
+tests/test_attachments.py (copia, ya dentro, ~, rutas que no son archivo, nombres repetidos, binarios, qué recibe el LLM) y
+tests/test_command_prompts.py (MainHarness: de la Ventana al LLM, Servidor con y sin visión, cola guardada en el estado de Main).
+905 tests, basedpyright y ruff limpios. Al final: /exit en Main y se para el proxy.
