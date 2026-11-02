@@ -32,4 +32,4 @@ AllIn activa además el 1002 (movimiento con el botón pulsado) y lo apaga al sa
 
 El portapapeles del usuario se guardó antes de probar y se devolvió al final (su versión text/html; la imagen no se dejaba leer).
 Tests: tests/test_ui_mouse.py, tests/test_ui_selection.py, tests/test_ui_clipboard.py, y casos nuevos en test_ui_keys,
-test_ui_wrap, test_ui_chat y test_ui_viewport. 863 tests, basedpyright y ruff limpios. Al final: /exit en Main.
+test_ui_wrap, test_ui_chat y test_ui_viewport. 861 tests, basedpyright y ruff limpios. Al final: /exit en Main.
