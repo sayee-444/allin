@@ -38,6 +38,8 @@ from allin.main.events import (
     WindowClosed,
     WindowConnected,
 )
+from allin.main.kit_commands import KitCommands
+from allin.main.kits import Kits
 from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
 from allin.main.notices import LoadedNotices
@@ -169,6 +171,15 @@ class Dispatcher:
             self._devastation,
             self._server_commands,
             self._profile_commands,
+            KitCommands(
+                self._reporter,
+                Kits(profiles.data_dir / "servers"),
+                self._switch,
+                settings_commands,
+                notices.types,
+                self._boxes,
+                profiles.data_dir / "servers",
+            ),
         )
 
     def run(self) -> None:

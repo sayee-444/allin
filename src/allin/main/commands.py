@@ -16,6 +16,7 @@ from allin.core.ids import MainId
 from allin.core.origin import HUMAN, Origin
 from allin.main.boxes import MainBoxes
 from allin.main.devastation import Devastation
+from allin.main.kit_commands import KitCommands
 from allin.main.open_windows import OpenWindows
 from allin.main.profile_commands import ProfileCommands
 from allin.main.prompts import Prompt
@@ -70,6 +71,7 @@ class MainCommands:
         devastation: Devastation,
         server: ServerCommands,
         profiles: ProfileCommands,
+        kits: KitCommands,
     ) -> None:
         self._boxes = boxes
         self._devastation = devastation
@@ -112,6 +114,8 @@ class MainCommands:
                 human_only=server_human_only,
             ),
             "/profile": _MainCommand((), profiles.run, rest=True, optional=("action…",)),
+            # A Kit writes pieces into the Profile and may suggest Supervisors (ADR-0014).
+            "/kit": _MainCommand((), kits.run, rest=True, optional=("action…",), human_only=True),
             "/exit": _MainCommand((), lambda: False),
         }
 

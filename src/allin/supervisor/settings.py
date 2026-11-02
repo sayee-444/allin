@@ -152,11 +152,13 @@ def load_server_settings(path: Path) -> ServerSettings:
 
 def save_server_settings(path: Path, settings: ServerSettings) -> None:
     """Write them whole, as TOML: only the keys that are set."""
-    lines: list[str] = []
-    for key, value in settings.model_dump(exclude_none=True).items():
-        lines.append(f"{key} = {_toml_value(value)}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_atomically(path, "\n".join(lines) + "\n")
+    write_atomically(path, server_toml(settings.model_dump(exclude_none=True)))
+
+
+def server_toml(values: Mapping[str, object]) -> str:
+    """Server Settings as their TOML file has them."""
+    return "".join(f"{key} = {_toml_value(value)}\n" for key, value in values.items())
 
 
 def _toml_value(value: object) -> str:
