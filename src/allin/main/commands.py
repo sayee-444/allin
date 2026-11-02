@@ -5,10 +5,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pydantic import JsonValue
+
 from allin.core.errors import (
     AllInError,
     HumanOnly,
     InvalidArguments,
+    TurnActive,
     UnknownCommand,
     WindowAlreadyOpen,
 )
@@ -28,6 +31,7 @@ from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import parse_prompt
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
+from allin.main.rewind import rewind
 from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
@@ -154,6 +158,14 @@ class MainCommands:
                 optional=("key=value",),
                 session_of=_session_of_session_command,
                 takes_origin=True,
+            ),
+            # Only a Command main: no Session undoes its own Prompts (GLOSSARY, Rewind).
+            "/rewind": CommandSpec(
+                ("sid",),
+                self._rewind,
+                "undo a Session's last Prompts; a human's go back to its input",
+                args={"sid": "the Session's id", "n": "how many Prompts, 1 if left out"},
+                optional=("n",),
             ),
             "/devastation": CommandSpec(
                 ("state",),
@@ -341,7 +353,7 @@ class MainCommands:
     def _send(self, session_id: str, text: str, origin: Origin = HUMAN) -> bool:
         session = self._sessions.load_owned(session_id, self._main_id)
         if origin != HUMAN:  # @… in text from anyone else is literal (ADR-0013)
-            self._turns.push(session, Prompt(session.id, text))
+            self._turns.push(session, Prompt(session.id, text, origin=origin))
             return True
         try:
             prompt = self._human_prompt(session.id, text)
@@ -369,6 +381,43 @@ class MainCommands:
             overrides=parsed.overrides,
             typed=text if text != sent else "",
         )
+
+    def _rewind(self, session_id: str, count: str = "1") -> bool:
+        """Undo the Session's last ``count`` Prompts (#58): never with a Turn under way, and
+        never past its start."""
+        if not count.isdigit():
+            raise InvalidArguments(usage=self._commands["/rewind"].usage("/rewind"))
+        n = int(count)
+        session = self._sessions.load_owned(session_id, self._main_id)
+        if n == 0:
+            return True
+        if self._turns.busy(session.id):
+            raise TurnActive(
+                session_id=session.id,
+                advice="interrupt it with Shift+Enter in its Window, or wait for it to end",
+            )
+        conversation = self._sessions.load_conversation(session)
+        if conversation is None or not conversation.started:
+            self._reporter.show(session.id, "nothing to rewind: the session has no prompts yet")
+            return True
+        result = rewind(conversation, self._sessions.load_archived(session), n)
+        self._sessions.save_conversation(session, result.conversation)
+        undone = len(result.undone)
+        shown = f"rewound {undone} prompt(s)"
+        if undone < n:
+            shown += f": only {undone} to undo, back at the start of the session"
+        texts: list[JsonValue] = [turn.as_typed for turn in result.undone]
+        origins: list[JsonValue] = [turn.origin for turn in result.undone]
+        self._reporter.record(
+            session.id, "rewound", shown, turn=result.turn, asked=n, texts=texts, origins=origins
+        )
+        # A human's texts go back to its input, the first one undone shown first; anyone
+        # else's stay in the Log only.
+        for turn in reversed(result.undone):
+            if turn.origin == HUMAN:
+                self._windows.put_back(session.id, turn.as_typed)
+        self._windows.rebuild_chat(session)
+        return True
 
     def _switch_devastation(self, state: str) -> bool:
         if state not in ("on", "off"):

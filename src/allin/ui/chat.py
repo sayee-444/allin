@@ -47,6 +47,11 @@ class Chat:
         else:
             self._entries.append(_Entry(role, label, text, streaming=True))
 
+    def clear(self) -> None:
+        """Every entry gone, for a Chat about to be rebuilt; the queued Prompts stay."""
+        self._entries = []
+        self._rows = []
+
     def set_queued(self, texts: tuple[str, ...], label: str) -> None:
         self._queued = [_Entry("user", label, text, streaming=False) for text in texts]
 

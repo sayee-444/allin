@@ -35,6 +35,7 @@ from allin.core.errors import (
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
+from allin.core.origin import HUMAN
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -311,6 +312,8 @@ class TurnQueue:
         fields = _commands(prompt)
         if busy:
             fields["queued"] = True
+        if prompt.origin != HUMAN:
+            fields["origin"] = prompt.origin
         self._reporter.log_session(session.id, "prompt", text=prompt.text, **fields)
         if not busy:
             self._show_prompt(session, prompt)
@@ -1335,6 +1338,10 @@ class TurnQueue:
             self._boxes.withdraw(running.asking)
             running.asking = None
 
+    def busy(self, session_id: SessionId) -> bool:
+        """Whether the Session has a Turn, a queued Prompt or a Compaction under way."""
+        return self._busy(session_id)
+
     def _busy(self, session_id: SessionId) -> bool:
         """Whether a Prompt sent now would wait behind a Turn, a Prompt or a Compaction."""
         return (
@@ -1439,6 +1446,8 @@ class TurnQueue:
             cut=running.cut,
             attachments=attachments,
             notifications=running.notifications,
+            typed=running.prompt.typed,
+            origin=running.prompt.origin,
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
