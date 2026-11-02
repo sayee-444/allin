@@ -30,6 +30,8 @@ from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
 from allin.main.open_windows import OpenWindows
 from allin.main.organizer import Organizer
+from allin.main.piece_commands import USAGE as PIECE_USAGE
+from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import parse_prompt
@@ -106,6 +108,7 @@ class MainCommands:
         profiles: ProfileCommands,
         kits: KitCommands,
         keys: KeyCommands,
+        pieces: PieceCommands,
     ) -> None:
         self._boxes = boxes
         self._devastation = devastation
@@ -204,8 +207,9 @@ class MainCommands:
                 optional=("key=value",),
                 session_of=_session_of_session_command,
                 takes_origin=True,
-                # Only a human changes a Session's id (#59).
-                human_only=lambda args: args[:1] == ["id"],
+                # Only a human changes a Session's id (#59) or points its Carpeta de trabajo
+                # out of AllIn's data folder, which is an Approval (ADR-0013).
+                human_only=lambda args: args[:1] in (["id"], ["workspace"]),
             ),
             # Only a Command main: no Session undoes its own Prompts (GLOSSARY, Rewind).
             "/rewind": CommandSpec(
@@ -247,6 +251,17 @@ class MainCommands:
                 kits.run,
                 "export pieces of the Profile as a Kit, or load one",
                 usage_text=KIT_USAGE,
+                rest=True,
+                optional=("action…",),
+                human_only=True,
+            ),
+            # Only a human approves, on purpose: never delicate, so neither -y nor
+            # --devastation answers for it (ADR-0013).
+            "/piece": CommandSpec(
+                (),
+                pieces.run,
+                "list the Profile's pieces, show one's approval screen or approve it",
+                usage_text=PIECE_USAGE,
                 rest=True,
                 optional=("action…",),
                 human_only=True,

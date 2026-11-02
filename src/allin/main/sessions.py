@@ -20,6 +20,7 @@ from allin.core.errors import (
     SessionNotOwned,
     SessionStorageFailed,
     SessionUnreadable,
+    WorkspaceRefused,
 )
 from allin.core.files import write_atomically
 from allin.core.ids import MainId, SessionId, new_session_id, parse_session_id
@@ -37,6 +38,10 @@ from allin.main.log import Log, LogEntry, read_log
 _METADATA = "session.json"
 _LOG = "log.jsonl"
 _ALIASES = "aliases.json"
+
+
+class _WorkspacePath(BaseModel, frozen=True):
+    path: str  # absolute and resolved, as a human chose it
 
 
 class _Aliases(BaseModel):
@@ -61,9 +66,44 @@ class SessionStore:
         self._new_id = new_id
 
     def workspace(self, session_id: SessionId) -> Path:
-        """The Session's Carpeta de trabajo, ``<data dir>/workspaces/<id>/``: apart from its
-        folder, which holds its state (ADR-0016). Made when something is first put in it."""
+        """The Session's Carpeta de trabajo: the folder a human pointed it to, or by default
+        ``<data dir>/workspaces/<id>/``, apart from its folder, which holds its state
+        (ADR-0016). The default is made when something is first put in it."""
+        try:
+            chosen = _WorkspacePath.model_validate_json(self._pointer(session_id).read_bytes())
+        except (OSError, ValidationError):
+            return self._default_workspace(session_id)
+        return Path(chosen.path)
+
+    def point_workspace(self, session_id: SessionId, path: Path | None, installation: Path) -> Path:
+        """Point the Session's Carpeta de trabajo to ``path``, a folder of the human's, or
+        back to its default with ``None``. Only a human does it, and never into AllIn (its data
+        folder or its ``installation``); the path is not a Setting, so it never
+        travels in a template, Molde, Plano or Kit (ADR-0016). Raises ``WorkspaceRefused``."""
+        pointer = self._pointer(session_id)
+        try:
+            if path is None:
+                pointer.unlink(missing_ok=True)
+                return self._default_workspace(session_id)
+            chosen = path.expanduser().resolve()
+            allin = (self._root.parent.resolve(), installation.resolve())
+            if any(chosen.is_relative_to(folder) for folder in allin):
+                raise WorkspaceRefused(path=str(chosen), reason="inside AllIn")
+            if not chosen.is_dir():
+                raise WorkspaceRefused(path=str(chosen), reason="not a folder")
+            pointer.parent.mkdir(parents=True, exist_ok=True)
+            write_atomically(pointer, _WorkspacePath(path=str(chosen)).model_dump_json())
+        except OSError as error:
+            raise SessionStorageFailed(root=str(pointer), reason=str(error)) from error
+        return chosen
+
+    def _default_workspace(self, session_id: SessionId) -> Path:
         return self._root.parent / "workspaces" / session_id
+
+    def _pointer(self, session_id: SessionId) -> Path:
+        """Where the path a human pointed the Carpeta de trabajo to is kept: beside the
+        workspaces, out of every tool's Alcance and of a Profile's copy."""
+        return self._root.parent / "workspaces" / f"{session_id}.path.json"
 
     def create(
         self, owner: MainId, settings: SessionSettings, sysprompt: str, chosen: str | None = None
@@ -123,7 +163,9 @@ class SessionStore:
         }
         aliases[session.id] = new_id
         old_folder, new_folder = self._root / session.id, self._root / new_id
-        old_workspace, new_workspace = self.workspace(session.id), self.workspace(new_id)
+        old_workspace = self._default_workspace(session.id)
+        new_workspace = self._default_workspace(new_id)
+        old_pointer, new_pointer = self._pointer(session.id), self._pointer(new_id)
         undo: list[Callable[[], object]] = []  # what was done so far, to put back on a failure
         try:
             write_atomically(old_folder / _METADATA, renamed.model_dump_json(indent=2))
@@ -135,6 +177,9 @@ class SessionStore:
             if old_workspace.is_dir():
                 old_workspace.rename(new_workspace)
                 undo.append(lambda: new_workspace.rename(old_workspace))
+            if old_pointer.is_file():  # a folder of the human's stays where it is
+                old_pointer.rename(new_pointer)
+                undo.append(lambda: new_pointer.rename(old_pointer))
             # Last: once the old id is an alias, the rename is done.
             write_atomically(
                 self._root / _ALIASES, _Aliases(aliases=aliases).model_dump_json(indent=2)

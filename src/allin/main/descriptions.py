@@ -62,12 +62,13 @@ class Descriptions:
         raised, ``MalformedMessage`` if what came back is not a description of it,
         ``PackageChanged`` if the package changed while it was described, and what
         ``ToolLauncher.describe`` raises (``ToolTimedOut`` for one that hangs)."""
+        # Before the kept one too: one described on a kernel with support still does not run.
+        if self._support.missing and not written_by_user:
+            raise DescriptionRefused(module=module, missing=list(self._support.missing))
         package_hash = folder_hash(package)
         kept = self._folder / f"{package_hash}.{module}.json"
         if (known := _load(kept, package_hash, module)) is not None:
             return known
-        if self._support.missing and not written_by_user:
-            raise DescriptionRefused(module=module, missing=list(self._support.missing))
         outcome = self._describer.describe(package, module, self._timeout)
         if outcome.error is not None:
             raise DescriptionFailed(module=module, error=outcome.error)

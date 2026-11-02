@@ -8,6 +8,11 @@ from typing import NewType
 PackageHash = NewType("PackageHash", str)
 
 
+def content_hash(data: bytes) -> str:
+    """The sha256 of one file's bytes, as a Sysprompt is approved by (ADR-0013)."""
+    return hashlib.sha256(data).hexdigest()
+
+
 def files_hash(files: dict[str, bytes]) -> str:
     """The sha256 of ``files``, each with its path, in path order."""
     digest = hashlib.sha256()

@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from allin.confinement.reach import install_root
 from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
 from allin.core.ids import MainId, SessionId
 from allin.core.origin import HUMAN, Origin
@@ -39,7 +40,7 @@ _RESTART_NOTE = "base_url takes effect when Main restarts"
 
 SESSION_USAGE = (
     "/session <sid> | /session set <sid> [key=value…] | /session compact <sid> [instructions]"
-    " | /session id <sid> <new id>"
+    " | /session id <sid> <new id> | /session workspace <sid> <folder>|default"
 )
 
 
@@ -52,6 +53,7 @@ class SessionCommand:
     rest: str = ""
     compact: bool = False
     rename: bool = False  # ``/session id <sid> <new>`` (#59): ``rest`` is the new id
+    workspace: bool = False  # ``/session workspace <sid> <folder>|default``: ``rest`` is it
 
 
 def parse_session_command(args: list[str]) -> SessionCommand | None:
@@ -60,16 +62,20 @@ def parse_session_command(args: list[str]) -> SessionCommand | None:
     the line); ``None`` if it is none of them."""
     if not args:
         return None
-    if args[0] not in ("set", "compact", "id"):
+    if args[0] not in ("set", "compact", "id", "workspace"):
         return SessionCommand(args[0]) if len(args) == 1 else None
     words = args[1].split(maxsplit=1) if len(args) > 1 else []
     if not words:
         return None
     rest = words[1] if len(words) > 1 else ""
-    if args[0] == "id" and len(rest.split()) != 1:
+    if (args[0] == "id" and len(rest.split()) != 1) or (args[0] == "workspace" and not rest):
         return None
     return SessionCommand(
-        words[0], rest.strip(), compact=args[0] == "compact", rename=args[0] == "id"
+        words[0],
+        rest.strip(),
+        compact=args[0] == "compact",
+        rename=args[0] == "id",
+        workspace=args[0] == "workspace",
     )
 
 
@@ -173,11 +179,15 @@ class SettingsCommands:
         if target.compact:
             self._turns.compact(session, target.rest)
             return True
+        if target.workspace:
+            self._point_workspace(session.id, target.rest)
+            return True
         assignments = parse_assignments(target.rest)
         extra = self._notices.setting_keys()
         if not assignments:
             self._show(session.id, session.settings, extra)
             self._reporter.show(session.id, f"profiles={', '.join(self._profiles_of(session.id))}")
+            self._reporter.show(session.id, f"workspace={self._sessions.workspace(session.id)}")
             return True
         _check_authority(assignments, origin)
         changed = apply_settings(session.settings, assignments, extra)
@@ -192,6 +202,15 @@ class SettingsCommands:
         if link is not None:
             self._turns.change_link(self._sessions.load(session.id), link)
         return True
+
+    def _point_workspace(self, session_id: SessionId, text: str) -> None:
+        """Only a human points a Carpeta de trabajo out of AllIn's data folder: its Approval
+        (ADR-0013); the registry makes it human only."""
+        chosen = None if text == "default" else Path(text)
+        folder = self._sessions.point_workspace(session_id, chosen, install_root())
+        self._reporter.report(
+            session_id, "workspace_pointed", f"workspace={folder}", path=str(folder)
+        )
 
     def use(self, settings: MainSettings) -> None:
         """Make ``settings`` the current ones, on disk and in the running Main."""

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from allin.core.hashing import files_hash
+from allin.core.hashing import content_hash, files_hash
 from allin.core.settings import MainSettings, SessionSettings
 from allin.main.events import BoxAnswered, MainCommandEntered
 from allin.main.portable import MANIFEST
@@ -115,8 +115,9 @@ def test_loading_a_kit_copies_its_pieces_with_their_provenance(main: MainHarness
     assert current.session.sysprompt == "tutor.txt"
     assert current.session.server is None, "a Kit never changes the Enlace"
     provenance = json.loads((target.folder / "kits.json").read_text())["pieces"]
-    assert provenance["sysprompt:tutor.txt"] == {"kit": "tutor", "version": "3"}
-    assert provenance["settings"] == {"kit": "tutor", "version": "3"}
+    tutor = content_hash(b"Tutor $assistant_name.")  # its current version is the Kit's
+    assert provenance["sysprompt:tutor.txt"] == {"kit": "tutor", "version": "3", "hash": tutor}
+    assert provenance["settings"] == {"kit": "tutor", "version": "3", "hash": None}
 
 
 def test_a_conflict_left_unchosen_keeps_the_profiles_own(main: MainHarness, tmp_path: Path):

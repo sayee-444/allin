@@ -18,6 +18,7 @@ from allin.main.events import (
 from allin.main.profiles import Profile
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.state import MainStateStore
+from tests.pieces import approve_sysprompt
 from tests.test_dispatcher import SETTINGS, MainHarness, ended, restored
 
 GPU_TOML = 'model = "m.gguf"\ncontext = 8192\nport = 9101\n'
@@ -324,6 +325,7 @@ def test_entering_a_profile_with_another_default_enlace_moves_no_session(main: M
 def test_the_incoming_profiles_settings_and_sysprompts_take_over(main: MainHarness):
     tesis = other_profile(main)
     (tesis.sysprompts / "default.txt").write_text("Tesis: $assistant_name.")
+    approve_sysprompt(tesis.sysprompts, "default.txt")
     MainSettingsFiles(tesis.settings).save_current(
         MainSettings(session=SessionSettings(username="eva", assistant_name="Tesis"))
     )

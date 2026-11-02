@@ -16,3 +16,22 @@ def compiled_files(folder: Path) -> list[str]:
         for path in folder.rglob("*")
         if path.name == "__pycache__" or any(path.name.endswith(s) for s in _COMPILED_SUFFIXES)
     )
+
+
+def binary_files(folder: Path) -> list[str]:
+    """The files under ``folder`` that are not UTF-8 text, by relative path."""
+    return sorted(
+        path.relative_to(folder).as_posix()
+        for path in folder.rglob("*")
+        if path.is_file() and not is_text(path.read_bytes())
+    )
+
+
+def is_text(data: bytes) -> bool:
+    if b"\0" in data:
+        return False
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True

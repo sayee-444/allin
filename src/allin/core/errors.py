@@ -489,3 +489,51 @@ class PackageNotSource(AllInError):
     an extension module), which no call runs: what was approved is its source (ADR-0013)."""
 
     code: ClassVar[str] = "package_not_source"
+
+
+class PieceNotFound(AllInError):
+    """No piece ``piece`` (``function:<package>`` or ``sysprompt:<file>``) in the Profile."""
+
+    code: ClassVar[str] = "piece_not_found"
+
+
+class PieceInQuarantine(AllInError):
+    """``piece`` is new or changed since a human approved it: Main shows it but does not use it
+    until it is approved again (ADR-0013)."""
+
+    code: ClassVar[str] = "piece_in_quarantine"
+
+
+class PieceRejected(AllInError):
+    """``piece`` holds what is not source a person can read (``files``): it is never approved
+    (ADR-0013)."""
+
+    code: ClassVar[str] = "piece_rejected"
+
+
+class PieceNotShown(AllInError):
+    """``piece`` is approved only as the approval screen last showed it: it was not shown, or it
+    changed since (ADR-0013)."""
+
+    code: ClassVar[str] = "piece_not_shown"
+
+
+class PieceNotDescribed(AllInError):
+    """A function of ``piece`` could not be described (``module``, ``error``): without its
+    Alcance it cannot be approved (ADR-0016)."""
+
+    code: ClassVar[str] = "piece_not_described"
+
+
+class ApprovalWidens(AllInError):
+    """An Approval may only reduce what ``piece`` declares: ``module``'s Alcance, or a tool to
+    confirm that it does not have (``detail``)."""
+
+    code: ClassVar[str] = "approval_widens"
+
+
+class WorkspaceRefused(AllInError):
+    """A Carpeta de trabajo cannot be ``path``: ``reason`` is ``inside AllIn`` or ``not a
+    folder`` (ADR-0016)."""
+
+    code: ClassVar[str] = "workspace_refused"

@@ -27,12 +27,15 @@ from allin.core.ids import (
     new_profile_name,
     parse_profile_name,
 )
+from allin.main.provenance import KITS_FILE
+from allin.main.quarantine import approve_installed
 from allin.main.sessions import SessionStore
 from allin.main.state import MainStateStore
 
 # The folders of a Profile's pieces, copied whole by ``/profile new``; functions, Molds and
 # Plans will join them as they appear (ADR-0010).
 _PIECES = ("sysprompts", "themes")
+_RECORDS = ("approvals.json", KITS_FILE)
 _THEMES = "themes"
 _SETTINGS = "settings"
 _SESSIONS = "sessions.json"
@@ -141,11 +144,12 @@ class ProfileStore:
         except OSError as error:
             raise ProfileStorageFailed(path=str(self._last), reason=str(error)) from error
         profile = self._profile(chosen)
-        if not profile.themes.exists():
-            try:
+        try:
+            if not profile.themes.exists():
                 self._seed_themes_of(profile.folder)
-            except OSError as error:
-                raise ProfileStorageFailed(path=str(profile.themes), reason=str(error)) from error
+            approve_installed(profile.folder, self._seed_sysprompts)
+        except OSError as error:
+            raise ProfileStorageFailed(path=str(profile.folder), reason=str(error)) from error
         return profile
 
     def _seed_themes_of(self, folder: Path) -> None:
@@ -187,6 +191,10 @@ class ProfileStore:
             _copy_folder(source.settings, staging / _SETTINGS)
             for piece in _PIECES:
                 _copy_folder(source.folder / piece, staging / piece)
+            # The same bytes, so the same Approvals and the same Kits wrote them (ADR-0013).
+            for record in _RECORDS:
+                if (source.folder / record).is_file():
+                    shutil.copy2(source.folder / record, staging / record)
             _write_sessions(staging, [])
             staging.rename(self._root / chosen)
         except OSError as error:

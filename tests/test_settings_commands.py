@@ -9,6 +9,7 @@ from allin.main.conversation import Conversation, Turn
 from allin.main.events import InputReceived, MainCommandEntered
 from allin.main.settings_files import MainSettingsFiles
 from tests.llm_fakes import FakeLlm, full_reply
+from tests.pieces import approve_sysprompt
 from tests.test_dispatcher import SETTINGS, MainHarness, chat_messages, server
 
 
@@ -164,6 +165,7 @@ def test_session_set_on_an_unknown_session_is_an_error(main: MainHarness):
 
 def test_a_new_sysprompt_or_name_is_rendered_again_while_there_is_no_turn(main: MainHarness):
     (main.sysprompts / "other.txt").write_text("Other $assistant_name.")
+    approve_sysprompt(main.sysprompts, "other.txt")
     session = main.create_session()
     main.run(
         MainCommandEntered(f"/session set {session.id} sysprompt=other.txt assistant_name=Eva")

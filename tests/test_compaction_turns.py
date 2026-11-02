@@ -29,6 +29,7 @@ from allin.main.prompts import Prompt
 from allin.main.sessions import Session
 from allin.main.slots import ServerProps
 from tests.llm_fakes import DroppedStream, FakeLlm, Script, answer, completed, failed
+from tests.pieces import approve_sysprompt
 from tests.test_dispatcher import KEY, MainHarness, server, server_ready
 from tests.test_pool_admission import OTHER, waiting
 
@@ -282,6 +283,7 @@ def test_a_conversation_bigger_than_a_lowered_slot_is_compacted_in_parts_and_its
 
 def test_a_profile_compaction_sysprompt_replaces_the_built_in_one(main: MainHarness):
     (main.sysprompts / "compact.txt").write_text("Summarize for $username, briefly.")
+    approve_sysprompt(main.sysprompts, "compact.txt")
     session = main.create_session()
     main.llm = FakeLlm(*answers(6), reply("We chose mango."))
     main.run(*talk(session, 6), compact(session), settle=True)

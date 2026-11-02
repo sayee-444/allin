@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from allin.core.errors import (
     KitPieceUnknown,
@@ -23,6 +23,7 @@ from allin.core.errors import (
     ProfileStorageFailed,
     ThemeInvalid,
 )
+from allin.core.hashing import content_hash
 from allin.core.settings import (
     MainSettings,
     SettingKey,
@@ -41,6 +42,7 @@ from allin.main.portable import (
     write_portable,
 )
 from allin.main.profiles import Profile
+from allin.main.provenance import KITS_FILE, KitOrigin, kit_origins, kits_json
 from allin.supervisor.settings import (
     REACHING_KEYS,
     ServerSettings,
@@ -84,15 +86,6 @@ class KitLoaded:
     servers: dict[str, dict[str, JsonValue]] = field(
         default_factory=dict[str, dict[str, JsonValue]]
     )
-
-
-class _Origin(BaseModel, frozen=True):
-    kit: str
-    version: str
-
-
-class _Provenance(BaseModel, frozen=True):
-    pieces: dict[str, _Origin] = Field(default_factory=dict[str, _Origin])
 
 
 class Kits:
@@ -163,12 +156,18 @@ class Kits:
                 loaded.written.append("settings")
             else:
                 loaded.kept.append("settings")
-        provenance = _provenance(profile)
-        origin = _Origin(kit=manifest.name, version=manifest.version)
-        pieces = {**provenance.pieces, **dict.fromkeys(loaded.written, origin)}
-        writes[profile.folder / "kits.json"] = (
-            _Provenance(pieces=pieces).model_dump_json(indent=2).encode()
-        )
+        pieces = {
+            **kit_origins(profile.folder),
+            **{
+                written: KitOrigin(
+                    kit=manifest.name,
+                    version=manifest.version,
+                    hash=_written_hash(profile, written, writes),
+                )
+                for written in loaded.written
+            },
+        }
+        writes[profile.folder / KITS_FILE] = kits_json(pieces)
         _write_all(writes)
         suggested = {
             name: values
@@ -394,11 +393,10 @@ def _check_references(kit: Portable, profile: Profile) -> None:
         raise KitReferenceMissing(missing=missing)
 
 
-def _provenance(profile: Profile) -> _Provenance:
-    try:
-        return _Provenance.model_validate_json((profile.folder / "kits.json").read_bytes())
-    except (OSError, ValidationError):
-        return _Provenance()
+def _written_hash(profile: Profile, piece: str, writes: Mapping[Path, bytes]) -> str | None:
+    kind, _, name = piece.partition(":")
+    data = writes.get(profile.sysprompts / name) if kind == "sysprompt" else None
+    return None if data is None else content_hash(data)
 
 
 def _free_name(target: Path, kit: str) -> Path:
