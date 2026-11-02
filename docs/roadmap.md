@@ -8,16 +8,18 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #99 Prototipo desechable del encierro (2026-11-02). Informe en `docs/research/encierro-prototipo.md`; el código, en `prototypes/encierro/`, se borra con #100.
-  - Lanzar cada tool con `subprocess` y un `socketpair` (JSON por líneas), no con `multiprocessing`: con su `Queue`, Main desempaqueta con `pickle` lo que mande la tool, y eso ejecuta código en Main (medido). Además, el hijo de `spawn` nace con el entorno, el `sys.path` y la carpeta actual de Main.
-  - Landlock y seccomp con `ctypes`, sin dependencias, los dos para todos los threads. Para `net=True`, Main construye una vez la capa de 65 534 puertos y cada llamada la aplica la última: 7,4 ms.
-  - El Alcance mínimo necesita `/dev/null` (sin él falla git); `/proc` no hace falta; con red, leer adonde apunta `/etc/resolv.conf`. `forkserver`, el método por defecto de 3.14, no puede funcionar encerrado.
-  - `killpg` no alcanza a un nieto que llamó a `setsid`. Sí lo hace `kill(-1, SIGKILL)` desde dentro del encierro, que con el scope de señales de Landlock solo llega a los procesos de esa llamada. El primer proceso hará de vigilante: crea con `fork` el que corre la function (0,21 ms) y, al terminar o al cancelar, hace `kill(-1)`.
-  - Coste por llamada: de 17 a 25 ms, contra los 50–100 ms de ADR-0005 y los 28 ms del `spawn` de hoy.
-  - Las reglas de Landlock siguen al inodo: el archivo compartido de un Proceso adherido se pierde cuando un editor lo guarda con renombrado atómico (para #113).
-  - Métricas: 1159 tests, cobertura 86 %, mutación 94 %. Antes: #53 El Organizador de Ventanas.
-- **Siguiente:** #100 Lanzador de tools encerrado, con lo que recomienda #99. Al adoptarlo hay que enmendar ADR-0005 (`subprocess` + `socketpair` en vez de `multiprocessing` y su `Queue`) y ADR-0016, y el criterio de #100 «un timeout hace `killpg`» pasa a «el vigilante hace `kill(-1)`; `killpg` como último recurso».
-- **Preguntas abiertas para el usuario (de #99):** ¿`/dev/shm`, que necesita `multiprocessing` pero expone memoria compartida de otros programas, va en el Alcance mínimo (crear y borrar sin listar) o solo declarado en `@reach`? ¿Qué `HOME` recibe una tool (la Carpeta de trabajo, como en el prototipo, o ninguno)? ¿Algo en contra de cambiar ADR-0005 como arriba?
+- **Último hecho:** #100 Lanzador de tools encerrado (2026-11-02), con lo que recomendó #99 (`docs/research/encierro-prototipo.md`), en `src/allin/confinement/`.
+  - Cada llamada corre en su propio proceso, lanzado con `subprocess` y un `socketpair` (JSON por líneas) por el thread de larga vida del `ToolLauncher`. Ese proceso es un vigilante: se encierra con Landlock y seccomp antes de importar nada de la tool y corre la function en un hijo, desde la Carpeta de trabajo.
+  - Nace sin terminal, con solo `PATH`, `LANG`, `TMPDIR` y `HOME` (la Carpeta de trabajo) y sin más descriptores que su canal; `import json` carga el de la biblioteca aunque haya un `json.py` en la Carpeta de trabajo. Main, sus Ventanas, el Organizador y los Supervisores tampoco importan ya de la carpeta actual (`python -P`).
+  - Al terminar, al cancelar o al morir Main, el vigilante mata a todos los procesos de la llamada con `kill(-1)`. Tras cada llamada, Main mata lo que quede de su grupo de procesos con `killpg`; por timeout, primero pide cancelar. El `TMPDIR` de cada llamada se borra al terminar.
+  - Coste por llamada: 21 ms de mediana, frente a 70 ms del `spawn` con `Queue` de antes. El vigilante no importa pydantic, que añadía unos 35 ms; Main sí parsea con pydantic lo que vuelve.
+  - Con un kernel cuya Landlock no llega a la ABI 6, Main lo dice con un Aviso al arrancar y una marca permanente en los bordes, junto a la de `--devastation`.
+  - Main aún no crea el `ToolLauncher`: ninguna tool corre todavía en un Turno. Lo conecta #106 (Function tools en el Turno), después de la batería de fugas (#103).
+  - Enmendados ADR-0005 y ADR-0016; Vigilante y Lanzador de tools en el glosario. El prototipo de #99 se borró; sigue en el historial (`3ac8218`).
+  - Decidido sin preguntar, para que el usuario lo revise: `/dev/shm` no entra en el Alcance mínimo (se decide en #101 si se concede con `@reach`), y `HOME` es la Carpeta de trabajo.
+  - Métricas: 1187 tests, cobertura 85 % (el vigilante y el filtro seccomp corren en el proceso de la tool, donde no se mide la cobertura; los cubren los tests del lanzador). Antes: #99 Prototipo desechable del encierro.
+- **Siguiente:** #101 `@reach` y el Alcance. Con red, el filtro seccomp deberá dejar crear sockets de IP (hoy rechaza `socket()` de cualquier familia) y el Alcance leer adonde apunta `/etc/resolv.conf`.
+- **Preguntas abiertas para el usuario:** ¿`/dev/shm`, que necesita `multiprocessing` pero expone memoria compartida de otros programas, se concede en `@reach` o en el Alcance mínimo? ¿Le vale que `HOME` sea la Carpeta de trabajo?
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -88,7 +90,7 @@ Ya tienen código; verificados y comentados.
 Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus ADRs y sus bloqueos, que también están en GitHub. Lo primero es el encierro (ADR-0016): ninguna tool corre antes de que la batería de fugas (#103) falle entera. Quedan para «Después» Goal, Clon, Kits (segunda parte), Restablecer y las fagents que crea el LLM.
 
 1. ✅ #99 Prototipo desechable del encierro
-2. #100 Lanzador de tools encerrado
+2. ✅ #100 Lanzador de tools encerrado
 3. #101 `@reach` y el Alcance
 4. #102 Encierro de descripción
 5. #103 Batería de fugas
