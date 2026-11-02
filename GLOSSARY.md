@@ -327,8 +327,16 @@ Valor con nombre que solo da un humano, como el token de un bot, y que Main entr
 _Avoid_: token, credencial, contraseña
 
 **Cuarentena** (`quarantine`):
-Estado de una pieza nueva o cambiada (function, Sysprompt, Molde, Plano, historial inicial) hasta su Aprobación: Main la muestra, pero no la ofrece al LLM ni la usa. De una function cuenta su package entero: cambiar cualquier archivo devuelve a cuarentena todas sus functions (ADR-0013).
+Estado de una pieza nueva o cambiada (function, Sysprompt, Molde, Plano, historial inicial) hasta su Aprobación: Main la muestra, pero no la ofrece al LLM ni la usa. De una function cuenta su package entero: cambiar cualquier archivo devuelve a cuarentena todas sus functions. Un package con código compilado o binarios está **rechazado**: no se aprueba nunca. `/piece` lista las piezas, `/piece show` muestra la pantalla de aprobación y `/piece approve` aprueba; Main dice al arrancar cuántas esperan (ADR-0013).
 _Avoid_: pendiente, bloqueo
+
+**Pantalla de aprobación** (`/piece show`):
+Lo que un humano lee antes de aprobar una pieza: primero el Alcance de cada function, con `!` en lo que excede el mínimo («TCP 443 · UDP open»; `display` y escribir donde el usuario ejecuta dicen «acts as you»), y después su código entero, con los caracteres de control, de dirección e invisibles marcados (`<U+202E>`). Se aprueba la versión que mostró: si la pieza cambió después, hay que volver a verla (ADR-0013).
+_Avoid_: diff, revisión
+
+**Procedencia** (`Provenance`):
+Quién escribió la versión actual de una pieza: el usuario, el autor de un Kit (mientras la pieza siga como la escribió el Kit) o la Sesión que la creó con Crear. Un cambio que aparece en disco por fuera de AllIn es del usuario. La Aprobación no la cambia. En un kernel sin soporte, las que no escribió el usuario no corren, y solo las suyas entran en la aprobación en bloque (ADR-0016).
+_Avoid_: Origen (es de cada acción, no de la pieza), autor
 
 **Recuadro** (`Box`):
 Lo que Main superpone en el Chat de Main y en la Ventana de la Sesión a la que concierne para hablar con el humano sin pasar por el Chat: un Aviso o una Confirmación. Se contesta desde cualquiera de los dos y desaparece de ambos; mientras está, se lleva las teclas, salvo las que solo mueven la vista. Uno que llega con la Ventana cerrada sale al reabrirla, si sigue vigente. Su texto se dibuja saneado, como toda pantalla de AllIn (ADR-0013).

@@ -7,6 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
+from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import kernel_support
 from allin.core.errors import AllInError, MainAlreadyRunning
 from allin.core.ids import ROOT_MAIN_ID
@@ -105,6 +106,8 @@ def _run(
     executors = TurnExecutors(OpenAiLlm, inbox)
     # Main starts without waiting for any Server: each Session waits until its own is ready.
     server_links = ServerLinks(data_dir, inbox)
+    tools = ToolLauncher(data_dir)  # describes functions for their Approval (ADR-0016)
+    tools.start()
     dispatcher = Dispatcher(
         inbox,
         screen.inbox.put,
@@ -127,6 +130,7 @@ def _run(
         fonts=fontconfig_probe(),
         open_organizer=OrganizerOpener(data_dir, inbox),
         confinement=kernel_support(),  # checked once, as Main starts (ADR-0016)
+        describer=tools,
     )
     # Main looks once a second at its Themes' files (#47), as at the Servers'.
     theme_watch = ThemeWatch(dispatcher.theme_stamps, lambda: inbox.put(ThemesChanged()))
@@ -136,6 +140,7 @@ def _run(
         dispatcher.run()  # closes every Window before returning
         executors.shutdown(_SHUTDOWN_GRACE)  # running Turns are cancelled, never saved
         server_links.stop()
+        tools.stop()
         ticks.stop()
         theme_watch.stop()
         screen.inbox.put(None)

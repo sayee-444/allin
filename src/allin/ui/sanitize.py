@@ -6,7 +6,12 @@ tab becomes a visible mark, so no text moves the cursor, touches the clipboard o
 box.
 """
 
+import unicodedata
+
 _KEPT = frozenset("\n\t")
+# What the approval screen also marks: format characters (direction marks such as U+202E,
+# zero-width ones, the BOM), separators but the plain space, private and unassigned ones.
+_HIDDEN_CATEGORIES = frozenset({"Cf", "Zs", "Zl", "Zp", "Co", "Cn"})
 _DEL = 0x7F
 _C1 = range(0x80, 0xA0)
 _CONTROL_PICTURES = 0x2400  # U+2400..U+241F picture each C0 character; U+2421 is DEL's
@@ -17,6 +22,19 @@ def visible(text: str) -> str:
     if text.isprintable() or not any(_is_control(char) for char in text):
         return text
     return "".join(_mark(char) if _is_control(char) else char for char in text)
+
+
+def approval_visible(text: str) -> str:
+    """``text`` as the approval screen shows code (ADR-0013): control characters marked as on
+    any screen, and direction, invisible and unusual space characters as ``<U+202E>``, so no
+    code hides what it does (Trojan Source)."""
+    return "".join(_hidden(char) for char in visible(text))
+
+
+def _hidden(char: str) -> str:
+    if char == " " or unicodedata.category(char) not in _HIDDEN_CATEGORIES:
+        return char
+    return f"<U+{ord(char):04X}>"
 
 
 def _is_control(char: str) -> bool:

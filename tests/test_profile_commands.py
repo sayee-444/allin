@@ -9,6 +9,7 @@ from allin.main.prompts import Prompt
 from allin.main.sessions import SessionStore
 from allin.main.state import MainState, MainStateStore
 from allin.ui.screen import ShowBox
+from tests.pieces import approve_sysprompt
 from tests.test_dispatcher import MainHarness, restored
 
 
@@ -39,6 +40,7 @@ def test_profile_lists_the_profiles_and_marks_the_active_one(main: MainHarness):
 
 def test_profile_new_creates_a_profile_with_the_active_ones_sysprompts(main: MainHarness):
     (main.sysprompts / "default.txt").write_text("Mine, $assistant_name.")
+    approve_sysprompt(main.sysprompts, "default.txt")
     chat = main.run(MainCommandEntered("/profile new tesis-2026"))
     assert main.profiles.names() == ["default", "tesis-2026"]
     created = main.profiles.open("tesis-2026")
@@ -72,6 +74,7 @@ def test_a_wrong_profile_command_is_an_error_and_creates_nothing(
 def test_a_new_session_is_born_from_the_active_profiles_sysprompts(main: MainHarness):
     (main.seed / "default.txt").write_text("Seed only.")  # the installation's no longer count
     (main.sysprompts / "default.txt").write_text("Profile: $assistant_name and $username.")
+    approve_sysprompt(main.sysprompts, "default.txt")
     main.run(MainCommandEntered("/new"))
     [(session_id, _)] = main.opened
     conversation = main.sessions.load_conversation(main.sessions.load(session_id))

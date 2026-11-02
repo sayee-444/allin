@@ -10,6 +10,7 @@ import queue
 import time
 from collections.abc import Callable
 
+from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_name
@@ -18,6 +19,7 @@ from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
+from allin.main.descriptions import Descriptions
 from allin.main.devastation import Devastation
 from allin.main.events import (
     BoxAnswered,
@@ -55,9 +57,11 @@ from allin.main.log import Log
 from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.organizer import OpenOrganizer, Organizer, RowSource, command_for, no_organizer
+from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import ProfileCommands
 from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
+from allin.main.quarantine import Quarantine
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
@@ -99,11 +103,13 @@ class Dispatcher:
         fonts: FontProbe = NO_FONT_PROBE,
         open_organizer: OpenOrganizer = no_organizer,
         confinement: ConfinementSupport = FULL_SUPPORT,
+        describer: ToolLauncher | None = None,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
         active Profile, whose Sysprompts Sessions are born with; ``confinement`` is what this
-        kernel's Landlock can confine tools in (ADR-0016)."""
+        kernel's Landlock can confine tools in (ADR-0016); ``describer`` starts the processes
+        that describe functions, and without it none is described."""
         sysprompts = profile.sysprompts
         self._inbox = inbox
         self._main_id = main_id
@@ -193,6 +199,8 @@ class Dispatcher:
             lambda: _supervisor_of(settings_commands.current.session),
             inbox.put,
         )
+        data_dir = profiles.data_dir
+        descriptions = Descriptions(data_dir, describer or ToolLauncher(data_dir), confinement)
         self._switch = ProfileSwitch(
             self._reporter,
             profiles,
@@ -209,6 +217,9 @@ class Dispatcher:
         settings_commands.check_theme = self._themes.book.check
         settings_commands.windows_max_changed = self._windows.set_maximum
         settings_commands.looks_changed = self._looks_changed
+        self._pieces = PieceCommands(
+            self._reporter, lambda: Quarantine(self._switch.active.folder, descriptions)
+        )
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -233,6 +244,7 @@ class Dispatcher:
             KeyCommands(
                 self._reporter, settings_commands, sessions, main_id, self._windows, main_screen
             ),
+            self._pieces,
         )
         self._rows = RowSource(
             sessions,
@@ -269,6 +281,7 @@ class Dispatcher:
             self._reporter.error(problem)
         self._devastation.start()
         self._tell_confinement()
+        self._pieces.tell_quarantined()
         self._turns.watch(self._default_link)  # Main tells how its Server is from the start
         self._recovery.close_left_open()
         self._recovery.restore()
@@ -298,6 +311,7 @@ class Dispatcher:
         self._commands.use_sysprompts(profile.sysprompts)
         self._default_link = _default_link(self._links, loaded)
         self._turns.watch(self._default_link)
+        self._pieces.tell_quarantined()
 
     def _take_turn_events(self) -> None:
         """Handle what Turns and drafts reported before Main stopped, so a Turn that already

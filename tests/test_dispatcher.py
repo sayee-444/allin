@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import FULL_SUPPORT
 from allin.core.drafts import put_back
 from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
@@ -250,6 +251,7 @@ class MainHarness:
         self.main_screen: list[ScreenUpdate] = []  # boxes and marks of Main's Chat, in order
         self.devastation = False  # lit on the command line
         self.confinement = FULL_SUPPORT  # what the kernel's Landlock can confine (ADR-0016)
+        self.describer: ToolLauncher | None = None  # a started one describes functions
         self.notices_dir = tmp_path / "notices"  # Notice modules, loaded on each start
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
@@ -327,6 +329,7 @@ class MainHarness:
             fonts=self.fonts,
             open_organizer=self._open_organizer,
             confinement=self.confinement,
+            describer=self.describer,
         )
         self.dispatcher = dispatcher
         for event in () if settle else events:

@@ -68,3 +68,52 @@ def test_a_reach_made_by_hand_is_checked_too():
         Reach(net=(0,))
     with pytest.raises(InvalidReach):
         Reach(write=("srv",))
+
+
+@pytest.mark.parametrize(
+    ("reduced", "declared", "within"),
+    [
+        (MINIMUM, Reach(read=("home",), net=True, display=True), True),
+        (Reach(read=("home/Documents",)), Reach(read=("home",)), True),
+        (Reach(read=("home",)), Reach(read=("home/Documents",)), False),
+        (Reach(write=("/usr/lib",)), Reach(write=("/",)), True),
+        (Reach(read=("home",)), Reach(read=("/",)), False),  # roots are not paths of each other
+        (Reach(net=(443,)), Reach(net=True), True),
+        (Reach(net=(443,)), Reach(net=(443, 80)), True),
+        (Reach(net=(22,)), Reach(net=(443,)), False),
+        (Reach(net=True), Reach(net=(443,)), False),
+        (Reach(display=True), MINIMUM, False),
+        (Reach(commands=("send",)), Reach(commands=("send", "grant")), True),
+        (Reach(commands=("grant",)), Reach(commands=("send",)), False),
+    ],
+)
+def test_an_approval_may_only_reduce_a_reach(reduced: Reach, declared: Reach, within: bool):
+    assert reduced.within(declared) is within
+
+
+@pytest.mark.parametrize(
+    ("reach", "acts"),
+    [
+        (MINIMUM, False),
+        (Reach(read=("home",), net=True), False),
+        (Reach(display=True), True),
+        (Reach(write=("home",)), True),
+        (Reach(write=("home/.config/app",)), True),  # where the user's programs read their setup
+        (Reach(write=("home/.bashrc",)), True),
+        (Reach(write=("home/bin",)), True),
+        (Reach(write=("home/code/repo/.git",)), True),  # a repo's hooks
+        (Reach(write=("work/.git/hooks",)), True),
+        (Reach(write=("home/Documents",)), False),
+        (Reach(write=("work/out",)), False),
+        (Reach(write=("/",)), True),
+        (Reach(write=("/usr/local",)), True),
+        (Reach(write=("/dev/shm",)), False),  # noqa: S108 - multiprocessing's semaphores
+    ],
+)
+def test_display_or_writing_where_the_user_runs_things_acts_as_the_user(reach: Reach, acts: bool):
+    assert reach.acts_as_user is acts
+
+
+def test_declaring_grant_is_told_apart():
+    assert Reach(commands=("grant",)).grants
+    assert not Reach(commands=("send",)).grants

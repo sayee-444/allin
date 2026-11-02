@@ -19,7 +19,7 @@ from allin.core.errors import (
     PortableInvalid,
 )
 from allin.core.hashing import files_hash
-from allin.core.sources import compiled_files
+from allin.core.sources import binary_files, compiled_files
 
 FORMAT = 1
 MANIFEST = "manifest.json"
@@ -183,20 +183,5 @@ def _check_readable(folder: Path) -> None:
     (ADR-0014)."""
     if compiled := compiled_files(folder):
         raise KitRejected(reason="compiled code", files=list[JsonValue](compiled))
-    binary = sorted(
-        path.relative_to(folder).as_posix()
-        for path in folder.rglob("*")
-        if path.is_file() and not _is_text(path.read_bytes())
-    )
-    if binary:
+    if binary := binary_files(folder):
         raise KitRejected(reason="binary files", files=list[JsonValue](binary))
-
-
-def _is_text(data: bytes) -> bool:
-    if b"\0" in data:
-        return False
-    try:
-        data.decode("utf-8")
-    except UnicodeDecodeError:
-        return False
-    return True
