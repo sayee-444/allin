@@ -18,10 +18,15 @@ class ServerProps:
     # n_ctx of each slot: the context limit Windows show (with --kv-unified, the whole pool).
     slot_context: int
     model_path: str
+    vision: bool = False  # it sees images: it loaded a multimodal projector (``modalities``)
 
 
 class _GenerationSettings(BaseModel):
     n_ctx: StrictInt = Field(gt=0)
+
+
+class _Modalities(BaseModel):
+    vision: bool = False
 
 
 class _Props(BaseModel):
@@ -30,6 +35,7 @@ class _Props(BaseModel):
     total_slots: StrictInt = Field(gt=0)
     default_generation_settings: _GenerationSettings
     model_path: str | None = None
+    modalities: _Modalities = _Modalities()
 
 
 def parse_props(props: object) -> ServerProps | None:
@@ -42,6 +48,7 @@ def parse_props(props: object) -> ServerProps | None:
         total_slots=parsed.total_slots,
         slot_context=parsed.default_generation_settings.n_ctx,
         model_path=parsed.model_path or "",
+        vision=parsed.modalities.vision,
     )
 
 

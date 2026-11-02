@@ -4,10 +4,12 @@ Only the dispatcher touches it, so it needs no locking.
 """
 
 from collections.abc import Container
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from allin.core.ids import SessionId
+from allin.main.conversation import Attachment
+from allin.main.prompt_commands import TurnOverrides
 
 # What a queue entry asks: a Turn for its text, a Compaction asked with ``/session compact``
 # (its text: the human's instructions) or one Main starts before a Turn that needs it.
@@ -19,6 +21,11 @@ class Prompt:
     session_id: SessionId
     text: str
     kind: PromptKind = "prompt"
+    # A human's Command prompts (#14): what it attached and the parameters its Turn changes;
+    # the id names the attachments' folder, so only a Prompt with attachments has one.
+    prompt_id: str = ""
+    attachments: tuple[Attachment, ...] = ()
+    overrides: TurnOverrides = field(default_factory=TurnOverrides)
 
 
 class PromptQueue:

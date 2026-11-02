@@ -325,3 +325,23 @@ class ClipboardFailed(AllInError):
     """The clipboard tool could not run, hung or failed (``tool``, ``reason``)."""
 
     code: ClassVar[str] = "clipboard_failed"
+
+
+class CommandSessionsNotYet(AllInError):
+    """A Prompt that starts with ``@<command>``: Command sessions arrive with F2, so it is
+    recognised and not sent."""
+
+    code: ClassVar[str] = "command_sessions_not_yet"
+
+
+class ParamOverrideInvalid(AllInError):
+    """``@key=value`` with a key outside the closed list, or a value the key does not take;
+    the Prompt is not sent."""
+
+    code: ClassVar[str] = "param_override_invalid"
+
+
+class FileReferenceInvalid(AllInError):
+    """``@<path>`` names no file Main can read; the Prompt is not sent."""
+
+    code: ClassVar[str] = "file_reference_invalid"

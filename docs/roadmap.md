@@ -8,8 +8,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #13 selección con el ratón, rueda y portapapeles (2026-11-01). En Main y en cada Ventana, la rueda mueve el Chat o el input que está bajo el puntero. Arrastrar selecciona en el Chat o en el input, con resaltado y autoscroll más rápido cuanto más fuera del pad está el puntero, y al soltar lo copia al portapapeles del sistema. Las filas que solo continúan la anterior por el ajuste de línea se copian sin salto. Ctrl+V pega en el input como un pegado multilínea. El portapapeles va detrás de un Protocol `Clipboard`: `wl-copy`/`wl-paste` con Wayland, si no `xclip`, y si no `clipboard_unavailable` en el Chat. ncurses solo pide a xterm los clics, así que AllIn activa además el modo 1002 (el movimiento con el botón pulsado) y lo apaga al salir. Probado a mano tecleando en las Ventanas los mismos bytes SGR que manda xterm, porque xterm descarta los clics sintéticos. Métricas: 861 tests. Antes: #15 y #16, lo que vuelve al input cuando un Turno falla.
-- **Siguiente:** #14, Command prompts: Referencia a archivo y Sobrescritura de parámetro. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; y un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa.
+- **Último hecho:** #14 Command prompts: Referencia a archivo y Sobrescritura de parámetro (2026-11-01).
+  - En lo que teclea un humano, `@clave=valor` cambia un parámetro solo para ese Turno y sale del texto. La lista cerrada es la de #26 más `effort`: un valor que la plantilla del modelo rechaza hace fallar el Paso con su 500, nunca en silencio. Una clave fuera de la lista o un valor que no admite es un error en la Ventana, y el texto vuelve al input.
+  - `@./…`, `@~/…` y `@/…` copian el archivo, como instantánea, a `.allin/adjuntos/<prompt>/` de la Carpeta de trabajo (`<datos>/workspaces/<id>/`), salvo que ya esté dentro, y el texto lo nombra en relativo. El texto va como texto, un binario por su nombre, y una imagen como imagen solo si `/props` dice que el Servidor ve; si no, va una línea que dice que el modelo actual no la ve, también para las imágenes que ya están en la Conversación.
+  - `@palabra` al principio se reconoce como Command session, que llega con F2, y no se envía. Cualquier otro `@` es literal.
+  - Probado a mano con el IQ3_XXS: con visión describe la imagen, y detrás de un proxy que dice `vision: false` responde que no la ve.
+  - Métricas: 905 tests. Antes: #13 ratón, rueda y portapapeles.
+- **Siguiente:** #22, cursor en el input e historial de Prompts. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; y la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019).
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -60,7 +65,7 @@ Ya tienen código; verificados y comentados.
 1. ✅ #15 El texto de un Turno fallido con la Ventana cerrada
 2. ✅ #16 Un Prompt en cola sin el anterior de su Sesión que falló
 3. ✅ #13 Selección con el ratón, rueda y portapapeles
-4. #14 Command prompts: Referencia a archivo y Sobrescritura de parámetro
+4. ✅ #14 Command prompts: Referencia a archivo y Sobrescritura de parámetro
 5. #22 Cursor en el input e historial de Prompts
 6. #56 Escribir durante un Turno: Enter sin bloqueo, la cola, ↑ para retirar y Shift+Enter para interrumpir (ADR-0024)
 7. #57 Atajos de teclado con `/key`

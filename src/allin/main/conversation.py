@@ -3,8 +3,9 @@
 Saved as ``conversation.json`` in the Session's folder once per finished Turn, atomically.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ValidationError
 
@@ -27,9 +28,18 @@ class Step(BaseModel, frozen=True):
     timings: dict[str, Any] | None = None
 
 
+class Attachment(BaseModel, frozen=True):
+    """A file a Prompt attached (Referencia a archivo): its place in the Session's Carpeta de
+    trabajo, relative to it, and how the LLM gets it (``attachments.AttachmentReader``)."""
+
+    path: str
+    kind: Literal["image", "text", "binary"]
+
+
 class Turn(BaseModel, frozen=True):
     prompt: str
     steps: list[Step]
+    attachments: list[Attachment] = []
     cut: CutReason | None = None  # a cut Turn keeps what it generated, marked
 
 
@@ -53,14 +63,20 @@ class Conversation(BaseModel, frozen=True):
     def with_turn(self, turn: Turn) -> "Conversation":
         return self.model_copy(update={"turns": [*self.turns, turn]})
 
-    def request_input(self, prompt: str) -> list[Item]:
-        """The ``input`` for the first Step of a Turn that answers ``prompt``."""
+    def request_input(
+        self,
+        prompt: str,
+        attachments: Sequence[Attachment] = (),
+        reader: "AttachmentParts | None" = None,
+    ) -> list[Item]:
+        """The ``input`` for the first Step of a Turn that answers ``prompt``; ``reader``
+        gives what the LLM gets of each attachment, this Prompt's and earlier ones'."""
         items: list[Item] = [{"role": "developer", "content": self.sysprompt}]
         if self.summary is not None:
             items.append(summary_item(self.summary, self.summarized))
         for turn in self.turns:
-            items += turn_items(turn)
-        items.append(user_item(prompt))
+            items += turn_items(turn, reader)
+        items.append(user_item(prompt, attachments, reader))
         return items
 
 
@@ -75,13 +91,29 @@ def summary_item(summary: str, prompts: int) -> Item:
     return user_item(f"{summary_header(prompts)}\n\n{summary}")
 
 
-def turn_items(turn: Turn) -> list[Item]:
+class AttachmentParts(Protocol):
+    def parts(self, attachments: Sequence[Attachment]) -> list[Item]: ...
+
+
+def turn_items(turn: Turn, reader: AttachmentParts | None = None) -> list[Item]:
     """A Turn as ``input`` items: its Prompt, then what each of its Steps produced."""
-    return [user_item(turn.prompt), *(item for step in turn.steps for item in step.output)]
+    prompt = user_item(turn.prompt, turn.attachments, reader)
+    return [prompt, *(item for step in turn.steps for item in step.output)]
 
 
-def user_item(text: str) -> Item:
-    return {"role": "user", "content": text}
+def user_item(
+    text: str, attachments: Sequence[Attachment] = (), reader: AttachmentParts | None = None
+) -> Item:
+    """A Prompt as a ``user`` message: its text, then its attachments as ``reader`` gives
+    them; without one (a Compaction's summary Step), each is a line naming it."""
+    if not attachments:
+        return {"role": "user", "content": text}
+    parts = reader.parts(attachments) if reader is not None else _named(attachments)
+    return {"role": "user", "content": [{"type": "input_text", "text": text}, *parts]}
+
+
+def _named(attachments: Sequence[Attachment]) -> list[Item]:
+    return [{"type": "input_text", "text": f"\n[{a.kind} {a.path}]"} for a in attachments]
 
 
 def load_conversation(folder: Path) -> Conversation | None:
