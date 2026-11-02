@@ -1,0 +1,127 @@
+# #47 Temas — evidencia de pruebas (2026-11-01)
+
+## Suite completa, basedpyright y ruff
+1116 passed in 18.07s
+0 errors, 0 warnings, 0 notes
+All checks passed!
+
+## Tests de #47
+tests/test_themes.py::test_the_built_in_look_is_the_one_from_before_themes_but_its_border PASSED
+tests/test_themes.py::test_a_theme_file_is_read_and_what_it_leaves_out_keeps_the_built_in_value PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[colors]\nuser = "rojo"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[colors]\nuser = "#12345"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[border]\ncolor = "#zzzzzz"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[colors]\nuser = "auto"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[font]\nfamily = "Mono:weight=200"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[font]\nfamily = "Mono,Serif"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[font]\nfamily = "Mono\\u0007"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[font]\nsize = 200] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[border]\nstyle = "wavy"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[window]\nsize = "9x9"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[window]\nsize = "120x500"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[glyphs]\nset = "emoji"] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[glyphs]\nicons = { user = "ab" }] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[glyphs]\nicons = { user = "\\u202e" }] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[glyphs]\nicons = { user = " " }] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[glyphs]\nicons = { prompt = "x" }] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[[sound]\nbell = true] PASSED
+tests/test_themes.py::test_a_value_without_its_shape_makes_the_theme_invalid[not toml at all [] PASSED
+tests/test_themes.py::test_the_invalid_theme_says_where PASSED
+tests/test_themes.py::test_a_theme_name_is_letters_digits_and_hyphens[default] PASSED
+tests/test_themes.py::test_a_theme_name_is_letters_digits_and_hyphens[oceano] PASSED
+tests/test_themes.py::test_a_theme_name_is_letters_digits_and_hyphens[alto-contraste] PASSED
+tests/test_themes.py::test_a_theme_name_is_letters_digits_and_hyphens[T2] PASSED
+tests/test_themes.py::test_anything_else_is_no_theme_name[] PASSED
+tests/test_themes.py::test_anything_else_is_no_theme_name[../x] PASSED
+tests/test_themes.py::test_anything_else_is_no_theme_name[a/b] PASSED
+tests/test_themes.py::test_anything_else_is_no_theme_name[a.toml] PASSED
+tests/test_themes.py::test_anything_else_is_no_theme_name[a b] PASSED
+tests/test_themes.py::test_anything_else_is_no_theme_name[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] PASSED
+tests/test_themes.py::test_a_sessions_loose_keys_replace_only_what_they_name PASSED
+tests/test_themes.py::test_a_loose_key_is_checked_as_the_theme_is PASSED
+tests/test_themes.py::test_each_new_session_takes_the_colour_the_others_use_least PASSED
+tests/test_themes.py::test_colours_as_rgb_and_as_the_nearest_of_256 PASSED
+tests/test_themes.py::test_a_theme_round_trips_its_defaults PASSED
+tests/test_themes_main.py::test_a_window_is_born_with_its_theme_and_sent_it_before_its_chat PASSED
+tests/test_themes_main.py::test_without_a_theme_a_window_looks_as_before_but_for_its_own_border_colour PASSED
+tests/test_themes_main.py::test_a_session_keeps_its_border_colour_when_reopened_and_after_a_restart PASSED
+tests/test_themes_main.py::test_a_session_from_before_themes_gets_its_colour_the_first_time_it_shows PASSED
+tests/test_themes_main.py::test_setting_a_theme_with_the_window_open_sends_it_without_closing_it PASSED
+tests/test_themes_main.py::test_a_theme_that_does_not_exist_is_refused_and_the_error_says_which_there_are PASSED
+tests/test_themes_main.py::test_a_loose_key_changes_its_session_only_and_a_bad_one_is_refused PASSED
+tests/test_themes_main.py::test_editing_a_theme_changes_every_window_that_uses_it PASSED
+tests/test_themes_main.py::test_a_theme_left_invalid_keeps_its_last_valid_version_and_says_what_failed PASSED
+tests/test_themes_main.py::test_a_theme_without_its_shape_does_not_load_and_tells_it[[colors]\nuser = "#12"] PASSED
+tests/test_themes_main.py::test_a_theme_without_its_shape_does_not_load_and_tells_it[[font]\nfamily = "Mono,Serif"] PASSED
+tests/test_themes_main.py::test_a_theme_without_its_shape_does_not_load_and_tells_it[[font]\nfamily = "A:b"] PASSED
+tests/test_themes_main.py::test_a_theme_that_went_away_shows_default_with_a_notice PASSED
+tests/test_themes_main.py::test_the_theme_notice_turns_off_per_session PASSED
+tests/test_themes_main.py::test_mains_chat_takes_its_theme_and_tells_its_problems_only_when_chosen PASSED
+tests/test_themes_main.py::test_a_missing_font_is_told_and_the_next_window_asks_again PASSED
+tests/test_themes_main.py::test_a_glyph_set_no_font_has_steps_down_and_is_told PASSED
+tests/test_themes_main.py::test_fontconfig_is_asked_for_the_escaped_family_with_monospace_after_it PASSED
+tests/test_themes_main.py::test_the_installations_themes_seed_a_profile_and_one_from_before_gets_them PASSED
+tests/test_themes_main.py::test_the_seed_default_theme_is_the_built_in_look PASSED
+tests/test_themes_main.py::test_a_profile_switch_uses_the_other_profiles_themes PASSED
+tests/test_themes_main.py::test_a_kit_carries_its_themes_and_loading_it_copies_them PASSED
+tests/test_themes_main.py::test_a_kit_whose_settings_name_a_theme_it_lacks_is_refused PASSED
+tests/test_themes_main.py::test_a_kit_with_an_invalid_theme_is_refused PASSED
+tests/test_themes_main.py::test_a_theme_set_reaches_the_window_as_json_and_back PASSED
+tests/test_themes_main.py::test_the_window_applies_the_theme_main_sent_as_it_is PASSED
+tests/test_themes_main.py::test_a_problem_is_told_once_and_again_when_the_look_changes PASSED
+tests/test_ui_look.py::test_a_windows_first_theme_needs_no_order_since_its_xterm_was_born_with_it PASSED
+tests/test_ui_look.py::test_a_new_theme_changes_letter_size_and_colours_with_xterm_orders PASSED
+tests/test_ui_look.py::test_new_colours_never_undo_a_size_the_human_gave_the_window PASSED
+tests/test_ui_look.py::test_a_colour_taken_away_gives_the_terminal_its_own_back PASSED
+tests/test_ui_look.py::test_no_order_ever_asks_xterm_anything PASSED
+tests/test_ui_look.py::test_mains_chat_keeps_its_size_and_touches_its_letter_only_in_an_xterm PASSED
+tests/test_ui_look.py::test_on_its_way_out_mains_chat_gives_back_the_terminals_colours PASSED
+tests/test_ui_look.py::test_borders_by_style_and_plain_with_the_ascii_glyph_set PASSED
+tests/test_launcher.py::test_watcher_reports_exit_code_and_output_goes_to_log PASSED
+tests/test_launcher.py::test_terminate_stops_a_running_window PASSED
+tests/test_launcher.py::test_the_windows_xterm_answers_no_questions_and_takes_no_colour_changes PASSED
+tests/test_launcher.py::test_xterm_takes_only_the_orders_a_theme_uses_never_its_questions PASSED
+tests/test_launcher.py::test_xterm_is_born_with_its_themes_look PASSED
+============================== 76 passed in 0.33s ==============================
+
+## Una Ventana no responde a preguntas a xterm
+Se abre un xterm con los resources exactos de una Ventana (xterm_command) y otro normal.
+Cada uno ejecuta un script que pide: OSC 10;? (color del texto), OSC 11;? (fondo),
+OSC 4;1;? (paleta), OSC 50;? (letra), CSI 21 t (título), CSI 18 t y 14 t (tamaño),
+OSC 52;c;? (portapapeles), y guarda lo que vuelve en 1,5 s.
+
+Ventana de AllIn:
+''
+xterm normal (control):
+$'\E]10;rgb:e5e5/e5e5/e5e5\a\E]11;rgb:0000/0000/0000\a\E]4;1;rgb:cdcd/0000/0000\a'
+
+(xterm 407 de esta máquina avisa 'Unrecognized keyword: StatusLine': está compilado sin
+línea de estado, así que esa operación no existe en él; la lista la mantiene para los que sí.)
+
+## El tamaño a mano se conserva al cambiar colores
+Ventana uno1 agrandada a mano y después editado el fondo de oceano.toml:
+  f-agrandada.png (994, 544)
+  f-colores-tras-agrandar.png (994, 544)
+
+## Pasos a mano (data dir limpio, <scratch>/d47)
+1. Main arranca con --themes-dir <repo>/themes: el Perfil default, de antes de #47, recibe
+   las semillas (bosque, claro, default, oceano, simple).
+2. /new --id=uno1 y /new --id=dos2 sin Tema: cada Ventana como antes, con su borde de color
+   propio (a-uno.png, a-dos.png); al reiniciar Main y reabrirlas conservan el color.
+3. /send uno1 … y /session set uno1 theme=oceano: colores, borde redondeado, íconos y letra
+   cambian sin cerrar la Ventana (b-oceano-en-turno.png).
+4. /send dos2 «Cuenta del 1 al 300…» y, a mitad, /session set dos2 theme=bosque: el Turno
+   sigue y termina con el Tema nuevo (c-bosque-en-turno.png, c-bosque-fin.png).
+5. Editar oceano.toml (fondo) cambia uno1 al momento (d-editado.png); dejarlo con
+   user = "turquesa" la deja con su última versión válida y da el Aviso (e-invalido.png).
+6. Agrandar uno1 a mano y cambiar el fondo del Tema: el tamaño no cambia (f-*.png).
+7. /session set uno1 font.size=13 agranda solo uno1 (g-font13.png); font.family=Mono:weight=200
+   se rechaza (g-main-rechazo.png).
+8. Un Tema con family = "Hack", que no está instalada: Aviso «font Hack is not installed;
+   DejaVu Sans Mono is used instead» (h-letra-falta.png).
+9. El mismo Aviso sobre el Tema claro: el recuadro tiene el mismo par fijo que sobre los
+   oscuros (i-aviso-en-claro.png frente a e-invalido.png y h-letra-falta.png).
+10. Chat de Main con theme=oceano en un xterm sin allowSendEvents (la herramienta de pruebas
+    lo usa para teclear, y xterm apaga con él las allow*Ops): toma fondo, texto y borde
+    (j-main-oceano.png). Al salir (SIGTERM, que desde #19 recorre el mismo camino que /exit),
+    la terminal recupera su fondo y su texto (k-tras-salir.png).
