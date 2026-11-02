@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from allin.confinement.reach import Places, ReachPaths, allowed_paths
+from allin.confinement.reach import Places, ReachPaths, allowed_paths, install_root
 from allin.decorators import MINIMUM, Reach
 
 
@@ -22,7 +22,8 @@ def places(tmp_path: Path) -> Places:
     install = home / "Pictures" / "Neva"
     data = install / "var"
     tree(home, "Documents", "Pictures/Holidays", ".config")
-    tree(install, "src", "venv", "docs")
+    tree(install, "src/allin", "venv", "docs", ".git", ".githooks")
+    (install / "pyproject.toml").touch()
     tree(data, "state", "sessions", "workspaces/s1", "tmp/call-1", "profiles/p/functions/f")
     dev = tmp_path / "dev"
     tree(dev, "pts", "shm", "input")
@@ -33,7 +34,8 @@ def places(tmp_path: Path) -> Places:
         tmp=data / "tmp" / "call-1",
         package=data / "profiles" / "p" / "functions" / "f",
         data_dir=data,
-        installation=(install,),
+        installation=(install / "src", install / "venv"),
+        install_root=install,
         home=home,
         system=(tmp_path / "usr",),
         dev=dev,
@@ -53,9 +55,7 @@ def test_without_the_decorator_a_function_has_exactly_the_minimum_reach(places: 
     assert reach == ReachPaths(
         read=(
             *places.system,
-            places.data_dir.parent / "docs",
-            places.data_dir.parent / "src",
-            places.data_dir.parent / "venv",
+            *places.installation,
             places.package,
             dev / "zero",
             dev / "urandom",
@@ -67,8 +67,10 @@ def test_without_the_decorator_a_function_has_exactly_the_minimum_reach(places: 
 
 def test_write_home_reaches_all_of_it_but_allins_data_and_installation(places: Places):
     reach = allowed_paths(Reach(write=("home",)), places)
-    home, install, data = places.home, places.installation[0], places.data_dir
+    home, install, data = places.home, places.install_root, places.data_dir
     assert touchable(reach.write, home / "Documents" / "new.txt")
+    for allins in (".githooks/pre-commit", ".git/config", "pyproject.toml", "docs/x.md"):
+        assert not touchable(reach.write, install / allins), allins
     assert touchable(reach.write, home / "Pictures" / "Holidays" / "beach.jpg")
     assert not touchable(reach.write, home / "Pictures" / "Neva" / "src" / "x.py")
     assert not touchable(reach.write, data / "state" / "main.json")
@@ -83,7 +85,7 @@ def test_write_home_reaches_all_of_it_but_allins_data_and_installation(places: P
 
 def test_read_home_reads_the_installation_but_never_the_data_folder(places: Places):
     reach = allowed_paths(Reach(read=("home",)), places)
-    install, data = places.installation[0], places.data_dir
+    install, data = places.install_root, places.data_dir
     assert touchable(reach.read, install / "src" / "allin" / "x.py")
     assert touchable(reach.read, places.home / "Documents" / "a.txt")
     assert not touchable(reach.read, data / "sessions" / "s1" / "conversation.jsonl")
@@ -99,7 +101,7 @@ def test_a_path_in_the_carpeta_de_trabajo_is_granted_although_it_is_in_the_data_
 
 
 def test_a_root_inside_allin_is_never_granted(places: Places):
-    data, install = places.data_dir, places.installation[0]
+    data, install = places.data_dir, places.install_root
     reach = allowed_paths(
         Reach(read=("home/Pictures/Neva/var/state",), write=("home/Pictures/Neva/src",)), places
     )
@@ -143,3 +145,28 @@ def test_with_display_it_reads_the_x11_cookie_and_nothing_else_of_the_session(
     shown = allowed_paths(Reach(display=True), replace(places, xauthority=cookie))
     assert cookie in shown.read
     assert cookie not in allowed_paths(MINIMUM, replace(places, xauthority=cookie)).read
+
+
+def test_a_link_a_tool_left_in_its_carpeta_de_trabajo_does_not_lead_into_the_data_folder(
+    places: Places,
+):
+    (places.workspace / "cache").symlink_to(places.data_dir / "state")
+    reach = allowed_paths(Reach(read=("work/cache",), write=("work/cache",)), places)
+    # A rule follows the link it is put on: what counts is where each grant really is.
+    really = tuple(p.resolve() for p in reach.read + reach.write)
+    assert not touchable(really, places.data_dir / "state" / "main.json")
+
+
+def test_a_carpeta_de_trabajo_a_human_pointed_at_a_folder_holding_allin_is_trimmed(
+    places: Places,
+):
+    pointed = replace(places, workspace=places.home / "Pictures")
+    reach = allowed_paths(MINIMUM, pointed)
+    assert touchable(reach.write, places.home / "Pictures" / "Holidays" / "a.jpg")
+    assert not touchable(reach.write, places.data_dir / "state" / "main.json")
+    assert not touchable(reach.write, places.install_root / "src" / "x.py")
+
+
+def test_the_installation_is_the_folder_of_allins_project_not_just_its_code():
+    root = install_root()
+    assert (root / "pyproject.toml").is_file() and (root / "src" / "allin").is_dir()

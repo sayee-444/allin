@@ -42,6 +42,7 @@ from allin.confinement.messages import (
 from allin.confinement.reach import (
     Places,
     allowed_paths,
+    install_root,
     installation,
     resolver_folder,
     x11_cookie,
@@ -80,6 +81,18 @@ class ToolOutcome:
 
 
 @dataclass(frozen=True)
+class _SharedLayer:
+    """net=True's Landlock layer: every TCP port but ``forbidden``, the Servers'."""
+
+    forbidden: frozenset[int]
+    descriptor: int | None  # None on a kernel without network rules
+
+    def close(self) -> None:
+        if self.descriptor is not None:
+            os.close(self.descriptor)
+
+
+@dataclass(frozen=True)
 class _Started:
     process: subprocess.Popen[bytes]
     net_layer: int | None  # the shared layer's descriptor, as the process got it
@@ -114,8 +127,7 @@ class ToolLauncher:
         self._grace = grace
         self._requests: queue.Queue[_Launch | None] = queue.Queue()
         self._thread = threading.Thread(target=self._serve, name="tool-launcher", daemon=True)
-        # The launcher thread's alone: net=True's shared layer, for the ports it leaves out.
-        self._layer: tuple[frozenset[int], int | None] | None = None
+        self._layer: _SharedLayer | None = None  # the launcher thread's alone
 
     def start(self) -> None:
         # Calls that a crashed Main left behind: no process of theirs is alive any more.
@@ -135,7 +147,7 @@ class ToolLauncher:
         tmp = self._data_dir / "tmp" / f"call-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
         main_end, tool_end = socket.socketpair()
-        servers = self._server_ports() if call.reach.net is not False else frozenset[int]()
+        servers = self._server_ports() if call.reach.network else frozenset[int]()
         try:
             started = self._launch(call, tmp, tool_end, servers)
             process = started.process
@@ -163,12 +175,13 @@ class ToolLauncher:
             package=call.package,
             data_dir=self._data_dir,
             installation=installation(),
+            install_root=install_root(),
             home=Path.home(),
             resolver=resolver_folder(),
             xauthority=x11_cookie(),
         )
         paths = allowed_paths(call.reach, places)
-        net = call.reach.net
+        ports = call.reach.tcp_ports(servers)
         return CallTool(
             package=str(call.package),
             module=call.module,
@@ -177,10 +190,9 @@ class ToolLauncher:
             workspace=str(call.workspace),
             read=[str(p) for p in paths.read],
             write=[str(p) for p in paths.write],
-            # net=True leaves TCP to the shared layer; a list, to its ports but the Servers'.
-            connect=None if net is True else sorted(set(net or ()) - servers),
+            connect=None if ports is None else list(ports),
             net_layer=net_layer,
-            ip=net is not False,
+            ip=call.reach.network,
             unix=call.reach.display,
         )
 
@@ -206,7 +218,7 @@ class ToolLauncher:
         started: Future[_Started] = Future()
         if not self._thread.is_alive():
             raise ToolNotStarted(cause="stopped")
-        forbidden = servers if call.reach.net is True else None
+        forbidden = servers if call.reach.tcp_ports(servers) is None else None
         self._requests.put(_Launch(argv, env, call.workspace, channel.fileno(), forbidden, started))
         return started.result()
 
@@ -233,17 +245,17 @@ class ToolLauncher:
         while not self._requests.empty():  # asked for while stopping: they will never start
             if (late := self._requests.get_nowait()) is not None:
                 late.started.set_exception(ToolNotStarted(cause="stopped"))
-        if self._layer is not None and self._layer[1] is not None:
-            os.close(self._layer[1])
+        if self._layer is not None:
+            self._layer.close()
 
     def _net_layer(self, forbidden: frozenset[int]) -> int | None:
         """net=True's shared layer, rebuilt only when the Servers' ports change (#99). Each
         process got its own copy at its start, so the old one can be closed."""
-        if self._layer is None or self._layer[0] != forbidden:
-            if self._layer is not None and self._layer[1] is not None:
-                os.close(self._layer[1])
-            self._layer = (forbidden, landlock.port_layer(forbidden))
-        return self._layer[1]
+        if self._layer is None or self._layer.forbidden != forbidden:
+            if self._layer is not None:
+                self._layer.close()
+            self._layer = _SharedLayer(forbidden, landlock.port_layer(forbidden))
+        return self._layer.descriptor
 
     def _cancel(self, main_end: socket.socket, process: subprocess.Popen[bytes]) -> None:
         """Ask the warden to take the call down; kill its group if it does not in time."""

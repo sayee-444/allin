@@ -7,10 +7,12 @@ They run inside the tool's own process, so they use the standard library alone.
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Literal
 
 from allin.core.errors import InvalidReach
 
-ROOTS = ("work", "home", "/")
+type Root = Literal["work", "home", "/"]
+ROOTS: tuple[Root, ...] = ("work", "home", "/")
 _MARK = "__allin_reach__"
 
 
@@ -22,13 +24,26 @@ class Reach:
     plus a subpath, such as ``home/Documents``. ``net`` is ``False``, ``True`` (every port but
     AllIn's Servers') or the TCP ports it connects to; UDP stays open unless it is ``False``.
     ``display`` opens the X11 or Wayland socket, which is acting as the user. ``commands`` are
-    the Command sessions it runs, which Main enforces (ADR-0025)."""
+    the Command sessions it runs, which Main will enforce (ADR-0025); for now it is
+    only kept."""
 
     read: tuple[str, ...] = ()
     write: tuple[str, ...] = ()
     net: bool | tuple[int, ...] = False
     display: bool = False
     commands: tuple[str, ...] = ()
+
+    @property
+    def network(self) -> bool:
+        """Whether it has any network: without it, UDP is closed too."""
+        return self.net is not False
+
+    def tcp_ports(self, servers: frozenset[int]) -> tuple[int, ...] | None:
+        """The TCP ports it connects to, never a Server's; ``None`` for every port but those,
+        which a shared layer leaves out (``net=True``)."""
+        if self.net is True:
+            return None
+        return tuple(sorted(set(self.net or ()) - servers))
 
 
 MINIMUM = Reach()  # its Carpeta de trabajo, reading the system and its package, no network
@@ -48,7 +63,7 @@ def reach[T](
         write=_paths("write", write),
         net=_net(net),
         display=_flag("display", display),
-        commands=_names("commands", commands),
+        commands=_strings("commands", commands),
     )
 
     def mark(target: T) -> T:
@@ -65,15 +80,12 @@ def reach_of(target: object) -> Reach:
 
 
 def _paths(field: str, paths: object) -> tuple[str, ...]:
-    for path in _strings(field, paths):
+    checked = _strings(field, paths)
+    for path in checked:
         parts = PurePosixPath(path).parts
         if not parts or parts[0] not in ROOTS or ".." in parts:
             raise InvalidReach(field=field, value=path)
-    return _strings(field, paths)
-
-
-def _names(field: str, names: object) -> tuple[str, ...]:
-    return _strings(field, names)
+    return checked
 
 
 def _strings(field: str, values: object) -> tuple[str, ...]:

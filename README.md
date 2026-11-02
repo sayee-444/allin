@@ -110,12 +110,12 @@ def summarize(path: str) -> str:
 - **Paths** start at a symbolic root: `work` (the Session's working folder), `home` or `/`, plus a subpath.
 - **`net`** is `False`, `True` or a list of TCP ports. Landlock limits the network **by port, not by host**: a tool with port 443 reaches every HTTPS site there is, so approving a piece with network is the only thing that stops it sending your data out. With a list, UDP stays open, because DNS needs it; only `net=False` closes it. `net=True` is every port but those of AllIn's Servers, the one Main only observes included, so no tool uses the LLM behind the queue's back.
 - **`display`** opens the X11 or Wayland socket. A graphical client can read and type keys into other windows, the Windows and Main's Chat included, so `display` is acting as you. Writing where you run things (`home`, `~/.config`, a repo's hooks) is too.
-- **`commands`** names the Command sessions it runs; Main enforces it.
+- **`commands`** names the Command sessions it runs. For now it is only kept: Main starts enforcing it with Command sessions.
 - Terminals (`/dev/pts`, `/dev/tty*`) are never in a reach.
 
 **Trimming.** Landlock grants whole folders, so granting `home` would grant AllIn's data inside it too. At every call, Main turns each granted folder that holds something of AllIn's into grants on every sibling along the way. With AllIn installed in `~/Pictures/Neva` and its data folder in `~/Pictures/Neva/var`:
 
-- `write=["home"]` becomes all of `~` but `Pictures`, and all of `Pictures` but `Neva`, because the installation is never written;
+- `write=["home"]` becomes all of `~` but `Pictures`, and all of `Pictures` but `Neva`, because the installation (its code, `.git`, its hooks) is never written;
 - `read=["home"]` also reaches all of `Neva` but `var`, because the installation is read.
 
 The data folder is never read or written, but for the working folder, the call's `TMPDIR` and the function's own package. Since the grants are on the siblings that exist when the call starts, a tool cannot create new entries right in `~` or `~/Pictures` during that call.

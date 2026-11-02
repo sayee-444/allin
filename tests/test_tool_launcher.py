@@ -15,6 +15,7 @@ import pytest
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolCall, ToolLauncher
+from allin.confinement.reach import install_root
 from allin.core.errors import ToolNotStarted, ToolTimedOut
 from allin.decorators import MINIMUM, Reach
 
@@ -336,6 +337,7 @@ STAND_IN_MAIN = """
 import sys, threading
 from pathlib import Path
 from allin.confinement.launcher import ToolCall, ToolLauncher
+from allin.confinement.reach import install_root
 
 data, package, workspace, title = map(Path, sys.argv[1:5])
 launcher = ToolLauncher(data)
@@ -541,3 +543,21 @@ def test_with_display_it_reaches_x11s_abstract_socket_as_libxcb_tries_it_first(
         hidden = launcher.run(call(package, workspace, "connect_unix", path=name), 20)
     assert shown.value == "connected"
     assert hidden.value == "PermissionError"
+
+
+def test_a_reach_around_allins_installation_never_writes_into_it(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    # The folder that holds AllIn's project, granted whole: its hooks would run unconfined.
+    root = install_root()
+    beside = Reach(write=(str(root.parent),))
+    planted = root / ".githooks" / f"allin-test-{os.getpid()}"
+    try:
+        wrote = launcher.run(call(package, workspace, "write", beside, path=str(planted)), 20)
+        config = launcher.run(
+            call(package, workspace, "attempt", paths={"c": str(root / "pyproject.toml")}), 20
+        )
+    finally:
+        planted.unlink(missing_ok=True)
+    assert wrote.value == "PermissionError"
+    assert config.value == {"c": "PermissionError"}, "the minimum does not read the project's root"

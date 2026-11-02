@@ -22,9 +22,19 @@ _TERMINALS = ("pts", "console", "tty*", "vcs*")
 
 
 def installation() -> tuple[Path, ...]:
-    """AllIn's code and its Python: read-only for tools (ADR-0016)."""
+    """What a tool reads of AllIn's to run: its code and its Python (ADR-0016)."""
     code = Path(allin.__file__).resolve().parent.parent
     return tuple(dict.fromkeys((code, Path(sys.prefix), Path(sys.base_prefix))))
+
+
+def install_root() -> Path:
+    """The folder AllIn is installed in, never written by a tool: the project that holds its
+    code (with ``.git``, its hooks and ``pyproject.toml``), or its code's folder when AllIn
+    was installed as a package."""
+    code = Path(allin.__file__).resolve().parent
+    if code.is_relative_to(Path(sys.prefix).resolve()):
+        return code  # a package in the venv's site-packages: the venv is read-only already
+    return next((p for p in code.parents if (p / "pyproject.toml").is_file()), code)
 
 
 def resolver_folder() -> Path | None:
@@ -49,7 +59,8 @@ class Places:
     tmp: Path  # the call's TMPDIR, inside the data folder
     package: Path  # the function's own package, inside the data folder
     data_dir: Path  # never read nor written, but for the three above
-    installation: tuple[Path, ...]  # read, never written
+    installation: tuple[Path, ...]  # read in the minimum: AllIn's code and its Python
+    install_root: Path  # the whole installation: read through a broad root, never written
     home: Path  # the root ``home``
     system: tuple[Path, ...] = SYSTEM
     dev: Path = Path("/dev")
@@ -70,37 +81,71 @@ def allowed_paths(reach: Reach, places: Places) -> ReachPaths:
     AllIn's is trimmed down to the siblings of the branch that leads to it: the data folder is
     never read or written (but for the Carpeta de trabajo, the TMPDIR and the package), the
     installation never written, and the terminals never opened."""
-    data_dir = places.data_dir.resolve()
-    installation = tuple(p.resolve() for p in places.installation)
-    terminals = tuple(_terminals(places.dev))
-    read_out, write_out = (data_dir, *terminals), (data_dir, *installation, *terminals)
-    read: list[Path] = [
-        *(p for root in (*places.system, *places.installation) for p in _trim(root, read_out)),
+    out = _KeptOut.of(places)
+    read = [*_minimum_read(places, out), *_declared(reach.read, places, out.of_reading)]
+    write = [*_minimum_write(places, out), *_declared(reach.write, places, out.of_writing)]
+    read += _extras(reach, places)
+    return ReachPaths(read=tuple(dict.fromkeys(read)), write=tuple(dict.fromkeys(write)))
+
+
+@dataclass(frozen=True)
+class _KeptOut:
+    """What no grant may reach, for reading and for writing."""
+
+    of_reading: tuple[Path, ...]
+    of_writing: tuple[Path, ...]
+
+    @classmethod
+    def of(cls, places: Places) -> "_KeptOut":
+        data_dir = places.data_dir.resolve()
+        installation = (places.install_root.resolve(), *(p.resolve() for p in places.installation))
+        terminals = tuple(_terminals(places.dev))
+        return cls((data_dir, *terminals), (data_dir, *installation, *terminals))
+
+
+def _minimum_read(places: Places, out: _KeptOut) -> list[Path]:
+    broad = (*places.system, *places.installation)
+    return [
+        *(p for root in broad for p in _trim(root, out.of_reading)),
         places.package,
         *(places.dev / name for name in _READ_DEVICES),
     ]
-    write: list[Path] = [places.workspace, places.tmp, places.dev / "null"]
-    for declared in reach.read:
+
+
+def _minimum_write(places: Places, out: _KeptOut) -> list[Path]:
+    return [
+        *_trim(places.workspace, out.of_writing, in_workspace=True),  # a human may point it
+        places.tmp,
+        places.dev / "null",
+    ]
+
+
+def _declared(paths: tuple[str, ...], places: Places, out: tuple[Path, ...]) -> list[Path]:
+    granted: list[Path] = []
+    for declared in paths:
         root, in_workspace = _resolve(declared, places)
-        read += _trim(root, read_out, in_workspace)
-    for declared in reach.write:
-        root, in_workspace = _resolve(declared, places)
-        write += _trim(root, write_out, in_workspace)
-    if reach.net is not False and places.resolver is not None:
-        read.append(places.resolver)
+        granted += _trim(root, out, in_workspace)
+    return granted
+
+
+def _extras(reach: Reach, places: Places) -> list[Path]:
+    """What network and ``display`` need read beyond what they declare."""
+    extras: list[Path] = []
+    if reach.network and places.resolver is not None:
+        extras.append(places.resolver)
     if reach.display and places.xauthority is not None:
-        read.append(places.xauthority)
-    return ReachPaths(read=tuple(dict.fromkeys(read)), write=tuple(dict.fromkeys(write)))
+        extras.append(places.xauthority)
+    return extras
 
 
 def _resolve(declared: str, places: Places) -> tuple[Path, bool]:
     """The real path of a symbolic root and its subpath, and whether it lies in the Carpeta de
-    trabajo, which is granted although the data folder holds it."""
+    trabajo, which is granted although the data folder holds it. Links are followed, as a
+    rule would: one a tool left in its Carpeta de trabajo counts for where it leads."""
     root, *sub = Path(declared).parts
-    if root == "work":
-        return places.workspace.joinpath(*sub), True
-    base = places.home if root == "home" else Path("/")
-    return base.joinpath(*sub).resolve(), False
+    base = {"work": places.workspace, "home": places.home}.get(root, Path("/"))
+    real = base.joinpath(*sub).resolve()
+    return real, root == "work" and real.is_relative_to(places.workspace.resolve())
 
 
 def _terminals(dev: Path) -> list[Path]:

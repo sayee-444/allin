@@ -53,3 +53,11 @@ def test_what_is_not_a_reach_is_refused_where_it_is_declared(
     with pytest.raises(InvalidReach) as raised:
         reach(**arguments)  # pyright: ignore[reportArgumentType]  # wrong on purpose
     assert raised.value.fields["field"] == field
+
+
+def test_its_tcp_ports_never_include_a_servers_and_net_true_leaves_them_to_a_layer():
+    servers = frozenset({9931})
+    assert Reach(net=(443, 9931, 80)).tcp_ports(servers) == (80, 443)
+    assert Reach(net=True).tcp_ports(servers) is None
+    assert MINIMUM.tcp_ports(servers) == ()
+    assert Reach(net=(443,)).network and Reach(net=True).network and not MINIMUM.network
