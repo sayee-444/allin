@@ -20,6 +20,7 @@ from allin.ipc.messages import (
     Coverage,
     InputDraft,
     InputRestore,
+    KeyTable,
     MainToWindow,
     PoolShared,
     PromptHistory,
@@ -40,6 +41,7 @@ from allin.ui.screen import (
     InputHistory,
     InputLock,
     InputText,
+    KeyBindings,
     QueuedPrompts,
     ShowBox,
     TitleMark,
@@ -87,6 +89,8 @@ class _MainListener:
                 self._screen.inbox.put(self._border())
             case InputRestore(text=text):
                 self._screen.inbox.put(InputText(text))
+            case KeyTable(bindings=bindings):
+                self._screen.inbox.put(KeyBindings(bindings))
             case PromptHistory(prompts=prompts):
                 self._screen.inbox.put(InputHistory(tuple(prompts)))
             case BoxShow(box_id=box_id, kind=kind, title=title, text=text):

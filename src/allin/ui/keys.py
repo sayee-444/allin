@@ -21,6 +21,18 @@ class Key(StrEnum):
     HOME = "home"
     END = "end"
     DELETE = "delete"
+    F1 = "f1"
+    F2 = "f2"
+    F3 = "f3"
+    F4 = "f4"
+    F5 = "f5"
+    F6 = "f6"
+    F7 = "f7"
+    F8 = "f8"
+    F9 = "f9"
+    F10 = "f10"
+    F11 = "f11"
+    F12 = "f12"
 
 
 @dataclass(frozen=True)
@@ -59,6 +71,7 @@ _SINGLE: dict[str | int, KeyChord] = {
     curses.KEY_HOME: KeyChord(Key.HOME),
     curses.KEY_END: KeyChord(Key.END),
     curses.KEY_DC: KeyChord(Key.DELETE),
+    **{curses.KEY_F0 + n: KeyChord(Key(f"f{n}")) for n in range(1, 13)},
 }
 
 
@@ -68,6 +81,15 @@ _PASTE_END = _ESC + "[201~"
 _MODIFY_OTHER_KEYS = "27"  # CSI 27 ; modifiers ; code ~  (xterm modifyOtherKeys)
 # The key's own code, so 8 is Backspace here; the ^H byte alone already means Ctrl+Backspace.
 _CODES: dict[int, Key] = {13: Key.ENTER, 127: Key.BACKSPACE, 8: Key.BACKSPACE}
+
+
+def typed_char(chord: KeyChord) -> str | None:
+    """The character a chord types, if it types one: a named key never does, even with no
+    Atajo of its own (a ``Key`` is a ``str`` too)."""
+    key = chord.key
+    if isinstance(key, Key) or chord.ctrl or chord.alt or not key.isprintable():
+        return None
+    return key
 
 
 class KeyDecoder:

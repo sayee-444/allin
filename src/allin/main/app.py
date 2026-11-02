@@ -70,8 +70,8 @@ def _run(
     settings_files = MainSettingsFiles(profile.settings)
     loaded = settings_files.load()  # a broken file is told by the Dispatcher, on start
     settings = loaded.current
-    title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /raw on|off [sid], /set, /session <sid>, /exit)"
-    screen = ChatScreen(stdscr, title)
+    title = "AllIn · Main  (/new, /open <sid>, /send <sid> <text>, /raw on|off [sid], /set, /session <sid>, /key, /exit)"
+    screen = ChatScreen(stdscr, title, commands=True)  # its Atajos may run Command mains
     log_dir = data_dir / "logs" / "main"
     log_dir.mkdir(parents=True, exist_ok=True)
     inbox: queue.Queue[MainEvent] = queue.Queue()

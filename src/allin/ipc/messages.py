@@ -151,6 +151,13 @@ class PromptHistory(BaseModel):
     prompts: list[str]
 
 
+class KeyTable(BaseModel):
+    """The Window's Atajos, key name to action (``ui.shortcuts``), defaults included."""
+
+    type: Literal["key_table"] = "key_table"
+    bindings: dict[str, str]
+
+
 type MainToWindow = (
     ChatAppend
     | ChatDelta
@@ -159,6 +166,7 @@ type MainToWindow = (
     | PoolShared
     | InputRestore
     | PromptHistory
+    | KeyTable
     | BoxShow
     | BoxHide
     | Coverage

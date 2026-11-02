@@ -39,6 +39,7 @@ from allin.main.events import (
     WindowClosed,
     WindowConnected,
 )
+from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import KitCommands
 from allin.main.kits import Kits
 from allin.main.links import Link, LinkResolver
@@ -56,7 +57,8 @@ from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
 from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
-from allin.ui.screen import ScreenUpdate
+from allin.ui.screen import KeyBindings, ScreenUpdate
+from allin.ui.shortcuts import effective_keys
 
 
 class Dispatcher:
@@ -181,7 +183,12 @@ class Dispatcher:
                 self._boxes,
                 profiles.data_dir / "servers",
             ),
+            KeyCommands(
+                self._reporter, settings_commands, sessions, main_id, self._windows, main_screen
+            ),
         )
+        if settings.current.keys:  # Main's Chat starts with the defaults
+            main_screen(KeyBindings(effective_keys(settings.current.keys)))
 
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""

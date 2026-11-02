@@ -2,7 +2,7 @@ import curses
 
 import pytest
 
-from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
+from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste, typed_char
 
 
 def feed_all(*keys: str | int) -> list[KeyEvent]:
@@ -69,7 +69,7 @@ def test_text_around_a_sequence_is_kept_in_order():
 
 
 def test_unknown_sequences_and_curses_codes_are_dropped():
-    assert feed_all("\x1b", "[", "1", "5", "~", curses.KEY_F1, "a") == [KeyChord("a")]
+    assert feed_all("\x1b", "[", "1", "5", "~", curses.KEY_F0 + 20, "a") == [KeyChord("a")]
 
 
 def test_a_bracketed_paste_arrives_whole_and_its_newlines_are_not_enter():
@@ -104,3 +104,18 @@ def test_flushing_does_not_cut_a_paste_short():
         decoder.feed(char)
     decoder.flush()
     assert [chord for char in "c\x1b[201~" for chord in decoder.feed(char)] == [Paste("abc")]
+
+
+@pytest.mark.parametrize(
+    ("chord", "char"),
+    [
+        (KeyChord("a"), "a"),
+        (KeyChord("A", shift=True), "A"),
+        (KeyChord(Key.ENTER), None),  # with Enter off it does nothing, never types "enter"
+        (KeyChord(Key.F5), None),
+        (KeyChord("b", ctrl=True), None),
+        (KeyChord("\x01"), None),
+    ],
+)
+def test_only_a_character_types_itself(chord: KeyChord, char: str | None):
+    assert typed_char(chord) == char
