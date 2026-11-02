@@ -1,0 +1,4 @@
+net=False      median  20.3 ms, p90  20.7 ms, first call  21.4 ms
+net=[443]      median  20.6 ms, p90  21.4 ms, first call  20.6 ms
+net=True       median  27.7 ms, p90  30.2 ms, first call  70.9 ms
+read=['home']  median  21.3 ms, p90  21.8 ms, first call  21.5 ms

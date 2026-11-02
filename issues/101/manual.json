@@ -1,0 +1,53 @@
+{
+  "server_ports (servers/*.toml + base_url)": [
+    9931,
+    9935
+  ],
+  "1_minimum_read": {
+    "<scratch>/outside.txt (in home, outside AllIn)": "PermissionError",
+    "<repo>/README.md (installation)": "PermissionError",
+    "<scratch>/var/state/main.json (data folder)": "PermissionError"
+  },
+  "2_read_home": {
+    "<scratch>/outside.txt (in home, outside AllIn)": "read",
+    "<repo>/README.md (installation)": "read",
+    "<scratch>/var/state/main.json (data folder)": "PermissionError"
+  },
+  "2_write_home": {
+    "<scratch>/notes/new.txt (in home, outside AllIn)": "written",
+    "<scratch>/new.txt (beside the data folder: a trimmed level, no new entries)": "PermissionError",
+    "<repo>/.probe-ev101 (installation)": "PermissionError",
+    "<repo>/.githooks/ev101-probe (installation, an existing folder)": "PermissionError",
+    "<scratch>/var/state/x (data folder)": "PermissionError"
+  },
+  "2_probe_left_in_installation": false,
+  "3_net_443": {
+    "tcp 127.0.0.1:443": "ConnectionRefusedError",
+    "tcp 127.0.0.1:80": "PermissionError",
+    "udp 127.0.0.1:9": "sent",
+    "dns + tcp example.com:443": "connected"
+  },
+  "3_net_false": {
+    "udp 127.0.0.1:9": "PermissionError",
+    "tcp 127.0.0.1:443": "PermissionError"
+  },
+  "4_net_true": {
+    "tcp 127.0.0.1:9931": "PermissionError",
+    "tcp 127.0.0.1:9935": "PermissionError",
+    "tcp 127.0.0.1:9936": "ConnectionRefusedError",
+    "tcp 127.0.0.1:443": "ConnectionRefusedError"
+  },
+  "6_terminals_read_slash_write_dev": {
+    "list /dev/pts": "PermissionError",
+    "open /dev/pts/ptmx": "PermissionError",
+    "open /dev/tty": "PermissionError"
+  },
+  "5_display_off": {
+    "exit": 1,
+    "stderr": "Error: Can't open display:"
+  },
+  "5_display_on": {
+    "exit": 0,
+    "stderr": ""
+  }
+}

@@ -1,0 +1,58 @@
+# #101 — ruff, basedpyright y tests (884e336)
+All checks passed!
+0 errors, 0 warnings, 0 notes
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.2.0, pluggy-1.7.0 -- <home>/Pictures/Neva/venv/bin/python
+cachedir: .pytest_cache
+rootdir: <home>/Pictures/Neva
+configfile: pyproject.toml
+plugins: anyio-4.15.1, cov-7.1.0, platformdirs-4.14.2
+collecting ... collected 44 items
+
+tests/test_reach_decorator.py::test_a_function_without_the_decorator_has_exactly_the_minimum_reach PASSED [  2%]
+tests/test_reach_decorator.py::test_the_decorator_keeps_what_it_declares_and_leaves_the_function_as_it_was PASSED [  4%]
+tests/test_reach_decorator.py::test_in_an_fproc_it_goes_on_the_class PASSED [  6%]
+tests/test_reach_decorator.py::test_what_is_not_a_reach_is_refused_where_it_is_declared[arguments0-read] PASSED [  9%]
+tests/test_reach_decorator.py::test_what_is_not_a_reach_is_refused_where_it_is_declared[arguments1-write] PASSED [ 11%]
+tests/test_reach_decorator.py::test_what_is_not_a_reach_is_refused_where_it_is_declared[arguments2-net] PASSED [ 13%]
+tests/test_reach_decorator.py::test_what_is_not_a_reach_is_refused_where_it_is_declared[arguments3-net] PASSED [ 15%]
+tests/test_reach_decorator.py::test_what_is_not_a_reach_is_refused_where_it_is_declared[arguments4-net] PASSED [ 18%]
+tests/test_reach_decorator.py::test_what_is_not_a_reach_is_refused_where_it_is_declared[arguments5-read] PASSED [ 20%]
+tests/test_reach_decorator.py::test_its_tcp_ports_never_include_a_servers_and_net_true_leaves_them_to_a_layer PASSED [ 22%]
+tests/test_confinement_reach.py::test_without_the_decorator_a_function_has_exactly_the_minimum_reach PASSED [ 25%]
+tests/test_confinement_reach.py::test_write_home_reaches_all_of_it_but_allins_data_and_installation PASSED [ 27%]
+tests/test_confinement_reach.py::test_read_home_reads_the_installation_but_never_the_data_folder PASSED [ 29%]
+tests/test_confinement_reach.py::test_a_path_in_the_carpeta_de_trabajo_is_granted_although_it_is_in_the_data_folder PASSED [ 31%]
+tests/test_confinement_reach.py::test_a_root_inside_allin_is_never_granted PASSED [ 34%]
+tests/test_confinement_reach.py::test_no_reach_opens_a_terminal PASSED   [ 36%]
+tests/test_confinement_reach.py::test_a_link_beside_allin_that_points_into_it_is_not_followed PASSED [ 38%]
+tests/test_confinement_reach.py::test_with_network_it_reads_where_the_resolver_configuration_really_is PASSED [ 40%]
+tests/test_confinement_reach.py::test_with_display_it_reads_the_x11_cookie_and_nothing_else_of_the_session PASSED [ 43%]
+tests/test_confinement_reach.py::test_a_link_a_tool_left_in_its_carpeta_de_trabajo_does_not_lead_into_the_data_folder PASSED [ 45%]
+tests/test_confinement_reach.py::test_a_carpeta_de_trabajo_a_human_pointed_at_a_folder_holding_allin_is_trimmed PASSED [ 47%]
+tests/test_confinement_reach.py::test_the_installation_is_the_folder_of_allins_project_not_just_its_code PASSED [ 50%]
+tests/test_tool_launcher.py::test_a_function_runs_in_its_own_process_and_returns_its_result_from_the_workspace PASSED [ 52%]
+tests/test_tool_launcher.py::test_it_cannot_read_or_write_outside_the_minimum_reach_nor_open_the_network PASSED [ 54%]
+tests/test_tool_launcher.py::test_it_is_born_without_a_terminal_mains_environment_or_the_workspace_on_its_path PASSED [ 56%]
+tests/test_tool_launcher.py::test_an_orphaned_grandchild_dies_when_the_call_ends PASSED [ 59%]
+tests/test_tool_launcher.py::test_a_timeout_takes_the_call_and_its_descendants_down_with_a_clear_error PASSED [ 61%]
+tests/test_tool_launcher.py::test_the_calls_tmpdir_lives_in_the_data_folder_and_is_gone_when_it_ends PASSED [ 63%]
+tests/test_tool_launcher.py::test_its_output_and_errors_come_back_as_data PASSED [ 65%]
+tests/test_tool_launcher.py::test_killing_main_kills_the_tools_process_and_its_descendants PASSED [ 68%]
+tests/test_tool_launcher.py::test_the_filter_refuses_unix_sockets_io_uring_and_typing_into_a_terminal PASSED [ 70%]
+tests/test_tool_launcher.py::test_main_kills_the_calls_process_group_when_its_warden_does_not_answer PASSED [ 72%]
+tests/test_tool_launcher.py::test_a_call_after_the_launcher_stopped_fails_instead_of_waiting_forever PASSED [ 75%]
+tests/test_tool_launcher.py::test_starting_clears_the_tmpdirs_a_crashed_main_left_behind PASSED [ 77%]
+tests/test_tool_launcher.py::test_with_a_list_of_ports_it_connects_to_those_alone_and_udp_stays_open PASSED [ 79%]
+tests/test_tool_launcher.py::test_with_all_the_network_it_never_reaches_a_server_of_allin PASSED [ 81%]
+tests/test_tool_launcher.py::test_only_with_display_does_it_open_the_graphic_socket PASSED [ 84%]
+tests/test_tool_launcher.py::test_no_reach_opens_a_terminal PASSED       [ 86%]
+tests/test_tool_launcher.py::test_writing_home_reaches_beyond_allin_but_never_its_data_folder PASSED [ 88%]
+tests/test_tool_launcher.py::test_with_display_it_reaches_x11s_abstract_socket_as_libxcb_tries_it_first PASSED [ 90%]
+tests/test_tool_launcher.py::test_a_reach_around_allins_installation_never_writes_into_it PASSED [ 93%]
+tests/test_server_ports.py::test_they_are_each_supervisors_port_and_the_observed_servers PASSED [ 95%]
+tests/test_server_ports.py::test_an_observed_server_without_a_port_in_its_url_is_on_its_schemes PASSED [ 97%]
+tests/test_server_ports.py::test_a_supervisor_whose_settings_broke_still_keeps_its_port_if_it_names_one PASSED [100%]
+
+============================== 44 passed in 4.35s ==============================
+1214 passed in 22.86s
