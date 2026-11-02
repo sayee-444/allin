@@ -143,7 +143,8 @@ def test_devastation_does_not_approve_it(main: MainHarness, tmp_path: Path):
     assert received(main, b) == []
 
 
-def test_a_file_that_leads_elsewhere_once_approved_is_not_copied(main: MainHarness, tmp_path: Path):
+def test_the_file_copied_is_the_one_the_human_approved(main: MainHarness, tmp_path: Path):
+    # The link leads elsewhere by the time the human says yes: what was shown is copied.
     a, b = main.create_session(), main.create_session()
     (tmp_path / "publico.txt").write_text("hola")
     (tmp_path / "secreto.txt").write_text("clave")
@@ -160,9 +161,11 @@ def test_a_file_that_leads_elsewhere_once_approved_is_not_copied(main: MainHarne
         BoxAnswered(FIRST_BOX, True),
         settle=True,
     )
-    assert received(main, b) == []
-    [result] = results(main, a)
-    assert "leads elsewhere" in str(result)
+    [box] = boxes(main)
+    assert str(tmp_path / "publico.txt") in box.box.text
+    [sent] = received(main, b)
+    [path] = attachments(sent)
+    assert (main.sessions.workspace(b.id) / path).read_text() == "hola"
 
 
 def test_a_session_of_another_profile_is_out_of_reach(main: MainHarness):
@@ -175,14 +178,37 @@ def test_a_session_of_another_profile_is_out_of_reach(main: MainHarness):
     assert str(result).startswith("error outside_profile")
 
 
-def test_a_human_writes_the_same_options(main: MainHarness):
+def test_a_session_out_of_the_active_profile_cannot_send(main: MainHarness):
+    main.sessions_join_profile = False
+    outsider = main.create_session()
+    main.sessions_join_profile = True
     b = main.create_session()
-    attached = workspace(main, b) / "notas.txt"
-    attached.write_text("hola")
-    main.run(MainCommandEntered(f"/send {b.id} --attach={attached} --top_k=5 mira"), settle=True)
+    main.run(MainCommandEntered(f"/send {b.id} hola", origin=from_session(outsider)), settle=True)
+    assert received(main, b) == []
+    [result] = results(main, outsider)
+    assert str(result).startswith("error outside_profile")
+
+
+def test_an_approval_after_a_profile_switch_sends_nothing(main: MainHarness, tmp_path: Path):
+    a, b = main.create_session(), main.create_session()
+    main.profiles.create("tesis", main.profile)
+    (tmp_path / "f.txt").write_text("x")
+    main.run(
+        MainCommandEntered(f"/send {b.id} --attach={tmp_path / 'f.txt'} x", origin=from_session(a)),
+        MainCommandEntered("/profile switch tesis"),
+        BoxAnswered(FIRST_BOX, True),
+        settle=True,
+    )
+    assert received(main, b) == []
+    [result] = results(main, a)
+    assert str(result).startswith("error outside_profile")
+
+
+def test_a_human_text_goes_as_typed_even_if_it_starts_with_dashes(main: MainHarness):
+    b = main.create_session()
+    main.run(MainCommandEntered(f"/send {b.id} --attach=x --top_k=5 mira"), settle=True)
     [sent] = received(main, b)
-    assert sent["text"] == "mira" and sent["overrides"] == {"top_k": 5}
-    assert attachments(sent) == ["notas.txt"], "already in its Carpeta de trabajo"
+    assert sent["text"] == "--attach=x --top_k=5 mira" and "overrides" not in sent
 
 
 def test_an_unknown_parameter_or_no_text_is_refused(main: MainHarness):

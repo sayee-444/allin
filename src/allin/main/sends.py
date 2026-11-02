@@ -5,9 +5,10 @@ It goes with its chain of Origin, under a header that says who sends it, and Mai
 ahead of the text. Main is not enclosed, so it never reaches a file for a Session beyond what
 that Session's tools reach: an attachment comes from the sender's Carpeta de trabajo, and one
 from outside, as resolved through any link, waits for a human's Approval, which neither ``-y``
-nor ``--devastation`` gives. It is copied, as it is then, to ``.allin/adjuntos/<prompt>/`` in
-the receiver's Carpeta de trabajo, unless it is in there already. A Session only reaches the
-Sessions of the active Profile, which is private (ADR-0010).
+nor ``--devastation`` gives; what is copied is the very file the human saw. It is copied to ``.allin/adjuntos/<prompt>/`` in
+the receiver's Carpeta de trabajo, unless it is in there already. Both ends must be Sessions of
+the active Profile, which is private (ADR-0010). A sender that is no Session (Main, a Proceso
+adherido) has no Carpeta de trabajo: every file it attaches is from outside.
 """
 
 from collections.abc import Callable, Sequence
@@ -15,15 +16,19 @@ from pathlib import Path
 
 from pydantic import JsonValue
 
-from allin.core.errors import AttachmentNotApproved, FileReferenceInvalid, OutsideProfile
+from allin.core.errors import (
+    AllInError,
+    AttachmentNotApproved,
+    FileReferenceInvalid,
+    OutsideProfile,
+)
 from allin.core.ids import SessionId, new_prompt_id
 from allin.core.origin import Origin
-from allin.main.attachments import attach, source_of
+from allin.main.attachments import copy_in, source_of
 from allin.main.boxes import MainBoxes
-from allin.main.events import CommandOutcome
+from allin.main.events import OnOutcome
 from allin.main.prompt_commands import SendOptions
 from allin.main.prompts import Prompt, origin_header
-from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.turn_queue import TurnQueue
 
@@ -34,73 +39,63 @@ class SessionSends:
         sessions: SessionStore,
         turns: TurnQueue,
         boxes: MainBoxes,
-        reporter: Reporter,
         in_profile: Callable[[SessionId], bool],
     ) -> None:
         """``in_profile``: whether a Session is one of the active Profile's."""
         self._sessions = sessions
         self._turns = turns
         self._boxes = boxes
-        self._reporter = reporter
         self._in_profile = in_profile
 
     def send(
-        self,
-        target: Session,
-        options: SendOptions,
-        origin: Origin,
-        answer: Callable[[CommandOutcome], None],
+        self, target: Session, options: SendOptions, origin: Origin, answer: OnOutcome
     ) -> None:
         """Queue the Prompt for ``target``; ``answer`` hears how it went, maybe only once a
         human answered the Approval of a file from outside."""
-        if not self._in_profile(target.id):
-            raise OutsideProfile(session_id=target.id)
+        self._check_profile(target, origin)
         base = self._workspace_of(origin)
-        sources = _sources(options.attach, base)
-        outside = [s for s in sources if base is None or not s.is_relative_to(base.resolve())]
+        files = [(path, _source(path, base)) for path in options.attach]
+        outside = [s for _, s in files if base is None or not s.is_relative_to(base.resolve())]
         if not outside:
-            self._push(target, options, origin, base, sources)
+            self._push(target, options, origin, files)
             answer("ok")
             return
 
-        def approved(yes: bool) -> None:
-            if not yes:
-                refused = AttachmentNotApproved(paths=list[JsonValue](map(str, outside)))
-                self._reporter.record(target.id, "attachment_refused", f"not sent: {refused}")
-                answer(refused)
-                return
+        def on_approval(yes: bool) -> None:
             try:
-                self._push(target, options, origin, base, sources)
-            except FileReferenceInvalid as error:
+                if not yes:
+                    raise AttachmentNotApproved(paths=list[JsonValue](map(str, outside)))
+                self._check_profile(target, origin)  # the human may have switched meanwhile
+                self._push(target, options, origin, files)
+            except AllInError as error:
                 answer(error)
             else:
                 answer("ok")
 
         sender = origin.sender or str(origin)
-        files = "\n".join(map(str, outside))
+        shown = "\n".join(map(str, outside))
         text = (
-            f"{sender} attaches, to its Prompt for {target.id}, from outside its folder:\n{files}"
+            f"{sender} attaches, to its Prompt for {target.id}, from outside its folder:\n{shown}"
         )
-        self._boxes.confirm(None, "Approve files", f"{text}\nCopy them?", approved)
+        self._boxes.confirm(None, "Approve files", f"{text}\nCopy them?", on_approval)
+
+    def _check_profile(self, target: Session, origin: Origin) -> None:
+        """Neither end may be out of the active Profile: ``/send`` never crosses it."""
+        sender = self._sending_session(origin)
+        for session_id in (target.id, *([sender] if sender is not None else [])):
+            if not self._in_profile(session_id):
+                raise OutsideProfile(session_id=session_id)
 
     def _push(
         self,
         target: Session,
         options: SendOptions,
         origin: Origin,
-        base: Path | None,
-        approved: Sequence[Path],
+        files: Sequence[tuple[str, Path]],
     ) -> None:
-        """Copy the attachments, as they are now, and queue the Prompt. A file that changed
-        where it leads since it was approved is not copied."""
-        if _sources(options.attach, base) != list(approved):
-            raise FileReferenceInvalid(
-                path=", ".join(options.attach), reason="it leads elsewhere since it was approved"
-            )
-        prompt_id = new_prompt_id() if approved else ""
-        workspace = self._sessions.workspace(target.id)
-        cwd = base or Path("/")
-        _, attachments = attach([str(source) for source in approved], workspace, prompt_id, cwd)
+        """Copy the attachments, the very files resolved and shown, and queue the Prompt."""
+        prompt_id = new_prompt_id() if files else ""
+        attachments = copy_in(files, self._sessions.workspace(target.id), prompt_id)
         prompt = Prompt(
             target.id,
             f"{origin_header(origin)}\n{options.text}",  # data: never read for @… or /…
@@ -111,21 +106,23 @@ class SessionSends:
         )
         self._turns.push(target, prompt)
 
-    def _workspace_of(self, origin: Origin) -> Path | None:
-        """The Carpeta de trabajo of the Session that sends, if a Session of this store does."""
+    def _sending_session(self, origin: Origin) -> SessionId | None:
+        """The Session that sends, if one of this store does."""
         sender = origin.sender
         if sender is None or SessionId(sender) not in self._sessions.ids():
             return None
-        return self._sessions.workspace(SessionId(sender))
+        return SessionId(sender)
+
+    def _workspace_of(self, origin: Origin) -> Path | None:
+        """The Carpeta de trabajo of the Session that sends; none if no Session does."""
+        sender = self._sending_session(origin)
+        return None if sender is None else self._sessions.workspace(sender)
 
 
-def _sources(references: Sequence[str], base: Path | None) -> list[Path]:
-    """The files the attachments name, resolved; a relative one from the sender's Carpeta de
+def _source(path: str, base: Path | None) -> Path:
+    """The file an attachment names, resolved; a relative one from the sender's Carpeta de
     trabajo, which a sender that is no Session lacks."""
-    sources: list[Path] = []
-    for reference in references:
-        if base is None and not Path(reference).expanduser().is_absolute():
-            reason = "a relative path needs the sender's Carpeta de trabajo"
-            raise FileReferenceInvalid(path=reference, reason=reason)
-        sources.append(source_of(reference, base or Path("/")))
-    return sources
+    if base is None and not Path(path).expanduser().is_absolute():
+        reason = "a relative path needs the sender's Carpeta de trabajo"
+        raise FileReferenceInvalid(path=path, reason=reason)
+    return source_of(path, base or Path("/"))

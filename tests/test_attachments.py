@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import FileReferenceInvalid
-from allin.main.attachments import AttachmentReader, attach
+from allin.main.attachments import AttachmentReader, attach, copy_in
 from allin.main.conversation import Attachment
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
@@ -109,3 +109,16 @@ def test_a_file_named_twice_is_attached_once(places: tuple[Path, Path]):
     assert names == {"./notas.txt": ".allin/adjuntos/p1/notas.txt"}
     assert len(attachments) == 1
     assert [p.name for p in (workspace / ".allin" / "adjuntos" / "p1").iterdir()] == ["notas.txt"]
+
+
+def test_a_file_swapped_for_a_link_once_resolved_is_not_copied(places: tuple[Path, Path]):
+    # A tool turns the note it sends into a link to a secret between check and copy.
+    cwd, workspace = places
+    note = (cwd / "notas.txt").resolve()
+    secret = cwd / "secreto"
+    secret.write_text("clave")
+    note.unlink()
+    note.symlink_to(secret)
+    with pytest.raises(FileReferenceInvalid, match="changed while it was copied"):
+        copy_in([("notas.txt", note)], workspace, "p1")
+    assert not list(workspace.rglob("notas.txt"))

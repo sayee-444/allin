@@ -221,7 +221,7 @@ Comando de una Ventana, escrito con `@` al inicio de un input que no contiene na
 _Avoid_: comsession (salvo como nombre de carpeta)
 
 **Command prompt** (`PromptCommand`):
-Directiva escrita con `@` en cualquier posición de un input que lanza un Turno; solo afecta a ese Turno y nunca cambia los Ajustes. Solo se reconoce en lo que teclea un humano (ADR-0013). Hoy existen dos: Referencia a archivo y Sobrescritura de parámetro. Una Sesión los pone en su **forma estructurada**, opciones delante del texto de `/send` (`--attach=<ruta>`, `--<parámetro>=<valor>`, y `--` antes de un texto que empiece por `--`), y Main nunca lee el texto (#110).
+Directiva escrita con `@` en cualquier posición de un input que lanza un Turno; solo afecta a ese Turno y nunca cambia los Ajustes. Solo se reconoce en lo que teclea un humano (ADR-0013). Hoy existen dos: Referencia a archivo y Sobrescritura de parámetro. Una Sesión los pone en su **forma estructurada** (`SendOptions`): opciones delante del texto de `@send` (`--attach=<ruta>`, `--<parámetro>=<valor>`, y `--` antes de un texto que empiece por `--`), y Main nunca lee el texto (#110). Lo que teclea un humano va siempre tal cual.
 
 **Referencia a archivo** (`FileReference`):
 Command prompt `@<ruta>` (empieza con `/`, `~` o `./`, precedido de espacio o inicio) que adjunta un archivo al Prompt; Main lo copia, como instantánea, a `.allin/adjuntos/<prompt>/` en la Carpeta de trabajo de la Sesión, y la Conversación lo nombra en relativo para que sus tools lo lean; si ya está dentro, no se copia (ADR-0016). El que adjunta una Sesión sale de su propia Carpeta de trabajo (una ruta relativa parte de ella), y uno de fuera, también por un enlace, necesita la Aprobación de un humano (ADR-0013).
