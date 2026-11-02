@@ -1,0 +1,27 @@
+# #110: registros de la prueba con llama serve (Q6 bajo el Supervisor gpu); A=t0fesq (con @send y sharer), B=po673s
+
+## Log de A: los @send de sus tools y cómo fue cada uno
+{"ts": "2026-11-02T16:52:17.015620-06:00", "event": "session_command", "command": "@send po673s --attach=\"informe.txt\" -- Que codigo trae el archivo adjunto. Contesta solo el numero.", "runs": "/send po673s --attach=\"informe.txt\" -- Que codigo trae el archivo adjunto. Contesta solo el numero.", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T16:52:17.018238-06:00", "event": "command", "command": "/send po673s --attach=\"informe.txt\" -- Que codigo trae el archivo adjunto. Contesta solo el numero.", "result": "ok", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:00:01.094130-06:00", "event": "session_command", "command": "@send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "runs": "/send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:03:27.188787-06:00", "event": "command", "command": "/send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "result": "error attachment_not_approved: paths=['<scratch>/fuera/clave.txt']", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:03:30.739640-06:00", "event": "session_command", "command": "@send po673s --attach=\"fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "runs": "/send po673s --attach=\"fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:03:30.739941-06:00", "event": "command", "command": "/send po673s --attach=\"fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "result": "error file_reference_invalid: path='fuera/clave.txt', reason='no such file'", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:03:36.348149-06:00", "event": "session_command", "command": "@send po673s --attach=\"110/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "runs": "/send po673s --attach=\"110/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:03:36.348445-06:00", "event": "command", "command": "/send po673s --attach=\"110/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "result": "error file_reference_invalid: path='110/fuera/clave.txt', reason='no such file'", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:03:39.512200-06:00", "event": "session_command", "command": "@send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "runs": "/send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:04:08.088358-06:00", "event": "command", "command": "/send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "result": "error attachment_not_approved: paths=['<scratch>/fuera/clave.txt']", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:04:24.003037-06:00", "event": "session_command", "command": "@send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "runs": "/send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:04:27.544518-06:00", "event": "command", "command": "/send po673s --attach=\"<scratch>/fuera/clave.txt\" -- Que clave trae el adjunto. Contesta solo el numero.", "result": "ok", "origin": ["human", "session:t0fesq"]}
+
+## Log de B: los Prompts que le llegaron, con su Origen y sus adjuntos
+{"ts": "2026-11-02T16:52:17.017138-06:00", "event": "prompt", "text": "[from Session t0fesq]\nQue codigo trae el archivo adjunto. Contesta solo el numero.", "attachments": [".allin/adjuntos/97rcrn/informe.txt"], "origin": ["human", "session:t0fesq"]}
+{"ts": "2026-11-02T17:04:27.543004-06:00", "event": "prompt", "text": "[from Session t0fesq]\nQue clave trae el adjunto. Contesta solo el numero.", "attachments": [".allin/adjuntos/eew6ka/clave.txt"], "origin": ["human", "session:t0fesq"]}
+
+## Adjuntos copiados en la Carpeta de trabajo de B
+.allin/adjuntos/97rcrn/informe.txt: El codigo secreto es 4217.
+.allin/adjuntos/eew6ka/clave.txt: La clave de fuera es 9081.
+
+## Lo que contestó B en cada Turno
+0 ["4217"]
+1 ["9081"]
