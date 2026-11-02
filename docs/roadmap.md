@@ -8,12 +8,17 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #53 El Organizador de Ventanas (2026-11-01). Con él quedan hechos todos los Pendientes de F1.
-  - `/new --id=<id>` lo elige al crearla y `/session id <sid> <nuevo>` lo cambia después: de 4 a 12 caracteres de `[a-z0-9]`, nunca uno que ya use otra Sesión, como id o como alias. Solo lo cambia un humano, y con un Turno en marcha se niega.
-  - El viejo sigue valiendo como alias (`sessions/aliases.json`): `SessionStore.resolve` es la única función que busca una Sesión por su id, y resuelve los alias. Un id al azar nunca toma uno.
-  - Main cambia el id en lo que guarda: la carpeta de la Sesión (con su Log), su Carpeta de trabajo, el Estado de Main de cada Perfil, las listas de los Perfiles y el Borrador. Si la Ventana estaba abierta, se cierra y se abre con el id nuevo, que muestra su título. Los Encargos, las Suscripciones y los Segmentos del RAG se sumarán cuando existan.
-  - Métricas: 1043 tests. Antes: #58 Rewind de una Sesión.
-- **Siguiente:** F2, que ya tiene sus 26 issues (#99–#124), empezando por #99, el prototipo desechable del encierro. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
+- **Último hecho:** #99 Prototipo desechable del encierro (2026-11-02). Informe en `docs/research/encierro-prototipo.md`; el código, en `prototypes/encierro/`, se borra con #100.
+  - Lanzar cada tool con `subprocess` y un `socketpair` (JSON por líneas), no con `multiprocessing`: con su `Queue`, Main desempaqueta con `pickle` lo que mande la tool, y eso ejecuta código en Main (medido). Además, el hijo de `spawn` nace con el entorno, el `sys.path` y la carpeta actual de Main.
+  - Landlock y seccomp con `ctypes`, sin dependencias, los dos para todos los threads. Para `net=True`, Main construye una vez la capa de 65 534 puertos y cada llamada la aplica la última: 7,4 ms.
+  - El Alcance mínimo necesita `/dev/null` (sin él falla git); `/proc` no hace falta; con red, leer adonde apunta `/etc/resolv.conf`. `forkserver`, el método por defecto de 3.14, no puede funcionar encerrado.
+  - `killpg` no alcanza a un nieto que llamó a `setsid`. Sí lo hace `kill(-1, SIGKILL)` desde dentro del encierro, que con el scope de señales de Landlock solo llega a los procesos de esa llamada. El primer proceso hará de vigilante: crea con `fork` el que corre la function (0,21 ms) y, al terminar o al cancelar, hace `kill(-1)`.
+  - Coste por llamada: de 17 a 25 ms, contra los 50–100 ms de ADR-0005 y los 28 ms del `spawn` de hoy.
+  - Las reglas de Landlock siguen al inodo: el archivo compartido de un Proceso adherido se pierde cuando un editor lo guarda con renombrado atómico (para #113).
+  - Métricas: 1159 tests, cobertura 86 %, mutación 94 %. Antes: #53 El Organizador de Ventanas.
+- **Siguiente:** #100 Lanzador de tools encerrado, con lo que recomienda #99. Al adoptarlo hay que enmendar ADR-0005 (`subprocess` + `socketpair` en vez de `multiprocessing` y su `Queue`) y ADR-0016, y el criterio de #100 «un timeout hace `killpg`» pasa a «el vigilante hace `kill(-1)`; `killpg` como último recurso».
+- **Preguntas abiertas para el usuario (de #99):** ¿`/dev/shm`, que necesita `multiprocessing` pero expone memoria compartida de otros programas, va en el Alcance mínimo (crear y borrar sin listar) o solo declarado en `@reach`? ¿Qué `HOME` recibe una tool (la Carpeta de trabajo, como en el prototipo, o ninguno)? ¿Algo en contra de cambiar ADR-0005 como arriba?
+- **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -82,7 +87,7 @@ Ya tienen código; verificados y comentados.
 
 Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus ADRs y sus bloqueos, que también están en GitHub. Lo primero es el encierro (ADR-0016): ninguna tool corre antes de que la batería de fugas (#103) falle entera. Quedan para «Después» Goal, Clon, Kits (segunda parte), Restablecer y las fagents que crea el LLM.
 
-1. #99 Prototipo desechable del encierro
+1. ✅ #99 Prototipo desechable del encierro
 2. #100 Lanzador de tools encerrado
 3. #101 `@reach` y el Alcance
 4. #102 Encierro de descripción
