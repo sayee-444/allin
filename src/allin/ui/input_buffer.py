@@ -38,10 +38,14 @@ class InputBuffer:
         self.cursor += len(text)
 
     def take(self) -> str:
-        """Return the shown block and show the next waiting one, if any (Enter)."""
-        text = self.text
+        """Return the shown block and show the next waiting one, if any (Enter); a recalled
+        Prompt sent gives back the block it had put aside."""
+        text, aside = self.text, self._aside if self._browsing is not None else ""
         self._stop_browsing()
-        self._show(self.waiting.pop(0) if self.waiting else "")
+        if aside:
+            self._show(aside)
+        else:
+            self._show(self.waiting.pop(0) if self.waiting else "")
         return text
 
     def restore(self, text: str) -> None:

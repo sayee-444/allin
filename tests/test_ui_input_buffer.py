@@ -249,3 +249,13 @@ def test_a_loaded_history_is_kept_as_the_pad_draws_it():
     buffer = InputBuffer()
     buffer.load_history(["uno\r\ndos", "tres", "tres"])
     assert buffer.history == ["uno\ndos", "tres"]
+
+
+def test_sending_a_recalled_prompt_gives_back_the_draft_put_aside():
+    buffer = typed("borrador")
+    buffer.waiting = ["otro bloque"]
+    buffer.history = ["viejo"]
+    buffer.older()
+    assert buffer.take() == "viejo"
+    assert buffer.blocks == ("borrador", "otro bloque")
+    assert buffer.cursor == len("borrador")
