@@ -293,6 +293,9 @@ class MainHarness:
         self.main_log_path = tmp_path / "main.jsonl"
         self.state = RecordingStateStore(self.profile.state)
         self.server_up = True  # the queue, paused on start, resumes before any event
+        # Whether ``create_session`` puts it in the active Profile, as ``/new`` does; tests of
+        # the Profiles' lists turn it off to make each list themselves.
+        self.sessions_join_profile = True
         self.orphans: list[tuple[str, int]] = []  # Windows a dead Main left, as Main closed them
         self.live_orphans: set[int] = set()  # their pids; any other pid is gone or not a Window
 
@@ -306,8 +309,12 @@ class MainHarness:
         self.settings_files.save_current(settings)
 
     def create_session(self, owner: MainId = ME, **settings: object) -> Session:
+        """A Session of the active Profile, as ``/new`` makes one."""
         session_settings = SETTINGS.session.model_copy(update=settings)
-        return self.sessions.create(owner, session_settings, "I am AllIn; you are ana.")
+        session = self.sessions.create(owner, session_settings, "I am AllIn; you are ana.")
+        if self.sessions_join_profile:
+            self.profiles.add_session(self.profile, session.id)
+        return session
 
     def windows(self, session_id: str) -> list[FakeWindowLink]:
         return [link for sid, link in self.opened if sid == session_id]

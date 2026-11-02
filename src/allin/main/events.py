@@ -241,6 +241,8 @@ class ToolsStarted:
 
 # How a Command main went: it ran, a human said no at its Confirmation, or why it failed.
 type CommandOutcome = Literal["ok", "rejected"] | AllInError
+# Who hears how a Command main went, maybe later: a Session's tool, through its Command session.
+type OnOutcome = Callable[[CommandOutcome], None]
 
 
 @dataclass(frozen=True)

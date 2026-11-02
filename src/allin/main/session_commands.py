@@ -29,6 +29,7 @@ from allin.core.ids import CommandName, NotificationSource, ServerKey, SessionId
 from allin.core.origin import Origin
 from allin.main.events import (
     CommandOutcome,
+    OnOutcome,
     ServerFailed,
     ServerReady,
     ServerState,
@@ -46,13 +47,13 @@ FOLDER = "comsession"  # in the data dir: the human's Command session modules
 type Answer = Callable[[SessionCommandResult], bool]
 # Runs a Command main with an Origin; calls back with how it went once it did, maybe after a
 # Confirmation. Returns whether Main keeps running.
-type RunMain = Callable[[str, Origin, Callable[[CommandOutcome], None]], bool]
+type RunMain = Callable[[str, Origin, OnOutcome], bool]
 
 
 def _send(call: SessionCommandCall) -> str:
     sid, _, text = call.args.partition(" ")
     if not sid or not text.strip():
-        msg = "a Session and a text: @send <sid> <text>"
+        msg = f"a Session and a text: {_SEND_USAGE}"
         raise ValueError(msg)
     return f"/send {sid} {text}"
 
@@ -82,7 +83,15 @@ def _conversation_logs(call: SessionCommandCall) -> str:
     return " ".join(["/conversation_logs", call.session_id, *words])
 
 
-SEND = SessionCommandType("send", "@send <sid> <text>", "send a Prompt to a Session", _send)
+# Its Command prompts go in the structured form, ahead of the text, which Main never reads; a
+# relative path is from the sender's Carpeta de trabajo (#110).
+_SEND_USAGE = "@send <sid> [--attach=<path>]… [--<param>=<value>]… [--] <text>"
+SEND = SessionCommandType(
+    "send",
+    _SEND_USAGE,
+    "send a Prompt to a Session of this Profile, maybe with files and Turn parameters",
+    _send,
+)
 CONVERSATION_LOGS = SessionCommandType(
     "conversation_logs",
     _CONVERSATION_LOGS_USAGE,

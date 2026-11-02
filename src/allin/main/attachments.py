@@ -28,29 +28,44 @@ def attach(
     Every one is checked before any is copied, so a bad one leaves nothing behind; a file
     named twice is attached once."""
     references = list(dict.fromkeys(references))
-    sources = [_source(reference, cwd) for reference in references]
+    files = [(reference, source_of(reference, cwd)) for reference in references]
+    attachments = copy_in(files, workspace, prompt_id)
+    return {r: a.path for r, a in zip(references, attachments, strict=True)}, attachments
+
+
+def copy_in(files: Sequence[tuple[str, Path]], workspace: Path, prompt_id: str) -> list[Attachment]:
+    """Copy each resolved file, named in errors as its label says, unless it is in the
+    Carpeta de trabajo already. What is copied is the very file at that path: one that turned
+    into a link, or under one, since it was resolved is refused, read from what was opened, so
+    nothing swapped in between gets copied (ADR-0013)."""
     root = workspace.resolve()
-    names: dict[str, str] = {}
     attachments: list[Attachment] = []
     taken: set[Path] = set()
-    for reference, source in zip(references, sources, strict=True):
+    for label, source in files:
         if source.is_relative_to(root):
             relative = source.relative_to(root)
         else:
             relative = _free(ATTACHMENTS / prompt_id / source.name, taken)
-            target = workspace / relative
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, target)
-            except OSError as error:
-                raise FileReferenceInvalid(path=reference, reason=str(error)) from error
+            _copy(label, source, workspace / relative)
         taken.add(relative)
-        names[reference] = relative.as_posix()
-        attachments.append(Attachment(path=relative.as_posix(), kind=_kind(source)))
-    return names, attachments
+        attachments.append(Attachment(path=relative.as_posix(), kind=_kind(workspace / relative)))
+    return attachments
 
 
-def _source(reference: str, cwd: Path) -> Path:
+def _copy(label: str, source: Path, target: Path) -> None:
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with source.open("rb") as opened:
+            if Path(f"/proc/self/fd/{opened.fileno()}").readlink() != source:
+                raise FileReferenceInvalid(path=label, reason="it changed while it was copied")
+            with target.open("wb") as copied:
+                shutil.copyfileobj(opened, copied)
+    except OSError as error:
+        raise FileReferenceInvalid(path=label, reason=str(error)) from error
+
+
+def source_of(reference: str, cwd: Path) -> Path:
+    """The file ``reference`` names, resolved through any link: what is copied."""
     path = Path(reference).expanduser()
     path = (cwd / path if not path.is_absolute() else path).resolve()
     if not path.exists():

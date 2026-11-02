@@ -55,6 +55,19 @@ def tell(sid: str, text: str) -> object:
     """Send a Prompt to another Session."""
     return command(f"@send {sid} {text}")
 ''',
+    "share": '''
+from pathlib import Path
+
+from allin.channel import command
+from allin.decorators import reach
+
+
+@reach(commands=["send"])
+def share(sid: str) -> object:
+    """Write a note in the Carpeta de trabajo and send it to another Session."""
+    Path("nota.txt").write_text("hola")
+    return command(f"@send {sid} --attach=nota.txt mira")
+''',
     "sneak": '''
 from allin.channel import command
 
@@ -148,6 +161,20 @@ def test_a_tool_runs_one_it_declares_and_reads_its_result(tools: MainHarness):
     [sent] = prompts(tools, b)
     assert sent["origin"] == ["human", f"session:{a.id}"]
     assert sent["text"].endswith("\nhola")  # data under its Origin's header (ADR-0013)
+
+
+def test_a_tool_sends_a_file_of_its_carpeta_de_trabajo(tools: MainHarness):
+    a, b = session(tools, "send", teller=True), session(tools)
+    tools.llm = FakeLlm(
+        tool_call("share", json.dumps({"sid": b.id})),
+        full_reply("", "enviado"),
+        full_reply("", "recibido"),  # B's Turn
+    )
+    tools.run(InputReceived(a.id, "comparte"), settle=True)
+    assert [o for r in tools.llm.requests for o in outputs(r)] == [{"result": "ok"}]
+    [sent] = prompts(tools, b)
+    [path] = sent["attachments"]
+    assert (tools.sessions.workspace(b.id) / str(path)).read_text() == "hola"
 
 
 def test_one_it_does_not_declare_is_refused(tools: MainHarness):

@@ -24,7 +24,7 @@ from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
-from allin.main.events import CommandOutcome
+from allin.main.events import CommandOutcome, OnOutcome
 from allin.main.func_commands import USAGE as FUNC_USAGE
 from allin.main.func_commands import FuncCommands
 from allin.main.func_commands import only_human as func_only_human
@@ -41,10 +41,11 @@ from allin.main.piece_commands import USAGE as PIECE_USAGE
 from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
-from allin.main.prompt_commands import parse_prompt
-from allin.main.prompts import Prompt, origin_header
+from allin.main.prompt_commands import parse_prompt, parse_send
+from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
+from allin.main.sends import SessionSends
 from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
@@ -92,6 +93,9 @@ class CommandSpec:
     takes_origin: bool = False  # ``run`` also gets the Origin, as ``origin=``
     # ``-y`` reaches ``run`` as ``yes=``, for what it starts later: /send's Turn (#107).
     takes_yes: bool = False
+    # ``run`` gets ``answer=`` and calls it itself once it is done, maybe later: /send, when an
+    # attachment waits for a human's Approval (#110).
+    takes_answer: bool = False
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -137,6 +141,7 @@ class MainCommands:
         self._settings = settings
         self._sysprompts = sysprompts
         self._profiles = profiles
+        self._sends = SessionSends(sessions, turns, boxes, profiles.in_active)
         self._organizer: Organizer | None = None
         self._organizer_rows: Callable[[], list[OrganizerRow]] = list
         # Command mains are registered once, when Main starts.
@@ -193,12 +198,14 @@ class MainCommands:
                 "queue a Prompt for a Session's next Turn",
                 args={
                     "sid": "the Session's id",
-                    "text": "the Prompt, up to the end; @key=value and @./file go first",
+                    "text": "the Prompt, up to the end; a human's @key=value and @./file go in"
+                    " it, a Session's --attach=<path> and --<param>=<value> ahead of it",
                 },
                 usage_text="/send [-y] <sid> <text>",
                 rest=True,
                 takes_origin=True,
                 takes_yes=True,
+                takes_answer=True,
             ),
             "/raw": CommandSpec(
                 ("state",),
@@ -363,7 +370,7 @@ class MainCommands:
         self,
         text: str,
         origin: Origin = HUMAN,
-        answer: Callable[[CommandOutcome], None] | None = None,
+        answer: OnOutcome | None = None,
     ) -> bool:
         """Run a Command main and report how it went; return whether Main keeps running.
 
@@ -381,6 +388,13 @@ class MainCommands:
         if command is not None and command.rest:
             args = _split_rest(text, len(command.params) + len(command.optional))
         session_id = None
+
+        def done(outcome: CommandOutcome) -> None:
+            """How it went, maybe later: only then is it logged, under the Session it names
+            (read when it is called), and answered."""
+            self._report(session_id, text, outcome, origin)
+            answer(outcome)
+
         keep_running = True
         try:
             if command is None:
@@ -398,27 +412,32 @@ class MainCommands:
             delicate = command.delicate(args)
             answered_by_main = self._devastation.answers(origin)
             if delicate and not yes and not answered_by_main:
-                self._ask(command, args, text, session_id, origin, answer)
+                self._ask(command, args, text, session_id, origin, done)
                 return True
             if delicate and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
                 self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
-            keep_running = self._call(command, args, origin, yes)
+            keep_running = self._call(command, args, origin, yes, done)
         except AllInError as error:
-            self._report(session_id, text, error, origin)
-            answer(error)
-        else:
-            self._report(session_id, text, None, origin)
-            answer("ok")
+            done(error)
         return keep_running
 
-    def _call(self, command: CommandSpec, args: list[str], origin: Origin, yes: bool) -> bool:
+    def _call(
+        self, command: CommandSpec, args: list[str], origin: Origin, yes: bool, done: OnOutcome
+    ) -> bool:
+        """Run it; ``done`` hears how it went, from the command itself if it takes an answer
+        (it may finish later), else once it returns."""
         options: dict[str, object] = {}
         if command.takes_origin:
             options["origin"] = origin
         if command.takes_yes:
             options["yes"] = yes
-        return command.run(*args, **options)
+        if command.takes_answer:
+            options["answer"] = done
+            return command.run(*args, **options)
+        keep_running = command.run(*args, **options)
+        done("ok")
+        return keep_running
 
     def _ask(
         self,
@@ -427,32 +446,27 @@ class MainCommands:
         text: str,
         session_id: str | None,
         origin: Origin,
-        answer: Callable[[CommandOutcome], None],
+        done: OnOutcome,
     ) -> None:
         """Ask before a delicate command; once answered yes it runs with the Origin it came
         with, never more."""
 
         def on_answer(yes: bool) -> None:
             if not yes:
-                self._log_command(session_id, "command", text, "rejected", origin)
-                answer("rejected")
+                done("rejected")
                 return
             try:
-                self._call(command, args, origin, yes=False)
+                self._call(command, args, origin, False, done)
             except AllInError as error:
-                self._report(session_id, text, error, origin)
-                answer(error)
-            else:
-                self._report(session_id, text, None, origin)
-                answer("ok")
+                done(error)
 
         self._log_command(session_id, "confirmation_asked", text, None, origin)
         self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
 
     def _report(
-        self, session_id: str | None, text: str, error: AllInError | None, origin: Origin
+        self, session_id: str | None, text: str, outcome: CommandOutcome, origin: Origin
     ) -> None:
-        result = "ok" if error is None else f"error {error}"
+        result = outcome if isinstance(outcome, str) else f"error {outcome}"
         self._log_command(session_id, "command", text, result, origin)
 
     def _log_command(
@@ -582,12 +596,24 @@ class MainCommands:
         self._turns.cancel(session.id, "window closed")
         return True
 
-    def _send(self, session_id: str, text: str, origin: Origin = HUMAN, yes: bool = False) -> bool:
-        """``yes``: ``-y``, a human's only: its Turn's Confirmations are answered yes."""
+    def _send(
+        self,
+        session_id: str,
+        text: str,
+        origin: Origin = HUMAN,
+        yes: bool = False,
+        answer: OnOutcome | None = None,
+    ) -> bool:
+        """``yes``: ``-y``, a human's only: its Turn's Confirmations are answered yes. A human
+        writes Command prompts in the text; anyone else, in the structured form ahead of it,
+        since Main never reads its text (ADR-0013)."""
+        answer = answer or _ignored
         session = self._sessions.load_owned(session_id, self._main_id)
-        if not origin.is_human:  # data: @… and /… in it are never run (ADR-0013)
-            sent = f"{origin_header(origin)}\n{text}"
-            self._turns.push(session, Prompt(session.id, sent, origin=origin))
+        if not origin.is_human:
+            options = parse_send(text)
+            if not options.text.strip():
+                raise InvalidArguments(usage=SEND_USAGE)
+            self._sends.send(session, options, origin, answer)
             return True
         try:
             prompt = self._human_prompt(session.id, text)
@@ -597,6 +623,7 @@ class MainCommands:
             self._windows.put_back(session.id, text)
             raise
         self._turns.push(session, replace(prompt, answered_by="-y" if yes else None))
+        answer("ok")
         return True
 
     def _human_prompt(self, session_id: SessionId, text: str) -> Prompt:
@@ -666,6 +693,10 @@ class MainCommands:
             session_id = self._sessions.load_owned(session_id, self._main_id).id
         self._reporter.show_raw(state == "on", session_id)
         return True
+
+
+# How a Session writes it: its Command prompts in the structured form, ahead of the text.
+SEND_USAGE = "/send <sid> [--attach=<path>]… [--<param>=<value>]… [--] <text>"
 
 
 def _ignored(_: CommandOutcome) -> None:

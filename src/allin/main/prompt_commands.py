@@ -12,6 +12,7 @@ Only a human's input has them; in text from another Session ``@…`` is literal 
 - Any other ``@`` (an address, ``hola @juan``) is literal.
 """
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,6 +27,8 @@ _OVERRIDE = re.compile(r"@([a-z_]+)=(\S*)")
 _REFERENCE = re.compile(r"@((?:/|~|\./)\S*)")
 _COMMAND_SESSION = re.compile(r"\s*@([a-z][a-z0-9_]*)(?:\s|$)")
 _SPACE = re.compile(r"(\s+)")
+# One option of ``/send``'s structured form, with the one space after it; ``--`` alone ends them.
+_SEND_OPTION = re.compile(r'\s*--(?:(?P<key>[a-z_]+)=(?P<value>"(?:[^"\\]|\\.)*"|\S+))?(?:\s|$)')
 # Sent as arguments of the SDK, as the Session's Sampling settings are.
 _SAMPLING_KEYS = ("temperature", "top_p", "max_output_tokens")
 
@@ -125,10 +128,52 @@ def parse_prompt(text: str) -> ParsedPrompt:
             parts.append(_Reference(reference.group(1)))
         else:
             parts.append(token)
-    return ParsedPrompt(tuple(parts), _overrides(overrides))
+    return ParsedPrompt(tuple(parts), parse_overrides(overrides))
 
 
-def _overrides(values: Mapping[str, str]) -> TurnOverrides:
+@dataclass(frozen=True)
+class SendOptions:
+    """The structured form of a Prompt's Command prompts, written ahead of its text in
+    ``/send <sid> [--attach=<path>]… [--<param>=<value>]… [--] <text>`` (ADR-0013): Main
+    reads these and never the text, which goes as written."""
+
+    attach: tuple[str, ...]  # as written: relative to the sender's Carpeta de trabajo
+    overrides: TurnOverrides
+    text: str
+
+
+def parse_send(text: str) -> SendOptions:
+    """The options at the start of ``text``, up to the first word that is none or ``--``; a
+    path may be written as a JSON string, for one with spaces."""
+    attach: list[str] = []
+    overrides: dict[str, str] = {}
+    rest = text
+    while (option := _SEND_OPTION.match(rest)) is not None:
+        rest = rest[option.end() :]
+        key, value = option.group("key"), option.group("value")
+        if key is None:  # ``--``: the text starts after it
+            break
+        if value.startswith('"'):
+            value = _unquoted(value)
+        if key == "attach":
+            attach.append(value)
+        else:
+            overrides[key] = value
+    if rest is text:
+        return SendOptions((), TurnOverrides(), text)  # without options it goes exactly as written
+    return SendOptions(tuple(attach), parse_overrides(overrides), rest)
+
+
+def _unquoted(value: str) -> str:
+    """A path written as a JSON string; as written if it is not a valid one."""
+    try:
+        unquoted: object = json.loads(value)
+    except ValueError:
+        return value
+    return unquoted if isinstance(unquoted, str) else value
+
+
+def parse_overrides(values: Mapping[str, str]) -> TurnOverrides:
     allowed: list[JsonValue] = [*sorted(TurnOverrides.model_fields)]
     for key in values:
         if key not in TurnOverrides.model_fields:
