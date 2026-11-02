@@ -8,11 +8,12 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #23 `/help` generado del registro de Command main (2026-11-01).
-  - Cada Command main declara al registrarse una línea que lo describe (`summary`, obligatoria: sin ella no pasa el tipado ni el test) y una por argumento (`args`, opcional); los que tienen acciones declaran su uso completo, el mismo que dan sus errores.
-  - `/help` los lista en el orden del registro; `/help <comando>` (con o sin barra) muestra su uso y sus argumentos, y uno desconocido da `unknown_command`. Solo lo usa un humano: no hay `@help`.
-  - Métricas: 999 tests. Antes: #57 Atajos de teclado con `/key`.
-- **Siguiente:** #19, lo que quede de la señal durante el arranque. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
+- **Último hecho:** #19 Una señal durante el arranque de Main sigue el apagado ordenado (2026-11-01).
+  - `ShutdownSignals` se instala en la primera línea de `allin.main.app.run`, antes del candado de Main, la migración de Perfiles y curses. Una SIGINT/SIGTERM/SIGHUP que llega mientras Main arranca deja un `Shutdown` en su inbox, y el Dispatcher, en cuanto corre, se apaga como con `/exit`: `main_stopped` en el Log, sin traceback y con la terminal fuera de curses.
+  - Antes, SIGINT dejaba un traceback, SIGHUP mataba a Main y SIGTERM lo cerraba con código 1 por el manejador que ncurses pone en `initscr` cuando la señal sigue con su acción por defecto.
+  - Un test lanza Main de verdad en un pty, con un paso de arranque falso que espera, y le manda cada señal en ese intervalo.
+  - Métricas: 1002 tests. Antes: #23 `/help` generado del registro de Command main.
+- **Siguiente:** #33, una Ventana desconectada de Main sigue mandando Borradores (Broken pipe). **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -68,7 +69,7 @@ Ya tienen código; verificados y comentados.
 6. ✅ #56 Escribir durante un Turno: Enter sin bloqueo, la cola, ↑ para retirar y Shift+Enter para interrumpir (ADR-0024)
 7. ✅ #57 Atajos de teclado con `/key`
 8. ✅ #23 `/help` generado del registro de Command main
-9. #19 Lo que quede de la señal durante el arranque
+9. ✅ #19 Lo que quede de la señal durante el arranque
 10. #33 Una Ventana desconectada sigue mandando Borradores (Broken pipe)
 11. ✅ #34 Los textos que vuelven al input se mezclan con lo escrito
 12. #58 Rewind de una Sesión
