@@ -13,6 +13,7 @@ from allin.main.events import DraftReceived, InputReceived, MainCommandEntered
 from allin.main.sessions import Session, SessionStore
 from allin.main.state import MainState, MainStateStore
 from tests.llm_fakes import FakeLlm
+from tests.origins import A_SESSION
 from tests.test_compaction_turns import answers
 from tests.test_dispatcher import ME, MainHarness, ended
 
@@ -126,7 +127,7 @@ def test_after_a_restart_it_opens_under_the_new_id_and_the_alias_still_works(
 
 def test_only_a_human_renames_a_session(main: MainHarness):
     session = main.create_session()
-    main.run(MainCommandEntered(f"/session id {session.id} tesis", origin="session"))
+    main.run(MainCommandEntered(f"/session id {session.id} tesis", origin=A_SESSION))
     [result] = results(main, "/session id")
     assert result.startswith("error human_only")
     assert main.sessions.load(session.id).id == session.id

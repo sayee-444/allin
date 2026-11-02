@@ -8,6 +8,7 @@ their border, and lighting it tells, in a Notice, which Sessions stop asking.
 
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId
+from allin.core.origin import Link, Origin, weakest_link
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import Coverage
 from allin.main.boxes import MainBoxes
@@ -45,6 +46,30 @@ class Devastation:
     def covers(self, settings: SessionSettings) -> bool:
         """Whether Main answers by itself the Confirmations of a Session with ``settings``."""
         return self._on and settings.exempt
+
+    def answers(self, origin: Origin) -> bool:
+        """Whether Main answers by itself a Confirmation asked with ``origin``: only if it covers
+        every link of the chain (ADR-0013). A human's or its own are covered; a Session only
+        if it is Main's and has the Exemption; a Proceso adherido never, and a Suscripción not
+        until #116 says how it is covered."""
+        if not self._on:
+            return False
+        if weakest_link(origin) != "session":
+            return True
+        return all(self._covers_link(link) for link in origin.chain)
+
+    def _covers_link(self, link: Link) -> bool:
+        match link.kind:
+            case "human" | "main":
+                return True
+            case "session" if link.id:
+                try:
+                    session = self._sessions.load(SessionId(link.id))
+                except AllInError:
+                    return False  # one that cannot be read asks the human
+                return session.owner == self._main_id and session.settings.exempt
+            case _:
+                return False
 
     def start(self) -> None:
         """Mark Main's Chat if it was lit on the command line."""

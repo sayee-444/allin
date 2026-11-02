@@ -25,6 +25,7 @@ from allin.supervisor.settings import (
     save_server_settings,
     shares_pool,
 )
+from tests.origins import A_SESSION
 
 # The user's line for one Server (models/como llamar llama serve…), as /proc/<pid>/cmdline has it.
 USER_LINE = shlex.split(
@@ -126,9 +127,9 @@ def test_the_registry_marks_the_keys_that_name_a_file_or_open_the_network():
 @pytest.mark.parametrize("key", ["model", "port", "extra", "command", "cwd", "mmproj"])
 def test_only_a_human_sets_a_key_that_names_a_file_or_opens_the_network(key: str):
     with pytest.raises(HumanOnly):
-        check_server_authority(parse_assignments(f"{key}=x"), "session")
+        check_server_authority(parse_assignments(f"{key}=x"), A_SESSION)
     check_server_authority(parse_assignments(f"{key}=x"), HUMAN)
-    check_server_authority(parse_assignments("context=1 parallel=1 gpu_layers=1"), "session")
+    check_server_authority(parse_assignments("context=1 parallel=1 gpu_layers=1"), A_SESSION)
 
 
 def test_saved_settings_load_back_the_same(tmp_path: Path):
@@ -155,7 +156,7 @@ def test_an_invalid_value_names_its_key():
 
 def test_only_a_human_names_the_key_it_was_refused():
     with pytest.raises(HumanOnly) as raised:
-        check_server_authority(parse_assignments("context=1 port=2"), "session")
+        check_server_authority(parse_assignments("context=1 port=2"), A_SESSION)
     assert raised.value.fields["action"] == "port"
 
 

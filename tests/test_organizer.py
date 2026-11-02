@@ -24,6 +24,7 @@ from allin.main.events import (
 from allin.main.organizer import command_for, row_title
 from allin.main.windows import OrganizerListener
 from allin.ui.organizer_view import QUIT, Act, OrganizerView, fit, row_text, windows_list
+from tests.origins import A_SESSION
 from tests.test_dispatcher import FakeWindowLink, MainHarness, ended
 
 WIDTH = 100
@@ -229,8 +230,8 @@ def test_its_actions_are_command_mains_of_a_human_in_mains_log(main: MainHarness
     commands = [e.fields for e in main.main_log() if e.event == "command"]
     from_organizer = [f for f in commands if f["command"] in (f"/bg {a.id}", f"/close {b.id}")]
     assert [(f["command"], f["origin"], f["result"]) for f in from_organizer] == [
-        (f"/bg {a.id}", "human", "ok"),
-        (f"/close {b.id}", "human", "ok"),
+        (f"/bg {a.id}", ["human"], "ok"),
+        (f"/close {b.id}", ["human"], "ok"),
     ]
     assert main.state.saved[-1].background == [a.id] and not main.state.saved[-1].windows
 
@@ -285,7 +286,7 @@ def test_windows_list_writes_the_same_list_in_mains_chat(main: MainHarness):
 
 
 def test_only_a_human_opens_the_organizer(main: MainHarness):
-    chat = main.run(MainCommandEntered("/windows", "session"))
+    chat = main.run(MainCommandEntered("/windows", A_SESSION))
     assert main.organizers == [] and any("human_only" in line for line in chat)
 
 

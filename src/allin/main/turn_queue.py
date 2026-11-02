@@ -35,7 +35,6 @@ from allin.core.errors import (
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
-from allin.core.origin import HUMAN
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -312,8 +311,7 @@ class TurnQueue:
         fields = _commands(prompt)
         if busy:
             fields["queued"] = True
-        if prompt.origin != HUMAN:
-            fields["origin"] = prompt.origin
+        fields["origin"] = list[JsonValue](prompt.origin.labels)
         self._reporter.log_session(session.id, "prompt", text=prompt.text, **fields)
         if not busy:
             self._show_prompt(session, prompt)
@@ -505,13 +503,22 @@ class TurnQueue:
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
+        self._cancel(session_id, reason, by_human=False)
+
+    def window_closed(self, session_id: SessionId) -> None:
+        """Closing a Window cancels what a human asked there: its queued Prompts of a human
+        Origin, and its running Turn only if its Prompt has one. For any other Origin the Window
+        was a peephole, and the work goes on (ADR-0013)."""
+        self._cancel(session_id, "window closed", by_human=True)
+
+    def _cancel(self, session_id: SessionId, reason: str, by_human: bool) -> None:
         self._falls.pop(session_id, None)
-        dropped = self._drop_queued(session_id, reason)
+        dropped = self._drop_queued(session_id, reason, by_human)
         typed = [prompt.as_typed for prompt in dropped if prompt.kind == "prompt"]
         for text in reversed(typed):  # each one put back goes ahead of the one after it
             self._windows.put_back(session_id, text)
         running = self._running.get(session_id)
-        if running is not None:
+        if running is not None and (not by_human or running.prompt.origin.is_human):
             running.cancellation.cancel(reason)
             self._withdraw(running)
 
@@ -794,7 +801,8 @@ class TurnQueue:
         if need is None:  # measured in a moment: nothing to tell meanwhile
             return None
         if self._compacts_first(prompt, session, need, slot_context):
-            entry = Prompt(session_id, "", "auto_compact")
+            # It makes room for that Prompt, so it goes, or stays, with it.
+            entry = Prompt(session_id, "", "auto_compact", origin=prompt.origin)
             self._prompts.insert_before(prompt, entry)
             return self._prompt_candidate(entry, waiting)
         if need > slot_context:
@@ -1411,12 +1419,19 @@ class TurnQueue:
             typed = [queued.text for queued in behind if queued.kind == "prompt"]
             self._give_back(session_id, [prompt, *typed])
 
-    def _drop_queued(self, session_id: SessionId, reason: str) -> list[Prompt]:
-        """Take a Session's queued Prompts out of the queue, as ``prompts_dropped`` in its Log."""
-        self._measures.pop(session_id, None)
-        self._since.pop(session_id, None)
-        self._compactions.drop(session_id)
-        dropped = self._prompts.drop(session_id)
+    def _drop_queued(
+        self, session_id: SessionId, reason: str, by_human: bool = False
+    ) -> list[Prompt]:
+        """Take a Session's queued Prompts out of the queue, as ``prompts_dropped`` in its Log;
+        ``by_human``, only those of a human Origin, and the others keep their place."""
+        dropped = self._prompts.drop(session_id, _not_human if by_human else None)
+        left = by_human and bool(self._prompts.of(session_id))
+        if dropped or not left:
+            self._measures.pop(session_id, None)  # its next Prompt is another one, if any
+        if not left:
+            self._since.pop(session_id, None)
+        if not left or any(prompt.kind != "prompt" for prompt in dropped):
+            self._compactions.drop(session_id)  # one it was doing, or would have done
         if dropped:
             shown = dropped_entry(len(dropped), reason).text
             texts: list[JsonValue] = [prompt.text for prompt in dropped]
@@ -1451,6 +1466,10 @@ class TurnQueue:
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
+
+
+def _not_human(prompt: Prompt) -> bool:
+    return not prompt.origin.is_human
 
 
 def _interrupted_steps(running: _RunningTurn) -> list[Step]:

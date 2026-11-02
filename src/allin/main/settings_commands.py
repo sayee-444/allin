@@ -8,6 +8,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import JsonValue
+
 from allin.confinement.reach import install_root
 from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
 from allin.core.ids import MainId, SessionId
@@ -82,8 +84,8 @@ def parse_session_command(args: list[str]) -> SessionCommand | None:
 def _check_authority(assignments: Mapping[SettingName, str], origin: Origin) -> None:
     """Only a human gives or takes away the Exemption (ADR-0013)."""
     for name in assignments:
-        if name in _HUMAN_ONLY and origin != HUMAN:
-            raise HumanOnly(action=name, origin=origin)
+        if name in _HUMAN_ONLY and not origin.is_human:
+            raise HumanOnly(action=name, origin=list[JsonValue](origin.labels))
 
 
 class SettingsCommands:

@@ -12,7 +12,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
 from allin.core.errors import (
     HumanOnly,
@@ -22,7 +22,7 @@ from allin.core.errors import (
     UnknownSetting,
 )
 from allin.core.files import write_atomically
-from allin.core.origin import HUMAN, Origin
+from allin.core.origin import Origin
 from allin.core.settings import SettingName, failing_key
 
 # Truncating the Conversation in silence is never allowed (ADR-0017).
@@ -171,8 +171,8 @@ def check_server_authority(keys: Iterable[SettingName], origin: Origin) -> None:
     """Raise ``HumanOnly`` for a key that names a file or opens the network, unless a human
     sets it (ADR-0013)."""
     for key in keys:
-        if key in REACHING_KEYS and origin != HUMAN:
-            raise HumanOnly(action=key, origin=origin)
+        if key in REACHING_KEYS and not origin.is_human:
+            raise HumanOnly(action=key, origin=list[JsonValue](origin.labels))
 
 
 def apply_server_assignments(

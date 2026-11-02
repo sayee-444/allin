@@ -3,12 +3,12 @@
 Only the dispatcher touches it, so it needs no locking.
 """
 
-from collections.abc import Container
+from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from typing import Literal
 
 from allin.core.ids import SessionId
-from allin.core.origin import HUMAN, Origin
+from allin.core.origin import HUMAN, LinkKind, Origin
 from allin.main.conversation import Attachment
 from allin.main.prompt_commands import TurnOverrides
 
@@ -60,10 +60,17 @@ class PromptQueue:
         """Take out the first Prompt equal to ``prompt``: the one ``waiting`` gave first."""
         self._prompts.remove(prompt)
 
-    def drop(self, session_id: SessionId) -> list[Prompt]:
-        """Take a Session's Prompts out of the queue; return them in their order."""
-        dropped = [prompt for prompt in self._prompts if prompt.session_id == session_id]
-        self._prompts = [prompt for prompt in self._prompts if prompt.session_id != session_id]
+    def drop(
+        self, session_id: SessionId, keep: Callable[[Prompt], bool] | None = None
+    ) -> list[Prompt]:
+        """Take a Session's Prompts out of the queue, but those ``keep`` keeps; return them in
+        their order."""
+
+        def dropping(prompt: Prompt) -> bool:
+            return prompt.session_id == session_id and not (keep is not None and keep(prompt))
+
+        dropped = [prompt for prompt in self._prompts if dropping(prompt)]
+        self._prompts = [prompt for prompt in self._prompts if not dropping(prompt)]
         return dropped
 
     def all(self) -> list[Prompt]:
@@ -97,3 +104,19 @@ class PromptQueue:
     def session_ids(self) -> list[SessionId]:
         """The Sessions with queued Prompts, each once, in the order of their first one."""
         return list(dict.fromkeys(prompt.session_id for prompt in self._prompts))
+
+
+_SENDERS: dict[LinkKind, str] = {
+    "human": "the human",
+    "main": "Main",
+    "session": "Session",
+    "process": "attached process",
+    "subscription": "Subscription",
+}
+
+
+def origin_header(origin: Origin) -> str:
+    """What heads a Prompt that no human typed, so its LLM reads it as data from whoever sent
+    it, never as the human's words: ``[from Session ab12]`` (ADR-0013)."""
+    last = origin.chain[-1]
+    return f"[from {' '.join(filter(None, (_SENDERS[last.kind], last.id)))}]"

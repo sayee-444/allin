@@ -386,7 +386,7 @@ class Dispatcher:
                 self._turns.turn_ended(session_id, steps, error)
             case WindowClosed(session_id, returncode):
                 if self._windows.closed(session_id, returncode):  # not one Main closed itself
-                    self._turns.cancel(session_id, "window closed")
+                    self._turns.window_closed(session_id)
             case ErrorOccurred(error, session_id):
                 self._windows.show_error(error, session_id)
             case ServerChanged(server, state):

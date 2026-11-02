@@ -5,7 +5,7 @@ import pytest
 
 from allin.core.errors import TurnCancelled
 from allin.core.ids import BoxId
-from allin.core.origin import Origin
+from allin.core.origin import MAIN, Origin
 from allin.ipc.messages import BoxHide, BoxShow, Coverage
 from allin.main.events import (
     BoxAnswered,
@@ -21,6 +21,7 @@ from allin.main.settings_files import MainSettingsFiles
 from allin.main.turn import Cancellation
 from allin.ui.marks import DEVASTATION_MARK
 from allin.ui.screen import HideBox, ShowBox, TitleMark
+from tests.origins import A_SESSION
 from tests.test_dispatcher import SETTINGS, FakeWindowLink, MainHarness, server
 
 FIRST_BOX = BoxId("b1")
@@ -97,7 +98,7 @@ def test_y_skips_the_confirmation_for_that_invocation_only(main: MainHarness):
     assert len(shown_boxes(main)) == 1
 
 
-@pytest.mark.parametrize("origin", ["session", "main"])
+@pytest.mark.parametrize("origin", [A_SESSION, MAIN])
 def test_y_from_any_origin_but_a_human_is_an_error(main: MainHarness, origin: Origin):
     chat = main.run(MainCommandEntered("/reset -y", origin=origin))
     assert any("error human_only" in line for line in chat)
@@ -106,7 +107,7 @@ def test_y_from_any_origin_but_a_human_is_an_error(main: MainHarness, origin: Or
 
 @pytest.mark.parametrize("command", ["/devastation on", "/set session.exempt=false"])
 def test_only_a_human_lights_devastation_or_changes_the_exemption(main: MainHarness, command: str):
-    chat = main.run(MainCommandEntered(command, origin="session"))
+    chat = main.run(MainCommandEntered(command, origin=A_SESSION))
     assert any("error human_only" in line for line in chat)
     assert MainSettingsFiles(main.settings_dir).load().current.session.exempt
 
@@ -315,7 +316,7 @@ def test_after_a_restart_everything_asks_again(main: MainHarness):
 
 def test_devastation_does_not_answer_a_command_a_session_asked_for(main: MainHarness):
     main.devastation = True
-    main.run(MainCommandEntered("/reset", origin="session"))
+    main.run(MainCommandEntered("/reset", origin=A_SESSION))
     assert [box.box.kind for box in shown_boxes(main)] == ["notice", "confirm"]
     assert current_parallel(main) == 2
 

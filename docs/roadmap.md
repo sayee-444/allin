@@ -8,14 +8,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #104 Cuarentena y Aprobación (2026-11-02).
-  - Las functions (su package entero) y los Sysprompts nuevos o cambiados quedan en cuarentena hasta que un humano los aprueba: cada Perfil guarda el hash aprobado de cada pieza (`approvals.json`). Un Sysprompt en cuarentena no se usa, y `Quarantine.offered()` da las functions aprobadas, con su Alcance y sus Confirmaciones, para el `tools=[...]` de #106.
-  - `/piece` lista las piezas con su estado y procedencia, `/piece show` muestra la pantalla de aprobación (el Alcance primero, con `!` en lo que excede el mínimo, y el código con `<U+202E>` y demás marcados) y `/piece approve` aprueba la versión mostrada, con `--reach` para reducir el Alcance y `--confirm` para añadir Confirmaciones, sin tocar el hash. `/piece approve --all` deja fuera lo que actúa como el usuario, Otorgar y lo que no escribió él. Main dice al arrancar cuántas piezas esperan.
-  - Un package con código compilado o binarios se rechaza. Ni otra Sesión, ni `-y`, ni `--devastation` aprueban.
-  - `/session workspace <sid> <carpeta>|default` apunta la Carpeta de trabajo, solo un humano y nunca dentro de AllIn.
-  - Main aprueba solo los Sysprompts idénticos a los que instala AllIn, para que los Perfiles de antes sigan funcionando.
-  - Métricas: 1300 tests, cobertura 84 %, mutación 94 %, 23 escapes (uno nuevo: el `noqa` de `/dev/shm` como ruta de un Alcance). Antes: #103 Batería de fugas.
-- **Siguiente:** #105 Origen con cadena y eslabón más débil.
+- **Último hecho:** #105 Origen con cadena y eslabón más débil (2026-11-02).
+  - El Origen es una cadena (humano o Main, y cada Sesión, Proceso adherido o Suscripción por la que pasa), guardada entera en el Turno, en la cola y en el Log de cada Prompt y cada comando (`["human", "session:ab12"]`). Lo guardado antes, una palabra, se lee como un eslabón.
+  - `weakest_link` da la autoridad: `-y`, `--devastation` y lo que es solo de un humano piden una cadena toda humana; el error `human_only` y el resultado de cada comando quedan también en el Log de la última Sesión de la cadena, para que #108 y #109 se lo lleven a su LLM.
+  - `--devastation` contesta una cadena solo si cubre cada eslabón (Sesiones de su Main con la Exención; nunca un Proceso adherido, y una Suscripción hasta #116).
+  - Lo que manda otra Sesión entra con cabecera de Origen (`[from Session ab12]`) y sin interpretar `@…` ni `/…`. Cerrar una Ventana cancela solo lo de Origen humano.
+  - Métricas: 1327 tests, cobertura 84 %, mutación 94 %, 24 escapes (uno nuevo: el `pyright: ignore` del validador del Origen). Antes: #104 Cuarentena y Aprobación.
+- **Siguiente:** #106 Function tools en el Turno.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
@@ -92,7 +91,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 4. ✅ #102 Encierro de descripción
 5. ✅ #103 Batería de fugas
 6. ✅ #104 Cuarentena y Aprobación
-7. #105 Origen con cadena y eslabón más débil
+7. ✅ #105 Origen con cadena y eslabón más débil
 8. #106 Function tools en el Turno
 9. #107 `@confirm` en las tools
 10. #108 Command sessions

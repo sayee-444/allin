@@ -23,6 +23,7 @@ from allin.supervisor.ports import port_free
 from allin.supervisor.settings import load_server_settings
 from allin.supervisor.state import SupervisorState, write_state
 from allin.ui.screen import ShowBox
+from tests.origins import A_SESSION
 from tests.test_dispatcher import MainHarness
 from tests.test_links import ready
 from tests.test_supervisor import FAKE, free_port, wait_for
@@ -49,7 +50,7 @@ def human(text: str) -> MainCommandEntered:
 
 def from_a_session(text: str) -> MainCommandEntered:
     """A Command main as a Session's ``@server`` will send it (F2)."""
-    return MainCommandEntered(text, origin="session")
+    return MainCommandEntered(text, origin=A_SESSION)
 
 
 def test_new_creates_an_asleep_supervisor_with_its_settings(main: MainHarness):

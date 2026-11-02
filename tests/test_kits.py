@@ -12,6 +12,7 @@ from allin.main.portable import MANIFEST
 from allin.main.profiles import Profile
 from allin.main.settings_files import MainSettingsFiles
 from allin.ui.screen import ShowBox
+from tests.origins import A_SESSION
 from tests.test_dispatcher import MainHarness
 
 GPU_TOML = 'model = "/models/m.gguf"\ncontext = 8192\nport = 9101\nmmproj = "/models/p.gguf"\n'
@@ -310,7 +311,7 @@ def test_a_profile_copy_is_not_a_kit(main: MainHarness, tmp_path: Path):
 
 
 def test_only_a_human_loads_or_exports_a_kit(main: MainHarness, tmp_path: Path):
-    chat = main.run(MainCommandEntered(f"/kit export {tmp_path / 'k'}", origin="session"))
+    chat = main.run(MainCommandEntered(f"/kit export {tmp_path / 'k'}", origin=A_SESSION))
     assert any("human_only" in line for line in chat)
     assert not (tmp_path / "k").exists()
 
