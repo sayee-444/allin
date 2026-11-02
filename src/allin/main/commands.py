@@ -341,7 +341,7 @@ class MainCommands:
             if not len(command.params) <= len(args) <= len(names):
                 raise InvalidArguments(usage=command.usage(name))
             if (yes or command.only_human(args)) and not origin.is_human:
-                raise HumanOnly(action=name, origin=str(origin))
+                raise HumanOnly(action=name, origin=list[JsonValue](origin.labels))
             delicate = command.delicate(args)
             answered_by_main = self._devastation.answers(origin)
             if delicate and not yes and not answered_by_main:
@@ -375,8 +375,7 @@ class MainCommands:
 
         def on_answer(answer: bool) -> None:
             if not answer:
-                shown = f"{_summary(text)}: rejected"
-                self._reporter.report(session_id, "command", shown, command=text, result="rejected")
+                self._log_command(session_id, "command", text, "rejected", origin)
                 return
             try:
                 self._call(command, args, origin)
@@ -385,21 +384,29 @@ class MainCommands:
             else:
                 self._report(session_id, text, None, origin)
 
-        shown = f"{_summary(text)}: waiting for confirmation"
-        self._reporter.report(session_id, "confirmation_asked", shown, command=text)
+        self._log_command(session_id, "confirmation_asked", text, None, origin)
         self._boxes.confirm(None, _summary(text), f"Run {_summary(text)}?", on_answer)
 
     def _report(
         self, session_id: str | None, text: str, error: AllInError | None, origin: Origin
     ) -> None:
         result = "ok" if error is None else f"error {error}"
-        shown = f"{_summary(text)}: {result}"
-        fields: dict[str, JsonValue] = {"command": text, "result": result}
+        self._log_command(session_id, "command", text, result, origin)
+
+    def _log_command(
+        self, session_id: str | None, event: str, text: str, result: str | None, origin: Origin
+    ) -> None:
+        """Main's Chat and Log, with the whole chain; and, when a Session's LLM sent it, that
+        Session's Log too, where its LLM will read how it went (ADR-0013)."""
+        shown = f"{_summary(text)}: {result or 'waiting for confirmation'}"
+        fields: dict[str, JsonValue] = {"command": text}
+        if result is not None:
+            fields["result"] = result
         fields["origin"] = list[JsonValue](origin.labels)
-        self._reporter.report(session_id, "command", shown, **fields)
-        sender = _sender(origin)
-        if sender is not None:  # what its LLM ran: its own Log keeps how it went (ADR-0013)
-            self._reporter.log_session(sender, "command", **fields)
+        self._reporter.report(session_id, event, shown, **fields)
+        sender = origin.sender
+        if sender is not None and SessionId(sender) in self._sessions.ids():  # not one gone
+            self._reporter.log_session(SessionId(sender), event, **fields)
 
     def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
         chosen, background = None, False
@@ -621,9 +628,3 @@ def _split_rest(text: str, params: int) -> list[str]:
         return []
     *args, rest = match.groups()
     return [*args, rest] if rest and rest.strip() else args
-
-
-def _sender(origin: Origin) -> SessionId | None:
-    """The Session whose LLM sent a command, when one did."""
-    last = origin.chain[-1]
-    return SessionId(last.id) if last.kind == "session" and last.id else None

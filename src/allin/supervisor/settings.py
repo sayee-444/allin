@@ -12,7 +12,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
 from allin.core.errors import (
     HumanOnly,
@@ -172,7 +172,7 @@ def check_server_authority(keys: Iterable[SettingName], origin: Origin) -> None:
     sets it (ADR-0013)."""
     for key in keys:
         if key in REACHING_KEYS and not origin.is_human:
-            raise HumanOnly(action=key, origin=str(origin))
+            raise HumanOnly(action=key, origin=list[JsonValue](origin.labels))
 
 
 def apply_server_assignments(

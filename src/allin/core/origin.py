@@ -25,7 +25,7 @@ _AUTHORITY: dict[LinkKind, Authority] = {
     "process": "session",
     "subscription": "session",
 }
-_KINDS: dict[str, LinkKind] = {kind: kind for kind in _AUTHORITY}
+_KINDS: dict[str, LinkKind] = {kind: kind for kind in _AUTHORITY}  # a parsed word, typed
 _RANK: dict[Authority, int] = {"session": 0, "main": 1, "human": 2}
 _NAMED: frozenset[LinkKind] = frozenset({"session", "process", "subscription"})
 _LINK = re.compile(rf"({'|'.join(_KINDS)})(?::([\w.-]+))?")
@@ -57,7 +57,7 @@ class Origin(BaseModel, frozen=True):
         return data
 
     @model_validator(mode="after")
-    def _starts_once(self) -> "Origin":
+    def _not_empty(self) -> "Origin":
         if not self.chain:
             msg = "an Origin has at least one link"
             raise ValueError(msg)
@@ -80,6 +80,14 @@ class Origin(BaseModel, frozen=True):
     def sessions(self) -> tuple[str, ...]:
         """The Sessions of the chain, in order: each one bounds what the action may use."""
         return tuple(link.id for link in self.chain if link.kind == "session")
+
+    @property
+    def sender(self) -> str | None:
+        """The last Session of the chain: whose LLM sent the action, maybe through a Proceso
+        adherido; ``None`` if no Session did, or one saved before #105 that names none."""
+        return (
+            next((link.id for link in reversed(self.chain) if link.kind == "session"), "") or None
+        )
 
     def __str__(self) -> str:
         return " > ".join(self.labels)
@@ -104,11 +112,6 @@ def from_process(origin: Origin, name: str) -> Origin:
 def from_subscription(origin: Origin, subscription_id: str) -> Origin:
     """A Prompt a Suscripción wakes, after what woke it."""
     return _through(origin, Link("subscription", subscription_id))
-
-
-def from_main(origin: Origin) -> Origin:
-    """What Main asks on its own because of an action of ``origin``."""
-    return _through(origin, Link("main"))
 
 
 def _through(origin: Origin, link: Link) -> Origin:

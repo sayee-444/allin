@@ -8,7 +8,6 @@ from allin.core.origin import (
     MAIN,
     Link,
     Origin,
-    from_main,
     from_process,
     from_session,
     from_subscription,
@@ -29,7 +28,6 @@ A, B = "aaaa", "bbbb"
         (from_session(from_process(from_session(HUMAN, A), "rag"), B), "session"),
         (from_process(HUMAN, "rag"), "session"),  # a human calling it does not make it human
         (from_session(MAIN, A), "session"),  # what Main asked, then a Session
-        (from_main(HUMAN), "main"),  # Main acting on its own for a human's action
         (from_subscription(from_session(HUMAN, A), "s1"), "session"),
     ],
 )
@@ -47,6 +45,8 @@ def test_the_chain_keeps_every_link_in_order():
         Link("session", B),
     )
     assert origin.sessions == (A, B)
+    assert from_process(from_session(HUMAN, A), "rag").sender == A  # its LLM called the process
+    assert HUMAN.sender is None
     assert origin.labels == ["human", f"session:{A}", "process:rag", f"session:{B}"]
     assert str(origin) == f"human > session:{A} > process:rag > session:{B}"
 

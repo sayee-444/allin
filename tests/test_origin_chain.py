@@ -5,9 +5,17 @@ from pathlib import Path
 
 import pytest
 
+from allin.core.errors import TurnCancelled
+from allin.core.ids import BoxId
 from allin.core.origin import HUMAN, Origin, from_process, from_session
 from allin.main.conversation import Turn
-from allin.main.events import InputReceived, MainCommandEntered, WindowClosed
+from allin.main.events import (
+    BoxAnswered,
+    InputReceived,
+    MainCommandEntered,
+    TurnEnded,
+    WindowClosed,
+)
 from allin.main.sessions import Session
 from allin.ui.screen import ShowBox
 from tests.llm_fakes import FakeLlm
@@ -105,3 +113,41 @@ def test_devastation_answers_only_a_chain_it_covers_whole(
     chat = main.run(MainCommandEntered("/reset", origin=origin))
     assert any("answered by --devastation" in line for line in chat) == answered
     assert ("confirm" in boxes(main)) != answered
+
+
+def test_closing_a_window_drops_only_the_human_prompts_and_the_rest_goes_on(main: MainHarness):
+    session, sender = main.create_session(), main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "mío"),
+        InputReceived(session.id, "otro mío"),
+        MainCommandEntered(f"/send {session.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        WindowClosed(session.id, returncode=0),
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        settle=True,
+    )
+    [dropped] = [e.fields for e in main.session_log(session) if e.event == "prompts_dropped"]
+    assert dropped["texts"] == ["otro mío"]
+    [first, then] = main.held
+    assert first.cancellation.reason is not None
+    assert then.request.input[-1] == {
+        "role": "user",
+        "content": f"[from Session {sender.id}]\ntrabajo",
+    }
+
+
+def test_a_command_its_human_rejected_is_kept_where_the_sessions_llm_reads(main: MainHarness):
+    a = main.create_session(exempt=False)
+    main.run(
+        MainCommandEntered("/reset", origin=from_session(HUMAN, a.id)),
+        BoxAnswered(BoxId("b1"), False),
+        settle=True,
+    )
+    logged = [(e.event, e.fields.get("result")) for e in main.session_log(a)]
+    assert logged[-2:] == [("confirmation_asked", None), ("command", "rejected")]
+    assert all(
+        e.fields["origin"] == ["human", f"session:{a.id}"]
+        for e in main.main_log()
+        if e.event in ("confirmation_asked", "command")
+    )
