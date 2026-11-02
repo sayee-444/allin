@@ -14,7 +14,7 @@ from allin.main.profiles import Profile, ProfileStore
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
 
-_USAGE = (
+USAGE = (
     "/profile [new [name] | switch <name> [--now] | share <sid> <profile>"
     " | unshare <sid> [profile] | export <name> <folder> | import <folder> <name>]"
 )
@@ -65,7 +65,7 @@ class ProfileCommands:
             case ["import", folder, name]:
                 self._import(Path(folder).expanduser(), name)
             case _:
-                raise InvalidArguments(usage=_USAGE)
+                raise InvalidArguments(usage=USAGE)
         return True
 
     def created(self, session_id: SessionId) -> None:

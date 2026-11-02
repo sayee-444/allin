@@ -190,6 +190,11 @@ class Dispatcher:
         if settings.current.keys:  # Main's Chat starts with the defaults
             main_screen(KeyBindings(effective_keys(settings.current.keys)))
 
+    @property
+    def commands(self) -> MainCommands:
+        """The Command mains, as registered: what /help is built from."""
+        return self._commands
+
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""
         self._reporter.report(None, "main_started", "main started", main_id=self._main_id)
