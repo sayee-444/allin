@@ -33,3 +33,13 @@ Al arrancar, Main comprueba la ABI de Landlock del kernel. Si falta todo o parte
 - **Las reglas valen para el inodo** que había al añadirlas. Un archivo concedido que un editor guarda reemplazándolo deja de estar al alcance de un Proceso adherido que ya corría, y una carpeta movida conserva su permiso en la ruta nueva. Las tools no lo notan, porque cada llamada recalcula sus reglas; el archivo compartido de un Proceso adherido se trata en #113.
 
 Landlock y seccomp se aplican con `ctypes`, sin librerías, y los dos para todos los threads del proceso.
+
+**Enmienda (2026-11-02, #101).** Al implementar `@reach` (`allin.decorators`) se fijó lo que el texto de arriba dejaba abierto:
+- **Red por familias.** El filtro seccomp deja crear solo las familias de socket que permite el Alcance (una lista de permitidos, como recomendó #99): IP, y el socket netlink de rutas con el que glibc pregunta en `getaddrinfo` qué direcciones hay, solo con red; unix, solo con `display`. Cualquier otra familia da `EPERM`.
+- **`bind`.** Con una lista de puertos, la tool solo conecta a esos puertos y no hace `bind` a ninguno. Con `net=True` puede conectar y hacer `bind` a todo puerto menos los de los Servidores, también a los efímeros; así ninguna tool ocupa el puerto de un Servidor dormido para hacerse pasar por él ante Main. Esa capa de 65 534 reglas la construye Main una vez, en el thread del Lanzador de tools, y la rehace cuando cambian los puertos de los Servidores (los de cada `servers/*.toml` y el de `base_url`, leídos en cada llamada).
+- **DNS.** Con red, la tool lee también la carpeta adonde apunta de verdad `/etc/resolv.conf`.
+- **`display`.** La tool recibe del entorno de Main `DISPLAY`, `WAYLAND_DISPLAY`, `XAUTHORITY` y `XDG_RUNTIME_DIR`, y puede leer el archivo de autoridad de X11. Conectar a un socket unix con ruta no lo controla Landlock en esta ABI, así que basta con el filtro.
+- **Terminales.** Se recortan de todo Alcance `/dev/pts`, `/dev/console`, `/dev/tty*` y `/dev/vcs*`.
+- **Enlaces.** Al recortar, los enlaces simbólicos entre las carpetas hermanas se dejan fuera: una regla de Landlock sigue el enlace, y uno podría apuntar a la carpeta de datos.
+- **`/dev/shm`** no entra en el Alcance mínimo, como se decidió en #100. Una function que use los semáforos de `multiprocessing` lo declara (`write=["/dev/shm"]`), y la Aprobación lo muestra como cualquier otra ruta.
+- **Hasta el encierro de descripción (#102)**, el Alcance llega al lanzador en la llamada (`ToolCall.reach`), y Main todavía no lo lee de ninguna function.

@@ -21,6 +21,7 @@ _RESTRICT_SELF = 446
 
 _CREATE_RULESET_VERSION = 1 << 0
 _RULE_PATH_BENEATH = 1
+_RULE_NET_PORT = 2
 _RESTRICT_SELF_TSYNC = 1 << 3  # ABI 8: every thread, not only the caller
 
 _FS_EXECUTE = 1 << 0
@@ -101,6 +102,10 @@ class _RulesetAttr(ctypes.Structure):
     )
 
 
+class _NetPortAttr(ctypes.Structure):
+    _fields_ = (("allowed_access", ctypes.c_uint64), ("port", ctypes.c_uint64))
+
+
 class _PathBeneathAttr(ctypes.Structure):
     # Packed, 12 bytes: the kernel's __attribute__((packed)); the layouts agree on it.
     _layout_ = "ms"
@@ -116,34 +121,81 @@ class Restricted:
     signals_scoped: bool  # kill(-1) reaches only the processes of this domain
 
 
-def restrict_self(read: tuple[Path, ...], write: tuple[Path, ...]) -> Restricted:
+def restrict_self(
+    read: tuple[Path, ...], write: tuple[Path, ...], connect: tuple[int, ...] | None = ()
+) -> Restricted:
     """Restrict this process and its future children to reading ``read`` and reading and
-    writing ``write``, with no TCP and, from ABI 6, no signal or abstract unix socket outside
-    the domain. Paths that do not exist are skipped. What the kernel lacks is left out."""
+    writing ``write``, to connecting only to the TCP ports in ``connect`` (``None`` leaves TCP
+    to a later layer, such as ``port_layer``'s) and, from ABI 6, to no signal or abstract unix
+    socket outside the domain. Paths that do not exist are skipped. What the kernel lacks is
+    left out."""
     abi = abi_version()
     _no_new_privs()
     if abi == 0:
         return Restricted(abi=0, signals_scoped=False)
     handled_fs = _handled_fs(abi)
+    tcp = abi >= NETWORK_ABI and connect is not None
     attr = _RulesetAttr(
         handled_fs,
-        _NET_BIND_TCP | _NET_CONNECT_TCP if abi >= NETWORK_ABI else 0,
+        _NET_BIND_TCP | _NET_CONNECT_TCP if tcp else 0,
         _SCOPE_ABSTRACT_UNIX_SOCKET | _SCOPE_SIGNAL if abi >= SCOPES_ABI else 0,
     )
-    ruleset = checked(
-        _libc.syscall(_CREATE_RULESET, ctypes.byref(attr), ctypes.sizeof(attr), 0),
-        "landlock_create_ruleset",
-    )
+    ruleset = _create(attr)
     try:
         for path in read:
             _allow(ruleset, path, _READ & handled_fs)
         for path in write:
             _allow(ruleset, path, (_READ | _WRITE) & handled_fs)
-        flags = _RESTRICT_SELF_TSYNC if abi >= 8 else 0
-        checked(_libc.syscall(_RESTRICT_SELF, ruleset, flags), "landlock_restrict_self")
+        for port in connect if tcp and connect else ():
+            _allow_port(ruleset, port, _NET_CONNECT_TCP)
+        _restrict(ruleset, abi)
     finally:
         os.close(ruleset)
     return Restricted(abi=abi, signals_scoped=abi >= SCOPES_ABI)
+
+
+def port_layer(forbidden: frozenset[int]) -> int | None:
+    """A ruleset that lets bind and connect to every TCP port but ``forbidden``, as a
+    descriptor to apply with ``apply_layer`` (``net=True``, ADR-0016). Its 65 534 rules take
+    some 30 ms to build, so Main builds it once and passes it to every call (#99). ``None``
+    on a kernel without network rules."""
+    if abi_version() < NETWORK_ABI:
+        return None
+    ruleset = _create(_RulesetAttr(0, _NET_BIND_TCP | _NET_CONNECT_TCP, 0))
+    try:
+        for port in range(65536):  # port 0 is binding to an ephemeral port
+            if port not in forbidden:
+                _allow_port(ruleset, port, _NET_BIND_TCP | _NET_CONNECT_TCP)
+    except ConfinementFailed:
+        os.close(ruleset)
+        raise
+    return ruleset
+
+
+def apply_layer(ruleset: int) -> None:
+    """Add ``ruleset`` (from ``port_layer``) as one more layer on this process; applied last,
+    after ``restrict_self``, confining costs 7.4 ms instead of 13.6 ms (#99)."""
+    _restrict(ruleset, abi_version())
+
+
+def _create(attr: _RulesetAttr) -> int:
+    return checked(
+        _libc.syscall(_CREATE_RULESET, ctypes.byref(attr), ctypes.sizeof(attr), 0),
+        "landlock_create_ruleset",
+    )
+
+
+def _restrict(ruleset: int, abi: int) -> None:
+    flags = _RESTRICT_SELF_TSYNC if abi >= 8 else 0
+    checked(_libc.syscall(_RESTRICT_SELF, ruleset, flags), "landlock_restrict_self")
+
+
+def _allow_port(ruleset: int, port: int, access: int) -> None:
+    attr = _NetPortAttr(access, port)
+    checked(
+        _libc.syscall(_ADD_RULE, ruleset, _RULE_NET_PORT, ctypes.byref(attr), 0),
+        "landlock_add_rule",
+    )
 
 
 def _allow(ruleset: int, path: Path, access: int) -> None:

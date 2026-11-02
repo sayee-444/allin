@@ -92,8 +92,33 @@ An **fproc** is the most powerful of the three. A Session with the right methods
 
 - **Origin.** Every Prompt and command carries who sent it. Some actions are for a human only, such as the keys that name a file or open the network in a Server's Settings.
 - **Confirmations.** Delicate commands, such as putting a Supervisor to sleep or adopting a `llama serve`, ask before they run.
-- **Confinement** *(in progress, F2)*. Each tool runs in its own process, locked down by Landlock and seccomp before its code is imported: born without your terminal or environment, in its Session's working folder, with no network, and taking every process it started down with it when it ends. What it may touch beyond that it declares (`@reach`, coming next), and it never reaches AllIn's own data. Landlock grants whole folders, so any folder that holds AllIn's data is trimmed: with AllIn in `~/Pictures/Neva` and its data in `~/Pictures/Neva/var`, reading `home` becomes reading all of `~` but `Pictures`, all of `Pictures` but `Neva`, and all of `Neva` but `var`. On a kernel whose Landlock cannot do all of this, Main says so when it starts and marks every border.
+- **Confinement** *(in progress, F2)*. Each tool runs in its own process, locked down by Landlock and seccomp before its code is imported: born without your terminal or environment, in its Session's working folder, and taking every process it started down with it when it ends. It touches only its **reach** (see below), and never AllIn's own data. On a kernel whose Landlock cannot do all of this, Main says so when it starts and marks every border.
 - **No silent truncation.** `--context-shift` is refused. A long Conversation is compacted on purpose, never cut behind your back.
+
+### Reach
+
+A function declares what its process may touch with `@reach`. Without it, a tool gets the minimum: read and write its Session's working folder, read the system, Python and its own package, and no network.
+
+```python
+from allin.decorators import reach
+
+@reach(read=["home/Documents"], write=["work"], net=[443])
+def summarize(path: str) -> str:
+    ...
+```
+
+- **Paths** start at a symbolic root: `work` (the Session's working folder), `home` or `/`, plus a subpath.
+- **`net`** is `False`, `True` or a list of TCP ports. Landlock limits the network **by port, not by host**: a tool with port 443 reaches every HTTPS site there is, so approving a piece with network is the only thing that stops it sending your data out. With a list, UDP stays open, because DNS needs it; only `net=False` closes it. `net=True` is every port but those of AllIn's Servers, the one Main only observes included, so no tool uses the LLM behind the queue's back.
+- **`display`** opens the X11 or Wayland socket. A graphical client can read and type keys into other windows, the Windows and Main's Chat included, so `display` is acting as you. Writing where you run things (`home`, `~/.config`, a repo's hooks) is too.
+- **`commands`** names the Command sessions it runs; Main enforces it.
+- Terminals (`/dev/pts`, `/dev/tty*`) are never in a reach.
+
+**Trimming.** Landlock grants whole folders, so granting `home` would grant AllIn's data inside it too. At every call, Main turns each granted folder that holds something of AllIn's into grants on every sibling along the way. With AllIn installed in `~/Pictures/Neva` and its data folder in `~/Pictures/Neva/var`:
+
+- `write=["home"]` becomes all of `~` but `Pictures`, and all of `Pictures` but `Neva`, because the installation is never written;
+- `read=["home"]` also reaches all of `Neva` but `var`, because the installation is read.
+
+The data folder is never read or written, but for the working folder, the call's `TMPDIR` and the function's own package. Since the grants are on the siblings that exist when the call starts, a tool cannot create new entries right in `~` or `~/Pictures` during that call.
 
 ---
 

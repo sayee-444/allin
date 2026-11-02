@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,7 @@ from typing import IO
 
 from pydantic import JsonValue
 
+from allin.confinement import landlock
 from allin.confinement.messages import (
     CallTool,
     Cancel,
@@ -37,13 +39,22 @@ from allin.confinement.messages import (
     encode,
     parse_to_main,
 )
-from allin.confinement.reach import installation, minimum_reach
+from allin.confinement.reach import (
+    Places,
+    allowed_paths,
+    installation,
+    resolver_folder,
+    x11_cookie,
+)
 from allin.core.errors import ConfinementFailed, ToolDied, ToolNotStarted, ToolTimedOut
+from allin.decorators import MINIMUM, Reach
 
 _OUTPUT_KEPT = 64 * 1024  # of stdout and of stderr, each; the rest is read and dropped
 _ANSWER_MAX = 16 * 1024 * 1024
 _STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
+# What a graphical client needs from Main's environment, and only with ``display``.
+_DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR")
 
 
 @dataclass(frozen=True)
@@ -55,6 +66,7 @@ class ToolCall:
     function: str
     arguments: dict[str, JsonValue]
     workspace: Path  # the Session's Carpeta de trabajo: its current folder
+    reach: Reach = MINIMUM  # as its description read it (#102), never by importing it
 
 
 @dataclass(frozen=True)
@@ -68,6 +80,12 @@ class ToolOutcome:
 
 
 @dataclass(frozen=True)
+class _Started:
+    process: subprocess.Popen[bytes]
+    net_layer: int | None  # the shared layer's descriptor, as the process got it
+
+
+@dataclass(frozen=True)
 class _Launch:
     """What the launcher thread needs to start one call's process, and where to hand it."""
 
@@ -75,19 +93,29 @@ class _Launch:
     env: dict[str, str]
     workspace: Path
     channel_fd: int
-    started: Future[subprocess.Popen[bytes]]
+    forbidden: frozenset[int] | None  # with net=True, the ports its shared layer leaves out
+    started: Future[_Started]
 
 
 class ToolLauncher:
     """The Lanzador de tools: Main's long-lived thread that starts every call's process."""
 
-    def __init__(self, data_dir: Path, grace: float = 2.0) -> None:
-        """``grace`` is how long a call's warden has to take it down before Main kills its
-        process group itself."""
+    def __init__(
+        self,
+        data_dir: Path,
+        server_ports: Callable[[], frozenset[int]] = frozenset,
+        grace: float = 2.0,
+    ) -> None:
+        """``server_ports`` are the ports of AllIn's Servers, the observed one included, which
+        no Alcance reaches (ADR-0016); asked at every call. ``grace`` is how long a call's
+        warden has to take it down before Main kills its process group itself."""
         self._data_dir = data_dir
+        self._server_ports = server_ports
         self._grace = grace
         self._requests: queue.Queue[_Launch | None] = queue.Queue()
         self._thread = threading.Thread(target=self._serve, name="tool-launcher", daemon=True)
+        # The launcher thread's alone: net=True's shared layer, for the ports it leaves out.
+        self._layer: tuple[frozenset[int], int | None] | None = None
 
     def start(self) -> None:
         # Calls that a crashed Main left behind: no process of theirs is alive any more.
@@ -107,11 +135,13 @@ class ToolLauncher:
         tmp = self._data_dir / "tmp" / f"call-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
         main_end, tool_end = socket.socketpair()
+        servers = self._server_ports() if call.reach.net is not False else frozenset[int]()
         try:
-            process = self._launch(call.workspace, tmp, tool_end)
+            started = self._launch(call, tmp, tool_end, servers)
+            process = started.process
             tool_end.close()
             out, err = _Capture(process.stdout), _Capture(process.stderr)
-            main_end.sendall(encode(self._message(call, tmp)))
+            main_end.sendall(encode(self._message(call, tmp, servers, started.net_layer)))
             try:
                 line = _read_line(main_end, time.monotonic() + timeout)
             except TimeoutError as error:
@@ -124,27 +154,39 @@ class ToolLauncher:
             tool_end.close()
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _message(self, call: ToolCall, tmp: Path) -> CallTool:
-        reach = minimum_reach(
+    def _message(
+        self, call: ToolCall, tmp: Path, servers: frozenset[int], net_layer: int | None
+    ) -> CallTool:
+        places = Places(
             workspace=call.workspace,
             tmp=tmp,
             package=call.package,
             data_dir=self._data_dir,
             installation=installation(),
+            home=Path.home(),
+            resolver=resolver_folder(),
+            xauthority=x11_cookie(),
         )
+        paths = allowed_paths(call.reach, places)
+        net = call.reach.net
         return CallTool(
             package=str(call.package),
             module=call.module,
             function=call.function,
             arguments=call.arguments,
             workspace=str(call.workspace),
-            read=[str(p) for p in reach.read],
-            write=[str(p) for p in reach.write],
+            read=[str(p) for p in paths.read],
+            write=[str(p) for p in paths.write],
+            # net=True leaves TCP to the shared layer; a list, to its ports but the Servers'.
+            connect=None if net is True else sorted(set(net or ()) - servers),
+            net_layer=net_layer,
+            ip=net is not False,
+            unix=call.reach.display,
         )
 
     def _launch(
-        self, workspace: Path, tmp: Path, channel: socket.socket
-    ) -> subprocess.Popen[bytes]:
+        self, call: ToolCall, tmp: Path, channel: socket.socket, servers: frozenset[int]
+    ) -> _Started:
         argv = [
             sys.executable,
             "-I",
@@ -153,29 +195,37 @@ class ToolLauncher:
             str(os.getpid()),
             str(channel.fileno()),
         ]
-        env = {"PATH": _PATH, "LANG": "C.UTF-8", "TMPDIR": str(tmp), "HOME": str(workspace)}
-        started: Future[subprocess.Popen[bytes]] = Future()
+        env = {
+            "PATH": _PATH,
+            "LANG": "C.UTF-8",
+            "TMPDIR": str(tmp),
+            "HOME": str(call.workspace),
+        }
+        if call.reach.display:
+            env |= {name: os.environ[name] for name in _DISPLAY_ENV if name in os.environ}
+        started: Future[_Started] = Future()
         if not self._thread.is_alive():
             raise ToolNotStarted(cause="stopped")
-        self._requests.put(_Launch(argv, env, workspace, channel.fileno(), started))
+        forbidden = servers if call.reach.net is True else None
+        self._requests.put(_Launch(argv, env, call.workspace, channel.fileno(), forbidden, started))
         return started.result()
 
     def _serve(self) -> None:
         while (request := self._requests.get()) is not None:
             try:
-                request.started.set_result(
-                    subprocess.Popen(
-                        request.argv,
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        env=request.env,
-                        cwd=request.workspace,
-                        start_new_session=True,
-                        close_fds=True,
-                        pass_fds=(request.channel_fd,),
-                    )
+                layer = None if request.forbidden is None else self._net_layer(request.forbidden)
+                process = subprocess.Popen(
+                    request.argv,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=request.env,
+                    cwd=request.workspace,
+                    start_new_session=True,
+                    close_fds=True,
+                    pass_fds=(request.channel_fd, *(() if layer is None else (layer,))),
                 )
+                request.started.set_result(_Started(process, layer))
             # This thread must outlive any call it fails to start: the error goes to that call,
             # which raises it.
             except Exception as error:  # noqa: BLE001 - see above
@@ -183,6 +233,17 @@ class ToolLauncher:
         while not self._requests.empty():  # asked for while stopping: they will never start
             if (late := self._requests.get_nowait()) is not None:
                 late.started.set_exception(ToolNotStarted(cause="stopped"))
+        if self._layer is not None and self._layer[1] is not None:
+            os.close(self._layer[1])
+
+    def _net_layer(self, forbidden: frozenset[int]) -> int | None:
+        """net=True's shared layer, rebuilt only when the Servers' ports change (#99). Each
+        process got its own copy at its start, so the old one can be closed."""
+        if self._layer is None or self._layer[0] != forbidden:
+            if self._layer is not None and self._layer[1] is not None:
+                os.close(self._layer[1])
+            self._layer = (forbidden, landlock.port_layer(forbidden))
+        return self._layer[1]
 
     def _cancel(self, main_end: socket.socket, process: subprocess.Popen[bytes]) -> None:
         """Ask the warden to take the call down; kill its group if it does not in time."""

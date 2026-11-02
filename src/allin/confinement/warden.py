@@ -50,6 +50,10 @@ class _Call:
     workspace: str
     read: tuple[Path, ...]
     write: tuple[Path, ...]
+    connect: tuple[int, ...] | None
+    net_layer: int | None
+    ip: bool
+    unix: bool
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,9 @@ def _parse_call(message: object) -> _Call | None:
     )
     arguments = fields.get("arguments")
     read, write = _paths(fields.get("read")), _paths(fields.get("write"))
+    connect, net_layer = fields.get("connect"), fields.get("net_layer")
+    ports = None if connect is None else _ports(connect)
+    ip, unix = fields.get("ip"), fields.get("unix")
     if not (
         fields.get("type") == "call"
         and isinstance(package, str)
@@ -122,6 +129,10 @@ def _parse_call(message: object) -> _Call | None:
         and isinstance(arguments, dict)
         and read is not None
         and write is not None
+        and (connect is None or ports is not None)
+        and (net_layer is None or (isinstance(net_layer, int) and not isinstance(net_layer, bool)))
+        and isinstance(ip, bool)
+        and isinstance(unix, bool)
     ):
         return None
     return _Call(
@@ -132,7 +143,19 @@ def _parse_call(message: object) -> _Call | None:
         workspace=workspace,
         read=read,
         write=write,
+        connect=ports,
+        net_layer=net_layer,
+        ip=ip,
+        unix=unix,
     )
+
+
+def _ports(raw: object) -> tuple[int, ...] | None:
+    if not isinstance(raw, list):
+        return None
+    items: list[object] = raw  # pyright: ignore[reportUnknownVariableType] - JSON
+    ports = tuple(i for i in items if isinstance(i, int) and not isinstance(i, bool))
+    return ports if len(ports) == len(items) else None
 
 
 def _paths(raw: object) -> tuple[Path, ...] | None:
@@ -148,9 +171,14 @@ def _line(message: dict[str, _Json]) -> bytes:
 
 
 def _confine(call: _Call) -> bool:
-    """Confine this process for good; whether signals are scoped to its domain."""
-    restricted = landlock.restrict_self(call.read, call.write)
-    seccomp.apply_filter()
+    """Confine this process for good; whether signals are scoped to its domain. net=True's
+    shared layer goes last, which is cheaper (#99), and its descriptor is closed before the
+    function is imported: it holds no more than its channel then (ADR-0005)."""
+    restricted = landlock.restrict_self(call.read, call.write, call.connect)
+    if call.net_layer is not None:
+        landlock.apply_layer(call.net_layer)
+        os.close(call.net_layer)
+    seccomp.apply_filter(ip=call.ip, unix=call.unix)
     return restricted.signals_scoped
 
 

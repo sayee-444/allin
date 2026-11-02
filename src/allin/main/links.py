@@ -6,7 +6,9 @@ Settings; one with no Enlace, to Main's ``base_url``, a Server Main only observe
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SupervisorName
 from allin.core.settings import SessionSettings
 from allin.main.slots import server_name
@@ -37,6 +39,19 @@ class LinkResolver:
     def observed(self) -> Link:
         """The Server at Main's ``base_url``, which Main only observes."""
         return Link(ServerKey(server_name(self._base_url)), self._base_url, None)
+
+    def server_ports(self) -> frozenset[int]:
+        """The port of every Supervisor's Server and of the observed one: no tool's Alcance
+        reaches them, not even with ``net=True`` (ADR-0016). Read at every call, so a
+        Supervisor created since counts."""
+        observed = urlsplit(self._base_url)
+        ports = {observed.port or (443 if observed.scheme == "https" else 80)}
+        for path in self._servers.glob("*.toml"):
+            try:
+                ports.add(load_server_settings(path).port)
+            except AllInError:  # a broken toml holds no Server to protect
+                continue
+        return frozenset(ports)
 
     def resolve(self, settings: SessionSettings) -> Link:
         """Raises ``ServerSettingsInvalid`` if the Supervisor has no usable Server Settings."""

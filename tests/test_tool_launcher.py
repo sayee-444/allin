@@ -1,5 +1,6 @@
 """The Function tool's process, confined for real (#100): these tests run on this kernel."""
 
+import contextlib
 import os
 import shutil
 import socket
@@ -7,7 +8,7 @@ import subprocess
 import sys
 import textwrap
 import time
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolCall, ToolLauncher
 from allin.core.errors import ToolNotStarted, ToolTimedOut
+from allin.decorators import MINIMUM, Reach
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
 
@@ -137,6 +139,44 @@ def filtered():
     return out
 
 
+def udp(port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(b"ping", ("127.0.0.1", port))
+        return "sent"
+    except OSError as error:
+        return type(error).__name__
+
+
+def connect_unix(path):
+    try:
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.connect(path)
+        return "connected"
+    except OSError as error:
+        return type(error).__name__
+
+
+def graphic_socket():
+    path = os.environ.get("WAYLAND_DISPLAY")
+    return connect_unix(path) if path else "no WAYLAND_DISPLAY"
+
+
+def terminals():
+    out = {}
+    for label, opening in (
+        ("list /dev/pts", lambda: os.listdir("/dev/pts")),
+        ("open /dev/pts/ptmx", lambda: os.close(os.open("/dev/pts/ptmx", os.O_RDWR | os.O_NOCTTY))),
+        ("open /dev/tty", lambda: os.close(os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY))),
+    ):
+        try:
+            opening()
+            out[label] = "opened"
+        except OSError as error:
+            out[label] = type(error).__name__
+    return out
+
+
 def stop_warden_and_hang(title):
     # A child in the call's own process group, then the warden frozen: it cannot answer.
     subprocess.Popen(["sleep", title], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
@@ -178,14 +218,23 @@ def launcher(data_dir: Path) -> Iterator[ToolLauncher]:
     launcher.stop()
 
 
-def call(package: Path, workspace: Path, function: str, **arguments: object) -> ToolCall:
+def call(
+    package: Path, workspace: Path, function: str, reach: Reach = MINIMUM, **arguments: object
+) -> ToolCall:
     return ToolCall(
         package=package,
         module="probe",
         function=function,
         arguments=arguments,  # pyright: ignore[reportArgumentType]  # JSON values in tests
         workspace=workspace,
+        reach=reach,
     )
+
+
+@contextlib.contextmanager
+def listening_tcp() -> Generator[int]:
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        yield server.getsockname()[1]
 
 
 def alive(title: str) -> bool:
@@ -369,3 +418,111 @@ def test_starting_clears_the_tmpdirs_a_crashed_main_left_behind(data_dir: Path):
     launcher.start()
     launcher.stop()
     assert not left.exists()
+
+
+def test_with_a_list_of_ports_it_connects_to_those_alone_and_udp_stays_open(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    with listening_tcp() as allowed, listening_tcp() as other:
+        reach = Reach(net=(allowed,))
+        assert launcher.run(call(package, workspace, "connect", reach, port=allowed), 20).value == (
+            "connected"
+        )
+        assert launcher.run(call(package, workspace, "connect", reach, port=other), 20).value == (
+            "PermissionError"
+        )
+        assert launcher.run(call(package, workspace, "udp", reach, port=other), 20).value == "sent"
+        closed = launcher.run(call(package, workspace, "udp", MINIMUM, port=other), 20)
+    assert closed.value == "PermissionError", "net=False closes UDP too"
+
+
+def test_with_all_the_network_it_never_reaches_a_server_of_allin(
+    package: Path, workspace: Path, data_dir: Path
+):
+    with listening_tcp() as server, listening_tcp() as service:
+        launcher = ToolLauncher(data_dir, server_ports=lambda: frozenset({server}))
+        launcher.start()
+        try:
+            everything = Reach(net=True)
+            to_server = launcher.run(
+                call(package, workspace, "connect", everything, port=server), 20
+            )
+            to_other = launcher.run(
+                call(package, workspace, "connect", everything, port=service), 20
+            )
+            listed = launcher.run(
+                call(package, workspace, "connect", Reach(net=(server,)), port=server), 20
+            )
+        finally:
+            launcher.stop()
+    assert to_server.value == "PermissionError"
+    assert to_other.value == "connected"
+    assert listed.value == "PermissionError", "not even when it lists the port"
+
+
+def test_only_with_display_does_it_open_the_graphic_socket(
+    launcher: ToolLauncher,
+    package: Path,
+    workspace: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    path = tmp_path / "wayland-test"
+    with socket.socket(socket.AF_UNIX) as compositor:
+        compositor.bind(str(path))
+        compositor.listen()
+        monkeypatch.setenv("WAYLAND_DISPLAY", str(path))
+        shown = launcher.run(call(package, workspace, "graphic_socket", Reach(display=True)), 20)
+        hidden = launcher.run(call(package, workspace, "graphic_socket"), 20)
+        forced = launcher.run(call(package, workspace, "connect_unix", path=str(path)), 20)
+    assert shown.value == "connected"
+    assert hidden.value == "no WAYLAND_DISPLAY"
+    assert forced.value == "PermissionError"
+
+
+def test_no_reach_opens_a_terminal(launcher: ToolLauncher, package: Path, workspace: Path):
+    everything = Reach(read=("/",), write=("/dev",))
+    opened = launcher.run(call(package, workspace, "terminals", everything), 20).value
+    assert opened == {
+        "list /dev/pts": "PermissionError",
+        "open /dev/pts/ptmx": "PermissionError",
+        "open /dev/tty": "PermissionError",
+    }
+
+
+def test_writing_home_reaches_beyond_allin_but_never_its_data_folder(
+    package: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # AllIn's data inside home, as in ADR-0016; the package and workspace live in it.
+    home = tmp_path / "home"
+    data = home / "Pictures" / "Neva" / "var"
+    (data / "state").mkdir(parents=True)
+    (home / "Documents").mkdir()
+    (home / ".bashrc").write_text("")
+    folder = data / "profiles" / "default" / "functions" / "probe"
+    folder.mkdir(parents=True)
+    (folder / "probe.py").write_text((package / "probe.py").read_text())
+    workspace = data / "workspaces" / "s1"
+    workspace.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    launcher = ToolLauncher(data)
+    launcher.start()
+    try:
+        writes = {
+            target: launcher.run(
+                call(folder, workspace, "write", Reach(write=("home",)), path=str(target)), 20
+            ).value
+            for target in (
+                home / "Documents" / "a.txt",
+                home / ".bashrc",  # it exists: a sibling of the trimmed branch, granted
+                home / "new.txt",  # trimmed levels only lose new entries (ADR-0016)
+                data / "state" / "x",
+            )
+        }
+        read_state = launcher.run(
+            call(folder, workspace, "attempt", Reach(read=("home",)), paths={"s": str(data)}), 20
+        )
+    finally:
+        launcher.stop()
+    assert list(writes.values()) == ["written", "written", "PermissionError", "PermissionError"]
+    assert read_state.value == {"s": "PermissionError"}
