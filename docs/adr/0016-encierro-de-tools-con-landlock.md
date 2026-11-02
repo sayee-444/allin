@@ -46,3 +46,10 @@ Landlock y seccomp se aplican con `ctypes`, sin librerías, y los dos para todos
 - **Enlaces.** Al recortar, los enlaces simbólicos entre las carpetas hermanas se dejan fuera: una regla de Landlock sigue el enlace, y uno podría apuntar a la carpeta de datos.
 - **`/dev/shm`** no entra en el Alcance mínimo, como se decidió en #100. Una function que use los semáforos de `multiprocessing` lo declara (`write=["/dev/shm"]`), y la Aprobación lo muestra como cualquier otra ruta.
 - **Hasta el encierro de descripción (#102)**, el Alcance llega al lanzador en la llamada (`ToolCall.reach`), y Main todavía no lo lee de ninguna function.
+
+**Enmienda (2026-11-02, #102).** El encierro de descripción quedó así:
+- **El mismo vigilante.** La descripción corre en el proceso de una llamada en modo «describir», así que muere con Main y se lleva a sus descendientes como una llamada. Su directorio actual y su `HOME` son su package, no tiene `TMPDIR`, lee solo lo que lee el mínimo (el sistema, el código de AllIn, el venv y su package) y no escribe nada. Importar pydantic para el schema solo cuesta ahí, una vez por versión del package.
+- **Qué es una tool.** Un módulo define exactamente una función o clase pública propia. Una función es una tool; una clase es una fproc, con una tool por método público. Si hay más de una o ninguna, la descripción falla y lo dice.
+- **Las marcas.** Cada decorador de AllIn deja en la función o en la clase un atributo `__allin_<nombre>__`, y la descripción los recoge todos, con el Alcance aparte. Así `@confirm`, `@human`, `@writes` y `@concurrent` se describirán sin tocar la descripción cuando lleguen sus issues.
+- **Dónde se guarda.** En `<carpeta de datos>/descriptions/<hash>.<módulo>.json`. El hash es el de las piezas (ADR-0013), sobre todos los archivos del package salvo `__pycache__`. Main describe de nuevo cuando cambia, y Main parsea con pydantic lo que vuelve.
+- **Kernel sin soporte.** Si al kernel le falta algo, una pieza que el usuario no escribió no se describe (`DescriptionRefused`). Quien la carga lo sabrá por su procedencia, y el Aviso de cuarentena llega con #104.

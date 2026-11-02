@@ -1,6 +1,6 @@
 """The Vigilante (warden): the first code a Function tool's process runs (ADR-0005, ADR-0016).
 
-Main starts it as ``python -I -m allin.confinement.warden <main pid> <channel fd>``, in a new
+Main starts it as ``python -I -c <start> <allin's folder> <main pid> <channel fd>``, in a new
 session, with ``/dev/null`` as input and a clean environment. It dies with the thread that
 launched it, reads the call from its channel, confines itself, and forks the runner: the
 process that imports and runs the function. When the runner answers, or Main cancels, or Main
@@ -54,6 +54,7 @@ class _Call:
     net_layer: int | None
     ip: bool
     unix: bool
+    describe: bool  # the encierro de descripción: describe the module, call nothing
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ def _parse_call(message: object) -> _Call | None:
     read, write = _paths(fields.get("read")), _paths(fields.get("write"))
     connect, net_layer = fields.get("connect"), fields.get("net_layer")
     ports = None if connect is None else _ports(connect)
-    ip, unix = fields.get("ip"), fields.get("unix")
+    ip, unix, describe = fields.get("ip"), fields.get("unix"), fields.get("describe")
     if not (
         fields.get("type") == "call"
         and isinstance(package, str)
@@ -133,6 +134,7 @@ def _parse_call(message: object) -> _Call | None:
         and (net_layer is None or (isinstance(net_layer, int) and not isinstance(net_layer, bool)))
         and isinstance(ip, bool)
         and isinstance(unix, bool)
+        and isinstance(describe, bool)
     ):
         return None
     return _Call(
@@ -147,6 +149,7 @@ def _parse_call(message: object) -> _Call | None:
         net_layer=net_layer,
         ip=ip,
         unix=unix,
+        describe=describe,
     )
 
 
@@ -236,7 +239,12 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     multiprocessing.set_start_method("spawn", force=True)
     try:
         module = importlib.import_module(call.module)
-        value = getattr(module, call.function)(**call.arguments)
+        if call.describe:  # only here, after import: pydantic costs nothing to a call
+            from allin.confinement.describer import describe  # noqa: PLC0415
+
+            value = describe(module)
+        else:
+            value = getattr(module, call.function)(**call.arguments)
         answer = _line({"type": "returned", "value": value})
     except BaseException as error:  # noqa: BLE001 - the function's error is its output, as data
         answer = _line({"type": "raised", "error": f"{type(error).__name__}: {error}"})

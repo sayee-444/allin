@@ -27,6 +27,7 @@ class CallTool(BaseModel, frozen=True):
     net_layer: int | None  # the descriptor of net=True's shared layer (``port_layer``)
     ip: bool  # whether it may create IP sockets at all; without it UDP is closed too
     unix: bool  # whether it may create unix sockets: ``display``
+    describe: bool  # describe the module (``describer``) instead of calling ``function``
 
 
 class Cancel(BaseModel, frozen=True):

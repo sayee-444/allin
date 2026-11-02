@@ -454,3 +454,24 @@ class InvalidReach(AllInError):
     such as a path with no symbolic root (``work``, ``home``, ``/``) or a port out of range."""
 
     code: ClassVar[str] = "invalid_reach"
+
+
+class NotATool(AllInError):
+    """A function's ``module`` does not define exactly one public function or class, the tool
+    it is: ``found`` names the ones it does define (ADR-0016)."""
+
+    code: ClassVar[str] = "not_a_tool"
+
+
+class DescriptionFailed(AllInError):
+    """The encierro de descripción gave no description of ``module``: ``error`` is what its
+    import or description raised."""
+
+    code: ClassVar[str] = "description_failed"
+
+
+class DescriptionRefused(AllInError):
+    """On a kernel that cannot confine in full (``missing``), a piece the user did not write is
+    not even described: it stays in quarantine showing only its code (ADR-0016)."""
+
+    code: ClassVar[str] = "description_refused"
