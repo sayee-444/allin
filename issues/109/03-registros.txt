@@ -1,0 +1,22 @@
+# #109: registros de la prueba con llama serve (Q6 bajo el Supervisor gpu); Sesión 5nkt4q
+
+## Log de la Sesión: Notificaciones, anulación, Conversation logs y Prompts
+{"ts": "2026-11-02T16:25:52.175318-06:00", "event": "notification", "source": "/func", "text": "@send was given to you: your tools may run it", "conversation": true}
+{"ts": "2026-11-02T16:25:55.388684-06:00", "event": "prompt", "text": "Antes de mi mensaje, Main te dejo alguna linea bajo LOGS @COMMANDS Si la hay, citala literal si no, di: ninguna.", "origin": ["human"]}
+{"ts": "2026-11-02T16:26:21.388046-06:00", "event": "notification", "source": "/func", "text": "@send was taken away: your tools may no longer run it", "conversation": true}
+{"ts": "2026-11-02T16:26:23.665706-06:00", "event": "notification", "source": "/func", "text": "@send was given to you: your tools may run it", "conversation": true}
+{"ts": "2026-11-02T16:26:23.665769-06:00", "event": "notifications_cancelled", "texts": ["@send was taken away: your tools may no longer run it", "@send was given to you: your tools may run it"]}
+{"ts": "2026-11-02T16:26:26.816410-06:00", "event": "prompt", "text": "Y ahora, Main te dejo alguna linea bajo LOGS @COMMANDS antes de este mensaje. Citala literal, o di: ninguna.", "origin": ["human"]}
+{"ts": "2026-11-02T16:26:30.159688-06:00", "event": "session_command", "command": "@conversation_logs off /func", "runs": "/conversation_logs 5nkt4q off /func", "origin": ["human"]}
+{"ts": "2026-11-02T16:26:30.159993-06:00", "event": "conversation_logs", "action": "off", "source": "/func"}
+{"ts": "2026-11-02T16:26:32.468276-06:00", "event": "notification", "source": "/func", "text": "@send was taken away: your tools may no longer run it", "conversation": false}
+{"ts": "2026-11-02T16:26:35.497812-06:00", "event": "prompt", "text": "Otra vez: alguna linea bajo LOGS @COMMANDS antes de este mensaje. Citala literal, o di: ninguna.", "origin": ["human"]}
+{"ts": "2026-11-02T16:26:38.790426-06:00", "event": "session_command", "command": "@conversation_logs list", "runs": "/conversation_logs 5nkt4q list", "origin": ["human"]}
+
+## Lo que cada Turno guardó como Notificaciones, y lo que contestó el modelo
+0 ["@send was given to you: your tools may run it"] ["\"@send was given to you: your tools may run it\""]
+1 [] ["ninguna"]
+2 [] ["ninguna"]
+
+## Pendientes al final (session.json)
+[] {'every': True, 'sources': {'/func': False}}
