@@ -1,0 +1,35 @@
+#13 Selección con el ratón, rueda y portapapeles — prueba a mano (2026-11-01)
+Código: rama feature/13-raton-y-portapapeles. Servidor: el IQ3_XXS de 9931. Main en <scratch>/d13, Sesión 7ah545,
+Ventana de 180x40. Prompt: «Escribe una lista numerada del 1 al 60, un animal por linea» (0-antes.png).
+
+Cómo se simula el ratón. xterm descarta los clics sintéticos de X aunque tenga allowSendEvents, y mover el puntero real
+del escritorio (XTEST) sería invasivo. Así que el driver teclea en el xterm los mismos bytes del informe SGR que xterm
+manda a curses por un clic de verdad (ESC [ < botón ; columna ; fila M/m), y curses los descodifica como KEY_MOUSE.
+La «M» va con Bloq Mayús, porque con Shift el modifyOtherKeys de la Ventana la codificaría como CSI 27.
+Antes se comprobó con un prototipo desechable que ncurses activa solo los modos 1006 y 1000 (pulsar y soltar), así que
+AllIn activa además el 1002 (movimiento con el botón pulsado) y lo apaga al salir.
+
+1. Rueda en el Chat: 3 pasos hacia arriba sobre el Chat → sube 9 filas, de «27. Rana» a «18. Ganso» arriba (a-rueda-en-el-chat.png).
+2. Selección y copia: arrastrar de «Paloma» (fila 2, col 5) a «Halcón» (fila 4, col 10) y soltar → resaltado en vídeo
+   inverso (b-seleccion-copiada.png). wl-paste --no-newline da exactamente:
+     Paloma
+     20. Águila
+     21. Halcón
+3. Autoscroll: pulsar en «27. Rana» y arrastrar hasta la fila 0 (el borde, una fila por encima del pad) → el Chat sube solo
+   y la selección le sigue (c-autoscroll-arriba.png). Al soltar, el portapapeles empieza en «ato / 10. Perro» y acaba en «27. R».
+   Hacia abajo, desde la fila 1, en el mismo tiempo: a 1 fila por debajo del pad se copiaron 46 saltos de línea; a 3 filas,
+   57 (hasta el final del Chat) (d-autoscroll-abajo.png). El driver no da tiempos exactos; la velocidad por distancia la fija
+   test_autoscroll_goes_faster_the_further_out_the_pointer_is.
+   (Las filas magenta de d, e, f, g, h e i son el razonamiento del modelo, que también escribió la lista.)
+4. Ctrl+V multilínea: wl-copy con 30 líneas («linea pegada 1…30»), y Ctrl+V en la Ventana (llega como ESC[27;5;118~) →
+   el input crece hasta su altura máxima con las 30 líneas (e-ctrl-v-multilinea.png).
+5. Rueda en el input: 3 pasos hacia arriba sobre el input → muestra de «linea pegada 9» a la 22 (f-rueda-en-el-input.png).
+6. Selección en el input: de «linea pegada 10» a «linea pegada 12» → wl-paste da esas tres líneas (g-seleccion-en-el-input.png).
+7. Sin herramienta de portapapeles: Main relanzado sin WAYLAND_DISPLAY y con un PATH que solo tiene xterm.
+   Arrastrar en el Chat de Main → «[error] clipboard_unavailable: tools='wl-copy and wl-paste, or xclip'» (h-sin-portapapeles-main.png).
+   Ctrl+V en la Ventana (que hereda ese entorno) → el mismo error en su Chat; el input no cambia (i-sin-portapapeles-ventana.png).
+   Ninguno de los dos se cae.
+
+El portapapeles del usuario se guardó antes de probar y se devolvió al final (su versión text/html; la imagen no se dejaba leer).
+Tests: tests/test_ui_mouse.py, tests/test_ui_selection.py, tests/test_ui_clipboard.py, y casos nuevos en test_ui_keys,
+test_ui_wrap, test_ui_chat y test_ui_viewport. 863 tests, basedpyright y ruff limpios. Al final: /exit en Main.
