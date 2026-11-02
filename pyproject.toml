@@ -28,6 +28,9 @@ venv = "venv"
 
 [tool.ruff]
 line-length = 100
+# Throwaway prototypes (#99) answer a question for docs/research/ and are never imported by
+# AllIn; they are deleted once the code they inform lands, so src/'s rules do not apply.
+extend-exclude = ["prototypes"]
 
 [tool.ruff.lint]
 # Each family is chosen on purpose (#49); single rules left out, and why, are listed below.
