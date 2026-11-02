@@ -1,0 +1,19 @@
+#23 /help generado del registro de Command main — prueba a mano (2026-11-01)
+Código: rama feature/23-help. Main con datos en <scratch>/d23 y el Server IQ3_XXS de 9931.
+
+1. /help (a-help-lista.png): lista los 14 Command main registrados, cada uno con su línea, en el orden
+   del registro: /new, /open, /send, /raw, /set, /reset, /session, /devastation, /server, /profile, /kit,
+   /key, /help, /exit.
+2. /help send y /help /key (b-help-comando.png): la descripción, «usage: …» y una línea por argumento
+   («<sid>: the Session's id», «<text>: the Prompt, up to the end; …»). Los que tienen acciones
+   (/key, /server, /profile, /kit, /session) muestran su uso completo, el mismo que dan sus errores.
+3. /help nope → «/help nope: error unknown_command: command='/nope'» en el Chat de Main.
+4. El test falla si un Command main no declara descripción: con la de /exit vaciada a mano,
+   tests/test_help_command.py da
+       AssertionError: /exit declares no description
+   y con ella de vuelta, 5 passed. Además, `summary` es un campo sin valor por defecto de CommandSpec:
+   registrar uno sin él no pasa basedpyright.
+
+Tests: tests/test_help_command.py (descripción de cada uno, /help lista todos los registrados,
+/help <comando> con y sin barra, desconocido = error). 999 tests; basedpyright y ruff limpios.
+Al final: /exit en Main.
