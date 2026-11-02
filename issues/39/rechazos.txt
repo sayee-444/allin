@@ -1,0 +1,16 @@
+pyc: kit_rejected: reason='compiled code', files=['functions/t/__pycache__', 'functions/t/__pycache__/t.cpython-314.pyc']
+   Perfil «otro» sin cambios: True
+binario: kit_rejected: reason='binary files', files=['sysprompts/logo.png']
+   Perfil «otro» sin cambios: True
+atajos: kit_rejected: reason='a Kit never brings Atajos', piece='ctrl-x'
+   Perfil «otro» sin cambios: True
+servidor-puerto: kit_rejected: reason='a Server Setting that names a file or opens the network', server='cpu', key='port'
+   Perfil «otro» sin cambios: True
+servidor-mmproj: kit_rejected: reason='a Server Setting that names a file or opens the network', server='cpu', key='mmproj'
+   Perfil «otro» sin cambios: True
+servidor-ruta: kit_rejected: reason="the model goes by its file's name", server='cpu'
+   Perfil «otro» sin cambios: True
+referencia: kit_reference_missing: missing=['sysprompt:no-existe.txt']
+   Perfil «otro» sin cambios: True
+formato: portable_format_unknown: format=7, supported=1
+   Perfil «otro» sin cambios: True

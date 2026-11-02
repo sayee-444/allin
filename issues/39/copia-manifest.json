@@ -1,0 +1,50 @@
+{
+  "type": "profile",
+  "format": 1,
+  "name": "default",
+  "version": "1",
+  "pieces": [
+    {
+      "kind": "settings",
+      "name": "main",
+      "files": [
+        "settings/current.json"
+      ],
+      "sha256": "27e9f40553f894876ffde6e123ff29aae5beb9c95b55371129988fa87611196f"
+    },
+    {
+      "kind": "sysprompt",
+      "name": "allin.txt",
+      "files": [
+        "sysprompts/allin.txt"
+      ],
+      "sha256": "5d82f22903ec3ce25013ff5e890511c726356723e5b8f70260f255664816e688"
+    },
+    {
+      "kind": "sysprompt",
+      "name": "default.txt",
+      "files": [
+        "sysprompts/default.txt"
+      ],
+      "sha256": "56021139165158ebc29de261ed42b9aa0667166c79c77d46e3d903af86d8fea4"
+    },
+    {
+      "kind": "server",
+      "name": "gpu",
+      "files": [
+        "servers/gpu.toml"
+      ],
+      "sha256": "43adbd65d22ec4d095176bc159fd7acacc6b83155871b1c09a102526b3aca7fe"
+    },
+    {
+      "kind": "session",
+      "name": "dpq3zt",
+      "files": [
+        "sessions/dpq3zt/conversation.json",
+        "sessions/dpq3zt/log.jsonl",
+        "sessions/dpq3zt/session.json"
+      ],
+      "sha256": "6a7ad2459bcd602bcb798db960ab8be5f34ffc6c0ee21557417d802b96a56255"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+#39 Perfiles 4/4: copia de un Perfil y Kits (primera parte) — prueba a mano (2026-11-01)
+Código: rama feature/39-exportar-perfil-y-kits. Servidor: el IQ3_XXS de 9931.
+
+A. Copia del Perfil (Main en <scratch>/d39)
+   /server new gpu model=Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf port=9941 context=16000; /set session.assistant_name=Profe
+   session.server=gpu; /new → dpq3zt; Prompt «hola» (su Enlace se pasó a 9931 y el Turno terminó; gpu no arrancó,
+   da igual aquí: solo es un Supervisor que la copia nombra).
+   /profile export default <scratch>/copia39 → «profile default exported: 1 sessions».
+     Archivos: manifest.json, servers/gpu.toml, sessions/dpq3zt/{conversation.json, log.jsonl, session.json},
+     settings/current.json, sysprompts/{allin.txt, default.txt}. Sin state.json (ni Ventanas, cola ni Borradores).
+     servers/gpu.toml: model = "Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf", context, port, extra, command; sin rutas.
+     grep de <scratch>, "pid", fifo y .lock fuera de sessions/: ninguno.
+   /profile import <scratch>/copia39 default → «error profile_exists: profile='default'».
+   /profile import <scratch>/copia39 mudanza → «profile mudanza imported, new ids: dpq3zt→997nut».
+     cmp de conversation.json y log.jsonl entre la copia y sessions/997nut: iguales.
+     profiles/mudanza: sessions.json, settings, sysprompts; sin state.json.
+   (Las capturas de esta parte tienen rutas del scratchpad en el Chat de Main, así que no se suben.)
+
+B. Kit (Main lanzado desde el scratchpad para usar rutas relativas; carpeta de datos d39b)
+   En default: tutor.txt («Eres $assistant_name, un tutor paciente.»), /server new tutor-gpu model=…IQ2_XXS.gguf
+   port=9942 context=16000, /set session.assistant_name=Profe session.sysprompt=tutor.txt session.server=tutor-gpu.
+   /kit export k39 settings --version 2 → «kit k39 2 exported: settings:main, sysprompt:tutor.txt, server:tutor-gpu»
+     (el Sysprompt y el Supervisor entran solos, por los Ajustes). k39/servers/tutor-gpu.toml: solo model (por su nombre)
+     y context. kit-manifest.json: sin rutas.
+   /profile new otro. Para probar el conflicto y la sugerencia: tutor.txt de otro = «Mi propio tutor.», y se borra
+   servers/tutor-gpu.toml. /profile switch otro; /set session.assistant_name=Otro session.sysprompt=default.txt session.server=.
+   /kit load k39 → «kit k39 2 loaded: nothing new; kept the profile's own sysprompt:tutor.txt, settings» y el recuadro
+     «Create Supervisor tutor-gpu from kit k39 (model …), asleep?» (a-kit-conflicto-y-supervisor.png).
+     Con «s»: «Supervisor tutor-gpu created from kit k39, asleep» (b-supervisor-aceptado.png). servers/tutor-gpu.toml:
+     model, context, port = 9940 (el primer libre desde 9940). Ningún llama arrancó, y session.server de otro sigue vacío.
+   Al probar salieron dos fallos, corregidos con su test:
+     - Unos Ajustes iguales contaban como conflicto (los Avisos por defecto se volvían explícitos al aplicarlos).
+     - Con --both, los Ajustes tomados seguían nombrando el Sysprompt propio y no la copia del Kit.
+   Con el código corregido (otro devuelto a como estaba): /kit load k39 --take settings --both sysprompt:tutor.txt →
+     «kit k39 2 loaded: sysprompt:tutor-k39.txt, settings» (c-kit-take-both.png). tutor.txt sigue siendo «Mi propio tutor.»,
+     tutor-k39.txt es el del Kit, y los Ajustes de otro: assistant_name=Profe, sysprompt=tutor-k39.txt, server=None.
+     kits.json: sysprompt:tutor-k39.txt y settings con {"kit": "k39", "version": "2"}.
+
+C. Rechazos (rechazos.py carga variantes de k39 en otro con el mismo código que Main; salida en rechazos.txt):
+   .pyc, binario, Atajos, Servidor con port, con mmproj, con el modelo por ruta, referencia sin resolver y formato 7:
+   todos rechazados enteros, y el Perfil otro queda byte a byte igual.
+
+D. Tests: tests/test_profile_copy.py (8) y tests/test_kits.py (24). 816 tests, basedpyright y ruff limpios.
+Al final: /exit en Main.

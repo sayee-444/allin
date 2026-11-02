@@ -1,0 +1,32 @@
+{
+  "type": "kit",
+  "format": 1,
+  "name": "k39",
+  "version": "2",
+  "pieces": [
+    {
+      "kind": "settings",
+      "name": "main",
+      "files": [
+        "settings.json"
+      ],
+      "sha256": "be4b554247e5b9a2c8a35881a446096d8e4a3c5367034ecbc5306cd51c147d8f"
+    },
+    {
+      "kind": "sysprompt",
+      "name": "tutor.txt",
+      "files": [
+        "sysprompts/tutor.txt"
+      ],
+      "sha256": "b881bd416a5c152fd0598862ec7b6b0da9a9d6daa649a6a45098f5c8f08f04b5"
+    },
+    {
+      "kind": "server",
+      "name": "tutor-gpu",
+      "files": [
+        "servers/tutor-gpu.toml"
+      ],
+      "sha256": "bba84f53dcacad0adedc9a642b7f254aaf45e5a493db03992d42c9fe2e90e16b"
+    }
+  ]
+}
