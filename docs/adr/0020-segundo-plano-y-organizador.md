@@ -26,9 +26,9 @@ Antes de F3 hay un solo Main. El tope compartido por un árbol de submains, y un
 
 ## El Organizador
 
-El Organizador es una pantalla temporal que abre `/windows`. Lista en vivo las Sesiones abiertas del Perfil, y debajo, plegadas, las cerradas. De cada una muestra su título, si está a la vista o en segundo plano, su Turno o su cola, sus Confirmaciones y Avisos, su Contexto y su Supervisor. Con un clic o una tecla ejecuta `/open`, `/bg` o `/close`, y `/windows list` escribe la misma lista en el Chat de Main. No cuenta para el máximo, hay uno por Main y no vuelve tras un reinicio. Usa el Tema (ADR-0018). Las animaciones esperan al motor gráfico de «Después».
+El Organizador es una pantalla temporal que abre `/windows`. Lista en vivo las Sesiones abiertas del Perfil, y debajo, plegadas, las cerradas. De cada una muestra su título, si está a la vista o en segundo plano, su Turno o su cola, sus Confirmaciones y Avisos, su Contexto y su Supervisor. Con un clic o una tecla ejecuta `/open`, `/bg` o `/close`, y `/windows list` escribe la misma lista en el Chat de Main. No cuenta para el máximo, hay uno por Main y no vuelve tras un reinicio. Usa el Tema (ADR-0018). No tiene animaciones.
 
-Es parte de Main, como las Ventanas y el Chat de Main, no una pieza: lo que el humano hace en él tiene Origen humano. Se descartó hacerlo con una fscreen y su Proceso adherido. Ese proceso está encerrado, y lo que sale de él lleva un eslabón que nunca cuenta como humano (ADR-0021). Un clic que pasara por él ya no sería humano, y un «cerrar» podría cancelar el Turno de un humano sin que ningún humano lo pidiera.
+Es parte de Main, como las Ventanas y el Chat de Main, no una pieza: lo que el humano hace en él tiene Origen humano. Se descartó hacerlo con una fproc y su Proceso adherido. Ese proceso está encerrado, y lo que sale de él lleva un eslabón que nunca cuenta como humano (ADR-0021). Un clic que pasara por él ya no sería humano, y un «cerrar» podría cancelar el Turno de un humano sin que ningún humano lo pidiera.
 
 ## El LLM
 

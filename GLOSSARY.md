@@ -16,6 +16,10 @@ _Avoid_: abuelo, padre, proceso principal, servidor (el Servidor es `llama serve
 Identidad con nombre de un Main raíz, guardada como archivos modulares en `profiles/<nombre>/`: sus Ajustes de Main (con el Enlace por defecto), las Sesiones que le pertenecen, sus submains, su Estado de Main y sus piezas (functions, Sysprompts, Moldes, Planos y Temas). Su nombre lo elige el usuario y solo `/profile new` lo crea: nombrar uno que no existe es un error, nunca lo crea. Arrancar un Perfil es arrancar el Main raíz con él (`--profile`); su id sigue siendo `root`, así que el dueño de sus Sesiones no cambia. Trabajar en otro proyecto es cambiar de Perfil, sin perder nada del anterior. `/profile export` lo copia entero en una carpeta, para respaldarlo o mudarlo, y `/profile import` crea uno nuevo desde esa copia. Una Sesión puede pertenecer a varios Perfiles a la vez (compartida): como solo corre un Main raíz, eso no cambia quién la orquesta. Se comparte con `/profile share <sid> <perfil>` o abriéndola con `/open` desde otro Perfil, que lo avisa; `/profile unshare` la quita de una lista, y una Sesión sin Perfil sigue en `sessions/`. Es privado: lo que se comparte con otros usuarios es un Kit, y desde una Sesión, `/send` y Consultar solo alcanzan las del Perfil activo.
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
 
+**Subperfil** (`Subprofile`):
+Espacio propio de una instancia de Proceso adherido dentro del Perfil en que se adhirió: las Sesiones que creó, su RAG y su Carpeta de trabajo, aparte de los del Perfil. Es una frontera como la del Perfil: `/send` no la cruza en ningún sentido, y solo un humano pasa de un lado a otro. Lo tiene solo la fproc que lo necesita, y existe mientras su Perfil está activo.
+_Avoid_: perfil de fproc, submain
+
 **Kit** (`Kit`):
 Receta portable y versionada de un entorno de trabajo (Sysprompts, Moldes, functions, Goals y composiciones, Temas, parte de los Ajustes de Main y Ajustes del Servidor sugeridos) que se exporta desde un Perfil y se carga en otro, de esta máquina o de otro usuario. Nunca lleva Sesiones ni nada de ejecución, y solo fuentes que se puedan leer: uno con `.pyc` o binarios se rechaza. Se exporta con `/kit export` y se carga con `/kit load`, que copia sus piezas en la carpeta del Perfil; cada una recuerda de qué Kit y versión vino (`kits.json`), y un Perfil puede cargar varios. Cargarlo no ejecuta nada con efectos, y sus piezas (functions, Sysprompts, Moldes, Planos e historiales iniciales) esperan en cuarentena hasta que un humano las aprueba.
 _Avoid_: plantilla, paquete, perfil (para lo que se comparte)
@@ -229,6 +233,10 @@ Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro
 **Origen** (`origin`):
 De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main, o lo que hace en el Organizador) o una Sesión, con la cadena por la que llegó; lo que Main pide por su cuenta a un Proceso adherido lleva el Origen de Main, que nunca cuenta como humano. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen, ni usa un Command session que no esté en la lista de todas las Sesiones de su cadena. Lo que llega de otra Sesión es dato: Main nunca lo trata como comando ni le da más autoridad, y el LLM puede seguirlo, pero con la autoridad de su cadena. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena.
 
+**Externo** (`outsider`):
+Persona de fuera de AllIn cuyo texto trae un Proceso adherido, como quien escribe en un canal de Discord. No es el humano, que siempre es el usuario de AllIn: lo que dice entra con el Origen del Proceso adherido, que nunca cuenta como humano, y su identidad solo se anota para el Log y la memoria.
+_Avoid_: usuario, humano, cliente
+
 **Otorgar** (`Grant`):
 Command session que da Command sessions y functions a cualquier Sesión del Perfil, aunque quien lo usa no los tenga. La fsource que lo declara no se hereda: solo un humano se la da a una Sesión concreta, y Otorgar no da Otorgar. Su aprobación nunca va en bloque, el borde de la Sesión que lo tiene lo marca y cada uso pide Confirmación (ADR-0025).
 _Avoid_: function session
@@ -259,23 +267,23 @@ _Avoid_: loop
 ## Functions
 
 **Function tool** (`FunctionTool`):
-Función que invoca el LLM (va en `tools=[...]`); un módulo = una tool, salvo una fscreen, que expone una por método. El usuario nunca llama directamente a una fsource ni a un fagent; a los métodos de un Proceso adherido sí, con `/call`.
+Función que invoca el LLM (va en `tools=[...]`); un módulo = una tool, salvo una fproc, que expone una por método. El usuario nunca llama directamente a una fsource ni a un fagent; a los métodos de un Proceso adherido sí, con `/call`.
 _Avoid_: skill, comando
 
 **fsource**:
-Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`, y salvo la que declara Otorgar, que solo da un humano) y que puede ejecutar los Command sessions que declara; es, con los métodos de una fscreen, la vía por la que el LLM actúa sobre AllIn.
+Function tool que se hereda automáticamente en `/new` (salvo `-sf=off`, y salvo la que declara Otorgar, que solo da un humano) y que puede ejecutar los Command sessions que declara; es, con los métodos de una fproc, la vía por la que el LLM actúa sobre AllIn.
 _Avoid_: source, function source
 
 **fagent**:
 Function tool escrita por el usuario o por el LLM; se pasa explícitamente en `/new` o se añade después. Puede agruparse en packages fuera de las Sesiones. No es un agente.
 _Avoid_: agent, function agent, agente
 
-**fscreen**:
-Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. Sus métodos los llaman el LLM y también un humano, con `/call`; los marcados con `@human` solo los llama un humano y nunca llegan al LLM. Mientras atiende una llamada, un método puede ejecutar Command sessions, como una fsource. `screen.py` es solo un ejemplo de fscreen, sin estatus especial; su comportamiento lo definen sus métodos, no los Ajustes.
-_Avoid_: screen, function screen
+**fproc**:
+Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. Sus métodos los llaman el LLM y también un humano, con `/call`; los marcados con `@human` solo los llama un humano y nunca llegan al LLM. Mientras atiende una llamada, un método puede ejecutar Command sessions, como una fsource. El nombre viene de *function process*. Su comportamiento lo definen sus métodos, no los Ajustes.
+_Avoid_: fscreen, function screen, screen
 
 **Proceso adherido** (`Attachment`):
-Proceso vivo y con estado que Main lanza a partir de una fscreen y que sus Sesiones controlan llamando a los métodos de esta (un lienzo, un archivo compartido con su cursor…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fscreen. Muere con Main, y al cambiar de Perfil se cierran los del saliente. Al adherirlo recibe un nombre y una Carpeta de trabajo propia que lo sobrevive; Main nunca lo relanza solo, y adherirlo de nuevo con el mismo nombre le devuelve esa carpeta. Atiende una llamada a la vez, o las que declare su fscreen, que las organiza por dentro. Se rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta. Sus métodos los recibe como tools la Sesión que lo adhiere (todas las nuevas, si lo adhiere Main), que puede pasarlos a las que ella crea; un humano se los da o se los quita a cualquiera, y soltarlo se los quita a todas. En la cadena de Origen de lo que manda a Main es un eslabón que nunca cuenta como humano, porque su estado mezcla lo que escribieron varias Sesiones.
+Proceso vivo y con estado que Main lanza a partir de una fproc y que sus Sesiones controlan llamando a los métodos de esta (un archivo compartido con su cursor, un bot de Discord…). Main solo lo adhiere, lo vigila y lo suelta; lo que hace lo define su fproc. Muere con Main, y al cambiar de Perfil se cierran los del saliente. Al adherirlo recibe un nombre y una Carpeta de trabajo propia que lo sobrevive; Main nunca lo relanza solo, y adherirlo de nuevo con el mismo nombre le devuelve esa carpeta. Atiende una llamada a la vez, o las que declare su fproc, que las organiza por dentro. Se rechaza la escritura de una Sesión que no ha visto su último cambio, para que nadie escriba sobre una lectura obsoleta. Sus métodos los recibe como tools la Sesión que lo adhiere (todas las nuevas, si lo adhiere Main), que puede pasarlos a las que ella crea; un humano se los da o se los quita a cualquiera, y soltarlo se los quita a todas. En la cadena de Origen de lo que manda a Main es un eslabón que nunca cuenta como humano, porque su estado mezcla lo que escribieron varias Sesiones. Entre llamadas también actúa por su cuenta, pero solo sobre las Sesiones que él creó y con los Command sessions de su Alcance; así trae a AllIn lo que dicen los Externos.
 _Avoid_: screen, plugin, servicio
 
 **Alcance** (`reach`):
@@ -291,12 +299,16 @@ Pregunta s/n que Main hace al usuario humano antes de una acción marcada como d
 _Avoid_: aprobación (es otra puerta), permiso
 
 **Exención** (`exemption`):
-Marca de una Sesión o de un submain por la que sus Confirmaciones suben a su Main en lugar de preguntar al humano. Suben de Exención en Exención hasta el primer Main con `--devastation`, que las contesta y las deja en el Log; si la subida se corta antes, se pregunta al humano. Sola no hace nada, así que se guarda y viaja en Moldes, Planos y Kits. Las Sesiones de un Main nacen con ella, y un submain solo la tiene si se la pone un humano o la trae un Plano. Solo un humano la pone o la quita, y un Proceso adherido nunca la tiene (ADR-0013).
+Marca de una Sesión o de un submain por la que sus Confirmaciones suben a su Main en lugar de preguntar al humano. Suben de Exención en Exención hasta el primer Main con `--devastation`, que las contesta y las deja en el Log; si la subida se corta antes, se pregunta al humano. Sola no hace nada, así que se guarda y viaja en Moldes, Planos y Kits. Las Sesiones de un Main nacen con ella, y un submain solo la tiene si se la pone un humano o la trae un Plano. Solo un humano la pone o la quita. Un Proceso adherido nunca la tiene, pero un humano se la puede poner a su Subperfil, y entonces solo cubre lo que no sale de él (ADR-0013, ADR-0026).
 _Avoid_: link, vínculo
 
 **Aprobación** (`approval`):
 Lo que un humano da, a propósito, a todo lo que amplía un Encierro: cada versión de una pieza con su Alcance, la ruta de una Carpeta de trabajo, un archivo de fuera que pida una Sesión y los Ajustes del Servidor que nombran un archivo o abren la red. Ni `-y` ni `--devastation` la saltan. Da Origen humano a la pieza, pero no cambia su procedencia, y lo que se ajusta al aprobar (`@confirm`, un Alcance menor) se guarda con ella, sin tocar el código (ADR-0013).
 _Avoid_: Confirmación, permiso
+
+**Secreto** (`secret`):
+Valor con nombre que solo da un humano, como el token de un bot, y que Main entrega a un Proceso adherido al lanzarlo. Se guarda una vez y vale en cada adhesión hasta que un humano lo quita. Nunca lo ven el LLM, la Conversación, el Log, el RAG ni los Ajustes, y nunca viaja en Moldes, Kits ni copias de un Perfil.
+_Avoid_: token, credencial, contraseña
 
 **Cuarentena** (`quarantine`):
 Estado de una pieza nueva o cambiada (function, Sysprompt, Molde, Plano, historial inicial) hasta su Aprobación: Main la muestra, pero no la ofrece al LLM ni la usa. De una function cuenta su package entero: cambiar cualquier archivo devuelve a cuarentena todas sus functions (ADR-0013).

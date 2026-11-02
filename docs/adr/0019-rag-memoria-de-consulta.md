@@ -30,7 +30,7 @@ Los umbrales, los topes y si el modelo usa `buscar` y hace caso a las Pistas los
 
 ## Dónde vive
 
-Es un Proceso adherido (ADR-0012) que Main lanza desde la fscreen `rag`, que trae la instalación. El Ajuste de Main `rag`, encendido por defecto, hace que Main lo adhiera al arrancar y al entrar en cada Perfil. Apagarlo lo suelta y quita sus métodos a todas las Sesiones. Si se cae, sale un Aviso y Main no lo relanza: lo vuelve a adherir un humano. Se descartó que fuera parte de Main: Main crecería con cada idea (ADR-0011) y leería documentos sin encierro.
+Es un Proceso adherido (ADR-0012) que Main lanza desde la fproc `rag`, que trae la instalación. El Ajuste de Main `rag`, encendido por defecto, hace que Main lo adhiera al arrancar y al entrar en cada Perfil. Apagarlo lo suelta y quita sus métodos a todas las Sesiones. Si se cae, sale un Aviso y Main no lo relanza: lo vuelve a adherir un humano. Se descartó que fuera parte de Main: Main crecería con cada idea (ADR-0011) y leería documentos sin encierro.
 
 Va encerrado (ADR-0016). Lee en solo lectura las carpetas de los Corpus y la instalación, de donde saca el manual de AllIn, y escribe sus índices en su Carpeta de trabajo, que es del Perfil. Un PDF hecho para atacar al lector se queda dentro del encierro. Lo que vive en la carpeta de datos, que no alcanza, se lo pasa Main: cada Turno terminado, las marcas de deshecho y el catálogo de functions. Hay un índice por Segmento.
 
@@ -61,3 +61,5 @@ El historial de una Sesión es un Segmento con su id. Una Sesión compartida ent
 **Enmienda (2026-11-01, ADR-0012).** Indexar es una llamada larga del RAG, no un trabajo aparte. Indexar un Corpus tras `/rag add`, reindexar al adherirse y la puesta al día del historial son llamadas que avisan de su avance, y sus `@embed` y `@rerank` van con ellas (ADR-0021). Mientras tanto, `rag_buscar` y `rag_leer` se contestan, porque el RAG atiende varias llamadas a la vez. Para eso guarda sus índices en SQLite en modo WAL, en el que leer no espera a quien escribe. Pide los embeddings de indexar en tandas pequeñas, una cada vez, así que una búsqueda espera como mucho una tanda. Y lee los documentos en un subproceso suyo, que puede matar sin caerse si un PDF lo cuelga.
 
 **Enmienda (2026-11-01, ADR-0025).** El RAG declara en su Alcance solo `@embed` y `@rerank`, así que, aunque un documento lo tome, no puede ejecutar otro Command session. Lo que le pide Main por su cuenta (cada Turno terminado, las marcas de deshecho y la puesta al día al adherirlo) lleva el Origen de Main.
+
+**Enmienda (2026-11-02, ADR-0026).** Además del RAG del Perfil, cada Subperfil tiene el suyo, otra instancia de la fproc `rag`. Indexa solo el historial de las Sesiones del Subperfil, y lo que la fproc le añada con su procedencia. Las Sesiones de un Subperfil nunca reciben el RAG del Perfil.
