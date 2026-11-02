@@ -6,8 +6,6 @@ of Main: it is never saved and never travels. Main's Chat and each covered Windo
 their border, and lighting it tells, in a Notice, which Sessions stop asking.
 """
 
-from collections.abc import Callable
-
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId
 from allin.core.settings import SessionSettings
@@ -16,8 +14,7 @@ from allin.main.boxes import MainBoxes
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
-from allin.ui.marks import DEVASTATION_MARK
-from allin.ui.screen import TitleMark
+from allin.ui.marks import BorderMarks
 
 _NOTICE_TITLE = "--devastation on"
 
@@ -26,7 +23,7 @@ class Devastation:
     def __init__(
         self,
         on: bool,
-        main_border: Callable[[TitleMark], None],
+        marks: BorderMarks,
         windows: OpenWindows,
         sessions: SessionStore,
         boxes: MainBoxes,
@@ -34,7 +31,7 @@ class Devastation:
         main_id: MainId,
     ) -> None:
         self._on = on
-        self._main_border = main_border
+        self._marks = marks
         self._windows = windows
         self._sessions = sessions
         self._boxes = boxes
@@ -58,7 +55,7 @@ class Devastation:
         """Light it or put it out; running Turns keep what they had when they started."""
         self._on = on
         self._reporter.report(None, "devastation", f"--devastation {'on' if on else 'off'}", on=on)
-        self._main_border(TitleMark(DEVASTATION_MARK if on else ""))
+        self._marks.devastation(on)
         for session_id in self._windows.pids():
             self.mark(session_id)
         if on:

@@ -10,10 +10,12 @@ import queue
 import time
 from collections.abc import Callable
 
+from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_name
 from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
+from allin.ipc.messages import ConfinementGap
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
 from allin.main.devastation import Devastation
@@ -65,6 +67,7 @@ from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
+from allin.ui.marks import BorderMarks
 from allin.ui.screen import KeyBindings, ScreenUpdate
 from allin.ui.shortcuts import effective_keys
 
@@ -95,10 +98,12 @@ class Dispatcher:
         *,
         fonts: FontProbe = NO_FONT_PROBE,
         open_organizer: OpenOrganizer = no_organizer,
+        confinement: ConfinementSupport = FULL_SUPPORT,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
-        active Profile, whose Sysprompts Sessions are born with."""
+        active Profile, whose Sysprompts Sessions are born with; ``confinement`` is what this
+        kernel's Landlock can confine tools in (ADR-0016)."""
         sysprompts = profile.sysprompts
         self._inbox = inbox
         self._main_id = main_id
@@ -132,8 +137,10 @@ class Dispatcher:
         self._windows.use_themes(self._themes)
         self._windows.watch_asking(self._boxes.asking)
         self._windows.set_maximum(settings.current.windows.max)
+        self._marks = BorderMarks(main_screen)
+        self._confinement = confinement
         self._devastation = Devastation(
-            devastation, main_screen, self._windows, sessions, self._boxes, self._reporter, main_id
+            devastation, self._marks, self._windows, sessions, self._boxes, self._reporter, main_id
         )
         self._turns = TurnQueue(
             self._reporter,
@@ -261,6 +268,7 @@ class Dispatcher:
         for problem in self._start_problems:  # Main runs on without what failed
             self._reporter.error(problem)
         self._devastation.start()
+        self._tell_confinement()
         self._turns.watch(self._default_link)  # Main tells how its Server is from the start
         self._recovery.close_left_open()
         self._recovery.restore()
@@ -303,6 +311,21 @@ class Dispatcher:
             if isinstance(event, TurnOutput | StepEnded | TurnEnded | DraftReceived):
                 self._handle(event)
 
+    def _tell_confinement(self) -> None:
+        """On a kernel that cannot confine tools in full: a Notice now and a mark on Main's
+        border for this whole start (ADR-0016)."""
+        missing = self._confinement.missing
+        if not missing:
+            return
+        abi = self._confinement.abi
+        self._reporter.log_main("confinement_gap", abi=abi, missing=list(missing))
+        text = (
+            f"This kernel's Landlock (ABI {abi}) cannot confine tools in: {', '.join(missing)}. "
+            "Tools run without it."
+        )
+        self._boxes.notify(None, "Tools not fully confined", text)
+        self._marks.unconfined(missing)
+
     def _handle(self, event: MainEvent) -> bool:
         match event:
             case WindowConnected(session_id):
@@ -310,6 +333,8 @@ class Dispatcher:
                 self._turns.window_connected(session_id)
                 self._boxes.window_opened(session_id)
                 self._devastation.mark(session_id)
+                if missing := self._confinement.missing:
+                    self._windows.send(session_id, ConfinementGap(missing=list(missing)))
             case WindowUsed(session_id):
                 self._windows.touch(session_id)
             case InputReceived(session_id, text, interrupt):

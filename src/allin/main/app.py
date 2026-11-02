@@ -7,6 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
+from allin.confinement.support import kernel_support
 from allin.core.errors import AllInError, MainAlreadyRunning
 from allin.core.ids import ROOT_MAIN_ID
 from allin.ipc.channel import remove_stale_fifos
@@ -125,6 +126,7 @@ def _run(
         load_notice_types(data_dir / "notices"),  # part of Main: loaded once, here (ADR-0016)
         fonts=fontconfig_probe(),
         open_organizer=OrganizerOpener(data_dir, inbox),
+        confinement=kernel_support(),  # checked once, as Main starts (ADR-0016)
     )
     # Main looks once a second at its Themes' files (#47), as at the Servers'.
     theme_watch = ThemeWatch(dispatcher.theme_stamps, lambda: inbox.put(ThemesChanged()))

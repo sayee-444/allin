@@ -12,7 +12,7 @@ dependencies = ["pydantic>=2", "openai>=2"]
 dev = ["pytest", "pytest-cov", "mutmut", "ruff", "basedpyright"]
 
 [project.scripts]
-allin = "allin.__main__:main"
+allin = "allin.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

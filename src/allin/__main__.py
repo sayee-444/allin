@@ -1,49 +1,17 @@
-import argparse
-from pathlib import Path
+"""``python -m allin``: starts Main.
 
-from allin.main.app import run
+``python -m`` puts the current folder first on the import path, so a ``json.py`` left there
+would run as part of Main. Main never imports from it (ADR-0005): the entry is dropped before
+anything else is imported (``os`` and ``sys`` are loaded by the interpreter before any path).
+"""
 
+import os
+import sys
 
-def main() -> None:
-    parser = argparse.ArgumentParser(prog="allin")
-    parser.add_argument(
-        "--data-dir", type=Path, default=Path.cwd() / "var", help="runtime data (default: ./var)"
-    )
-    parser.add_argument(
-        "--sysprompts-dir",
-        type=Path,
-        default=Path.cwd() / "sysprompts",
-        help="the installation's Sysprompt templates, which the Profile default is born with"
-        " (default: ./sysprompts)",
-    )
-    parser.add_argument(
-        "--themes-dir",
-        type=Path,
-        default=Path.cwd() / "themes",
-        help="the installation's Themes, which the Profile default is born with"
-        " (default: ./themes)",
-    )
-    parser.add_argument(
-        "--profile",
-        help="the Profile to open (default: the last one used); one that does not exist is an"
-        " error",
-    )
-    parser.add_argument(
-        "--devastation",
-        action="store_true",
-        help="Main answers by itself the Confirmations of its Chat and of its exempt Sessions,"
-        " for this start only",
-    )
-    args = parser.parse_args()
-    profile: str | None = args.profile
-    run(
-        args.data_dir.resolve(),
-        args.sysprompts_dir.resolve(),
-        profile,
-        args.devastation,
-        seed_themes=args.themes_dir.resolve(),
-    )
+# os.getcwd, not Path.cwd: pathlib is not loaded yet, and importing it would search the folder.
+sys.path[:] = [entry for entry in sys.path if entry not in ("", os.getcwd())]  # noqa: PTH109
 
+from allin.cli import main
 
 if __name__ == "__main__":
     main()

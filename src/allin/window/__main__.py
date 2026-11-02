@@ -25,6 +25,7 @@ from allin.ipc.messages import (
     ChatClear,
     ChatDelta,
     Close,
+    ConfinementGap,
     ContextUsage,
     Coverage,
     InputDraft,
@@ -42,7 +43,7 @@ from allin.ipc.messages import (
     decode_main_message,
 )
 from allin.ui.boxes import Box, BoxClosed
-from allin.ui.marks import DEVASTATION_MARK
+from allin.ui.marks import BorderMarks
 from allin.ui.screen import (
     ApplyTheme,
     BorderStatus,
@@ -58,7 +59,6 @@ from allin.ui.screen import (
     QueuedPrompts,
     ScreenUpdate,
     ShowBox,
-    TitleMark,
 )
 from allin.ui.status import context_status
 
@@ -123,6 +123,7 @@ class MainListener:
         # What the border shows, as Main last said each part.
         self._usage = ContextUsage(context=None, limit=None, tokens_per_second=None)
         self._shared = False
+        self._marks = BorderMarks(show)
         self._waiting: str | None = None
 
     def _border(self) -> BorderStatus:
@@ -168,7 +169,9 @@ class MainListener:
             case BoxHide(box_id=box_id):
                 self._show(HideBox(box_id))
             case Coverage(covered=covered):
-                self._show(TitleMark(DEVASTATION_MARK if covered else ""))
+                self._marks.devastation(covered)
+            case ConfinementGap(missing=missing):
+                self._marks.unconfined(tuple(missing))
             case Close():
                 self._show(None)
 
