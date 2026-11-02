@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from allin.core.errors import AllInError, WindowLaunchFailed
+from allin.core.errors import AllInError, ChannelBroken, WindowLaunchFailed
 from allin.core.ids import SessionId
 from allin.core.themes import Theme
 from allin.ipc.channel import Channel, FifoPair, create_fifo_pair
@@ -186,7 +186,7 @@ class WindowOpener:
         return _Window(channel, launcher, fifos)
 
 
-class _OrganizerListener:
+class OrganizerListener:
     """Turns what the Organizer sends into events for the dispatcher (#53)."""
 
     def __init__(self, inbox: queue.Queue[MainEvent]) -> None:
@@ -200,6 +200,8 @@ class _OrganizerListener:
                 self._inbox.put(OrganizerActed(action, session_id))
 
     def on_error(self, error: AllInError) -> None:
+        if isinstance(error, ChannelBroken):
+            return  # it closed while Main wrote to it: its watcher reports it, nothing is lost
         self._inbox.put(ErrorOccurred(error))
 
     def on_eof(self) -> None:
@@ -225,7 +227,7 @@ class OrganizerOpener:
             fifos.from_window,
             fifos.to_window,
             decode_organizer_message,
-            _OrganizerListener(self._inbox),
+            OrganizerListener(self._inbox),
         )
         command = [
             sys.executable,

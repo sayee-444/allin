@@ -2,22 +2,27 @@
 Organizer."""
 
 import os
+import queue
 from pathlib import Path
 
 import pytest
 
+from allin.core.errors import ChannelBroken, MalformedMessage
 from allin.core.settings import MainSettings, WindowsSettings
 from allin.ipc.messages import Close, OrganizerRow, OrganizerRows
 from allin.main.events import (
     ConfirmationRequested,
     DraftReceived,
+    ErrorOccurred,
     InputReceived,
     MainCommandEntered,
+    MainEvent,
     OrganizerActed,
     OrganizerClosed,
     OrganizerConnected,
 )
 from allin.main.organizer import command_for, row_title
+from allin.main.windows import OrganizerListener
 from allin.ui.organizer_view import QUIT, Act, OrganizerView, fit, row_text, windows_list
 from tests.test_dispatcher import FakeWindowLink, MainHarness, ended
 
@@ -303,3 +308,12 @@ def test_the_closed_sessions_go_most_recent_first(main: MainHarness):
             os.utime(path, (when, when))
     main.run(command("/windows"), OrganizerConnected())
     assert [r.session_id for r in last_rows(main.organizers[0])] == [recent.id, old.id]
+
+
+def test_an_organizer_gone_while_main_writes_to_it_is_no_error():
+    inbox: queue.Queue[MainEvent] = queue.Queue()
+    listener = OrganizerListener(inbox)
+    listener.on_error(ChannelBroken(path="organizer.in", reason="Broken pipe"))
+    listener.on_error(MalformedMessage(line="{", reason="bad"))
+    [event] = list(inbox.queue)
+    assert isinstance(event, ErrorOccurred) and isinstance(event.error, MalformedMessage)
