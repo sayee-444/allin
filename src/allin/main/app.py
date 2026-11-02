@@ -35,14 +35,24 @@ def run(
     data_dir: Path, seed_sysprompts: Path, profile_name: str | None, devastation: bool = False
 ) -> None:
     """Start the root Main on ``profile_name``'s Profile, the last one used if ``None``."""
+    inbox: queue.Queue[MainEvent] = queue.Queue()
+    # Caught from the first moment (#19): a signal while Main starts waits in the inbox, and
+    # its Dispatcher, once it runs, shuts down as /exit does. Without this, the default action
+    # kills Main, or ncurses' own SIGTERM handler ends it, with no main_stopped in its Log.
+    shutdown_signals = ShutdownSignals(lambda: inbox.put(Shutdown()))
+    shutdown_signals.install()
     try:
-        lock, profile = start_root(data_dir, seed_sysprompts, profile_name)
-    except MainAlreadyRunning as error:
-        sys.exit(f"{error}: another root Main already runs on {data_dir}")
-    except AllInError as error:
-        sys.exit(str(error))
-    curses.wrapper(_run, data_dir, ProfileStore(data_dir, seed_sysprompts), profile, devastation)
-    del lock  # held until here, and dropped by the kernel however the process ends
+        try:
+            lock, profile = start_root(data_dir, seed_sysprompts, profile_name)
+        except MainAlreadyRunning as error:
+            sys.exit(f"{error}: another root Main already runs on {data_dir}")
+        except AllInError as error:
+            sys.exit(str(error))
+        profiles = ProfileStore(data_dir, seed_sysprompts)
+        curses.wrapper(_run, inbox, data_dir, profiles, profile, devastation)
+        del lock  # held until here, and dropped by the kernel however the process ends
+    finally:
+        shutdown_signals.uninstall()
 
 
 def start_root(
@@ -62,6 +72,7 @@ def start_root(
 
 def _run(
     stdscr: curses.window,
+    inbox: queue.Queue[MainEvent],
     data_dir: Path,
     profiles: ProfileStore,
     profile: Profile,
@@ -74,7 +85,6 @@ def _run(
     screen = ChatScreen(stdscr, title, commands=True)  # its Atajos may run Command mains
     log_dir = data_dir / "logs" / "main"
     log_dir.mkdir(parents=True, exist_ok=True)
-    inbox: queue.Queue[MainEvent] = queue.Queue()
     remove_stale_fifos(data_dir / "fifo")  # no Window outlives the Main that opened it
     executors = TurnExecutors(OpenAiLlm, inbox)
     # Main starts without waiting for any Server: each Session waits until its own is ready.
@@ -107,8 +117,6 @@ def _run(
         ticks.stop()
         screen.inbox.put(None)
 
-    shutdown_signals = ShutdownSignals(lambda: inbox.put(Shutdown()))
-    shutdown_signals.install()
     ticks = Ticker(inbox)  # Main looks for stalled Steps once a second (ADR-0023)
     ticks.start()
     dispatcher_thread = threading.Thread(target=dispatch, name="dispatcher")
@@ -123,4 +131,3 @@ def _run(
     finally:
         inbox.put(Shutdown())
         dispatcher_thread.join()
-        shutdown_signals.uninstall()
