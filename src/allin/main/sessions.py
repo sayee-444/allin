@@ -23,7 +23,15 @@ from allin.core.errors import (
     WorkspaceRefused,
 )
 from allin.core.files import write_atomically
-from allin.core.ids import CommandName, MainId, PieceId, SessionId, new_session_id, parse_session_id
+from allin.core.ids import (
+    CommandName,
+    MainId,
+    NotificationSource,
+    PieceId,
+    SessionId,
+    new_session_id,
+    parse_session_id,
+)
 from allin.core.settings import SessionSettings
 from allin.core.themes import pick_border_color
 from allin.main.conversation import (
@@ -48,6 +56,23 @@ class _Aliases(BaseModel):
     aliases: dict[SessionId, SessionId] = {}  # an old id -> the Session's id now
 
 
+class Change(BaseModel, frozen=True):
+    """What a Notificación says a Session was given or lost: one about the same thing the other
+    way, still pending, cancels out with it."""
+
+    subject: str  # a piece (``function:clock``) or a Command session (``@send``)
+    given: bool  # given, or taken away
+
+
+class Notification(BaseModel, frozen=True):
+    """A Notificación pending for its Session's next Prompt (``allin.main.notifications``)."""
+
+    id: int  # unique in its Session while pending
+    source: NotificationSource
+    text: str
+    change: Change | None = None
+
+
 class Session(BaseModel, frozen=True):
     id: SessionId
     owner: MainId  # the only Main that may open it
@@ -64,6 +89,8 @@ class Session(BaseModel, frozen=True):
     # The Command sessions its LLM may use, by name (``send``): it limits its tools, not a
     # human (ADR-0025). One saved before them has none.
     commands: tuple[CommandName, ...] = ()
+    # Its Notificaciones waiting for its next Prompt (#109).
+    notifications: tuple[Notification, ...] = ()
 
 
 class SessionStore:
@@ -249,6 +276,12 @@ class SessionStore:
     def save_functions(self, session: Session, functions: tuple[PieceId, ...]) -> Session:
         """The Session with other Function tools, already on disk."""
         return self._save(session.model_copy(update={"functions": functions}))
+
+    def save_notifications(
+        self, session: Session, notifications: tuple[Notification, ...]
+    ) -> Session:
+        """The Session with other pending Notificaciones, already on disk."""
+        return self._save(session.model_copy(update={"notifications": notifications}))
 
     def save_commands(self, session: Session, commands: tuple[CommandName, ...]) -> Session:
         """The Session with another list of Command sessions, already on disk."""

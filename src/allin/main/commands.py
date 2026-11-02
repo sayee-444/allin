@@ -33,6 +33,8 @@ from allin.main.key_commands import USAGE as KEY_USAGE
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
+from allin.main.notifications import USAGE as CONVERSATION_LOGS_USAGE
+from allin.main.notifications import Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.organizer import Organizer
 from allin.main.piece_commands import USAGE as PIECE_USAGE
@@ -122,6 +124,7 @@ class MainCommands:
         keys: KeyCommands,
         pieces: PieceCommands,
         functions: FuncCommands,
+        notifications: Notifications,
     ) -> None:
         self._functions = functions
         self._boxes = boxes
@@ -216,6 +219,19 @@ class MainCommands:
             # Delicate: the current Settings are lost unless they were also the defaults.
             "/reset": CommandSpec(
                 (), settings.reset, "put Main's Settings back to the defaults", confirm=True
+            ),
+            "/conversation_logs": CommandSpec(
+                ("sid", "action"),
+                notifications.run,
+                "whether a Session's Notificaciones enter its Conversation, by source; never its"
+                " Log or Chat",
+                usage_text=CONVERSATION_LOGS_USAGE,
+                args={
+                    "sid": "the Session's id",
+                    "action": "on, off or list",
+                    "source": "the command or fsource they come from (/func); all of them if left out",
+                },
+                optional=("source",),
             ),
             "/session": CommandSpec(
                 ("sid",),

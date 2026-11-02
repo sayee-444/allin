@@ -11,6 +11,7 @@ new Prompts, and the gate lets the Turn go on only when Main says it holds one.
 
 import json
 import queue
+import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,9 +268,20 @@ class ToolGate:
         """From the call's thread: Main runs the Command session with the Turn's Origin; wait
         for how it went. Raises ``ToolCancelled`` if the Turn is cancelled meanwhile."""
         answers: queue.Queue[SessionCommandResult] = queue.Queue()
-        turn.emit(SessionCommandAsked(turn.session_id, text, self._origin, answers.put))
+        lock = threading.Lock()
+        waiting = [True]
+
+        def answer(result: SessionCommandResult) -> bool:
+            with lock:  # gone, Main leaves it as a Notificación instead
+                if waiting[0]:
+                    answers.put(result)
+                return waiting[0]
+
+        turn.emit(SessionCommandAsked(turn.session_id, text, self._origin, answer))
         while True:
             if turn.cancellation.reason is not None:
+                with lock:
+                    waiting[0] = False
                 raise ToolCancelled
             try:
                 return answers.get(timeout=_POLL).as_json()

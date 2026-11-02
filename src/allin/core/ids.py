@@ -18,6 +18,8 @@ SessionId = NewType("SessionId", str)
 PieceId = NewType("PieceId", str)
 # A Command session's name, without its ``@`` (``send``): what a Session's list holds.
 CommandName = NewType("CommandName", str)
+# Where a Notificación comes from: the command or fsource that left it (``/func``).
+NotificationSource = NewType("NotificationSource", str)
 ROOT_MAIN_ID = MainId("root")  # the Main started from the command line; submains get their own
 
 

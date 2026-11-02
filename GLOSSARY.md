@@ -242,11 +242,11 @@ Command session que da Command sessions y functions a cualquier Sesión del Perf
 _Avoid_: function session
 
 **Notificación** (`Notification`):
-Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan.
+Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan (dar y quitar la misma function); una que ya contó un Turno en curso no se cancela, porque el LLM ya la leyó. Salen del pendiente cuando se guarda el Turno que las contó; si ese Turno falla, las cuenta el siguiente. Además entran en el Log y el Chat de su Sesión.
 _Avoid_: log (una Notificación se deriva del Log, pero no es el Log)
 
 **Conversation logs**:
-Ajuste de la Sesión que decide, por cada comando o fsource, si sus Notificaciones entran en la Conversación; se controla con `@conversation_logs on|off|list [fuente]`. Nunca afecta al Log ni al Chat.
+Ajuste de la Sesión que decide, por cada comando o fsource, si sus Notificaciones entran en la Conversación; se controla con `@conversation_logs on|off|list [fuente]` desde su Ventana, o con `/conversation_logs <sid> …` desde el Chat de Main; sin fuente, vale para todas. Nunca afecta al Log ni al Chat.
 _Avoid_: @logs
 
 **Rewind** (`Rewind`):
