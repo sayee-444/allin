@@ -86,6 +86,12 @@ class WindowLaunchFailed(AllInError):
     code: ClassVar[str] = "window_launch_failed"
 
 
+class MoldInvalid(AllInError):
+    """A Molde (``mold``) is not one: ``reason`` says what is wrong in it (#112)."""
+
+    code: ClassVar[str] = "mold_invalid"
+
+
 class SyspromptInvalid(AllInError):
     """A Sysprompt file is missing, outside ``sysprompts/`` or not a valid template."""
 

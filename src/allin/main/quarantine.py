@@ -3,7 +3,7 @@ approves it, and only what is approved is offered to the LLM or used.
 
 A piece is a function's package (an fsource's, ``functions/<package>/``, or an fagent's,
 ``agents/<package>/``: each top-level module that does not start with ``_`` one function or
-fproc) or a Sysprompt (``sysprompts/<file>``). Each Profile
+fproc), a Sysprompt (``sysprompts/<file>``) or a Molde (``molds/<name>.toml``). Each Profile
 keeps the hash each piece was approved with (``approvals.json``): a piece whose hash differs,
 whoever changed it, is in quarantine. A package with compiled code or binaries is rejected and
 never approved. What a human adjusts when approving (a smaller Alcance, tools that ask a
@@ -32,9 +32,14 @@ from allin.core.ids import PieceId
 from allin.core.sources import binary_files, compiled_files
 from allin.decorators import Reach
 from allin.main.descriptions import Description, Descriptions
-from allin.main.provenance import kit_origins
+from allin.main.provenance import (
+    SessionOrigin,
+    kit_origins,
+    record_created,
+    session_origins,
+)
 
-type PieceKind = Literal["function", "agent", "sysprompt"]
+type PieceKind = Literal["function", "agent", "sysprompt", "mold"]
 type PieceState = Literal["approved", "quarantined", "rejected"]
 type Author = Literal["user", "kit", "session"]
 
@@ -44,13 +49,15 @@ _FOLDERS: dict[PieceKind, str] = {
     "function": "functions",
     "agent": "agents",
     "sysprompt": "sysprompts",
+    "mold": "molds",
 }
+MOLD_SUFFIX = ".toml"  # a Molde's file: ``molds/<name>.toml``, named ``mold:<name>``
 
 
 @dataclass(frozen=True)
 class PieceRef:
     """A piece by kind and name, as commands write it: ``function:<package>``,
-    ``sysprompt:<file>``."""
+    ``sysprompt:<file>``, ``mold:<name>``."""
 
     kind: PieceKind
     name: str
@@ -62,7 +69,7 @@ class PieceRef:
     @property
     def is_code(self) -> bool:
         """A package of functions (an fsource's or an fagent's), not a piece of data."""
-        return self.kind != "sysprompt"
+        return self.kind in ("function", "agent")
 
 
 def parse_piece_ref(text: str) -> PieceRef | None:
@@ -70,7 +77,7 @@ def parse_piece_ref(text: str) -> PieceRef | None:
     if not name or "/" in name or name.startswith("."):
         return None
     match kind:
-        case "function" | "agent" | "sysprompt":
+        case "function" | "agent" | "sysprompt" | "mold":
             return PieceRef(kind, name)
         case _:
             return None
@@ -161,7 +168,7 @@ class Quarantine:
     def pieces(self) -> list[Piece]:
         """Every piece of the Profile, functions first, by name."""
         refs = [
-            PieceRef(kind, entry.name)
+            PieceRef(kind, _name(kind, entry))
             for kind, folder in _FOLDERS.items()
             if (self._folder / folder).is_dir()
             for entry in sorted((self._folder / folder).iterdir())
@@ -292,8 +299,11 @@ class Quarantine:
         return Piece(ref, path, digest, state, self._provenance(ref, digest), rejected)
 
     def _provenance(self, ref: PieceRef, digest: str) -> Provenance:
-        """The Kit's while the piece is as the Kit wrote it; once it changed on disk, outside
-        AllIn, the user's (ADR-0016). Pieces a Session creates arrive with Crear (#112)."""
+        """The Kit's or the Session's that wrote it while the piece is as they wrote it; once
+        it changed on disk, outside AllIn, the user's (ADR-0016, #112)."""
+        created = session_origins(self._folder).get(ref.id)
+        if created is not None and created.hash == digest:
+            return Provenance(by="session", who=created.session)
         origin = kit_origins(self._folder).get(ref.id)
         # Without its hash (recorded before Kits kept it) there is no telling it changed: the
         # Kit's, which never goes in bulk.
@@ -301,8 +311,17 @@ class Quarantine:
             return Provenance(by="kit", who=origin.kit)
         return Provenance(by="user")
 
+    def record_creator(self, ref: PieceRef, created: SessionOrigin | None) -> None:
+        """Which Session wrote the piece's current version with Crear; ``None``: a human."""
+        record_created(self._folder, ref.id, created)
+
+    def path(self, ref: PieceRef) -> Path:
+        """Where the piece is, or would be."""
+        return self._path(ref)
+
     def _path(self, ref: PieceRef) -> Path:
-        return self._folder / _FOLDERS[ref.kind] / ref.name
+        suffix = MOLD_SUFFIX if ref.kind == "mold" else ""
+        return self._folder / _FOLDERS[ref.kind] / f"{ref.name}{suffix}"
 
     def _approvals(self) -> _Approvals:
         return _load_approvals(self._folder)
@@ -353,7 +372,17 @@ def _load_approvals(profile_folder: Path) -> _Approvals:
 
 
 def _is_piece(kind: PieceKind, path: Path) -> bool:
-    return path.is_file() if kind == "sysprompt" else path.is_dir()
+    match kind:
+        case "function" | "agent":
+            return path.is_dir()
+        case "sysprompt":
+            return path.is_file()
+        case "mold":
+            return path.is_file() and path.suffix == MOLD_SUFFIX
+
+
+def _name(kind: PieceKind, path: Path) -> str:
+    return path.stem if kind == "mold" else path.name
 
 
 def _described(ref: PieceRef, described: Described) -> dict[str, Description]:

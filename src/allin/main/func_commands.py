@@ -13,7 +13,7 @@ human gives it, with ``/func add``: giving the fsource that declares it gives ``
 Session's Window says so when it gets it and marks it on its border while it has it.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 
 from pydantic import JsonValue
 
@@ -36,7 +36,7 @@ from allin.main.notifications import FUNC, Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
-from allin.main.session_commands import LoadedSessionCommands, chain_allows
+from allin.main.session_commands import LoadedSessionCommands, chain_allows, chain_sessions
 from allin.main.sessions import Change, Session, SessionStore
 
 USAGE = (
@@ -179,22 +179,49 @@ class FuncCommands:
                 return True
         return False
 
-    def born_with(self, sources: bool, agents: list[str]) -> tuple[PieceId, ...]:
-        """What a new Session has: the approved fsources, unless ``sources`` is off, but the one
-        that declares Otorgar, which only a human gives (ADR-0025); and the fagents given by
-        package name. Raises ``PieceNotFound`` for an fagent the Profile does not have."""
+    def born_with(
+        self,
+        sources: bool,
+        agents: list[str],
+        named: Sequence[PieceId] | None = None,
+        origin: Origin = HUMAN,
+    ) -> tuple[PieceId, ...]:
+        """What a new Session has: the approved fsources, unless ``sources`` is off, or those a
+        Molde ``named``, but any that declares Otorgar, which only a human gives (ADR-0025);
+        and the fagents given by package name. Created through a chain of Sessions, only what
+        every one of them has. Raises ``PieceNotFound`` for one the Profile does not have."""
         quarantine = self._quarantine()
         given = [quarantine.piece(PieceRef("agent", name)).ref.id for name in agents]
-        if not sources:
-            return _unique(given)
-        inherited = [
-            piece.ref.id
-            for piece in quarantine.pieces()
-            if piece.ref.kind == "function"
-            and piece.state == "approved"
-            and not _grants(quarantine, piece)
+        if named is not None:
+            pieces = [quarantine.piece(_ref(piece_id, USAGE)) for piece_id in named]
+            granting = [p.ref.id for p in pieces if _may_grant(quarantine, p)]
+            if granting:  # it is still created, without them
+                self._boxes.notify(
+                    None,
+                    "Otorgar not given",
+                    f"The new Session does not get {', '.join(granting)}: only a human gives"
+                    " Otorgar, with /func add.",
+                )
+            chosen = [p.ref.id for p in pieces if p.ref.id not in granting]
+        elif sources:
+            chosen = [
+                piece.ref.id
+                for piece in quarantine.pieces()
+                if piece.ref.kind == "function"
+                and piece.state == "approved"
+                and not _grants(quarantine, piece)
+            ]
+        else:
+            chosen = []
+        born = _unique([*chosen, *given])
+        if origin.is_human:
+            return born
+        ids = self._sessions.ids()
+        chain = [  # one that no longer exists has nothing
+            self._sessions.load(sid).functions if SessionId(sid) in ids else ()
+            for sid in chain_sessions(origin)
         ]
-        return _unique([*inherited, *given])
+        return tuple(f for f in born if all(f in functions for functions in chain))
 
     def commands_born_with(
         self, named: list[str] | None, origin: Origin

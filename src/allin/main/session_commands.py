@@ -115,6 +115,28 @@ def _grant(call: SessionCommandCall) -> str:
     return f"/grant {sid} {named}"
 
 
+_CREATE_USAGE = "@create <sysprompt:<file>|mold:<name>> <content>"
+
+
+def _create(call: SessionCommandCall) -> str:
+    """What it creates is checked by the Command main it becomes; the content goes as is,
+    newlines included."""
+    parts = call.args.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        raise ValueError(_CREATE_USAGE)
+    piece, content = parts[0], call.args.strip()[len(parts[0]) :].lstrip(" ")
+    return f"/create {piece} {content}"
+
+
+CREATE = SessionCommandType(
+    "create",
+    _CREATE_USAGE,
+    "create a Sysprompt or a Molde of this Profile; a human confirms it, and it waits in"
+    " quarantine if nobody did",
+    _create,
+)
+
+
 # Otorgar (ADR-0025): never in the default list, since only a human gives it.
 GRANT = SessionCommandType(
     GRANT_NAME,
@@ -133,8 +155,8 @@ class LoadedSessionCommands:
 
 # Main's own, when no folder is loaded (a Main in tests).
 BUILT_IN = LoadedSessionCommands(
-    {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS, GRANT)},
-    tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
+    {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT)},
+    tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE)),
 )
 
 
@@ -143,7 +165,7 @@ def chain_allows(sessions: SessionStore, origin: Origin) -> frozenset[CommandNam
     weakest link (ADR-0013). ``None`` for a human's, which may use any."""
     if origin.is_human:
         return None
-    lists = [_listed(sessions, sid) for sid in _chain_sessions(origin)]
+    lists = [_listed(sessions, sid) for sid in chain_sessions(origin)]
     return lists[0].intersection(*lists[1:]) if lists else None
 
 
@@ -151,10 +173,11 @@ def lacking(sessions: SessionStore, origin: Origin, name: CommandName) -> list[s
     """The Sessions of ``origin``'s chain that do not have ``name`` in their list."""
     if origin.is_human:
         return []
-    return [sid for sid in _chain_sessions(origin) if name not in _listed(sessions, sid)]
+    return [sid for sid in chain_sessions(origin) if name not in _listed(sessions, sid)]
 
 
-def _chain_sessions(origin: Origin) -> list[str]:
+def chain_sessions(origin: Origin) -> list[str]:
+    """The Sessions of ``origin``'s chain, first to last."""
     return [link.id for link in origin.chain if link.kind == "session" and link.id]
 
 

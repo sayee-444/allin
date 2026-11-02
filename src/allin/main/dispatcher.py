@@ -20,6 +20,7 @@ from allin.ipc.messages import ConfinementGap
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.commands import MainCommands
+from allin.main.creations import PieceCreator
 from allin.main.descriptions import Descriptions
 from allin.main.devastation import Devastation
 from allin.main.events import (
@@ -276,6 +277,7 @@ class Dispatcher:
             self._pieces,
             self._functions,
             self._notifications,
+            PieceCreator(self._quarantine, self._boxes, self._devastation, self._reporter),
         )
         self._session_commands = SessionCommands(
             command_types,
