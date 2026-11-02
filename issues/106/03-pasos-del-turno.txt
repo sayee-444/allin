@@ -1,0 +1,16 @@
+Turno real con llama serve (Qwen3.8-27B Q6_K), Sesión 5tfh67, fsource function:clock
+
+Paso 1
+  function_call word_count {"text":"el veloz murcielago hindu comia feliz cardillo y kiwi"}  (call_glxapbL…)
+  function_call slow_sum {"a":1234,"b":4321}  (call_9ZbS8xh…)
+  function_call_output (call_glxapbL…): {"words": 9, "characters": 53}
+  function_call_output (call_9ZbS8xh…): 5555
+
+Paso 2
+  message: Palabras: 9 | Suma: 5555
+
+Registro de la Sesión:
+  14:49:34.618 turn_started {'need': 16671}
+  14:49:36.057 tools_called {'tools': ['word_count', 'slow_sum']}
+  14:49:38.100 tools_returned {'size': 34}
+  14:49:38.635 turn_finished {'turn': 0}
