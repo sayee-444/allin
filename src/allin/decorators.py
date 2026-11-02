@@ -14,6 +14,8 @@ from allin.core.errors import InvalidReach
 type Root = Literal["work", "home", "/"]
 ROOTS: tuple[Root, ...] = ("work", "home", "/")
 REACH_MARK = "__allin_reach__"  # where ``@reach`` leaves the Alcance on its target
+CONFIRM = "confirm"  # the mark ``@confirm`` leaves, as a description reads it
+CONFIRM_MARK = f"__allin_{CONFIRM}__"  # where ``@confirm`` marks its target delicate
 GRANT = "grant"  # Otorgar's Command session (ADR-0025)
 # Writing under these, outside a dotted or ``bin`` folder, is not where the user runs things.
 _HARMLESS_WRITES = (PurePosixPath("/dev/shm"),)  # noqa: S108 - a path an Alcance names
@@ -103,6 +105,13 @@ def reach[T](
         return target
 
     return mark
+
+
+def confirm[T](target: T) -> T:
+    """Mark a function, or an fproc's method, as delicate: Main asks the human yes or no
+    before each call, and a no gives the LLM the refusal instead of running it (ADR-0009)."""
+    setattr(target, CONFIRM_MARK, True)
+    return target
 
 
 def reach_of(target: object) -> Reach:

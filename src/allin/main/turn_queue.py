@@ -37,6 +37,7 @@ from allin.core.errors import (
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
+from allin.core.origin import from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -72,7 +73,7 @@ from allin.main.link_changes import LinkChange, failure_text, judge
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
 from allin.main.open_windows import OpenWindows, Streamed
-from allin.main.prompts import Prompt, PromptQueue
+from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import ServerProps, capacity
@@ -196,9 +197,10 @@ class _RunningTurn:
     job: TurnJob
     # Held while its Steps run; ``None`` while it waits for a Confirmation's answer.
     slot: SlotLock | None
-    # Whether Main answers its Confirmations itself: ``--devastation`` and the Session's
-    # Exemption as they were when it started, so changing them only reaches the next Turn.
-    auto_confirm: bool
+    # Who answers its Confirmations instead of a human, if anyone: ``-y`` on its Prompt, or
+    # ``--devastation`` covering its chain as it was when it started, so changing it, or an
+    # Exemption, only reaches the next Turn.
+    auto_confirm: AutoConfirm | None
     progress_at: float  # when its Step last showed progress: started, or a stream event
     slot_context: int  # its Server's slot limit when it started
     output_cap: int  # the most each of its Steps may generate, sent with each
@@ -575,9 +577,10 @@ class TurnQueue:
         running = self._running.get(session_id)
         if running is None or running.cancellation.reason is not None:
             return
-        if running.auto_confirm:  # answered at once: the Turn keeps its slot and goes on
-            fields = {"title": title, "text": text, "answer": True}
-            shown = f"confirmation answered by --devastation: {title}"
+        if running.auto_confirm is not None:  # answered at once: it keeps its slot, goes on
+            by = running.auto_confirm
+            fields = {"title": title, "text": text, "answer": True, "by": by}
+            shown = f"confirmation answered by {by}: {title}"
             self._reporter.record(session_id, "confirmation_auto_answered", shown, **fields)
             running.job.confirmation.resume(True)
             return
@@ -592,6 +595,17 @@ class TurnQueue:
 
         running.asking = self._boxes.confirm(session_id, title, text, on_answer)
         self._start_turns()
+
+    def _auto_confirm(self, prompt: Prompt, session: Session) -> AutoConfirm | None:
+        """Who answers the Confirmations of the Prompt's Turn: ``-y`` on it, or who answered
+        them before a fall, since a Turn keeps what it had when it started; else
+        ``--devastation`` if it covers the Prompt's chain and the Session its tools act in
+        (ADR-0013); else a human."""
+        if prompt.answered_by is not None or prompt.suspended:
+            return prompt.answered_by
+        if self._devastation.answers(from_session(prompt.origin, session.id)):
+            return "--devastation"
+        return None
 
     def tools_started(self, session_id: SessionId, names: tuple[str, ...]) -> None:
         """A running Turn's Step called tools: they run without its slot, so Prompts that wait
@@ -1070,7 +1084,7 @@ class TurnQueue:
         tools = None if compacting else self._tools_for(session)
         request = replace(request, done=list(prompt.steps))
         job = TurnJob(session.id, request, link.base_url, tools=ToolGate(tools))
-        auto_confirm = self._devastation.covers(session.settings)
+        auto_confirm = self._auto_confirm(prompt, session)
         self._running[session.id] = _RunningTurn(
             prompt,
             session,
@@ -1205,7 +1219,11 @@ class TurnQueue:
         self._reporter.record(session_id, "turn_suspended", shown, **fields)
         self._windows.send(session_id, ChatAppend(role="info", label="server", text=shown))
         # It goes on from the Steps it ended: their tools are not run again (ADR-0023).
-        self._prompts.push_front(replace(running.prompt, steps=tuple(streamed.steps)))
+        steps = tuple(streamed.steps)
+        answered_by = running.auto_confirm  # it keeps who answers for it
+        self._prompts.push_front(
+            replace(running.prompt, suspended=True, steps=steps, answered_by=answered_by)
+        )
         return True
 
     def _stalled(self, running: _RunningTurn) -> None:

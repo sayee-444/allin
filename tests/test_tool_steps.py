@@ -228,7 +228,7 @@ def went_on(job: TurnJob) -> bool:
     cancellation = Cancellation()
     timer = threading.Timer(0.2, cancellation.cancel, args=("test",))
     timer.start()
-    job.tools.connect(job.session_id, cancellation, lambda _: None)
+    job.tools.connect(job.session_id, cancellation, lambda _: None, job.confirmation)
     try:
         job.tools.run(Step(output=[]))
     except TurnCancelled:

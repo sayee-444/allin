@@ -2,6 +2,7 @@ import contextlib
 import queue
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -181,12 +182,15 @@ class FakeWindowLink:
 type Between = Callable[[], None]  # something a test does between two events
 
 
-class _TurnsEnded:
-    """A step of ``later``: Main goes on handling what comes in until the Turns that run in
-    threads have ended, and only then takes the next event."""
+@dataclass(frozen=True)
+class Until:
+    """A step of ``later``: Main goes on handling what comes in until ``done`` says so, or the
+    Turns that run in threads have all ended, and only then takes the next event."""
+
+    done: Callable[[], bool]
 
 
-TURNS_ENDED = _TurnsEnded()
+TURNS_ENDED = Until(lambda: False)
 
 
 class DrainingInbox(queue.Queue[MainEvent]):
@@ -197,15 +201,18 @@ class DrainingInbox(queue.Queue[MainEvent]):
     turn instead, e.g. to move Main's clock.
     """
 
-    def __init__(self, later: list[MainEvent | Between | _TurnsEnded]) -> None:
+    def __init__(self, later: list[MainEvent | Between | Until]) -> None:
         super().__init__()
         self._later = later
         self.workers: list[threading.Thread] = []  # Turns run in threads of their own
 
     def _waits(self) -> bool:
         """Whether the next event waits for the Turns in threads: there is none yet, or the
-        next one is ``TURNS_ENDED``."""
-        return not self._later or self._later[0] is TURNS_ENDED
+        next one is an ``Until`` not done yet."""
+        if not self._later:
+            return True
+        step = self._later[0]
+        return isinstance(step, Until) and not step.done()
 
     def get(self, block: bool = True, timeout: float | None = None) -> MainEvent:
         if not block:  # only Main stopping asks this way, to take what is left
@@ -222,7 +229,7 @@ class DrainingInbox(queue.Queue[MainEvent]):
             if not self._later:
                 return Shutdown()
             event = self._later.pop(0)
-            if isinstance(event, _TurnsEnded):
+            if isinstance(event, Until):
                 continue
             if not callable(event):
                 return event
@@ -305,7 +312,7 @@ class MainHarness:
     def windows(self, session_id: str) -> list[FakeWindowLink]:
         return [link for sid, link in self.opened if sid == session_id]
 
-    def run(self, *events: MainEvent | Between | _TurnsEnded, settle: bool = False) -> list[str]:
+    def run(self, *events: MainEvent | Between | Until, settle: bool = False) -> list[str]:
         """Feed events to a dispatcher, run it until nothing is left and return Main's Chat.
 
         With ``settle``, each event arrives only once Main has handled all that came before it
@@ -362,7 +369,7 @@ class MainHarness:
         )
         self.dispatcher = dispatcher
         for event in () if settle else events:
-            assert not callable(event) and not isinstance(event, _TurnsEnded)
+            assert not callable(event) and not isinstance(event, Until)
             inbox.put(event)
         dispatcher.run()
         return main_chat
