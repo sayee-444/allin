@@ -341,6 +341,13 @@ class SessionCommandInPrompt(AllInError):
     code: ClassVar[str] = "session_command_in_prompt"
 
 
+class GrantNotGivable(AllInError):
+    """Otorgar gives neither Otorgar nor a piece that declares it (``what``): the permission
+    never passes from one Session to another (ADR-0025)."""
+
+    code: ClassVar[str] = "grant_not_givable"
+
+
 class AttachmentNotApproved(AllInError):
     """A Session attached a file from outside its Carpeta de trabajo and the human did not
     approve copying it: the Prompt was not sent (ADR-0013)."""

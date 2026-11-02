@@ -1,10 +1,16 @@
-"""``/func``: which Function tools a Session has (ADR-0005, #106).
+"""``/func``: which Function tools a Session has (ADR-0005, #106), and Otorgar (#111).
 
 A Session gets the Profile's approved fsources when it is born, unless ``/new -sf=off``, and the
 fagents it is given there (``-fa=``) or later. Only a human widens what a Session has: adding is
 a human's alone, and removing is anyone's, since it only takes away (ADR-0013). What a Session
 has reaches its LLM only while it is approved: a piece back in quarantine is kept in its list,
 but not offered.
+
+Otorgar (``@grant``, ADR-0025) is the exception: a Session that has it gives any Session of the
+Profile what exists and is approved there, though it lacks it, and each use asks first. Only a
+human gives it, with ``/func add``: giving the fsource that declares it gives ``@grant`` too, and
+``/new`` never brings either. Otorgar never gives Otorgar, so it passes to no other Session; the
+Session's Window says so when it gets it and marks it on its border while it has it.
 """
 
 from collections.abc import Callable, Iterable
@@ -13,13 +19,21 @@ from pydantic import JsonValue
 
 from allin.core.errors import (
     AllInError,
+    GrantNotGivable,
     InvalidArguments,
+    OutsideProfile,
+    PieceInQuarantine,
     PieceNotFound,
+    PieceRejected,
     UnknownSessionCommand,
 )
-from allin.core.ids import CommandName, PieceId
+from allin.core.ids import CommandName, PieceId, SessionId
 from allin.core.origin import HUMAN, Origin
+from allin.decorators import GRANT as GRANT_NAME
+from allin.ipc.messages import GrantHeld
+from allin.main.boxes import MainBoxes
 from allin.main.notifications import FUNC, Notifications
+from allin.main.open_windows import OpenWindows
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
 from allin.main.session_commands import LoadedSessionCommands, chain_allows
@@ -28,6 +42,8 @@ from allin.main.sessions import Change, Session, SessionStore
 USAGE = (
     "/func list [sid] | /func add <sid> <piece|@command>… | /func remove <sid> <piece|@command>…"
 )
+GRANT_USAGE = "/grant <sid> <piece|@command>…"
+GRANT = CommandName(GRANT_NAME)
 _STATES: dict[PieceState, str] = {
     "approved": "approved",
     "quarantined": "in quarantine",
@@ -58,19 +74,23 @@ class FuncCommands:
         load: Callable[[str], Session],
         quarantine: Callable[[], Quarantine],
         commands: LoadedSessionCommands,
-        notify: Callable[[str, str], object],
+        boxes: MainBoxes,
         notifications: Notifications,
+        windows: OpenWindows,
+        in_profile: Callable[[SessionId], bool],
     ) -> None:
         """``load`` gives a Session of this Main by id; ``quarantine``, the active Profile's;
-        ``commands``, the Command sessions Main loaded; ``notify`` shows an Aviso with a title
-        and a text in Main's Chat."""
+        ``commands``, the Command sessions Main loaded; ``in_profile``, whether a Session is
+        the active Profile's."""
         self._reporter = reporter
         self._sessions = sessions
         self._load = load
         self._quarantine = quarantine
         self._commands = commands
-        self._notify = notify
+        self._boxes = boxes
         self._notifications = notifications
+        self._windows = windows
+        self._in_profile = in_profile
 
     def run(self, text: str = "", origin: Origin = HUMAN) -> bool:
         del origin  # who may add is checked before: ``only_human``
@@ -83,15 +103,61 @@ class FuncCommands:
                 refs, commands = self._named(named)
                 if refs:  # the pieces first: one that fails leaves the list as it was
                     self._add(self._load(sid), refs)
+                if self._any_grants(refs):  # its fsource gives Otorgar too
+                    commands = [*commands, GRANT]
                 self._add_commands(self._load(sid), commands)
             case ["remove", sid, *named] if named:
                 refs, commands = self._named(named)
                 if refs:
                     self._remove(self._load(sid), refs)
+                if self._any_grants(refs):
+                    commands = [*commands, GRANT]
                 self._remove_commands(self._load(sid), commands)
             case _:
                 raise InvalidArguments(usage=USAGE)
         return True
+
+    def grant(self, session_id: str, named: str, origin: Origin = HUMAN) -> bool:
+        """``/grant <sid> <piece|@command>…``: Otorgar. It gives a Session of the active
+        Profile what exists and is approved there, never Otorgar; its Confirmation is asked
+        before, as for any delicate Command main."""
+        session = self._load(session_id)
+        if not self._in_profile(session.id):
+            raise OutsideProfile(session_id=session.id)
+        refs, commands = self._named(named.split())
+        if not refs and not commands:
+            raise InvalidArguments(usage=GRANT_USAGE)
+        if GRANT in commands:
+            raise GrantNotGivable(what=f"@{GRANT}")
+        quarantine = self._quarantine()
+        for ref in refs:
+            piece = quarantine.piece(ref)
+            if piece.state == "quarantined":
+                raise PieceInQuarantine(piece=ref.id)
+            if piece.state == "rejected":
+                raise PieceRejected(piece=ref.id)
+            if _grants(quarantine, piece):
+                raise GrantNotGivable(what=ref.id)
+        del origin  # who asked goes in the Log, with the whole chain, as for any Command main
+        if refs:
+            self._add(session, refs)
+        self._add_commands(self._load(session.id), commands)
+        return True
+
+    def mark(self, session_id: SessionId) -> None:
+        """Tell the Session's Window whether it has Otorgar, for its border."""
+        try:
+            held = GRANT in self._sessions.load(session_id).commands
+        except AllInError as error:
+            self._reporter.error(error, session_id)
+            return
+        self._windows.send(session_id, GrantHeld(held=held))
+
+    def _any_grants(self, refs: list[PieceRef]) -> bool:
+        if not refs:
+            return False
+        quarantine = self._quarantine()
+        return any(_grants(quarantine, quarantine.piece(ref)) for ref in refs)
 
     def born_with(self, sources: bool, agents: list[str]) -> tuple[PieceId, ...]:
         """What a new Session has: the approved fsources, unless ``sources`` is off, but the one
@@ -117,10 +183,18 @@ class FuncCommands:
         ``named``; one Main does not have is left out with an Aviso. Created through a chain of
         Sessions, only what every one of them has, as none passes on more (ADR-0025)."""
         wanted = list(self._commands.root) if named is None else [CommandName(n) for n in named]
+        if GRANT in wanted:  # only a human gives it, to a Session that exists (ADR-0025)
+            wanted.remove(GRANT)
+            self._boxes.notify(
+                None,
+                "Otorgar not given",
+                "A new Session never gets @grant: give it with /func add <sid> @grant.",
+            )
         missing = [name for name in wanted if name not in self._commands.types]
         if missing:  # it is still created, without them
             shown = _shown(missing)
-            self._notify(
+            self._boxes.notify(
+                None,
                 "Command sessions missing",
                 f"The new Session does not get {shown}: no module on this machine declares them.",
             )
@@ -147,6 +221,13 @@ class FuncCommands:
         listed = tuple(dict.fromkeys([*session.commands, *names]))
         self._save_commands(session, listed, "commands_added", names)
         self._tell(session, [f"@{n}" for n in names if n not in session.commands], given=True)
+        if GRANT in names and GRANT not in session.commands:
+            text = (
+                "This Session may now give any Session of the Profile its approved functions"
+                " and Command sessions with @grant; each use asks you first."
+            )
+            self._boxes.notify(session.id, "Otorgar given", text)
+            self.mark(session.id)
 
     def _remove_commands(self, session: Session, names: list[CommandName]) -> None:
         if not names:
@@ -154,6 +235,8 @@ class FuncCommands:
         listed = tuple(name for name in session.commands if name not in names)
         self._save_commands(session, listed, "commands_removed", names)
         self._tell(session, [f"@{n}" for n in session.commands if n in names], given=False)
+        if GRANT in names and GRANT in session.commands:
+            self.mark(session.id)
 
     def _save_commands(
         self,

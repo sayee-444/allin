@@ -25,8 +25,8 @@ from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
 from allin.main.events import CommandOutcome, OnOutcome
+from allin.main.func_commands import GRANT_USAGE, FuncCommands
 from allin.main.func_commands import USAGE as FUNC_USAGE
-from allin.main.func_commands import FuncCommands
 from allin.main.func_commands import only_human as func_only_human
 from allin.main.func_commands import session_of as func_session_of
 from allin.main.key_commands import USAGE as KEY_USAGE
@@ -96,6 +96,9 @@ class CommandSpec:
     # ``run`` gets ``answer=`` and calls it itself once it is done, maybe later: /send, when an
     # attachment waits for a human's Approval (#110).
     takes_answer: bool = False
+    # ``--devastation`` answers its Confirmation only if it also covers the Session it concerns:
+    # Otorgar's must cover all it touches (ADR-0025).
+    covers_its_session: bool = False
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -308,6 +311,20 @@ class MainCommands:
                 human_only=func_only_human,
                 session_of=func_session_of,
             ),
+            "/grant": CommandSpec(
+                ("sid", "what"),
+                functions.grant,
+                "Otorgar: give a Session approved functions or Command sessions (asks first)",
+                args={
+                    "sid": "the Session that gets them, of the active Profile",
+                    "what": "the pieces (function:<name>, agent:<name>) and @commands to give",
+                },
+                usage_text=GRANT_USAGE,
+                rest=True,
+                takes_origin=True,
+                confirm=True,
+                covers_its_session=True,
+            ),
             # Only a human approves, on purpose: never delicate, so neither -y nor
             # --devastation answers for it (ADR-0013).
             "/piece": CommandSpec(
@@ -410,7 +427,10 @@ class MainCommands:
             if (yes or command.only_human(args)) and not origin.is_human:
                 raise HumanOnly(action=name, origin=list[JsonValue](origin.labels))
             delicate = command.delicate(args)
-            answered_by_main = self._devastation.answers(origin)
+            answered_by_main = self._devastation.answers(origin) and (
+                not command.covers_its_session
+                or (session_id is not None and self._devastation.covers_session(session_id))
+            )
             if delicate and not yes and not answered_by_main:
                 self._ask(command, args, text, session_id, origin, done)
                 return True

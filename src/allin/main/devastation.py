@@ -47,6 +47,13 @@ class Devastation:
         """Whether Main answers by itself the Confirmations of a Session with ``settings``."""
         return self._on and settings.exempt
 
+    def covers_session(self, session_id: str) -> bool:
+        """Whether it covers the Session ``session_id`` names; not one it cannot read."""
+        try:
+            return self.covers(self._sessions.load(session_id).settings)
+        except AllInError:
+            return False
+
     def answers(self, origin: Origin) -> bool:
         """Whether Main answers by itself a Confirmation asked with ``origin``: only if it covers
         every link of the chain (ADR-0013). A human's or its own are covered; a Session only
