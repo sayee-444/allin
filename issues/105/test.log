@@ -1,0 +1,91 @@
+# #105 — Origen con cadena y eslabón más débil (b0eed6d y su corrección)
+
+## Prueba a mano: Main real en un xterm, --data-dir desechable (<scratch>/data), sin Servidor
+Pasos: /new --bg · /send <sid> hola @send <sid> otra /reset · /reset -y · /exit
+Log (de Main y de la Sesión): cada Prompt y cada comando con su cadena; lo tecleado por un humano es ["human"], y su @send y /reset de dentro del texto no se ejecutan.
+{"ts": "2026-11-02T14:24:28.787021-06:00", "event": "prompt", "text": "hola @send 75vrjg otra /reset", "origin": ["human"]}
+{"ts": "2026-11-02T14:24:26.306650-06:00", "event": "command", "command": "/new --bg", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T14:24:28.787227-06:00", "event": "command", "sid": "75vrjg", "command": "/send 75vrjg hola @send 75vrjg otra /reset", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T14:24:30.933955-06:00", "event": "command", "command": "/reset", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T14:24:44.524401-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
+
+Hoy ninguna Sesión manda comandos ni Prompts por sí misma (llega con #108 y #110), así que las cadenas que pasan por Sesiones y Procesos adheridos se comprueban con el Main de los tests (el mismo Dispatcher, con Ventanas y LLM falsos):
+
+## Tests
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin0-human] PASSED [  1%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin1-main] PASSED [  3%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin2-session] PASSED [  4%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin3-session] PASSED [  6%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin4-session] PASSED [  7%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin5-session] PASSED [  9%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin6-session] PASSED [ 10%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin7-main] PASSED [ 12%]
+tests/test_origin.py::test_an_action_has_the_authority_of_the_weakest_link_of_its_chain[origin8-session] PASSED [ 14%]
+tests/test_origin.py::test_the_chain_keeps_every_link_in_order PASSED    [ 15%]
+tests/test_origin.py::test_it_is_saved_as_its_labels_and_read_back_whole PASSED [ 17%]
+tests/test_origin.py::test_an_origin_saved_before_the_chain_is_read_as_one_link[human-read0] PASSED [ 18%]
+tests/test_origin.py::test_an_origin_saved_before_the_chain_is_read_as_one_link[main-read1] PASSED [ 20%]
+tests/test_origin.py::test_an_origin_saved_before_the_chain_is_read_as_one_link[session-read2] PASSED [ 21%]
+tests/test_origin.py::test_a_chain_that_is_not_one_is_refused[saved0] PASSED [ 23%]
+tests/test_origin.py::test_a_chain_that_is_not_one_is_refused[saved1] PASSED [ 25%]
+tests/test_origin.py::test_a_chain_that_is_not_one_is_refused[saved2] PASSED [ 26%]
+tests/test_origin.py::test_a_chain_that_is_not_one_is_refused[human > main] PASSED [ 28%]
+tests/test_origin.py::test_a_turn_saved_before_the_chain_keeps_who_sent_it PASSED [ 29%]
+tests/test_origin_chain.py::test_prompts_and_commands_keep_their_whole_chain_in_the_log PASSED [ 31%]
+tests/test_origin_chain.py::test_y_from_a_session_is_an_error_kept_where_its_llm_reads PASSED [ 32%]
+tests/test_origin_chain.py::test_text_from_a_session_is_data_and_runs_nothing PASSED [ 34%]
+tests/test_origin_chain.py::test_closing_a_window_cancels_only_a_turn_a_human_asked_for PASSED [ 35%]
+tests/test_origin_chain.py::test_devastation_answers_only_a_chain_it_covers_whole[True-False-True] PASSED [ 37%]
+tests/test_origin_chain.py::test_devastation_answers_only_a_chain_it_covers_whole[False-False-False] PASSED [ 39%]
+tests/test_origin_chain.py::test_devastation_answers_only_a_chain_it_covers_whole[True-True-False] PASSED [ 40%]
+tests/test_confirmation.py::test_a_delicate_command_asks_first_and_no_runs_nothing PASSED [ 42%]
+tests/test_confirmation.py::test_a_delicate_command_runs_once_answered_yes PASSED [ 43%]
+tests/test_confirmation.py::test_a_second_answer_to_the_same_box_does_nothing PASSED [ 45%]
+tests/test_confirmation.py::test_y_skips_the_confirmation_for_that_invocation_only PASSED [ 46%]
+tests/test_confirmation.py::test_y_from_any_origin_but_a_human_is_an_error[origin0] PASSED [ 48%]
+tests/test_confirmation.py::test_y_from_any_origin_but_a_human_is_an_error[origin1] PASSED [ 50%]
+tests/test_confirmation.py::test_only_a_human_lights_devastation_or_changes_the_exemption[/devastation on] PASSED [ 51%]
+tests/test_confirmation.py::test_only_a_human_lights_devastation_or_changes_the_exemption[/set session.exempt=false] PASSED [ 53%]
+tests/test_confirmation.py::test_a_turn_waiting_for_its_confirmation_holds_no_slot PASSED [ 54%]
+tests/test_confirmation.py::test_an_answered_turn_goes_on_before_the_new_prompts_of_its_main PASSED [ 56%]
+tests/test_confirmation.py::test_a_rejected_turn_goes_on_with_the_rejection PASSED [ 57%]
+tests/test_confirmation.py::test_no_setting_alone_answers_a_turns_confirmation PASSED [ 59%]
+tests/test_confirmation.py::test_the_box_shows_in_the_sessions_window_and_an_answer_there_hides_it_everywhere PASSED [ 60%]
+tests/test_confirmation.py::test_a_box_that_came_while_the_window_was_closed_shows_when_it_opens PASSED [ 62%]
+tests/test_confirmation.py::test_cancelling_a_turn_that_waits_withdraws_its_box PASSED [ 64%]
+tests/test_confirmation.py::test_devastation_answers_the_confirmations_of_mains_chat_and_logs_them PASSED [ 65%]
+tests/test_confirmation.py::test_devastation_answers_exempt_sessions_but_not_one_without_the_exemption PASSED [ 67%]
+tests/test_confirmation.py::test_a_running_turn_keeps_what_it_had_when_it_started PASSED [ 68%]
+tests/test_confirmation.py::test_taking_the_exemption_away_reaches_only_the_next_turn PASSED [ 70%]
+tests/test_confirmation.py::test_lighting_devastation_marks_the_borders_and_says_who_stops_asking PASSED [ 71%]
+tests/test_confirmation.py::test_devastation_off_clears_the_marks PASSED [ 73%]
+tests/test_confirmation.py::test_after_a_restart_everything_asks_again PASSED [ 75%]
+tests/test_confirmation.py::test_devastation_does_not_answer_a_command_a_session_asked_for PASSED [ 76%]
+tests/test_confirmation.py::test_a_prompt_already_waiting_takes_the_slot_a_confirmation_frees PASSED [ 78%]
+tests/test_rewind.py::test_rewinding_cuts_the_last_turns_and_says_which_were_undone PASSED [ 79%]
+tests/test_rewind.py::test_rewinding_more_than_there_is_stops_at_the_start PASSED [ 81%]
+tests/test_rewind.py::test_rewinding_to_before_a_compaction_takes_the_archive_without_its_summary PASSED [ 82%]
+tests/test_rewind.py::test_rewinding_after_the_cut_keeps_the_summary PASSED [ 84%]
+tests/test_rewind.py::test_rewind_undoes_the_last_prompt_and_its_text_goes_back_to_the_input PASSED [ 85%]
+tests/test_rewind.py::test_rewind_n_undoes_that_many_in_order_and_more_than_there_are_stays_at_the_start PASSED [ 87%]
+tests/test_rewind.py::test_rewind_zero_does_nothing PASSED               [ 89%]
+tests/test_rewind.py::test_a_bad_count_is_an_error PASSED                [ 90%]
+tests/test_rewind.py::test_a_prompt_of_another_origin_is_undone_but_its_text_stays_in_the_log PASSED [ 92%]
+tests/test_rewind.py::test_after_a_compaction_a_rewind_to_before_the_cut_brings_back_the_archive PASSED [ 93%]
+tests/test_rewind.py::test_with_a_turn_active_it_is_refused_and_nothing_changes PASSED [ 95%]
+tests/test_rewind.py::test_with_its_window_closed_the_texts_come_back_when_it_opens PASSED [ 96%]
+tests/test_rewind.py::test_a_new_turn_after_a_rewind_takes_the_number_of_the_undone_one PASSED [ 98%]
+tests/test_rewind.py::test_the_window_empties_its_chat_when_main_asks PASSED [100%]
+============================== 64 passed in 0.98s ==============================
+tests/test_origin_chain.py::test_prompts_and_commands_keep_their_whole_chain_in_the_log PASSED [ 11%]
+tests/test_origin_chain.py::test_y_from_a_session_is_an_error_kept_where_its_llm_reads PASSED [ 22%]
+tests/test_origin_chain.py::test_text_from_a_session_is_data_and_runs_nothing PASSED [ 33%]
+tests/test_origin_chain.py::test_closing_a_window_cancels_only_a_turn_a_human_asked_for PASSED [ 44%]
+tests/test_origin_chain.py::test_devastation_answers_only_a_chain_it_covers_whole[True-False-True] PASSED [ 55%]
+tests/test_origin_chain.py::test_devastation_answers_only_a_chain_it_covers_whole[False-False-False] PASSED [ 66%]
+tests/test_origin_chain.py::test_devastation_answers_only_a_chain_it_covers_whole[True-True-False] PASSED [ 77%]
+tests/test_origin_chain.py::test_closing_a_window_drops_only_the_human_prompts_and_the_rest_goes_on PASSED [ 88%]
+tests/test_origin_chain.py::test_a_command_its_human_rejected_is_kept_where_the_sessions_llm_reads PASSED [100%]
+1327 passed in 27.20s
+0 errors, 0 warnings, 0 notes
+All checks passed!
