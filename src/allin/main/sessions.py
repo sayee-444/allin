@@ -45,6 +45,11 @@ class SessionStore:
         self._root = root
         self._new_id = new_id
 
+    def workspace(self, session_id: SessionId) -> Path:
+        """The Session's Carpeta de trabajo, ``<data dir>/workspaces/<id>/``: apart from its
+        folder, which holds its state (ADR-0016). Made when something is first put in it."""
+        return self._root.parent / "workspaces" / session_id
+
     def create(self, owner: MainId, settings: SessionSettings, sysprompt: str) -> Session:
         """Create a Session with a fresh id and its folder; ``sysprompt`` is already rendered."""
         try:

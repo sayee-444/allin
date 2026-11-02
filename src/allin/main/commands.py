@@ -12,13 +12,16 @@ from allin.core.errors import (
     UnknownCommand,
     WindowAlreadyOpen,
 )
-from allin.core.ids import MainId
+from allin.core.ids import MainId, SessionId, new_prompt_id
 from allin.core.origin import HUMAN, Origin
+from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
+from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
 from allin.main.kit_commands import KitCommands
 from allin.main.open_windows import OpenWindows
 from allin.main.profile_commands import ProfileCommands
+from allin.main.prompt_commands import parse_prompt
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
@@ -88,7 +91,7 @@ class MainCommands:
             "/new": _MainCommand((), self._new),
             "/open": _MainCommand(("sid",), self._open),
             # The only Command main that queues Prompts; Enter in a Window is /send to its own.
-            "/send": _MainCommand(("sid", "text"), self._send, rest=True),
+            "/send": _MainCommand(("sid", "text"), self._send, rest=True, takes_origin=True),
             "/raw": _MainCommand(("state",), self._set_raw, optional=("sid",)),
             "/set": _MainCommand(
                 (), settings.set, rest=True, optional=("key=value",), takes_origin=True
@@ -223,10 +226,35 @@ class MainCommands:
         self._windows.open(session, self._turns.streamed(session.id))
         return True
 
-    def _send(self, session_id: str, text: str) -> bool:
+    def _send(self, session_id: str, text: str, origin: Origin = HUMAN) -> bool:
         session = self._sessions.load_owned(session_id, self._main_id)
-        self._turns.push(session, Prompt(session.id, text))
+        if origin != HUMAN:  # @… in text from anyone else is literal (ADR-0013)
+            self._turns.push(session, Prompt(session.id, text))
+            return True
+        try:
+            prompt = self._human_prompt(session.id, text)
+        except AllInError as error:
+            # It was not sent: its Window says why, and the text is the human's again.
+            self._windows.send(session.id, error_entry(str(error)))
+            self._windows.put_back(session.id, text)
+            raise
+        self._turns.push(session, prompt)
         return True
+
+    def _human_prompt(self, session_id: SessionId, text: str) -> Prompt:
+        """A human's Prompt with its Command prompts done (#14): its overrides taken out and
+        its files copied to the Carpeta de trabajo, which the text then names."""
+        parsed = parse_prompt(text)
+        prompt_id = new_prompt_id() if parsed.references else ""  # names its attachments
+        workspace = self._sessions.workspace(session_id)
+        names, attachments = attach(parsed.references, workspace, prompt_id, Path.cwd())
+        return Prompt(
+            session_id,
+            parsed.text_with(names),
+            prompt_id=prompt_id,
+            attachments=tuple(attachments),
+            overrides=parsed.overrides,
+        )
 
     def _switch_devastation(self, state: str) -> bool:
         if state not in ("on", "off"):

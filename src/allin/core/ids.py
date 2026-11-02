@@ -18,6 +18,11 @@ def new_session_id() -> SessionId:
     return SessionId("".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
 
 
+def new_prompt_id() -> str:
+    """A Prompt's id, the name of its attachments' folder: like a Session's, 6 characters."""
+    return "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH))
+
+
 def parse_session_id(text: str) -> SessionId | None:
     """``text`` as a Session id if it has the shape of one (so it is safe as a folder name)."""
     return SessionId(text) if _SESSION_ID.fullmatch(text) is not None else None

@@ -35,10 +35,12 @@ from allin.core.errors import (
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
+from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.admission import Waiting, admit, server_waiting
+from allin.main.attachments import AttachmentReader
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import (
     FAILED_BEFORE,
@@ -294,7 +296,7 @@ class TurnQueue:
     def push(self, session: Session, prompt: Prompt) -> None:
         """Queue a Prompt the user sent, show it in its Window and start it if there is room."""
         self._prompts.push(prompt)
-        self._reporter.log_session(session.id, "prompt", text=prompt.text)
+        self._reporter.log_session(session.id, "prompt", text=prompt.text, **_commands(prompt))
         label = session.settings.username
         self._windows.send(session.id, ChatAppend(role="user", label=label, text=prompt.text))
         self.send_turn_state(session.id)
@@ -752,14 +754,23 @@ class TurnQueue:
             return self._compactions.need(prompt, session, link.key, slot_context, cap)
         measure = self._measures.get(session.id)
         if measure is None or measure.prompt != prompt or measure.server != link.key:
-            items = self._conversation(session).request_input(prompt.text)
+            items = self._input(prompt, session, link)
             ticket = next(self._tickets)
             self._measures[session.id] = _Measure(prompt, link.key, ticket)
             self._servers.measure(link.key, session.id, ticket, items)
             return None
         if not measure.done:
             return None
-        return (measure.tokens or 0) + output_cap(session.settings.sampling, slot_context)
+        return (measure.tokens or 0) + output_cap(_sampling(prompt, session), slot_context)
+
+    def _input(self, prompt: Prompt, session: Session, link: Link) -> list[Item]:
+        """The first Step's ``input`` for the Prompt: the Conversation and the Prompt, with
+        their attachments as this Server can take them (ADR-0022)."""
+        state = self._states.get(link.key)
+        vision = isinstance(state, ServerReady) and state.props.vision
+        reader = AttachmentReader(self._sessions.workspace(session.id), vision)
+        conversation = self._conversation(session)
+        return conversation.request_input(prompt.text, prompt.attachments, reader)
 
     def _compacts_first(
         self, prompt: Prompt, session: Session, need: int, slot_context: int
@@ -920,14 +931,19 @@ class TurnQueue:
         state = self._states.get(link.key)
         assert isinstance(state, ServerReady)  # a slot is only taken on a ready Server
         slot_context = state.props.slot_context
-        cap = output_cap(session.settings.sampling, slot_context)
+        sampling = _sampling(prompt, session)
+        cap = output_cap(sampling, slot_context)
         compacting = prompt.kind != "prompt"
         request = TurnRequest(
             model=session.settings.model,
             input=self._compactions.request(session.id)
             if compacting
-            else conversation.request_input(prompt.text),
-            params={**session.settings.sampling.request_params(), "max_output_tokens": cap},
+            else self._input(prompt, session, link),
+            params={
+                **sampling.request_params(),
+                "max_output_tokens": cap,
+                **prompt.overrides.extra_params(),
+            },
         )
         job = TurnJob(session.id, request, link.base_url)
         auto_confirm = self._devastation.covers(session.settings)
@@ -1340,9 +1356,28 @@ class TurnQueue:
         """Save the finished Turn and return its index in the Conversation."""
         # Saved only now, whole, so a Turn that fails half-way never reaches the disk.
         conversation = self._conversation(running.session)
-        turn = Turn(prompt=running.prompt.text, steps=steps, cut=running.cut)
+        attachments = list(running.prompt.attachments)
+        turn = Turn(
+            prompt=running.prompt.text, steps=steps, cut=running.cut, attachments=attachments
+        )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
+
+
+def _sampling(prompt: Prompt, session: Session) -> Sampling:
+    """The Session's Sampling with the Prompt's overrides for its Turn (#14)."""
+    return prompt.overrides.sampling(session.settings.sampling)
+
+
+def _commands(prompt: Prompt) -> dict[str, JsonValue]:
+    """What the Log keeps of a Prompt's Command prompts, besides its text."""
+    fields: dict[str, JsonValue] = {}
+    overrides = prompt.overrides.model_dump(exclude_none=True)
+    if overrides:
+        fields["overrides"] = overrides
+    if prompt.attachments:
+        fields["attachments"] = [attachment.path for attachment in prompt.attachments]
+    return fields
 
 
 def _compacting(running: _RunningTurn) -> bool:
