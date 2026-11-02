@@ -101,3 +101,11 @@ def test_a_file_gone_from_the_workspace_is_said_so(places: tuple[Path, Path]):
     (workspace / attachments[0].path).unlink()
     [part] = AttachmentReader(workspace, vision=True).parts(attachments)
     assert "no longer in the workspace" in str(part["text"])
+
+
+def test_a_file_named_twice_is_attached_once(places: tuple[Path, Path]):
+    cwd, workspace = places
+    names, attachments = attach(["./notas.txt", "./notas.txt"], workspace, "p1", cwd)
+    assert names == {"./notas.txt": ".allin/adjuntos/p1/notas.txt"}
+    assert len(attachments) == 1
+    assert [p.name for p in (workspace / ".allin" / "adjuntos" / "p1").iterdir()] == ["notas.txt"]

@@ -25,7 +25,9 @@ def attach(
 ) -> tuple[dict[str, str], list[Attachment]]:
     """Copy the files ``references`` name (as typed after the ``@``; ``./`` is relative to
     ``cwd``) for the Prompt ``prompt_id``: what the text calls each now, and the attachments.
-    Every one is checked before any is copied, so a bad one leaves nothing behind."""
+    Every one is checked before any is copied, so a bad one leaves nothing behind; a file
+    named twice is attached once."""
+    references = list(dict.fromkeys(references))
     sources = [_source(reference, cwd) for reference in references]
     root = workspace.resolve()
     names: dict[str, str] = {}
