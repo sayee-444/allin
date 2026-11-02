@@ -1,0 +1,26 @@
+# #104 — Cuarentena y Aprobación (f74b31c ca45667 4d579dc )
+
+## Prueba a mano: Main real en un xterm, --data-dir desechable (<scratch>/data), sin Servidor
+Piezas dejadas en disco con Main corriendo: functions/web (fetch.py con @reach(read=[home/Documents], net=[443, 80]) y caracteres U+202E, U+2066, U+2069, U+200B), functions/draw (@reach(display=True)), functions/loud (sin @reach), sysprompts/mine.txt.
+
+Pasos: /piece · /piece approve function:web (sin verla: piece_not_shown) · /piece show function:web · /piece approve function:web --reach fetch:net=443 --confirm fetch · /piece approve --all · README.md nuevo en web y __pycache__/loud.cpython-314.pyc en loud · /exit y nuevo arranque · /piece · /piece show+approve function:loud (piece_rejected) · /devastation on · /piece show function:draw · /piece approve function:draw -y (invalid_arguments) · /piece (draw sigue en cuarentena).
+
+## Lo que se ofrecería en tools=[...] (#106): Quarantine.offered() sobre la misma carpeta
+antes de aprobar web: []
+después de /piece approve function:web --reach fetch:net=443 --confirm fetch: [{"tool": "fetch", "module": "fetch", "reach": {"read": ["home/Documents"], "net": [443]}, "confirm": ["fetch"]}]
+
+## El hash aprobado es el del package, intacto tras reducir el Alcance
+approvals.json function:web = {"hash": "8c0bc6982af7194eedc586ce9ca8a6fd9804edd87224263dc408beec046f4c13", "reach": {"fetch": {"read": ["home/Documents"], "write": [], "net": [443], "display": false, "commands": []}}, "confirm": ["fetch"]}
+folder_hash(functions/web) = 8c0bc6982af7194eedc586ce9ca8a6fd9804edd87224263dc408beec046f4c13
+
+## Carpeta de trabajo (/session workspace), del Log de Main
+{"ts": "2026-11-02T14:04:00.032232-06:00", "event": "command", "sid": "4xc7xp", "command": "/session workspace 4xc7xp <scratch>/data/state", "result": "error workspace_refused: path='<scratch>/data/state', reason='inside AllIn'", "origin": "human"}
+{"ts": "2026-11-02T14:04:02.645092-06:00", "event": "command", "sid": "4xc7xp", "command": "/session workspace 4xc7xp <repo>/src", "result": "error workspace_refused: path='<repo>/src', reason='inside AllIn'", "origin": "human"}
+{"ts": "2026-11-02T14:04:05.965746-06:00", "event": "workspace_pointed", "sid": "4xc7xp", "path": "<scratch>/repo"}
+{"ts": "2026-11-02T14:04:05.965810-06:00", "event": "command", "sid": "4xc7xp", "command": "/session workspace 4xc7xp <scratch>/repo", "result": "ok", "origin": "human"}
+
+## Suite, basedpyright y ruff
+============================== 84 passed in 1.61s ==============================
+1300 passed in 26.91s
+0 errors, 0 warnings, 0 notes
+All checks passed!
