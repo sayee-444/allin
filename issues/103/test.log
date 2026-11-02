@@ -1,0 +1,57 @@
+# #103 — Batería de fugas (f83993b, 2ebee71)
+
+## 1. La batería, con el Alcance mínimo: cada salida tiene su test y todas fallan
+tests/test_leak_battery.py::test_dbus_session_bus_by_path_and_by_abstract_name PASSED [  7%]
+tests/test_leak_battery.py::test_x11_by_its_socket_with_a_path_and_by_its_abstract_socket PASSED [ 14%]
+tests/test_leak_battery.py::test_io_uring PASSED                         [ 21%]
+tests/test_leak_battery.py::test_a_signal_to_main PASSED                 [ 28%]
+tests/test_leak_battery.py::test_ptrace_on_main_and_what_shares_its_check PASSED [ 35%]
+tests/test_leak_battery.py::test_opening_the_terminal_and_typing_into_it PASSED [ 42%]
+tests/test_leak_battery.py::test_the_ssh_agent PASSED                    [ 50%]
+tests/test_leak_battery.py::test_a_prepared_pyc_that_does_not_match_its_source[PycInvalidationMode.TIMESTAMP] PASSED [ 57%]
+tests/test_leak_battery.py::test_a_prepared_pyc_that_does_not_match_its_source[PycInvalidationMode.UNCHECKED_HASH] PASSED [ 64%]
+tests/test_leak_battery.py::test_a_pyc_or_a_compiled_module_without_its_source PASSED [ 71%]
+tests/test_leak_battery.py::test_a_pyc_that_gets_past_mains_check_is_not_imported_by_the_warden[PycInvalidationMode.TIMESTAMP] PASSED [ 78%]
+tests/test_leak_battery.py::test_a_pyc_that_gets_past_mains_check_is_not_imported_by_the_warden[PycInvalidationMode.UNCHECKED_HASH] PASSED [ 85%]
+tests/test_leak_battery.py::test_with_no_pyc_the_functions_children_import_the_source PASSED [ 92%]
+tests/test_leak_battery.py::test_the_ports_of_allins_servers PASSED      [100%]
+============================== 14 passed in 0.89s ==============================
+
+## 2. Antes del arreglo (rojo): un .pyc preparado se importaba en vez de su fuente
+test_a_prepared_pyc_that_does_not_match_its_source[TIMESTAMP]      AssertionError: assert 'forged' == 'source'
+test_a_prepared_pyc_that_does_not_match_its_source[UNCHECKED_HASH] AssertionError: assert 'forged' == 'source'
+test_a_pyc_without_its_source                                      AssertionError: assert 'forged' is None
+
+## 3. Abrir a propósito una salida hace fallar su test (y solo el suyo)
+== 1. Sin la regla de io_uring (_SYS_IO_URING = ()) ==
+E       AssertionError: assert {'setup': 'do...er': 'EINVAL'} == {'setup': 'EP...ter': 'EPERM'}
+E         {'enter': 'EBADF'} != {'enter': 'EPERM'}
+E         {'setup': 'done'} != {'setup': 'EPERM'}
+E         {'register': 'EINVAL'} != {'register': 'EPERM'}
+FAILED tests/test_leak_battery.py::test_io_uring - AssertionError: assert {'s...
+1 failed, 10 passed in 0.79s
+
+== 2. Sin la regla de TIOCSTI (el ioctl ya no se compara con TIOCSTI) ==
+FAILED tests/test_leak_battery.py::test_opening_the_terminal_and_typing_into_it
+1 failed, 10 passed in 0.77s
+
+== 3. Sin el import solo de fuentes del vigilante (con la versión final: el .pyc llega pasando el rechazo de Main) ==
+FAILED tests/test_leak_battery.py::test_a_pyc_that_gets_past_mains_check_is_not_imported_by_the_warden[PycInvalidationMode.TIMESTAMP]
+FAILED tests/test_leak_battery.py::test_a_pyc_that_gets_past_mains_check_is_not_imported_by_the_warden[PycInvalidationMode.UNCHECKED_HASH]
+2 failed, 12 passed in 0.86s
+
+== 4. Sin dejar fuera los puertos de los Servidores en la capa de net=True ==
+E         {'bind net=True': 'bound'} != {'bind net=True': 'EACCES'}
+E         {'net=True': 'connected'} != {'net=True': 'EACCES'}
+FAILED tests/test_leak_battery.py::test_the_ports_of_allins_servers - Asserti...
+1 failed, 13 passed in 0.86s
+
+== 5. Sin el rechazo de Main a un package con código compilado: el hijo de la tool carga el .pyc ==
+{'multiprocessing': 'forged', 'python': 'forged'}
+
+== 6. Todo restaurado ==
+14 passed in 0.85s
+
+## 4. El pre-commit (.githooks/pre-commit) corre la suite entera, batería incluida
+15:PYTHONPATH="$staged/src" "$root/venv/bin/pytest" -q -p no:cacheprovider
+Salida del hook en el último commit de la rama: ruff 'All checks passed!', basedpyright '0 errors, 0 warnings, 0 notes', pytest '1243 passed in 26.11s'
