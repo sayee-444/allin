@@ -24,4 +24,5 @@ Las teclas se mandan a las xterm como eventos de X (Alt = Mod1Mask).
 Tests: tests/test_ui_shortcuts.py (nombres de teclas, defaults, solapes, la última para enviar, comandos,
 resolver una tecla, entradas malas de un archivo, el listado), tests/test_key_command.py (MainHarness:
 /key en Main, en una Sesión y en la plantilla, herencia en /new, Origen de Sesión, Ventana sin comandos)
-y tests/test_ui_keys.py (F1–F12 y typed_char). Al final: /exit en Main.
+y tests/test_ui_keys.py (F1–F12 y typed_char). 994 tests, con el de la revisión de código (una tecla mal
+escrita antes de un comando con argumentos se tomaba por Sesión); basedpyright y ruff limpios. Al final: /exit en Main.
