@@ -168,6 +168,8 @@ Each Window and Main's Chat look as a Theme says: its letter and size, the colou
 
 At most `windows.max` Windows are in view at once (6 by default, `0` for no limit). Opening another sends to the background the Session you used least lately: its Window closes but it goes on as with one, running its Turns and keeping its Draft, and `/open <sid>` brings it back with its Chat and what its running Turn has given so far. `/bg <sid>` sends a Session there yourself, `--bg` opens one there (`/new --bg`, `/open <sid> --bg`), and `/close <sid>` closes it as its Window's X does, cancelling its running Turn, also from the background. What was in view and in the background comes back after a restart, up to the maximum, and stays with each Profile.
 
+`/windows` opens the Organizer, Main's own screen in its own xterm: one row per open Session, in view or in the background, with its title, its Turn and queue, whether it waits for a Confirmation or has a Notice, its Context and its Supervisor, and the closed ones folded below. A click on a row brings it into view (or opens it); its `[bg]` and `[x]` buttons, or `b` and `x`, send it to the background or close it, as `/open`, `/bg` and `/close` from you would. It shows changes as they happen, `/windows` again brings a new one to the front, and Esc closes it without touching any Session. `/windows list` writes the same list in Main's Chat. A Session's `title` Setting (`/session set <sid> title="…"`) names its row; left empty, its id and first Prompt do.
+
 `/new --id=<id>` gives a new Session the id you choose (4 to 12 characters of `a-z` and `0-9`), and `/session id <sid> <new id>` changes it later; the old id keeps reaching the Session, as an alias.
 
 In a Prompt you type, `@key=value` changes a sampling parameter for that Turn only (`temperature`, `top_p`, `top_k`, `min_p`, `max_output_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `reasoning_budget_tokens`, `effort`), and `@./file`, `@~/file` or `@/path/file` attaches a file. The file is copied to the Session's workspace (`<data dir>/workspaces/<sid>/.allin/adjuntos/`); text goes in as text, and an image goes in as an image only if the Server sees images.
@@ -177,6 +179,7 @@ In a Prompt you type, `@key=value` changes a sampling parameter for that Turn on
 | `/new` | Create a Session and open its Window |
 | `/open <sid> [--bg]` | Open the Window of an existing Session, or bring it from the background |
 | `/bg <sid>` · `/close <sid>` | Send a Session to the background, or close it as its Window's X does |
+| `/windows [list]` | Open the Organizer of the open Sessions, or write its list here |
 | `/send <sid> <text>` | Queue a Prompt for a Session |
 | `/session <sid>` · `/session set <sid> key=value…` | Show or change a Session's Settings |
 | `/set [--default] key=value…` · `/reset` | Change Main's Settings, or go back to the defaults |

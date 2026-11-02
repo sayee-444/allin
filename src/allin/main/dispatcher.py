@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_name
+from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
@@ -25,6 +26,9 @@ from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     MainEvent,
+    OrganizerActed,
+    OrganizerClosed,
+    OrganizerConnected,
     QueuedWithdrawn,
     ServerChanged,
     ServerProgress,
@@ -48,6 +52,7 @@ from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
 from allin.main.notices import LoadedNotices
 from allin.main.open_windows import OpenWindow, OpenWindows
+from allin.main.organizer import OpenOrganizer, Organizer, RowSource, command_for, no_organizer
 from allin.main.profile_commands import ProfileCommands
 from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
@@ -89,6 +94,7 @@ class Dispatcher:
         wall_clock: Callable[[], float] = time.time,
         *,
         fonts: FontProbe = NO_FONT_PROBE,
+        open_organizer: OpenOrganizer = no_organizer,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
@@ -221,6 +227,17 @@ class Dispatcher:
                 self._reporter, settings_commands, sessions, main_id, self._windows, main_screen
             ),
         )
+        self._rows = RowSource(
+            sessions,
+            self._windows,
+            self._turns,
+            self._boxes,
+            lambda: profiles.sessions(self._switch.active),
+        )
+        self._organizer = Organizer(
+            open_organizer, self._rows.rows, lambda: self._themes.main_theme, self._reporter
+        )
+        self._commands.use_organizer(self._organizer, self._rows.rows)
         if settings.current.keys:  # Main's Chat starts with the defaults
             main_screen(KeyBindings(effective_keys(settings.current.keys)))
         self._themes.main(settings.current)
@@ -247,9 +264,12 @@ class Dispatcher:
         self._turns.watch(self._default_link)  # Main tells how its Server is from the start
         self._recovery.close_left_open()
         self._recovery.restore()
-        while self._handle(self._inbox.get()):
+        while self._handle(event := self._inbox.get()):
             self._switch.check()  # once the last Turn it waited for ended
             self._recovery.save()
+            if not isinstance(event, TurnOutput | TurnRaw):  # what streams changes no row
+                self._organizer.refresh()
+        self._organizer.close("main stopped")
         self._turns.stop()
         self._take_turn_events()
         # Windows, queue and running Turns as they are: a restart restores them.
@@ -342,6 +362,16 @@ class Dispatcher:
                 self._boxes.answered(box_id, answer)
             case MainCommandEntered(text, origin):
                 return self._commands.run(text, origin)
+            case OrganizerConnected():
+                self._organizer.connected()
+            case OrganizerActed(action, session_id):
+                # The same Command main, from a human: the Organizer is part of Main (ADR-0020).
+                place = self._rows.place(SessionId(session_id))
+                command = command_for(action, session_id, place)
+                if command is not None:
+                    return self._commands.run(command, HUMAN)
+            case OrganizerClosed(pid):
+                self._organizer.closed(pid)
             case Shutdown():
                 return False
         return True

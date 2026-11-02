@@ -47,6 +47,13 @@ class MainBoxes:
             for pending in self._pending.values()
         )
 
+    def noticing(self, session_id: SessionId) -> bool:
+        """Whether a Notice of the Session is on screen (#53)."""
+        return any(
+            pending.session_id == session_id and pending.box.kind == "notice"
+            for pending in self._pending.values()
+        )
+
     def notify(
         self, session_id: SessionId | None, title: str, text: str, kind: str | None = None
     ) -> BoxId:

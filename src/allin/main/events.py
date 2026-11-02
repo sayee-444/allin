@@ -6,6 +6,7 @@ from typing import Any
 from allin.core.errors import AllInError
 from allin.core.ids import BoxId, ServerKey, SessionId, SupervisorName
 from allin.core.origin import HUMAN, Origin
+from allin.ipc.messages import OrganizerAction
 from allin.main.conversation import Step
 from allin.main.slots import ServerProps
 from allin.main.turn import OutputKind
@@ -44,6 +45,26 @@ class WindowUsed:
     """The human clicked in a Session's Window (#52)."""
 
     session_id: SessionId
+
+
+@dataclass(frozen=True)
+class OrganizerConnected:
+    """The Organizer is up (#53)."""
+
+
+@dataclass(frozen=True)
+class OrganizerActed:
+    """The human clicked or pressed a key in the Organizer for one of its actions (#53)."""
+
+    action: OrganizerAction
+    session_id: str
+
+
+@dataclass(frozen=True)
+class OrganizerClosed:
+    """The Organizer's xterm, ``pid``, is gone (#53)."""
+
+    pid: int
 
 
 @dataclass(frozen=True)
@@ -237,6 +258,9 @@ type MainEvent = (
     | QueuedWithdrawn
     | DraftReceived
     | WindowClosed
+    | OrganizerConnected
+    | OrganizerActed
+    | OrganizerClosed
     | ErrorOccurred
     | MainCommandEntered
     | TurnOutput

@@ -252,7 +252,7 @@ class ChatScreen:
         self._on_click = on_click
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
-        self._role_attrs, self._border_attr, self._status_attr, self._box_attr = _theme_attrs(
+        self._role_attrs, self._border_attr, self._status_attr, self._box_attr = theme_attrs(
             Theme(), "window"
         )
         curses.mousemask(MOUSE_MASK)
@@ -634,7 +634,7 @@ class ChatScreen:
     def _apply_theme(self, theme: Theme, terminal: Terminal) -> None:
         sequence = terminal_changes(self._theme, theme, terminal, xterm=_in_xterm())
         self._theme, self._terminal = theme, terminal
-        attrs = _theme_attrs(theme, terminal)
+        attrs = theme_attrs(theme, terminal)
         self._role_attrs, self._border_attr, self._status_attr, self._box_attr = attrs
         self._frame = frame_chars(theme.border.style, theme.glyphs.set)
         self._chat.set_icons({str(role): icon for role, icon in theme.glyphs.icons.items()})
@@ -719,7 +719,7 @@ _BORDER_PAIR, _STATUS_PAIR, _BOX_PAIR = 6, 7, 8
 _FIRST_FREE_COLOR = 16  # a Window's own colours go from here on: the 16 with a name stay
 
 
-def _theme_attrs(theme: Theme, terminal: Terminal) -> tuple[dict[str, int], int, int, int]:
+def theme_attrs(theme: Theme, terminal: Terminal) -> tuple[dict[str, int], int, int, int]:
     """The curses attributes a Theme gives: each Chat role's, the border's, the status's, and
     the boxes' fixed pair. A Window's xterm redefines colours for each ``#rrggbb``; Main's
     Chat takes the nearest of the terminal's 256, never redefining the human's palette, which

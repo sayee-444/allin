@@ -348,6 +348,11 @@ class ThemeKeeper:
                 self._send(session_id, ThemeSet(theme=look.theme))
             self._tell(session_id, session.settings, look.problems)
 
+    @property
+    def main_theme(self) -> Theme:
+        """The Theme Main's Chat shows, which the Organizer shows too (#53)."""
+        return BUILTIN if self._main is None else self._main
+
     def main(self, settings: MainSettings) -> None:
         """Main's Chat shows its Theme; what it cannot do is told when the human chooses or
         changes it, or its file changes, never on each start."""

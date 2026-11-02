@@ -101,6 +101,10 @@ class SessionSettings(BaseModel, frozen=True):
         description="Sysprompt file in the sysprompts folder; fixed once there is a Turn",
     )
     model: str = Field(default="allin", min_length=1, description="model name sent to the Server")
+    title: str = Field(
+        default="",
+        description="its name in the Organizer (/windows); empty: its id and first Prompt",
+    )
     # Its Enlace (ADR-0022): the Supervisor its Steps go to; empty: the Server at base_url.
     server: str | None = Field(
         default=None,

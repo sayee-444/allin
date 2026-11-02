@@ -9,17 +9,21 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from allin.core.errors import AllInError, WindowLaunchFailed
+from allin.core.errors import AllInError, ChannelBroken, WindowLaunchFailed
 from allin.core.ids import SessionId
 from allin.core.themes import Theme
 from allin.ipc.channel import Channel, FifoPair, create_fifo_pair
 from allin.ipc.messages import (
     BoxAnswer,
     InputDraft,
+    OrganizerAct,
+    OrganizerReady,
+    OrganizerToMain,
     UserInput,
     WindowReady,
     WindowToMain,
     WithdrawQueued,
+    decode_organizer_message,
     decode_window_message,
 )
 from allin.ipc.messages import WindowUsed as WindowUsedMessage
@@ -29,6 +33,9 @@ from allin.main.events import (
     ErrorOccurred,
     InputReceived,
     MainEvent,
+    OrganizerActed,
+    OrganizerClosed,
+    OrganizerConnected,
     QueuedWithdrawn,
     WindowClosed,
     WindowConnected,
@@ -71,12 +78,12 @@ class _WindowListener:
         pass  # the Launcher's watcher reports the closed Window
 
 
-class _Window:
+class _Window[In]:
     """Main's side of one open Window (a ``WindowLink``)."""
 
     def __init__(
         self,
-        channel: Channel[WindowToMain],
+        channel: Channel[In],
         launcher: Launcher,
         fifos: FifoPair,
     ) -> None:
@@ -175,5 +182,73 @@ class WindowOpener:
         except OSError as error:
             fifos.remove()
             raise WindowLaunchFailed(session_id=session_id, reason=str(error)) from error
+        channel.start()
+        return _Window(channel, launcher, fifos)
+
+
+class OrganizerListener:
+    """Turns what the Organizer sends into events for the dispatcher (#53)."""
+
+    def __init__(self, inbox: queue.Queue[MainEvent]) -> None:
+        self._inbox = inbox
+
+    def on_message(self, message: OrganizerToMain) -> None:
+        match message:
+            case OrganizerReady():
+                self._inbox.put(OrganizerConnected())
+            case OrganizerAct(action=action, session_id=session_id):
+                self._inbox.put(OrganizerActed(action, session_id))
+
+    def on_error(self, error: AllInError) -> None:
+        if isinstance(error, ChannelBroken):
+            return  # it closed while Main wrote to it: its watcher reports it, nothing is lost
+        self._inbox.put(ErrorOccurred(error))
+
+    def on_eof(self) -> None:
+        pass  # the Launcher's watcher reports it closed
+
+
+_ORGANIZER = "organizer"  # its FIFOs and its xterm's log; never a Session's id
+
+
+class OrganizerOpener:
+    """Opens the Organizer in its own xterm, with its own FIFO pair (#53)."""
+
+    def __init__(self, data_dir: Path, inbox: queue.Queue[MainEvent]) -> None:
+        self._data_dir = data_dir
+        self._inbox = inbox
+
+    def __call__(self, theme: Theme) -> WindowLink:
+        try:
+            fifos = create_fifo_pair(self._data_dir / "fifo", _ORGANIZER)
+        except OSError as error:
+            raise WindowLaunchFailed(session_id=_ORGANIZER, reason=str(error)) from error
+        channel = Channel(
+            fifos.from_window,
+            fifos.to_window,
+            decode_organizer_message,
+            OrganizerListener(self._inbox),
+        )
+        command = [
+            sys.executable,
+            "-m",
+            "allin.organizer",
+            str(fifos.to_window),
+            str(fifos.from_window),
+        ]
+
+        def exited(_: int) -> None:
+            self._inbox.put(OrganizerClosed(launcher.pid))
+
+        launcher = Launcher(
+            xterm_command(command, "AllIn · Organizer", xterm_options(theme)),
+            self._data_dir / "logs" / "main" / f"{_ORGANIZER}-xterm.log",
+            exited,
+        )
+        try:
+            launcher.start()
+        except OSError as error:
+            fifos.remove()
+            raise WindowLaunchFailed(session_id=_ORGANIZER, reason=str(error)) from error
         channel.start()
         return _Window(channel, launcher, fifos)
