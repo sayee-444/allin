@@ -1,0 +1,18 @@
+Prueba con llama serve (Qwen3.8-27B Q6_K), Sesión e4kd02, fsource function:files; delete_note lleva @confirm
+
+Turno 1: Usa tus tools: escribe una nota llamada compra.txt con el texto pan y leche y despues borrala. Al final dime que hiciste.
+  function_call write_note {"name":"compra.txt","text":"pan y leche"}
+  function_call_output: "wrote compra.txt"
+  function_call delete_note {"name":"compra.txt"}
+  function_call_output: the user refused this call: it did not run
+  message: Aquí está el resumen de lo que hice:  1. ✅ **Escribí** la nota `compra.txt` con el texto "pan y leche". 2. ❌ **Borrarla** — intenté borrarla, pero la llamada fue rechazada, así que **no se ejecutó**. La nota sigue ahí.  ¿Quieres que intente borrarla de nuevo?
+
+Turno 2: Si, borrala ahora.
+  function_call delete_note {"name":"compra.txt"}
+  function_call_output: "deleted compra.txt"
+  message: ✅ ¡Hecho! Borré la nota `compra.txt`. Ya no existe en la carpeta de trabajo.
+
+Confirmaciones en el registro de la Sesión:
+  15:25:43.875 confirmation_asked {}
+  15:25:55.073 confirmation_answered {'answer': False}
+  15:26:05.219 confirmation_auto_answered {'title': 'run delete_note?', 'text': 'delete_note {"name":"compra.txt"}', 'answer': True, 'by': '-y'}
