@@ -21,3 +21,7 @@ class Viewport:
         last_top = max(0, total - rows)
         self._offset = min(max(0, self.top(total, rows) + delta), last_top)
         self._follow = self._offset == last_top
+
+    def follow(self) -> None:
+        """Show the last lines again, and follow them."""
+        self._follow = True

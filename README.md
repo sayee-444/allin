@@ -120,6 +120,7 @@ Details and order: [`docs/roadmap.md`](docs/roadmap.md) · issues on [GitHub](ht
 - 🐍 **Python 3.12+**
 - 🖥️ **xterm**, where each Window opens
 - 🦙 **[llama.cpp](https://github.com/ggml-org/llama.cpp)**, with `llama serve` on your `PATH`, and a GGUF model
+- 📋 **wl-clipboard** (Wayland) or **xclip**, optional: to copy what you select and paste with Ctrl+V
 
 ### Install
 
@@ -151,7 +152,7 @@ venv/bin/python -m allin --data-dir var
 
 ## Commands
 
-Commands are typed in Main's own input.
+Commands are typed in Main's own input. In Main and in every Window, the mouse wheel scrolls the Chat or the input under the pointer, dragging selects text and copies it to the clipboard, and Ctrl+V pastes into the input.
 
 | Command | What it does |
 |---|---|

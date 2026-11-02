@@ -31,3 +31,14 @@ def test_rows_follow_the_stream_and_the_width():
     chat.stream("gh", role="answer", label="A")
     assert [row.text for row in chat.rows(6)] == ["info l", "ine", "[A] ab", "cdefgh"]
     assert [row.text for row in chat.rows(20)] == ["info line", "[A] abcdefgh"]
+
+
+def test_a_wrapped_entry_marks_the_rows_that_continue_it():
+    chat = Chat()
+    chat.add("abcdefgh", role="answer")
+    chat.add("ij", role="answer")
+    assert chat.rows(5) == [
+        Row("answer", "abcde"),
+        Row("answer", "fgh", joined=True),
+        Row("answer", "ij"),
+    ]
