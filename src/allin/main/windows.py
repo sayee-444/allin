@@ -132,9 +132,16 @@ class WindowOpener:
         self._data_dir = data_dir
         self._inbox = inbox
 
+    def _record_path(self, session_id: SessionId) -> Path:
+        """Where the Window keeps what it could not tell Main (#33)."""
+        folder = self._data_dir / "logs" / "windows"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{session_id}.jsonl"
+
     def __call__(self, session_id: SessionId) -> WindowLink:
         try:
             fifos = create_fifo_pair(self._data_dir / "fifo", session_id)
+            record = self._record_path(session_id)
         except OSError as error:
             raise WindowLaunchFailed(session_id=session_id, reason=str(error)) from error
         channel = Channel(
@@ -150,6 +157,7 @@ class WindowOpener:
             session_id,
             str(fifos.to_window),
             str(fifos.from_window),
+            str(record),
         ]
         launcher = Launcher(
             xterm_command(window_command, title=f"AllIn · {session_id}"),
