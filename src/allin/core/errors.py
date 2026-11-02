@@ -5,15 +5,16 @@ FIFO readers, UI). Each error carries a stable ``code`` plus structured ``fields
 render it in any language without parsing the message.
 """
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
-from pydantic import JsonValue
+if TYPE_CHECKING:  # only for the checker: a tool's process imports this and starts fast (#100)
+    from pydantic import JsonValue
 
 
 class AllInError(Exception):
     code: ClassVar[str] = "allin_error"
 
-    def __init__(self, **fields: JsonValue) -> None:
+    def __init__(self, **fields: "JsonValue") -> None:
         self.fields: dict[str, JsonValue] = fields
         details = ", ".join(f"{key}={value!r}" for key, value in fields.items())
         super().__init__(f"{self.code}: {details}" if details else self.code)
@@ -419,3 +420,23 @@ class ThemeNotFound(AllInError):
     """No Theme has this name in the Profile's ``themes/`` (``available`` says which do)."""
 
     code: ClassVar[str] = "theme_not_found"
+
+
+class ConfinementFailed(AllInError):
+    """A tool's process could not confine itself: ``call`` is the system call the kernel
+    refused, with its ``errno`` and ``reason``. Nothing of the function ran (ADR-0016)."""
+
+    code: ClassVar[str] = "confinement_failed"
+
+
+class ToolTimedOut(AllInError):
+    """A Function tool ran past its ``seconds`` and was taken down with its descendants."""
+
+    code: ClassVar[str] = "tool_timed_out"
+
+
+class ToolDied(AllInError):
+    """A Function tool's process ended without giving its result: ``exit_code`` (negative for a
+    signal) and the end of its ``stderr``."""
+
+    code: ClassVar[str] = "tool_died"

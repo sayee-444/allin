@@ -3,7 +3,6 @@
 import os
 import queue
 import signal
-import sys
 import time
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from allin.ipc.messages import (
     decode_window_message,
 )
 from allin.ipc.messages import WindowUsed as WindowUsedMessage
+from allin.main.children import python_module
 from allin.main.events import (
     BoxAnswered,
     DraftReceived,
@@ -163,15 +163,9 @@ class WindowOpener:
             decode_window_message,
             _WindowListener(session_id, self._inbox),
         )
-        window_command = [
-            sys.executable,
-            "-m",
-            "allin.window",
-            session_id,
-            str(fifos.to_window),
-            str(fifos.from_window),
-            str(record),
-        ]
+        window_command = python_module(
+            "allin.window", session_id, str(fifos.to_window), str(fifos.from_window), str(record)
+        )
         launcher = Launcher(
             xterm_command(window_command, f"AllIn · {session_id}", xterm_options(theme)),
             self._data_dir / "logs" / "main" / f"{session_id}-xterm.log",
@@ -229,13 +223,7 @@ class OrganizerOpener:
             decode_organizer_message,
             OrganizerListener(self._inbox),
         )
-        command = [
-            sys.executable,
-            "-m",
-            "allin.organizer",
-            str(fifos.to_window),
-            str(fifos.from_window),
-        ]
+        command = python_module("allin.organizer", str(fifos.to_window), str(fifos.from_window))
 
         def exited(_: int) -> None:
             self._inbox.put(OrganizerClosed(launcher.pid))

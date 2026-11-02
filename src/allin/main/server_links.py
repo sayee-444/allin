@@ -8,7 +8,6 @@ import os
 import queue
 import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +16,7 @@ from allin.core.errors import SupervisorNotRunning
 from allin.core.ids import ServerKey, SessionId, SupervisorName, parse_supervisor_name
 from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.core.wait_list import WaitList
+from allin.main.children import python_module
 from allin.main.conversation import Item
 from allin.main.events import MainEvent
 from allin.main.links import Link
@@ -134,14 +134,7 @@ class ServerLinks:
         if state is not None and state.slept_by_human and not human:  # only /server wake
             return False
         self._woken[name] = time.monotonic()
-        command = [
-            sys.executable,
-            "-m",
-            "allin.supervisor",
-            name,
-            "--data-dir",
-            str(self._data_dir),
-        ]
+        command = python_module("allin.supervisor", name, "--data-dir", str(self._data_dir))
         process = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,

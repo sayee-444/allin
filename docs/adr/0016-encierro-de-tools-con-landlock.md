@@ -25,3 +25,11 @@ Al arrancar, Main comprueba la ABI de Landlock del kernel. Si falta todo o parte
 **Enmienda (2026-11-01, ADR-0025).** El Alcance dice también qué Command sessions ejecuta la function (`@reach(commands=[…])`). Eso no lo fuerza el kernel sino Main, que rechaza cualquier otro por el canal de vuelta, y se muestra, se reduce y vuelve a cuarentena como el resto del Alcance. Una pieza que declara Otorgar se trata como una con `display`: la aprobación lo dice con esas palabras y nunca va en bloque.
 
 **Enmienda (2026-11-02, ADR-0026).** Landlock limita la red por puerto, no por host. Un Alcance con el puerto 443 alcanza cualquier sitio HTTPS, así que, en una pieza con red, la Aprobación es el único freno a que mande datos fuera.
+
+**Enmienda (2026-11-02, #99 y #100).** Lo que el prototipo del encierro midió en este kernel (`docs/research/encierro-prototipo.md`) cambia cuatro cosas de arriba:
+- **Bubblewrap.** El motivo de que obligue a un `exec` en vez de un `multiprocessing` spawn ya no cuenta, porque el proceso de la tool se lanza con `subprocess` (ADR-0005). El motivo principal sigue: los user namespaces que restringe AppArmor.
+- **El Alcance mínimo** lee también `/dev/zero`, `/dev/urandom` y `/dev/random` y escribe `/dev/null`, sin el cual falla git. `/proc` no entra, porque no lo necesitan ni los subprocesos ni `multiprocessing`. `/dev/shm`, que sí necesita `multiprocessing`, tampoco: expone memoria compartida de otros programas, y si se concede se decide en #101.
+- **Matar a los descendientes.** Al terminar o al cancelarse, el vigilante los mata con `kill(-1)` y no con `killpg` (ADR-0005).
+- **Las reglas valen para el inodo** que había al añadirlas. Un archivo concedido que un editor guarda reemplazándolo deja de estar al alcance de un Proceso adherido que ya corría, y una carpeta movida conserva su permiso en la ruta nueva. Las tools no lo notan, porque cada llamada recalcula sus reglas; el archivo compartido de un Proceso adherido se trata en #113.
+
+Landlock y seccomp se aplican con `ctypes`, sin librerías, y los dos para todos los threads del proceso.

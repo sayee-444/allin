@@ -92,7 +92,7 @@ An **fproc** is the most powerful of the three. A Session with the right methods
 
 - **Origin.** Every Prompt and command carries who sent it. Some actions are for a human only, such as the keys that name a file or open the network in a Server's Settings.
 - **Confirmations.** Delicate commands, such as putting a Supervisor to sleep or adopting a `llama serve`, ask before they run.
-- **Confinement** *(planned, F2)*. Each tool runs in its own process, locked down by Landlock and seccomp to the folders and ports it declares, and never inside AllIn's own data.
+- **Confinement** *(in progress, F2)*. Each tool runs in its own process, locked down by Landlock and seccomp before its code is imported: born without your terminal or environment, in its Session's working folder, with no network, and taking every process it started down with it when it ends. What it may touch beyond that it declares (`@reach`, coming next), and it never reaches AllIn's own data. Landlock grants whole folders, so any folder that holds AllIn's data is trimmed: with AllIn in `~/Pictures/Neva` and its data in `~/Pictures/Neva/var`, reading `home` becomes reading all of `~` but `Pictures`, all of `Pictures` but `Neva`, and all of `Neva` but `var`. On a kernel whose Landlock cannot do all of this, Main says so when it starts and marks every border.
 - **No silent truncation.** `--context-shift` is refused. A long Conversation is compacted on purpose, never cut behind your back.
 
 ---
