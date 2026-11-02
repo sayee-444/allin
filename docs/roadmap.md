@@ -8,14 +8,15 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #103 Batería de fugas (2026-11-02).
-  - `tests/test_leak_battery.py`: una tool con el Alcance mínimo intenta cada salida de ADR-0016 (D-Bus, X11 por ruta y abstracto, io_uring, señales y `ptrace` a Main, la terminal con `TIOCSTI`, el agente SSH, un `.pyc` preparado y los puertos de los Servidores) y todas fallan. Corre en la suite y en el pre-commit.
-  - Cada blanco que podría faltar tiene un control: los sockets se alcanzan antes con `display`, y las señales y `ptrace` con un proceso sin encierro y Main rastreable, para que el rechazo no sea el de Yama (el módulo del kernel que ya limita `ptrace` en Ubuntu).
-  - Destapó una salida abierta: un `.pyc` preparado en el package se importaba en vez de su fuente. Ahora Main no lanza ni describe un package con `__pycache__`, `.pyc` o módulos compilados (`PackageNotSource`), porque los hijos de la tool importan como Python; y el vigilante importa del package solo fuentes.
-  - Abrir a propósito io_uring, `TIOCSTI`, el import solo de fuentes o los puertos de los Servidores hace fallar su test. Las señales no se reabrieron a mano: sin su scope, el `kill(-1)` del vigilante alcanzaría todos los procesos del usuario.
-  - Métricas: 1243 tests, cobertura 84 %, mutación 94 %, 22 escapes. Antes: #102 Encierro de descripción.
-- **Siguiente:** #104 Cuarentena y Aprobación.
-- **Preguntas abiertas para el usuario:** ¿le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
+- **Último hecho:** #104 Cuarentena y Aprobación (2026-11-02).
+  - Las functions (su package entero) y los Sysprompts nuevos o cambiados quedan en cuarentena hasta que un humano los aprueba: cada Perfil guarda el hash aprobado de cada pieza (`approvals.json`). Un Sysprompt en cuarentena no se usa, y `Quarantine.offered()` da las functions aprobadas, con su Alcance y sus Confirmaciones, para el `tools=[...]` de #106.
+  - `/piece` lista las piezas con su estado y procedencia, `/piece show` muestra la pantalla de aprobación (el Alcance primero, con `!` en lo que excede el mínimo, y el código con `<U+202E>` y demás marcados) y `/piece approve` aprueba la versión mostrada, con `--reach` para reducir el Alcance y `--confirm` para añadir Confirmaciones, sin tocar el hash. `/piece approve --all` deja fuera lo que actúa como el usuario, Otorgar y lo que no escribió él. Main dice al arrancar cuántas piezas esperan.
+  - Un package con código compilado o binarios se rechaza. Ni otra Sesión, ni `-y`, ni `--devastation` aprueban.
+  - `/session workspace <sid> <carpeta>|default` apunta la Carpeta de trabajo, solo un humano y nunca dentro de AllIn.
+  - Main aprueba solo los Sysprompts idénticos a los que instala AllIn, para que los Perfiles de antes sigan funcionando.
+  - Métricas: 1300 tests, cobertura 84 %, mutación 94 %, 23 escapes (uno nuevo: el `noqa` de `/dev/shm` como ruta de un Alcance). Antes: #103 Batería de fugas.
+- **Siguiente:** #105 Origen con cadena y eslabón más débil.
+- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -90,7 +91,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 3. ✅ #101 `@reach` y el Alcance
 4. ✅ #102 Encierro de descripción
 5. ✅ #103 Batería de fugas
-6. #104 Cuarentena y Aprobación
+6. ✅ #104 Cuarentena y Aprobación
 7. #105 Origen con cadena y eslabón más débil
 8. #106 Function tools en el Turno
 9. #107 `@confirm` en las tools
