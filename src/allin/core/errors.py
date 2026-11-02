@@ -401,3 +401,15 @@ class SessionIdTaken(AllInError):
     """Another Session already has this id, as its id or as an alias."""
 
     code: ClassVar[str] = "session_id_taken"
+
+
+class ThemeInvalid(AllInError):
+    """A Theme's file is no valid TOML, or a value has not the shape it must."""
+
+    code: ClassVar[str] = "theme_invalid"
+
+
+class ThemeNotFound(AllInError):
+    """No Theme has this name in the Profile's ``themes/`` (``available`` says which do)."""
+
+    code: ClassVar[str] = "theme_not_found"

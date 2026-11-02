@@ -173,6 +173,11 @@ class Tick:
 
 
 @dataclass(frozen=True)
+class ThemesChanged:
+    """A Theme's file changed, appeared or went away (#47): every look is resolved again."""
+
+
+@dataclass(frozen=True)
 class ServerChanged:
     """What a Server says of itself changed (ADR-0004); the Server watch tells it."""
 
@@ -218,7 +223,8 @@ class Shutdown:
 
 
 type MainEvent = (
-    WindowConnected
+    ThemesChanged
+    | WindowConnected
     | InputReceived
     | QueuedWithdrawn
     | DraftReceived

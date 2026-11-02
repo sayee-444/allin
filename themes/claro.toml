@@ -1,0 +1,25 @@
+# Light background, double borders.
+
+[font]
+family = "DejaVu Sans Mono"
+size = 11
+
+[colors]
+background = "#fdf6e3"
+text = "#2b2b2b"
+user = "#005f87"
+reasoning = "#875f87"
+answer = "#005f00"
+info = "#875f00"
+error = "#af0000"
+status = "#444444"
+
+[border]
+style = "double"
+color = "#5f5f87"
+
+[window]
+size = "180x40"
+
+[glyphs]
+set = "unicode"

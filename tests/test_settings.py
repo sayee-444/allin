@@ -36,7 +36,22 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "session.compact.threshold",
         "session.compact.keep",
         "session.compact.sysprompt",
+        "theme",
+        "session.theme",
+        # A Session's loose keys over its Theme (#47).
+        "session.font.family",
+        "session.font.size",
+        *(
+            f"session.colors.{name}"
+            for name in ("background", "text", "user", "reasoning", "answer", "info", "error")
+        ),
+        "session.colors.status",
+        "session.border.style",
+        "session.border.color",
+        "session.window.size",
+        "session.glyphs.set",
     }
+    assert keys["theme"].scope == "main" and keys["session.theme"].default == "default"
     assert keys["parallel"].scope == "main" and keys["parallel"].default is None
     compact = {name: keys[f"session.compact.{name}"].default for name in ("auto", "threshold")}
     assert compact == {"auto": True, "threshold": 0.85}

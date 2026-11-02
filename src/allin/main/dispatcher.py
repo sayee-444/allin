@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 
 from allin.core.errors import AllInError
-from allin.core.ids import MainId, SupervisorName, parse_supervisor_name
+from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_name
 from allin.core.settings import SessionSettings
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
@@ -32,6 +32,7 @@ from allin.main.events import (
     SlotFreed,
     StepEnded,
     SupervisorAdopted,
+    ThemesChanged,
     Tick,
     TurnEnded,
     TurnOutput,
@@ -56,6 +57,7 @@ from allin.main.sessions import SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
+from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
 from allin.ui.screen import KeyBindings, ScreenUpdate
 from allin.ui.shortcuts import effective_keys
@@ -84,6 +86,8 @@ class Dispatcher:
         notices: LoadedNotices,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
+        *,
+        fonts: FontProbe = NO_FONT_PROBE,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
@@ -95,6 +99,30 @@ class Dispatcher:
         self._windows = OpenWindows(open_window, self._reporter, sessions, links)
         self._default_link = _default_link(links, settings)
         self._boxes = MainBoxes(main_screen, self._windows)
+        self._notices = notices.types
+
+        def notify_theme(
+            session_id: SessionId | None, settings: SessionSettings | None, problem: str
+        ) -> None:
+            def show(kind: str, title: str, text: str) -> None:
+                if session_id is not None:
+                    fields = {"kind": kind, "title": title, "text": text}
+                    self._reporter.record(session_id, "notice", f"notice: {title}", **fields)
+                else:
+                    self._reporter.log_main("notice", kind=kind, title=title, text=text)
+                self._boxes.notify(session_id, title, text, kind)
+
+            self._notices.tell("theme", settings, {"problem": problem}, show)
+
+        self._themes = ThemeKeeper(
+            Looks(ThemeBook(profile.folder / "themes"), fonts),
+            sessions,
+            self._windows.open_ids,
+            self._windows.send,
+            main_screen,
+            notify_theme,
+        )
+        self._windows.use_themes(self._themes)
         self._devastation = Devastation(
             devastation, main_screen, self._windows, sessions, self._boxes, self._reporter, main_id
         )
@@ -162,6 +190,8 @@ class Dispatcher:
             self._reporter, profiles, self._switch, sessions, main_id, self._boxes
         )
         settings_commands.show_profiles(self._profile_commands.profiles_of)
+        settings_commands.check_theme = self._themes.book.check
+        settings_commands.looks_changed = self._looks_changed
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -189,6 +219,15 @@ class Dispatcher:
         )
         if settings.current.keys:  # Main's Chat starts with the defaults
             main_screen(KeyBindings(effective_keys(settings.current.keys)))
+        self._themes.main(settings.current)
+
+    def theme_stamps(self) -> dict[str, float]:
+        """The Themes' modification times, for the watch on their files (any thread)."""
+        return self._themes.stamps()
+
+    def _looks_changed(self) -> None:
+        self._themes.main(self._settings_commands.current)
+        self._themes.refresh()
 
     @property
     def commands(self) -> MainCommands:
@@ -221,6 +260,7 @@ class Dispatcher:
         loaded = files.load()
         for problem in loaded.problems:  # Main runs on without what failed, as on start
             self._reporter.error(problem)
+        self._themes.book.use(profile.folder / "themes")
         self._settings_commands.enter(loaded, files, profile.sysprompts)
         self._turns.use_sysprompts(profile.sysprompts)
         self._commands.use_sysprompts(profile.sysprompts)
@@ -271,6 +311,8 @@ class Dispatcher:
                 self._turns.measured(server, session_id, ticket, tokens)
             case Tick():
                 self._turns.tick()
+            case ThemesChanged():
+                self._looks_changed()
             case StepEnded(session_id, step):
                 self._turns.step_ended(session_id, step)
             case TurnEnded(session_id, steps, error):

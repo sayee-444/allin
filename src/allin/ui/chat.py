@@ -24,8 +24,9 @@ class _Entry:
     streaming: bool
     rows: list[tuple[str, bool]] | None = None  # wrapped to the Chat's width (wrap_rows)
 
-    def display_text(self) -> str:
-        return f"[{self.label}] {self.text}" if self.label else self.text
+    def display_text(self, icon: str | None = None) -> str:
+        shown = f"[{self.label}] {self.text}" if self.label else self.text
+        return f"{icon} {shown}" if icon else shown
 
 
 class Chat:
@@ -35,6 +36,13 @@ class Chat:
         self._rows: list[Row] = []
         # Prompts waiting for their Turn, shown below every entry, even a streaming one.
         self._queued: list[_Entry] = []
+        self._icons: dict[str, str] = {}  # each role's icon, from the Theme (#47)
+
+    def set_icons(self, icons: dict[str, str]) -> None:
+        """Each line type's icon, shown before its entries; every entry wraps again."""
+        if icons != self._icons:
+            self._icons = dict(icons)
+            self._width = 0
 
     def add(self, text: str, role: str | None = None, label: str | None = None) -> None:
         self._entries.append(_Entry(role, label, text, streaming=False))
@@ -54,6 +62,9 @@ class Chat:
 
     def set_queued(self, texts: tuple[str, ...], label: str) -> None:
         self._queued = [_Entry("user", label, text, streaming=False) for text in texts]
+
+    def _icon(self, entry: _Entry) -> str | None:
+        return self._icons.get(entry.role or "")
 
     def end_stream(self) -> None:
         """Close the open entry, so the next streamed text starts a new one."""
@@ -77,13 +88,13 @@ class Chat:
         del self._rows[kept:]
         for entry in self._entries[first:]:
             if entry.rows is None:
-                entry.rows = wrap_rows(entry.display_text(), width)
+                entry.rows = wrap_rows(entry.display_text(self._icon(entry)), width)
             self._rows += [Row(entry.role, row, joined) for row, joined in entry.rows]
         if not self._queued:
             return self._rows
         queued = [
             Row(entry.role, row, joined)
             for entry in self._queued
-            for row, joined in wrap_rows(entry.display_text(), width)
+            for row, joined in wrap_rows(entry.display_text(self._icon(entry)), width)
         ]
         return [*self._rows, *queued]

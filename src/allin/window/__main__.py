@@ -32,6 +32,7 @@ from allin.ipc.messages import (
     MainToWindow,
     PoolShared,
     PromptHistory,
+    ThemeSet,
     TurnState,
     UserInput,
     WindowReady,
@@ -41,6 +42,7 @@ from allin.ipc.messages import (
 from allin.ui.boxes import Box, BoxClosed
 from allin.ui.marks import DEVASTATION_MARK
 from allin.ui.screen import (
+    ApplyTheme,
     BorderStatus,
     ChatLine,
     ChatScreen,
@@ -134,6 +136,8 @@ class MainListener:
                 self._show(InputText(text))
             case KeyTable(bindings=bindings):
                 self._show(KeyBindings(bindings))
+            case ThemeSet(theme=theme):
+                self._show(ApplyTheme(theme, "window"))
             case PromptHistory(prompts=prompts):
                 self._show(InputHistory(tuple(prompts)))
             case BoxShow(box_id=box_id, kind=kind, title=title, text=text):

@@ -5,20 +5,57 @@ import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+# Every window operation of xterm 407 (``man xterm``) but SetWinSizeChars, which Themes use.
+_WINDOW_OPS_BUT_SIZE = (
+    "ColumnMode",
+    "GetChecksum",
+    "GetIconTitle",
+    "GetScreenSizeChars",
+    "GetSelection",
+    "GetWinPosition",
+    "GetWinSizeChars",
+    "GetWinSizePixels",
+    "GetWinState",
+    "GetWinTitle",
+    "LowerWin",
+    "MaximizeWin",
+    "FullscreenWin",
+    "MinimizeWin",
+    "PopTitle",
+    "PushTitle",
+    "RaiseWin",
+    "RefreshWin",
+    "RestoreWin",
+    "SetChecksum",
+    "SetSelection",
+    "SetWinLines",
+    "SetWinPosition",
+    "SetWinSizePixels",
+    "SetXprop",
+    "StatusLine",
+)
+
 XTERM_RESOURCES = (
     "XTerm*modifyOtherKeys: 2",  # Ctrl+Enter arrives as ESC [27;5;13~
     # xterm keeps Alt+Enter for its full screen; without it, the key reaches the Window (#57).
     "XTerm*omitTranslation: fullscreen",
-    # No text on screen may ask xterm for its title or the clipboard (OSC 52) and have the
-    # answer typed as if by the user, nor recolour it (ADR-0018); Themes (#47) reopen only
-    # the size, font and colour changes, never the questions.
+    # No text on screen may ask xterm anything (its title, the clipboard by OSC 52, a colour
+    # or the letter) and have the answer typed as if by the user (ADR-0018). Themes (#47) open
+    # only the orders they use: the size in characters, the letter and the colours. With the
+    # allow* resources off, xterm takes exactly what the disallowed* lists leave out.
     "XTerm*allowWindowOps: false",
+    "XTerm*disallowedWindowOps: " + ",".join(_WINDOW_OPS_BUT_SIZE),
+    "XTerm*allowFontOps: false",
+    "XTerm*disallowedFontOps: GetFont",
     "XTerm*allowColorOps: false",
+    "XTerm*disallowedColorOps: GetColor,GetAnsiColor",
 )
 
 
-def xterm_command(window_command: Sequence[str], title: str) -> list[str]:
-    command = ["xterm", "-title", title, "-fa", "Monospace", "-fs", "10", "-geometry", "180x40"]
+def xterm_command(window_command: Sequence[str], title: str, look: Sequence[str] = ()) -> list[str]:
+    """``look``: the letter, size and colours it is born with (``ui.look.xterm_options``).
+    ``xterm-256color`` lets the Window redefine colours for a Theme's ``#rrggbb``."""
+    command = ["xterm", "-title", title, "-tn", "xterm-256color", *look]
     for resource in XTERM_RESOURCES:
         command += ["-xrm", resource]
     return [*command, "-e", *window_command]

@@ -1,0 +1,24 @@
+# Dark green, heavy borders.
+
+[font]
+family = "DejaVu Sans Mono"
+size = 10
+
+[colors]
+background = "#1b2b1e"
+text = "#d8e4cf"
+user = "#a3d977"
+reasoning = "#7a9a6a"
+answer = "#e3c76b"
+info = "#8fbcbb"
+error = "#e06c5f"
+
+[border]
+style = "heavy"
+color = "auto"
+
+[window]
+size = "180x40"
+
+[glyphs]
+set = "unicode"

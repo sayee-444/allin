@@ -9,6 +9,7 @@ from pydantic import BaseModel, JsonValue
 from allin.core.drafts import put_back
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
+from allin.core.themes import BUILTIN, Theme
 from allin.ipc.messages import (
     ChatClear,
     ChatDelta,
@@ -18,6 +19,7 @@ from allin.ipc.messages import (
     KeyTable,
     PoolShared,
     PromptHistory,
+    ThemeSet,
 )
 from allin.main.chat_rebuild import error_entry, prompt_history, rebuild_chat, returned_prompts
 from allin.main.conversation import Conversation, Step
@@ -25,6 +27,7 @@ from allin.main.executors import SHUTTING_DOWN
 from allin.main.links import LinkResolver
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
+from allin.main.themes import ThemeKeeper
 from allin.main.turn import OutputKind
 from allin.main.usage import context_tokens, tokens_per_second
 from allin.ui.shortcuts import effective_keys
@@ -45,7 +48,8 @@ class WindowLink(Protocol):
         ...
 
 
-type OpenWindow = Callable[[SessionId], WindowLink]
+# Opens a Session's Window, its xterm born with the letter, size and colours of its Theme.
+type OpenWindow = Callable[[SessionId, Theme], WindowLink]
 
 
 @dataclass
@@ -80,14 +84,26 @@ class OpenWindows:
         self._shared: dict[SessionId, bool] = {}
         # Windows Main closed itself whose xterm has not said it is gone yet, by Session.
         self._closing: dict[SessionId, int] = {}
+        self._themes: ThemeKeeper | None = None
+
+    def use_themes(self, themes: ThemeKeeper) -> None:
+        """What resolves each Window's Theme (#47); without it, Windows show the built-in."""
+        self._themes = themes
+
+    def open_ids(self) -> list[SessionId]:
+        return list(self._links)
 
     def open(self, session: Session, streamed: Streamed | None) -> None:
         """Open the Session's Window and show it its Chat so far and its Draft.
 
         ``streamed`` is what its running Turn has given so far, if it has one.
         """
-        self._links[session.id] = self._open_window(session.id)
+        theme = BUILTIN if self._themes is None else self._themes.opening(session)
+        self._links[session.id] = self._open_window(session.id, theme)
         self._reporter.record(session.id, "window_opened", "opening window")
+        self.send(session.id, ThemeSet(theme=theme))  # before its Chat (#47)
+        if self._themes is not None:
+            self._themes.opened(session.id, theme)
         if session.settings.keys:  # its Atajos, where they differ from the defaults (#57)
             self.send(session.id, KeyTable(bindings=effective_keys(session.settings.keys)))
         try:
@@ -205,6 +221,7 @@ class OpenWindows:
         link = self._links.pop(session_id, None)
         if link is not None:
             link.close()
+        self._forget_theme(session_id)
         text = f"window closed (exit code {returncode})"
         self._reporter.record(session_id, "window_closed", text, returncode=returncode)
         return True
@@ -216,6 +233,7 @@ class OpenWindows:
             return
         link.send(Close())
         link.close()
+        self._forget_theme(session_id)
         self._closing[session_id] = self._closing.get(session_id, 0) + 1
         self._shared.pop(session_id, None)
         shown = f"window closed: {reason}"
@@ -232,6 +250,10 @@ class OpenWindows:
                 session_id, "window_closed", shown, returncode=None, reason=SHUTTING_DOWN
             )
         self._links.clear()
+
+    def _forget_theme(self, session_id: SessionId) -> None:
+        if self._themes is not None:
+            self._themes.closed(session_id)
 
     def pids(self) -> dict[SessionId, int]:
         """Each open Window's xterm pid, in the order they opened."""

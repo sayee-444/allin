@@ -39,6 +39,7 @@ class ProfileCopies:
         pieces = [
             *_settings_piece(profile.settings),
             *_sysprompt_pieces(profile.sysprompts),
+            *_theme_pieces(profile.themes),
             *self._servers_of(profile, session_ids),
             *(self._session(session_id) for session_id in session_ids),
         ]
@@ -64,7 +65,7 @@ class ProfileCopies:
             for piece in copy.manifest.pieces:
                 files = copy.contents(piece)
                 match piece.kind:
-                    case "settings" | "sysprompt":
+                    case "settings" | "sysprompt" | "theme":
                         _write(staging, files)
                     case "server":
                         self._import_server(piece.name, files)
@@ -160,6 +161,13 @@ def _sysprompt_pieces(folder: Path) -> list[PieceFiles]:
     return [
         PieceFiles("sysprompt", path.removeprefix("sysprompts/"), {path: data})
         for path, data in _files(folder, "sysprompts").items()
+    ]
+
+
+def _theme_pieces(folder: Path) -> list[PieceFiles]:
+    return [
+        PieceFiles("theme", PurePosixPath(path).stem, {path: data})
+        for path, data in _files(folder, "themes").items()
     ]
 
 

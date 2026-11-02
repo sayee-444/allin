@@ -108,6 +108,10 @@ class SettingsCommands:
         self._profiles_of: Callable[[SessionId], list[str]] = lambda _: []
         # Told the Atajos of Main's Chat whenever its current Settings change them (#57).
         self.keys_changed: Callable[[dict[str, str]], None] = lambda _: None
+        # A Theme's name must be one of the Profile's (#47), and what Windows and Main's Chat
+        # look like is resolved again after any change.
+        self.check_theme: Callable[[str], None] = lambda _: None
+        self.looks_changed: Callable[[], None] = lambda: None
 
     def show_profiles(self, profiles_of: Callable[[SessionId], list[str]]) -> None:
         """``/session <sid>`` also shows the Profiles the Session belongs to (ADR-0010)."""
@@ -131,6 +135,12 @@ class SettingsCommands:
             return True
         _check_authority(assignments, origin)
         changed = apply_settings(target, assignments, extra)
+        for theme, before in (
+            (changed.theme, target.theme),
+            (changed.session.theme, target.session.theme),
+        ):
+            if theme != before:
+                self.check_theme(theme)
         if changed.session.sysprompt != target.session.sysprompt:
             render_sysprompt(self._sysprompts, changed.session)  # the file must be there
         # The default Enlace moves no Session: only those /new makes from now on (ADR-0022).
@@ -170,6 +180,8 @@ class SettingsCommands:
             return True
         _check_authority(assignments, origin)
         changed = apply_settings(session.settings, assignments, extra)
+        if changed.theme != session.settings.theme:
+            self.check_theme(changed.theme)
         # The Enlace changes on its own once the new Server is ready (ADR-0022); checked here,
         # with the rest, before anything is written.
         link = self._links.resolve(changed) if "server" in assignments else None
@@ -216,9 +228,16 @@ class SettingsCommands:
             self._reporter.report(None, "settings_restart_needed", _RESTART_NOTE)
         if settings.keys != before.keys:
             self.keys_changed(settings.keys)
+        self.looks_changed()
 
     def _save_session(self, session: Session, settings: SessionSettings) -> None:
         """Save a Session's new Settings, rendering its Sysprompt again while it has no Turn."""
+        try:
+            self._save_settings_of(session, settings)
+        finally:
+            self.looks_changed()
+
+    def _save_settings_of(self, session: Session, settings: SessionSettings) -> None:
         if all(getattr(settings, key) == getattr(session.settings, key) for key in _SYSPROMPT_KEYS):
             self._sessions.save_settings(session, settings)
             return

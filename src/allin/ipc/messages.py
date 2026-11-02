@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from allin.core.errors import MalformedMessage
 from allin.core.ids import BoxId
+from allin.core.themes import Theme
 from allin.ui.boxes import BoxKind
 
 # Window -> Main
@@ -164,8 +165,17 @@ class KeyTable(BaseModel):
     bindings: dict[str, str]
 
 
+class ThemeSet(BaseModel):
+    """The Theme the Window shows, as Main resolved it (#47): sent right after it is ready,
+    before its Chat, and again whenever it changes. The Window only applies it."""
+
+    type: Literal["theme"] = "theme"
+    theme: Theme
+
+
 type MainToWindow = (
-    ChatAppend
+    ThemeSet
+    | ChatAppend
     | ChatDelta
     | ChatClear
     | TurnState

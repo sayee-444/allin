@@ -17,6 +17,13 @@ def main() -> None:
         " (default: ./sysprompts)",
     )
     parser.add_argument(
+        "--themes-dir",
+        type=Path,
+        default=Path.cwd() / "themes",
+        help="the installation's Themes, which the Profile default is born with"
+        " (default: ./themes)",
+    )
+    parser.add_argument(
         "--profile",
         help="the Profile to open (default: the last one used); one that does not exist is an"
         " error",
@@ -29,7 +36,13 @@ def main() -> None:
     )
     args = parser.parse_args()
     profile: str | None = args.profile
-    run(args.data_dir.resolve(), args.sysprompts_dir.resolve(), profile, args.devastation)
+    run(
+        args.data_dir.resolve(),
+        args.sysprompts_dir.resolve(),
+        profile,
+        args.devastation,
+        seed_themes=args.themes_dir.resolve(),
+    )
 
 
 if __name__ == "__main__":
