@@ -8,18 +8,20 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #110 `/send` entre Sesiones (2026-11-02).
-  - Una Sesión le manda un Prompt a otra con `@send`. Llega con su cadena de Origen, bajo la cabecera `[from Session …]`, y Main nunca lee su texto.
-  - Sus Command prompts van en la **forma estructurada**, delante del texto: `@send <sid> --attach=<ruta> --<parámetro>=<valor> -- <texto>`. Lo que teclea un humano sigue igual, `@./ruta` y `@clave=valor` en el texto.
-  - El adjunto sale de la Carpeta de trabajo de quien envía y se copia a `.allin/adjuntos/<prompt>/` en la de destino. Uno de fuera, también por un enlace, espera la Aprobación de un humano en Main, que ni `-y` ni `--devastation` contestan. Se copia justo el archivo que vio el humano: Main comprueba el archivo ya abierto, así que cambiar un enlace entre medias no cuela otro.
-  - Quien envía y quien recibe deben ser del Perfil activo, también cuando llega la Aprobación.
+- **Último hecho:** #111 Otorgar (2026-11-02).
+  - `@grant <sid> <pieza|@comando>…` da a una Sesión del Perfil activo piezas aprobadas y Command sessions que existen, aunque quien lo usa no los tenga. Corre como el Command main `/grant`.
+  - **Cómo se da.** Solo lo da un humano, con `/func add`: dar la fsource aprobada que lo declara también da `@grant`, y quitarla lo quita. `/new` nunca lo trae, aunque se nombre en `-cs=`.
+  - **Aviso y borde.** Al darlo sale un Aviso en la Ventana, y el borde lo marca mientras la Sesión lo tenga.
+  - **Qué no da.** Otorgar no da Otorgar, ni una pieza que lo declare o que no se pueda describir; tampoco Exenciones ni modos. Lo que no puede dar lo rechaza antes de preguntar.
+  - **Confirmación.** Cada uso pide Confirmación, y el recuadro dice quién la pide. Queda con la cadena entera en el Log de quien lo usa y en el de quien recibe. `--devastation` solo la salta si también cubre a la Sesión que recibe.
   - Probado con `llama serve` (Q6):
-    - A escribió `informe.txt` con su tool y se lo mandó a B, que leyó el adjunto y contestó «4217»;
-    - con un archivo de fuera, al decir que no, no se copió nada;
-    - al decir que sí, B contestó «9081».
-  - Métricas: 1402 tests, cobertura 85 %, mutación 94 %, 28 escapes. Antes: #109 Notificaciones y Conversation logs.
-- **Siguiente:** #111 Otorgar.
-- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
+    - `/new -cs=send,grant` salió sin `@grant`;
+    - `/func add` de la fsource dio el Aviso y el borde;
+    - el LLM le dio `@send` a otra Sesión tras el «sí», y esa Sesión lo supo por su Notificación;
+    - `@grant` se rechazó sin recuadro, y el «no» dejó a la otra Sesión como estaba.
+  - Métricas: 1420 tests, cobertura 85 %, mutación 94 %, 28 escapes. Antes: #110 `/send` entre Sesiones.
+- **Siguiente:** #112 Moldes y Crear.
+- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -101,7 +103,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 10. ✅ #108 Command sessions
 11. ✅ #109 Notificaciones y Conversation logs
 12. ✅ #110 `/send` entre Sesiones
-13. #111 Otorgar
+13. ✅ #111 Otorgar
 14. #112 Moldes y Crear
 15. #113 Adherir y soltar Procesos adheridos
 16. #114 Métodos de una fproc

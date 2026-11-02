@@ -28,6 +28,7 @@ from allin.ipc.messages import (
     ConfinementGap,
     ContextUsage,
     Coverage,
+    GrantHeld,
     InputDraft,
     InputRestore,
     KeyTable,
@@ -170,6 +171,8 @@ class MainListener:
                 self._show(HideBox(box_id))
             case Coverage(covered=covered):
                 self._marks.devastation(covered)
+            case GrantHeld(held=held):
+                self._marks.grant(held)
             case ConfinementGap(missing=missing):
                 self._marks.unconfined(tuple(missing))
             case Close():

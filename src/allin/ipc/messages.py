@@ -150,6 +150,14 @@ class Coverage(BaseModel):
     covered: bool
 
 
+class GrantHeld(BaseModel):
+    """Whether this Session has Otorgar: the Window marks it on its border while it does
+    (ADR-0025)."""
+
+    type: Literal["grant_held"] = "grant_held"
+    held: bool
+
+
 class ConfinementGap(BaseModel):
     """What this kernel cannot confine tools in (ADR-0016): the Window marks it on its border
     for as long as it lives, beside the --devastation mark."""
@@ -202,6 +210,7 @@ type MainToWindow = (
     | BoxShow
     | BoxHide
     | Coverage
+    | GrantHeld
     | ConfinementGap
     | Close
 )

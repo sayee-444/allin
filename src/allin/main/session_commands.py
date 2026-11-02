@@ -27,6 +27,7 @@ from allin.core.errors import (
 )
 from allin.core.ids import CommandName, NotificationSource, ServerKey, SessionId
 from allin.core.origin import Origin
+from allin.decorators import GRANT as GRANT_NAME
 from allin.main.events import (
     CommandOutcome,
     OnOutcome,
@@ -103,6 +104,26 @@ SERVER = SessionCommandType(
 )
 
 
+_GRANT_USAGE = "@grant <sid> <piece|@command>…"
+
+
+def _grant(call: SessionCommandCall) -> str:
+    """What it gives is checked by the Command main it becomes."""
+    sid, _, named = call.args.partition(" ")
+    if not sid or not named.strip():
+        raise ValueError(_GRANT_USAGE)
+    return f"/grant {sid} {named}"
+
+
+# Otorgar (ADR-0025): never in the default list, since only a human gives it.
+GRANT = SessionCommandType(
+    GRANT_NAME,
+    _GRANT_USAGE,
+    "give a Session of this Profile approved functions or Command sessions; asks first",
+    _grant,
+)
+
+
 @dataclass(frozen=True)
 class LoadedSessionCommands:
     types: dict[CommandName, SessionCommandType]
@@ -112,7 +133,7 @@ class LoadedSessionCommands:
 
 # Main's own, when no folder is loaded (a Main in tests).
 BUILT_IN = LoadedSessionCommands(
-    {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS)},
+    {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS, GRANT)},
     tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
 )
 

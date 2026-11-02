@@ -238,6 +238,17 @@ class Dispatcher:
         settings_commands.looks_changed = self._looks_changed
         self._quarantine = lambda: Quarantine(self._switch.active.folder, descriptions)
         self._pieces = PieceCommands(self._reporter, self._quarantine)
+        self._functions = FuncCommands(
+            self._reporter,
+            sessions,
+            lambda sid: sessions.load_owned(sid, main_id),
+            self._quarantine,
+            command_types,
+            self._boxes,
+            self._notifications,
+            self._windows,
+            self._profile_commands.in_active,
+        )
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -263,15 +274,7 @@ class Dispatcher:
                 self._reporter, settings_commands, sessions, main_id, self._windows, main_screen
             ),
             self._pieces,
-            FuncCommands(
-                self._reporter,
-                sessions,
-                lambda sid: sessions.load_owned(sid, main_id),
-                self._quarantine,
-                command_types,
-                lambda title, text: self._boxes.notify(None, title, text),
-                self._notifications,
-            ),
+            self._functions,
             self._notifications,
         )
         self._session_commands = SessionCommands(
@@ -406,6 +409,7 @@ class Dispatcher:
                 self._turns.window_connected(session_id)
                 self._boxes.window_opened(session_id)
                 self._devastation.mark(session_id)
+                self._functions.mark(session_id)
                 if missing := self._confinement.missing:
                     self._windows.send(session_id, ConfinementGap(missing=list(missing)))
             case WindowUsed(session_id):

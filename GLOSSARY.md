@@ -238,7 +238,7 @@ Persona de fuera de AllIn cuyo texto trae un Proceso adherido, como quien escrib
 _Avoid_: usuario, humano, cliente
 
 **Otorgar** (`Grant`):
-Command session que da Command sessions y functions a cualquier Sesión del Perfil, aunque quien lo usa no los tenga. La fsource que lo declara no se hereda: solo un humano se la da a una Sesión concreta, y Otorgar no da Otorgar. Su aprobación nunca va en bloque, el borde de la Sesión que lo tiene lo marca y cada uso pide Confirmación (ADR-0025).
+Command session que da Command sessions y functions a cualquier Sesión del Perfil, aunque quien lo usa no los tenga. La fsource que lo declara no se hereda: solo un humano se la da a una Sesión concreta, y Otorgar no da Otorgar. Su aprobación nunca va en bloque, el borde de la Sesión que lo tiene lo marca y cada uso pide Confirmación (ADR-0025). Se escribe `@grant <sid> <pieza|@comando>…` y corre como el Command main `/grant`; una Sesión lo tiene cuando `@grant` está en su lista, y dar la fsource que lo declara también lo da (#111).
 _Avoid_: function session
 
 **Notificación** (`Notification`):
