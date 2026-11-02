@@ -8,18 +8,18 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #100 Lanzador de tools encerrado (2026-11-02), con lo que recomendó #99 (`docs/research/encierro-prototipo.md`), en `src/allin/confinement/`.
-  - Cada llamada corre en su propio proceso, lanzado con `subprocess` y un `socketpair` (JSON por líneas) por el thread de larga vida del `ToolLauncher`. Ese proceso es un vigilante: se encierra con Landlock y seccomp antes de importar nada de la tool y corre la function en un hijo, desde la Carpeta de trabajo.
-  - Nace sin terminal, con solo `PATH`, `LANG`, `TMPDIR` y `HOME` (la Carpeta de trabajo) y sin más descriptores que su canal; `import json` carga el de la biblioteca aunque haya un `json.py` en la Carpeta de trabajo. Main, sus Ventanas, el Organizador y los Supervisores tampoco importan ya de la carpeta actual (`python -P`).
-  - Al terminar, al cancelar o al morir Main, el vigilante mata a todos los procesos de la llamada con `kill(-1)`. Tras cada llamada, Main mata lo que quede de su grupo de procesos con `killpg`; por timeout, primero pide cancelar. El `TMPDIR` de cada llamada se borra al terminar.
-  - Coste por llamada: 21 ms de mediana, frente a 70 ms del `spawn` con `Queue` de antes. El vigilante no importa pydantic, que añadía unos 35 ms; Main sí parsea con pydantic lo que vuelve.
-  - Con un kernel cuya Landlock no llega a la ABI 6, Main lo dice con un Aviso al arrancar y una marca permanente en los bordes, junto a la de `--devastation`.
-  - Main aún no crea el `ToolLauncher`: ninguna tool corre todavía en un Turno. Lo conecta #106 (Function tools en el Turno), después de la batería de fugas (#103).
-  - Enmendados ADR-0005 y ADR-0016; Vigilante y Lanzador de tools en el glosario. El prototipo de #99 se borró; sigue en el historial (`3ac8218`).
-  - Decidido sin preguntar, para que el usuario lo revise: `/dev/shm` no entra en el Alcance mínimo (se decide en #101 si se concede con `@reach`), y `HOME` es la Carpeta de trabajo.
-  - Métricas: 1187 tests, cobertura 85 % (el vigilante y el filtro seccomp corren en el proceso de la tool, donde no se mide la cobertura; los cubren los tests del lanzador). Antes: #99 Prototipo desechable del encierro.
-- **Siguiente:** #101 `@reach` y el Alcance. Con red, el filtro seccomp deberá dejar crear sockets de IP (hoy rechaza `socket()` de cualquier familia) y el Alcance leer adonde apunta `/etc/resolv.conf`.
-- **Preguntas abiertas para el usuario:** ¿`/dev/shm`, que necesita `multiprocessing` pero expone memoria compartida de otros programas, se concede en `@reach` o en el Alcance mínimo? ¿Le vale que `HOME` sea la Carpeta de trabajo?
+- **Último hecho:** #101 `@reach` y el Alcance (2026-11-02).
+  - Una function declara su Alcance con `@reach` (`allin.decorators`, solo biblioteca estándar, porque corre en el proceso de la tool): `read`, `write`, `net`, `display` y `commands`, con raíces simbólicas `work`, `home` y `/`. Sin decorador, el mínimo.
+  - Main resuelve el Alcance en cada llamada y recorta toda raíz que contenga algo de AllIn. La carpeta de datos nunca se lee ni se escribe (salvo la Carpeta de trabajo, el `TMPDIR` y el package). La instalación, que es la carpeta del proyecto con `.git` y sus hooks, solo se lee. Las terminales nunca entran, y los enlaces entre las hermanas no se siguen.
+  - Red: con una lista de puertos, solo esos y UDP abierto; con `net=False`, UDP también cerrado; con `net=True`, una capa compartida que Main construye una vez deja todo menos los puertos de los Servidores (`LinkResolver.server_ports`: cada `servers/*.toml` y el observado). El filtro seccomp es ya una lista de familias permitidas.
+  - `display` abre X11 y Wayland: se probó con `xmessage` desde una tool encerrada. Hizo falta quitar con `display` el scope de sockets abstractos, porque libxcb no prueba el socket con ruta si el abstracto da `EPERM`.
+  - Coste por llamada: 20 ms sin red o con lista; 28 ms con `net=True` (la primera llamada, 71 ms, construye la capa).
+  - La revisión encontró que la instalación protegida era solo `src/`, y una tool con `write` sobre `~/Pictures` podía dejar un hook en `.githooks`: corregido, con test en el kernel real.
+  - Main todavía no lee `@reach` de ninguna function (llega con #102) ni crea el `ToolLauncher` con los puertos de sus Servidores (#106).
+  - `/dev/shm` no entra en el mínimo: quien use los semáforos de `multiprocessing` lo declara (`write=["/dev/shm"]`). Enmienda en ADR-0016; README con el Alcance y el recorte.
+  - Métricas: 1214 tests. Antes: #100 Lanzador de tools encerrado.
+- **Siguiente:** #102 Encierro de descripción.
+- **Preguntas abiertas para el usuario:** ¿le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -91,7 +91,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 
 1. ✅ #99 Prototipo desechable del encierro
 2. ✅ #100 Lanzador de tools encerrado
-3. #101 `@reach` y el Alcance
+3. ✅ #101 `@reach` y el Alcance
 4. #102 Encierro de descripción
 5. #103 Batería de fugas
 6. #104 Cuarentena y Aprobación
