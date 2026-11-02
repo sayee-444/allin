@@ -294,6 +294,10 @@ _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 Lo que el kernel impone al proceso de una Function tool o de un Proceso adherido según su Alcance: Landlock para archivos y TCP, y un filtro seccomp para lo que Landlock no ve (sockets unix, UDP sin red, io_uring, meter teclas en una terminal). El proceso se lo pone a sí mismo antes de importar su function, y no hereda de Main ni su terminal, ni su entorno, ni sus rutas de importación. Nada lo salta, ni `--devastation` (ADR-0016).
 _Avoid_: sandbox, jaula
 
+**Descripción** (`Description`):
+Lo que Main sabe de una function sin importarla: el schema de su tool para `tools=[...]` (uno por método público en una fproc), las marcas de sus decoradores y su Alcance. La saca un proceso aparte con el Encierro de descripción, que solo lee el mínimo, sin Carpeta de trabajo, sin escribir, sin red ni sockets unix y con timeout. Main la guarda con el hash de su package; cada llamada se encierra con el Alcance guardado, aunque el módulo diga otra cosa al importarse después (ADR-0016).
+_Avoid_: schema (es solo una parte), firma
+
 **Lanzador de tools** (`ToolLauncher`):
 El thread de larga vida de Main que lanza el proceso de cada llamada a una Function tool, y lanzará también los Procesos adheridos: la señal que mata a esos procesos cuando muere Main está atada al thread que los lanzó. Cada proceso nace con `subprocess` y un `socketpair` como único canal (ADR-0005). No es el Lanzador, que abre Ventanas.
 _Avoid_: worker, pool

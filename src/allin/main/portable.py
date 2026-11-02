@@ -5,8 +5,6 @@ What AllIn writes into one names files relative to the folder, never by an absol
 the machine, and holds no MainState, pids, FIFOs or locks.
 """
 
-import hashlib
-import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -20,6 +18,7 @@ from allin.core.errors import (
     PortableFormatUnknown,
     PortableInvalid,
 )
+from allin.core.hashing import files_hash
 
 FORMAT = 1
 MANIFEST = "manifest.json"
@@ -106,7 +105,7 @@ def write_portable(
         name=name,
         version=version,
         pieces=[
-            Piece(kind=p.kind, name=p.name, files=sorted(p.files), sha256=_hash(p.files))
+            Piece(kind=p.kind, name=p.name, files=sorted(p.files), sha256=files_hash(p.files))
             for p in pieces
         ],
     )
@@ -153,7 +152,7 @@ def read_portable(folder: Path, kind: PortableType) -> Portable:
         _check_readable(folder)
     files = _read_files(folder, manifest)
     for piece in manifest.pieces:
-        if _hash({path: files[path] for path in piece.files}) != piece.sha256:
+        if files_hash({path: files[path] for path in piece.files}) != piece.sha256:
             raise PortableInvalid(
                 path=str(folder), reason=f"{piece_id(piece.kind, piece.name)} changed"
             )
@@ -205,10 +204,3 @@ def _is_text(data: bytes) -> bool:
     except UnicodeDecodeError:
         return False
     return True
-
-
-def _hash(files: dict[str, bytes]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(files):
-        digest.update(json.dumps(path).encode() + b"\0" + files[path] + b"\0")
-    return digest.hexdigest()

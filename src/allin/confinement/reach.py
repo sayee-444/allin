@@ -21,10 +21,14 @@ _READ_DEVICES = ("zero", "urandom", "random")
 _TERMINALS = ("pts", "console", "tty*", "vcs*")
 
 
+def code_folder() -> Path:
+    """The folder Main imports ``allin`` from, which its wardens import it from too."""
+    return Path(allin.__file__).resolve().parent.parent
+
+
 def installation() -> tuple[Path, ...]:
     """What a tool reads of AllIn's to run: its code and its Python (ADR-0016)."""
-    code = Path(allin.__file__).resolve().parent.parent
-    return tuple(dict.fromkeys((code, Path(sys.prefix), Path(sys.base_prefix))))
+    return tuple(dict.fromkeys((code_folder(), Path(sys.prefix), Path(sys.base_prefix))))
 
 
 def install_root() -> Path:
@@ -86,6 +90,12 @@ def allowed_paths(reach: Reach, places: Places) -> ReachPaths:
     write = [*_minimum_write(places, out), *_declared(reach.write, places, out.of_writing)]
     read += _extras(reach, places)
     return ReachPaths(read=tuple(dict.fromkeys(read)), write=tuple(dict.fromkeys(write)))
+
+
+def description_paths(places: Places) -> tuple[Path, ...]:
+    """What the encierro de descripción reads (ADR-0016): the minimum's reading alone, with no
+    Carpeta de trabajo; it writes nothing. ``places.workspace`` and ``places.tmp`` are unused."""
+    return tuple(dict.fromkeys(_minimum_read(places, _KeptOut.of(places))))
 
 
 @dataclass(frozen=True)

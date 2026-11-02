@@ -46,3 +46,17 @@ Landlock y seccomp se aplican con `ctypes`, sin librerías, y los dos para todos
 - **Enlaces.** Al recortar, los enlaces simbólicos entre las carpetas hermanas se dejan fuera: una regla de Landlock sigue el enlace, y uno podría apuntar a la carpeta de datos.
 - **`/dev/shm`** no entra en el Alcance mínimo, como se decidió en #100. Una function que use los semáforos de `multiprocessing` lo declara (`write=["/dev/shm"]`), y la Aprobación lo muestra como cualquier otra ruta.
 - **Hasta el encierro de descripción (#102)**, el Alcance llega al lanzador en la llamada (`ToolCall.reach`), y Main todavía no lo lee de ninguna function.
+
+**Enmienda (2026-11-02, #102).** El encierro de descripción quedó así:
+- **El mismo vigilante.** La descripción es otro mensaje del canal (`describe`), que el vigilante atiende como una llamada sin function, así que muere con Main y se lleva a sus descendientes como una llamada. Su directorio actual y su `HOME` son su package, no tiene `TMPDIR`, lee solo lo que lee el mínimo (el sistema, el código de AllIn, el venv y su package) y no escribe nada. Importar pydantic para el schema solo cuesta ahí, una vez por versión del package.
+- **Qué es una tool.** Un módulo define exactamente una función o clase pública propia. Una función es una tool; una clase es una fproc, con una tool por método público. Si hay más de una o ninguna, la descripción falla y lo dice.
+- **Las marcas.** Cada decorador de AllIn deja en la función o en la clase un atributo `__allin_<nombre>__`, y la descripción los recoge todos, con el Alcance aparte. Así `@confirm`, `@human`, `@writes` y `@concurrent` se describirán sin tocar la descripción cuando lleguen sus issues.
+- **Dónde se guarda.** En `<carpeta de datos>/descriptions/<hash>.<módulo>.json`.
+  - El hash es el de las piezas (ADR-0013), sobre todo el package. Cuenta también `__pycache__`, porque Python importa un `.pyc` de ahí en vez de su fuente. Un enlace cuenta por adónde apunta, no por el archivo de allí.
+  - Main describe de nuevo cuando cambia el hash. Si el package cambia mientras se describe, no guarda nada (`PackageChanged`).
+  - Una descripción guardada que no dice el mismo hash y módulo que su nombre no se cree.
+- **Lo que vuelve es del módulo.** Su import corre antes que el describer, así que puede contestar lo que quiera. Por eso Main pone su propio hash, exige que hable de ese módulo y valida el Alcance con las reglas de `@reach`, que ahora viven en el propio `Reach` (`MalformedMessage` si no). Falsear la descripción no da más que declarar con `@reach`: lo que el módulo pida lo verá la Aprobación (#104).
+- **Lo que difiere de una llamada.** Al describir, el directorio actual y `HOME` son el package y no hay `TMPDIR`, así que un módulo puede saber que lo están describiendo. Para el Alcance da igual, porque se aplica el guardado. Para el schema y las marcas, lo que se aprueba es la descripción.
+- **El código del vigilante.** Arranca con `-I`, que ignora `PYTHONPATH`, así que recibe la carpeta de la que Main importa `allin` y la pone delante solo si no está ya en el camino.
+- **Kernel sin soporte.** Si al kernel le falta algo, una pieza que el usuario no escribió no se describe (`DescriptionRefused`). La procedencia, la cuarentena que muestra su código y su Aviso llegan con #104.
+- **Aún sin cablear.** Ningún código de `src/` describe todavía ni pasa `Description.reach` al `ToolCall`. Eso llega cuando Main lance tools (#106). La clave no lleva la versión de AllIn: si cambia el formato, la descripción vieja no parsea y se vuelve a sacar.

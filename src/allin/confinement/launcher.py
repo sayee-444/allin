@@ -32,6 +32,7 @@ from allin.confinement import landlock
 from allin.confinement.messages import (
     CallTool,
     Cancel,
+    DescribeModule,
     Died,
     Raised,
     Returned,
@@ -42,6 +43,8 @@ from allin.confinement.messages import (
 from allin.confinement.reach import (
     Places,
     allowed_paths,
+    code_folder,
+    description_paths,
     install_root,
     installation,
     resolver_folder,
@@ -56,6 +59,15 @@ _STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
 # What a graphical client needs from Main's environment, and only with ``display``.
 _DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR")
+
+# ``-I`` leaves PYTHONPATH out, so the warden is told where Main's ``allin`` is: it runs the
+# same code, which is the code its confinement lets it read. Already on the path (an
+# installed AllIn, in site-packages) it is left where it is, behind the standard library.
+_START = (
+    "import sys; code = sys.argv.pop(1); "
+    "code in sys.path or sys.path.insert(0, code); "
+    "from allin.confinement.warden import main; main()"
+)
 
 
 @dataclass(frozen=True)
@@ -146,14 +158,46 @@ class ToolLauncher:
         not be started."""
         tmp = self._data_dir / "tmp" / f"call-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
-        main_end, tool_end = socket.socketpair()
         servers = self._server_ports() if call.reach.network else frozenset[int]()
         try:
-            started = self._launch(call, tmp, tool_end, servers)
+            return self._converse(
+                call.workspace,
+                call.reach,
+                tmp,
+                servers,
+                lambda net_layer: self._message(call, tmp, servers, net_layer),
+                timeout,
+            )
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def describe(self, package: Path, module: str, timeout: float) -> ToolOutcome:
+        """Import ``module`` from ``package`` in its own process under the encierro de
+        descripción (ADR-0016) and give back what ``describer.describe`` makes of it. That
+        process reads only the minimum (the system, AllIn's code and the package), with no
+        Carpeta de trabajo, no writing, no network and no unix sockets. Raises as ``run``."""
+        read = description_paths(self._places(package, package, package))
+        message = DescribeModule(package=str(package), module=module, read=[str(p) for p in read])
+        return self._converse(package, MINIMUM, None, frozenset(), lambda _: message, timeout)
+
+    def _converse(
+        self,
+        workspace: Path,
+        reach: Reach,
+        tmp: Path | None,
+        servers: frozenset[int],
+        message: Callable[[int | None], CallTool | DescribeModule],
+        timeout: float,
+    ) -> ToolOutcome:
+        """Start a warden, send it ``message`` (made once the shared layer is known) and wait
+        for its answer, taking the call down after ``timeout``."""
+        main_end, tool_end = socket.socketpair()
+        try:
+            started = self._launch(workspace, reach, tmp, tool_end, servers)
             process = started.process
             tool_end.close()
             out, err = _Capture(process.stdout), _Capture(process.stderr)
-            main_end.sendall(encode(self._message(call, tmp, servers, started.net_layer)))
+            main_end.sendall(encode(message(started.net_layer)))
             try:
                 line = _read_line(main_end, time.monotonic() + timeout)
             except TimeoutError as error:
@@ -164,15 +208,12 @@ class ToolLauncher:
         finally:
             main_end.close()
             tool_end.close()
-            shutil.rmtree(tmp, ignore_errors=True)
 
-    def _message(
-        self, call: ToolCall, tmp: Path, servers: frozenset[int], net_layer: int | None
-    ) -> CallTool:
-        places = Places(
-            workspace=call.workspace,
+    def _places(self, workspace: Path, tmp: Path, package: Path) -> Places:
+        return Places(
+            workspace=workspace,
             tmp=tmp,
-            package=call.package,
+            package=package,
             data_dir=self._data_dir,
             installation=installation(),
             install_root=install_root(),
@@ -180,7 +221,11 @@ class ToolLauncher:
             resolver=resolver_folder(),
             xauthority=x11_cookie(),
         )
-        paths = allowed_paths(call.reach, places)
+
+    def _message(
+        self, call: ToolCall, tmp: Path, servers: frozenset[int], net_layer: int | None
+    ) -> CallTool:
+        paths = allowed_paths(call.reach, self._places(call.workspace, tmp, call.package))
         ports = call.reach.tcp_ports(servers)
         return CallTool(
             package=str(call.package),
@@ -197,29 +242,25 @@ class ToolLauncher:
         )
 
     def _launch(
-        self, call: ToolCall, tmp: Path, channel: socket.socket, servers: frozenset[int]
+        self,
+        workspace: Path,
+        reach: Reach,
+        tmp: Path | None,
+        channel: socket.socket,
+        servers: frozenset[int],
     ) -> _Started:
-        argv = [
-            sys.executable,
-            "-I",
-            "-m",
-            "allin.confinement.warden",
-            str(os.getpid()),
-            str(channel.fileno()),
-        ]
-        env = {
-            "PATH": _PATH,
-            "LANG": "C.UTF-8",
-            "TMPDIR": str(tmp),
-            "HOME": str(call.workspace),
-        }
-        if call.reach.display:
+        argv = [sys.executable, "-I", "-c", _START, str(code_folder()), str(os.getpid())]
+        argv.append(str(channel.fileno()))
+        env = {"PATH": _PATH, "LANG": "C.UTF-8", "HOME": str(workspace)}
+        if tmp is not None:
+            env["TMPDIR"] = str(tmp)
+        if reach.display:
             env |= {name: os.environ[name] for name in _DISPLAY_ENV if name in os.environ}
         started: Future[_Started] = Future()
         if not self._thread.is_alive():
             raise ToolNotStarted(cause="stopped")
-        forbidden = servers if call.reach.tcp_ports(servers) is None else None
-        self._requests.put(_Launch(argv, env, call.workspace, channel.fileno(), forbidden, started))
+        forbidden = servers if reach.tcp_ports(servers) is None else None
+        self._requests.put(_Launch(argv, env, workspace, channel.fileno(), forbidden, started))
         return started.result()
 
     def _serve(self) -> None:

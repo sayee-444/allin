@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from allin.core.hashing import files_hash
 from allin.core.settings import MainSettings
 from allin.core.themes import BUILTIN, PALETTE, Theme, parse_theme
 from allin.ipc.messages import BoxShow, ThemeSet, decode_main_message, encode
 from allin.main.events import MainCommandEntered, ThemesChanged
-from allin.main.portable import _hash  # pyright: ignore[reportPrivateUsage]
 from allin.main.profiles import ProfileStore
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.themes import FontProbe, Looks, ThemeBook, fontconfig_probe
@@ -360,7 +360,7 @@ def test_a_kit_with_an_invalid_theme_is_refused(main: MainHarness, tmp_path: Pat
     manifest = json.loads((kit / "manifest.json").read_text())
     for piece in manifest["pieces"]:
         if piece["kind"] == "theme":
-            piece["sha256"] = _hash({"themes/oceano.toml": bad.encode()})
+            piece["sha256"] = files_hash({"themes/oceano.toml": bad.encode()})
     (kit / "themes" / "oceano.toml").write_text(bad)
     (kit / "manifest.json").write_text(json.dumps(manifest))
     main.profiles.create("otro", main.profile)

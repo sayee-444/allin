@@ -13,7 +13,7 @@ from allin.core.errors import InvalidReach
 
 type Root = Literal["work", "home", "/"]
 ROOTS: tuple[Root, ...] = ("work", "home", "/")
-_MARK = "__allin_reach__"
+REACH_MARK = "__allin_reach__"  # where ``@reach`` leaves the Alcance on its target
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,15 @@ class Reach:
     display: bool = False
     commands: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        """However it is made, by ``@reach``, by hand or parsed by Main: raises ``InvalidReach``
+        for what is not an Alcance."""
+        _paths("read", self.read)
+        _paths("write", self.write)
+        _net(self.net)
+        _flag("display", self.display)
+        _strings("commands", self.commands)
+
     @property
     def network(self) -> bool:
         """Whether it has any network: without it, UDP is closed too."""
@@ -44,9 +53,6 @@ class Reach:
         if self.net is True:
             return None
         return tuple(sorted(set(self.net or ()) - servers))
-
-
-MINIMUM = Reach()  # its Carpeta de trabajo, reading the system and its package, no network
 
 
 def reach[T](
@@ -67,7 +73,7 @@ def reach[T](
     )
 
     def mark(target: T) -> T:
-        setattr(target, _MARK, declared)
+        setattr(target, REACH_MARK, declared)
         return target
 
     return mark
@@ -75,7 +81,7 @@ def reach[T](
 
 def reach_of(target: object) -> Reach:
     """The Alcance a function or class declares; the minimum without ``@reach``."""
-    declared: object = getattr(target, _MARK, MINIMUM)
+    declared: object = getattr(target, REACH_MARK, MINIMUM)
     return declared if isinstance(declared, Reach) else MINIMUM
 
 
@@ -114,3 +120,7 @@ def _flag(field: str, value: object) -> bool:
     if not isinstance(value, bool):
         raise InvalidReach(field=field, value=repr(value))
     return value
+
+
+# Made last: building a Reach checks it with the functions above.
+MINIMUM = Reach()  # its Carpeta de trabajo, reading the system and its package, no network

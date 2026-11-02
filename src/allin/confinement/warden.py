@@ -1,6 +1,6 @@
 """The Vigilante (warden): the first code a Function tool's process runs (ADR-0005, ADR-0016).
 
-Main starts it as ``python -I -m allin.confinement.warden <main pid> <channel fd>``, in a new
+Main starts it as ``python -I -c <start> <allin's folder> <main pid> <channel fd>``, in a new
 session, with ``/dev/null`` as input and a clean environment. It dies with the thread that
 launched it, reads the call from its channel, confines itself, and forks the runner: the
 process that imports and runs the function. When the runner answers, or Main cancels, or Main
@@ -41,11 +41,12 @@ type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | Non
 
 @dataclass(frozen=True)
 class _Call:
-    """``messages.CallTool``, as Main wrote it."""
+    """``messages.CallTool`` or ``messages.DescribeModule``, as Main wrote it: a description
+    has no ``function``, runs in its package and gets nothing but reading."""
 
     package: str
     module: str
-    function: str
+    function: str | None  # None: describe the module (the encierro de descripción)
     arguments: dict[str, _Json]
     workspace: str
     read: tuple[Path, ...]
@@ -112,6 +113,35 @@ def _parse_call(message: object) -> _Call | None:
     if not isinstance(message, dict):
         return None
     fields: dict[object, object] = message  # pyright: ignore[reportUnknownVariableType] - JSON
+    match fields.get("type"):
+        case "call":
+            return _parse_tool_call(fields)
+        case "describe":
+            return _parse_description(fields)
+        case _:
+            return None
+
+
+def _parse_description(fields: dict[object, object]) -> _Call | None:
+    package, module, read = fields.get("package"), fields.get("module"), _paths(fields.get("read"))
+    if not (isinstance(package, str) and isinstance(module, str) and read is not None):
+        return None
+    return _Call(
+        package=package,
+        module=module,
+        function=None,
+        arguments={},
+        workspace=package,
+        read=read,
+        write=(),
+        connect=(),
+        net_layer=None,
+        ip=False,
+        unix=False,
+    )
+
+
+def _parse_tool_call(fields: dict[object, object]) -> _Call | None:
     package, module, function, workspace = (
         fields.get(key) for key in ("package", "module", "function", "workspace")
     )
@@ -121,8 +151,7 @@ def _parse_call(message: object) -> _Call | None:
     ports = None if connect is None else _ports(connect)
     ip, unix = fields.get("ip"), fields.get("unix")
     if not (
-        fields.get("type") == "call"
-        and isinstance(package, str)
+        isinstance(package, str)
         and isinstance(module, str)
         and isinstance(function, str)
         and isinstance(workspace, str)
@@ -236,7 +265,12 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     multiprocessing.set_start_method("spawn", force=True)
     try:
         module = importlib.import_module(call.module)
-        value = getattr(module, call.function)(**call.arguments)
+        if call.function is None:  # imported only here: pydantic costs nothing to a call
+            from allin.confinement.describer import describe  # noqa: PLC0415
+
+            value = describe(module)
+        else:
+            value = getattr(module, call.function)(**call.arguments)
         answer = _line({"type": "returned", "value": value})
     except BaseException as error:  # noqa: BLE001 - the function's error is its output, as data
         answer = _line({"type": "raised", "error": f"{type(error).__name__}: {error}"})

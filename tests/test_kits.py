@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from allin.core.hashing import files_hash
 from allin.core.settings import MainSettings, SessionSettings
 from allin.main.events import BoxAnswered, MainCommandEntered
-from allin.main.portable import MANIFEST, _hash  # pyright: ignore[reportPrivateUsage]
+from allin.main.portable import MANIFEST
 from allin.main.profiles import Profile
 from allin.main.settings_files import MainSettingsFiles
 from allin.ui.screen import ShowBox
@@ -61,7 +62,7 @@ def add_piece(folder: Path, kind: str, name: str, files: dict[str, bytes]) -> No
         (folder / path).parent.mkdir(parents=True, exist_ok=True)
         (folder / path).write_bytes(data)
     manifest = json.loads((folder / MANIFEST).read_text())
-    piece = {"kind": kind, "name": name, "files": sorted(files), "sha256": _hash(files)}
+    piece = {"kind": kind, "name": name, "files": sorted(files), "sha256": files_hash(files)}
     manifest["pieces"].append(piece)
     (folder / MANIFEST).write_text(json.dumps(manifest))
 
