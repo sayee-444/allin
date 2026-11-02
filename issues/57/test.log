@@ -1,0 +1,27 @@
+#57 Atajos de teclado con /key — prueba a mano (2026-11-01)
+Código: rama feature/57-atajos-key. Servidor: el IQ3_XXS de 9931. Main con datos en <scratch>/d57, Sesión p06ybi.
+Las teclas se mandan a las xterm como eventos de X (Alt = Mod1Mask).
+
+1. /key (a-main-key-y-errores.png): lista «main: …» y «template: …»; los cambiados llevan « *» («main: f5 /new *»).
+2. /key p06ybi alt+enter send → ok; /key p06ybi enter off → ok. Settings de la Sesión: {'alt+enter': 'send', 'enter': 'off'}.
+   En la Ventana, «Di solo UNO» + Enter: no se envía y el input queda igual (b-enter-apagado.png).
+   Alt+Enter: se envía y el modelo responde «UNO» (c-alt-enter-envia.png).
+   La prueba sacó dos fallos, ya corregidos:
+   - con Enter sin Atajo, Enter escribía «enter» en el input: una tecla con nombre caía en el caso de los
+     caracteres (`Key` es un StrEnum); ahora `typed_char` solo deja pasar caracteres.
+   - xterm se queda Alt+Enter para su pantalla completa y no llega a la Ventana; el lanzador añade
+     `XTerm*omitTranslation: fullscreen`.
+3. Ocupada: /key p06ybi down newer → «error shortcut_taken: key='down', bound='down'»; con --replace → ok.
+4. La última para enviar: /key p06ybi alt+enter off (con enter off) → «error last_send_key: key='alt+enter'».
+5. Una Ventana no toma comandos hasta F2: /key p06ybi f5 /new → «error shortcut_invalid …».
+6. Atajo del Chat de Main: /key f5 /new → ok; F5 en Main abre la Sesión q9bfgs: el Log de Main apunta
+   el comando «/new» con resultado ok, como si lo tecleara el humano.
+7. /key ctrl+up older: la Ventana no distingue Ctrl+↑ de ↑. Salía el uso del comando; ahora dice
+   «key_name_invalid … a Window cannot tell ctrl+up from up».
+8. Origen de Sesión: no hay en F1 un camino a mano que mande un comando con Origen de Sesión; lo cubre
+   test_key_from_a_session_is_refused (error human_only).
+
+Tests: tests/test_ui_shortcuts.py (nombres de teclas, defaults, solapes, la última para enviar, comandos,
+resolver una tecla, entradas malas de un archivo, el listado), tests/test_key_command.py (MainHarness:
+/key en Main, en una Sesión y en la plantilla, herencia en /new, Origen de Sesión, Ventana sin comandos)
+y tests/test_ui_keys.py (F1–F12 y typed_char). Al final: /exit en Main.
