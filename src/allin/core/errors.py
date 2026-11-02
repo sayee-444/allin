@@ -475,3 +475,10 @@ class DescriptionRefused(AllInError):
     not even described: it stays in quarantine showing only its code (ADR-0016)."""
 
     code: ClassVar[str] = "description_refused"
+
+
+class PackageChanged(AllInError):
+    """A function's package changed while ``module`` was being described, so its description
+    is not kept: whoever asked describes it again."""
+
+    code: ClassVar[str] = "package_changed"

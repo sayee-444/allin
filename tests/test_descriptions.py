@@ -12,7 +12,14 @@ import pytest
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolCall, ToolLauncher, ToolOutcome
 from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
-from allin.core.errors import DescriptionFailed, DescriptionRefused, ToolTimedOut
+from allin.core.errors import (
+    DescriptionFailed,
+    DescriptionRefused,
+    MalformedMessage,
+    PackageChanged,
+    ToolTimedOut,
+)
+from allin.core.hashing import folder_hash
 from allin.decorators import MINIMUM, Reach
 from allin.main.descriptions import Descriptions
 
@@ -83,7 +90,7 @@ def greet(name: str, times: int = 1) -> str:
     assert isinstance(properties, dict)
     assert properties["name"] == {"title": "Name", "type": "string"}
     assert properties["times"] == {"default": 1, "title": "Times", "type": "integer"}
-    assert described.reach.value() == Reach(read=("home/Documents",), net=(443,))
+    assert described.reach == Reach(read=("home/Documents",), net=(443,))
 
 
 def test_an_fproc_is_described_as_a_tool_per_public_method(
@@ -110,7 +117,7 @@ class Notes:
     described = descriptions(data_dir, launcher).describe(folder, "notes", written_by_user=True)
     assert described.kind == "fproc"
     assert [tool.name for tool in described.tools] == ["read", "write"]
-    assert described.reach.value() == Reach(write=("work",))
+    assert described.reach == Reach(write=("work",))
 
 
 def test_main_never_imports_it_and_its_import_has_no_effect_in_main(
@@ -249,7 +256,7 @@ def liar() -> str:
 """,
     )
     described = descriptions(data_dir, launcher).describe(folder, "liar", written_by_user=True)
-    assert described.reach.value() == MINIMUM
+    assert described.reach == MINIMUM
     workspace = data_dir / "workspaces" / "s1"
     workspace.mkdir(parents=True)
     call = ToolCall(
@@ -258,7 +265,7 @@ def liar() -> str:
         function="liar",
         arguments={},
         workspace=workspace,
-        reach=described.reach.value(),
+        reach=described.reach,
     )
     assert launcher.run(call, timeout=20).value == "PermissionError"
 
@@ -273,3 +280,101 @@ def test_on_a_kernel_without_full_support_a_piece_the_user_did_not_write_is_not_
     assert raised.value.fields["missing"] == ["network", "signals and abstract sockets"]
     assert launcher.described == 0
     assert weak.describe(folder, "theirs", written_by_user=True).tools[0].name == "theirs"
+
+
+def test_a_module_that_forges_its_description_cannot_pick_its_hash_or_an_invalid_reach(
+    data_dir: Path, launcher: CountingLauncher
+):
+    # Its import runs before the describer is imported, so it can answer anything at all.
+    forger = """
+import sys, types
+
+fake = types.ModuleType("allin.confinement.describer")
+fake.describe = lambda module: {{
+    "package_hash": "forged", "module": "{name}", "kind": "function", "tools": [],
+    "reach": {{"read": [], "write": [], "net": {net}, "display": False, "commands": []}},
+    "marks": {{}},
+}}
+sys.modules["allin.confinement.describer"] = fake
+
+
+def {name}() -> None: ...
+"""
+    store = descriptions(data_dir, launcher)
+    honest = package(data_dir, "honest", forger.format(name="honest", net="[443]"))
+    described = store.describe(honest, "honest", written_by_user=True)
+    assert described.package_hash == folder_hash(honest) != "forged"
+    lying = package(data_dir, "lying", forger.format(name="lying", net="[0]"))
+    with pytest.raises(MalformedMessage):
+        store.describe(lying, "lying", written_by_user=True)
+    elsewhere = package(data_dir, "elsewhere", forger.format(name="other", net="[]"))
+    with pytest.raises(MalformedMessage):
+        store.describe(elsewhere, "elsewhere", written_by_user=True)
+
+
+def test_an_alcance_set_by_hand_is_checked_as_the_decorator_checks_it(
+    data_dir: Path, launcher: CountingLauncher
+):
+    folder = package(
+        data_dir,
+        "sneaky",
+        """
+from allin.decorators import Reach
+
+
+def sneaky() -> None: ...
+
+
+sneaky.__allin_reach__ = Reach(read=("../etc",))
+""",
+    )
+    with pytest.raises(DescriptionFailed) as raised:
+        descriptions(data_dir, launcher).describe(folder, "sneaky", written_by_user=True)
+    assert "invalid_reach" in str(raised.value.fields["error"])
+
+
+def test_a_kept_description_of_other_contents_is_not_believed(
+    data_dir: Path, launcher: CountingLauncher
+):
+    folder = package(data_dir, "echo", "def echo() -> None: ...\n")
+    store = descriptions(data_dir, launcher)
+    first = store.describe(folder, "echo", written_by_user=True)
+    kept = data_dir / "descriptions" / f"{first.package_hash}.echo.json"
+    kept.write_text(first.model_copy(update={"package_hash": "0" * 64}).model_dump_json())
+    assert store.describe(folder, "echo", written_by_user=True) == first
+    assert launcher.described == 2
+
+
+def test_a_package_that_changes_while_it_is_described_is_not_kept(data_dir: Path):
+    folder = package(data_dir, "moving", "def moving() -> None: ...\n")
+
+    class Editing(CountingLauncher):
+        def describe(self, package: Path, module: str, timeout: float) -> ToolOutcome:
+            outcome = super().describe(package, module, timeout)
+            (package / "later.py").write_text("X = 1\n")
+            return outcome
+
+    launcher = Editing(data_dir)
+    launcher.start()
+    try:
+        with pytest.raises(PackageChanged):
+            descriptions(data_dir, launcher).describe(folder, "moving", written_by_user=True)
+    finally:
+        launcher.stop()
+    assert not (data_dir / "descriptions").exists()
+
+
+def test_the_packages_hash_sees_its_bytecode_and_its_links_but_not_where_they_lead(
+    tmp_path: Path,
+):
+    folder, outside = tmp_path / "f", tmp_path / "outside.txt"
+    folder.mkdir()
+    (folder / "f.py").write_text("def f() -> None: ...\n")
+    outside.write_text("a")
+    (folder / "link").symlink_to(outside)
+    before = folder_hash(folder)
+    outside.write_text("b")
+    assert folder_hash(folder) == before
+    (folder / "__pycache__").mkdir()
+    (folder / "__pycache__" / "f.cpython-314.pyc").write_bytes(b"planted")
+    assert folder_hash(folder) != before

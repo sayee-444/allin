@@ -61,3 +61,10 @@ def test_its_tcp_ports_never_include_a_servers_and_net_true_leaves_them_to_a_lay
     assert Reach(net=True).tcp_ports(servers) is None
     assert MINIMUM.tcp_ports(servers) == ()
     assert Reach(net=(443,)).network and Reach(net=True).network and not MINIMUM.network
+
+
+def test_a_reach_made_by_hand_is_checked_too():
+    with pytest.raises(InvalidReach):
+        Reach(net=(0,))
+    with pytest.raises(InvalidReach):
+        Reach(write=("srv",))

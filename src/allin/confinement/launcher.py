@@ -32,6 +32,7 @@ from allin.confinement import landlock
 from allin.confinement.messages import (
     CallTool,
     Cancel,
+    DescribeModule,
     Died,
     Raised,
     Returned,
@@ -57,13 +58,16 @@ _ANSWER_MAX = 16 * 1024 * 1024
 _STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
 # What a graphical client needs from Main's environment, and only with ``display``.
+_DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR")
+
 # ``-I`` leaves PYTHONPATH out, so the warden is told where Main's ``allin`` is: it runs the
-# same code, which is the code its confinement lets it read.
+# same code, which is the code its confinement lets it read. Already on the path (an
+# installed AllIn, in site-packages) it is left where it is, behind the standard library.
 _START = (
-    "import sys; sys.path.insert(0, sys.argv.pop(1)); "
+    "import sys; code = sys.argv.pop(1); "
+    "code in sys.path or sys.path.insert(0, code); "
     "from allin.confinement.warden import main; main()"
 )
-_DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR")
 
 
 @dataclass(frozen=True)
@@ -172,20 +176,8 @@ class ToolLauncher:
         descripción (ADR-0016) and give back what ``describer.describe`` makes of it. That
         process reads only the minimum (the system, AllIn's code and the package), with no
         Carpeta de trabajo, no writing, no network and no unix sockets. Raises as ``run``."""
-        message = CallTool(
-            package=str(package),
-            module=module,
-            function="",
-            arguments={},
-            workspace=str(package),
-            read=[str(p) for p in description_paths(self._places(package, package, package))],
-            write=[],
-            connect=[],
-            net_layer=None,
-            ip=False,
-            unix=False,
-            describe=True,
-        )
+        read = description_paths(self._places(package, package, package))
+        message = DescribeModule(package=str(package), module=module, read=[str(p) for p in read])
         return self._converse(package, MINIMUM, None, frozenset(), lambda _: message, timeout)
 
     def _converse(
@@ -194,7 +186,7 @@ class ToolLauncher:
         reach: Reach,
         tmp: Path | None,
         servers: frozenset[int],
-        message: Callable[[int | None], CallTool],
+        message: Callable[[int | None], CallTool | DescribeModule],
         timeout: float,
     ) -> ToolOutcome:
         """Start a warden, send it ``message`` (made once the shared layer is known) and wait
@@ -247,7 +239,6 @@ class ToolLauncher:
             net_layer=net_layer,
             ip=call.reach.network,
             unix=call.reach.display,
-            describe=False,
         )
 
     def _launch(

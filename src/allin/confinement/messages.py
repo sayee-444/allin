@@ -2,7 +2,7 @@
 (ADR-0002, ADR-0005). Never ``pickle``: a confined process that wrote one would run code in
 Main (#99). What comes back from the tool is parsed here, at the boundary.
 
-The warden (``boot.py``) reads and writes these same shapes with the standard library, so a
+The warden (``warden.py``) reads and writes these same shapes with the standard library, so a
 tool's process does not pay for importing pydantic (#100); the launcher tests run both ends."""
 
 from typing import Annotated, Literal
@@ -27,7 +27,16 @@ class CallTool(BaseModel, frozen=True):
     net_layer: int | None  # the descriptor of net=True's shared layer (``port_layer``)
     ip: bool  # whether it may create IP sockets at all; without it UDP is closed too
     unix: bool  # whether it may create unix sockets: ``display``
-    describe: bool  # describe the module (``describer``) instead of calling ``function``
+
+
+class DescribeModule(BaseModel, frozen=True):
+    """Main to the warden: import this module under the encierro de descripción, reading only
+    ``read``, and answer with what ``describer.describe`` makes of it (ADR-0016)."""
+
+    type: Literal["describe"] = "describe"
+    package: str
+    module: str
+    read: list[str]
 
 
 class Cancel(BaseModel, frozen=True):
