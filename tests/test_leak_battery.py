@@ -19,18 +19,25 @@ Where a target could simply be missing, its test first reaches it with a wide Al
 control), so a refusal is the Encierro's and not an empty socket's.
 """
 
+import ctypes
+import importlib.machinery
 import importlib.util
+import json
 import os
 import py_compile
 import socket
+import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from allin.confinement import launcher as launcher_module
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolCall, ToolLauncher
+from allin.core.errors import PackageNotSource
 from allin.decorators import MINIMUM, Reach
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
@@ -169,6 +176,9 @@ def udp(port):
         return _errno(error)
 """
 
+_PR_SET_PTRACER = 0x59616D61
+_PR_SET_PTRACER_ANY = 2**64 - 1  # (unsigned long) -1
+
 GENUINE = 'def run():\n    return "source"\n'
 PLANTED = 'def run():\n    return "forged"\n'  # as long as GENUINE: its pyc's size matches
 
@@ -276,15 +286,48 @@ def test_io_uring(launcher: ToolLauncher, package: Path, workspace: Path):
     assert refused == {"setup": "EPERM", "enter": "EPERM", "register": "EPERM"}
 
 
+@pytest.fixture
+def traceable_main() -> Iterator[int]:
+    """Main as any process of the user may trace it, Yama's scope aside: so only the Encierro
+    can refuse a tool's ``ptrace``. Its pid."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.prctl(_PR_SET_PTRACER, ctypes.c_ulong(_PR_SET_PTRACER_ANY), 0, 0, 0)
+    yield os.getpid()
+    libc.prctl(_PR_SET_PTRACER, 0, 0, 0, 0)
+
+
+def unconfined(package: Path, function: str, *arguments: object) -> object:
+    """The probe run by a plain child of Main, with no Encierro: the control."""
+    code = f"import json, probe; print(json.dumps(probe.{function}(*{arguments!r})))"
+    ran = subprocess.run(  # -B: no __pycache__, which Main would refuse the package for
+        [sys.executable, "-B", "-c", code],
+        cwd=package,
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(ran.stdout)
+
+
 def test_a_signal_to_main(launcher: ToolLauncher, package: Path, workspace: Path):
-    refused = run(launcher, package, workspace, "signals", main=os.getpid())
+    main = os.getpid()
+    assert unconfined(package, "signals", main) == {
+        "probe": "sent",
+        "SIGWINCH": "sent",  # ignored by default
+        "pidfd_send_signal": "sent",
+    }
+    refused = run(launcher, package, workspace, "signals", main=main)
     assert refused == {"probe": "EPERM", "SIGWINCH": "EPERM", "pidfd_send_signal": "EPERM"}
 
 
 def test_ptrace_on_main_and_what_shares_its_check(
-    launcher: ToolLauncher, package: Path, workspace: Path
+    launcher: ToolLauncher, package: Path, workspace: Path, traceable_main: int
 ):
-    refused = run(launcher, package, workspace, "trace", main=os.getpid())
+    control = unconfined(package, "trace", traceable_main)
+    assert isinstance(control, dict)
+    assert control["PTRACE_SEIZE"] == "done" and control["pidfd_getfd"] == "done"
+    refused = run(launcher, package, workspace, "trace", main=traceable_main)
     assert refused == {
         "PTRACE_SEIZE": "EPERM",
         "process_vm_readv": "EPERM",
@@ -340,28 +383,89 @@ def plant(package: Path, module: str, mode: py_compile.PycInvalidationMode) -> N
     os.utime(source, ns=(stamp, stamp))
 
 
-@pytest.mark.parametrize(
-    "mode",
-    [py_compile.PycInvalidationMode.TIMESTAMP, py_compile.PycInvalidationMode.UNCHECKED_HASH],
-)
+PYC_MODES = [
+    py_compile.PycInvalidationMode.TIMESTAMP,
+    py_compile.PycInvalidationMode.UNCHECKED_HASH,
+]
+
+SPAWNS = """
+import multiprocessing, subprocess, sys
+
+
+def _child(end):
+    import victim
+    end.send(victim.run())
+
+
+def through_children():
+    context = multiprocessing.get_context("spawn")
+    mine, theirs = context.Pipe()  # a socketpair: a Queue would need /dev/shm
+    child = context.Process(target=_child, args=(theirs,))
+    child.start()
+    spawned = mine.recv()
+    child.join()
+    command = [sys.executable, "-c", "import victim; print(victim.run())"]
+    env = {"PYTHONPATH": sys.path[-1]}
+    ran = subprocess.run(command, capture_output=True, text=True, env=env, check=True)
+    return {"multiprocessing": spawned, "python": ran.stdout.strip()}
+"""
+
+
+@pytest.mark.parametrize("mode", PYC_MODES)
 def test_a_prepared_pyc_that_does_not_match_its_source(
     launcher: ToolLauncher, package: Path, workspace: Path, mode: py_compile.PycInvalidationMode
 ):
     plant(package, "victim", mode)
-    cached = importlib.util.cache_from_source(str(package / "victim.py"))
-    assert Path(cached).exists()
+    assert Path(importlib.util.cache_from_source(str(package / "victim.py"))).exists()
+    with pytest.raises(PackageNotSource) as refused:
+        launcher.run(ToolCall(package, "victim", "run", {}, workspace=workspace), timeout=20)
+    assert refused.value.fields["files"] == ["__pycache__", f"__pycache__/{cached_name()}"]
+
+
+def test_a_pyc_or_a_compiled_module_without_its_source(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    for name in ("ghost.pyc", f"native{importlib.machinery.EXTENSION_SUFFIXES[0]}"):
+        (package / name).write_bytes(b"\0compiled")
+        with pytest.raises(PackageNotSource):
+            launcher.run(ToolCall(package, "probe", "tcp", {"port": 1}, workspace), timeout=20)
+        with pytest.raises(PackageNotSource):
+            launcher.describe(package, "probe", timeout=20)
+        (package / name).unlink()
+
+
+@pytest.mark.parametrize("mode", PYC_MODES)
+def test_a_pyc_that_gets_past_mains_check_is_not_imported_by_the_warden(
+    launcher: ToolLauncher,
+    package: Path,
+    workspace: Path,
+    mode: py_compile.PycInvalidationMode,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # As if it were planted between Main's check and the import: the warden still compiles the
+    # source. Its children do not (see through_children), which is why Main checks first.
+    monkeypatch.setattr(launcher_module, "_refuse_compiled", _no_check)
+    plant(package, "victim", mode)
     outcome = launcher.run(ToolCall(package, "victim", "run", {}, workspace=workspace), timeout=20)
     assert outcome.value == "source"
 
 
-def test_a_pyc_without_its_source(launcher: ToolLauncher, package: Path, workspace: Path):
-    plant(package, "ghost", py_compile.PycInvalidationMode.UNCHECKED_HASH)
-    cached = Path(importlib.util.cache_from_source(str(package / "ghost.py")))
-    cached.rename(package / "ghost.pyc")  # where Python loads a module with no source
-    (package / "ghost.py").unlink()
-    outcome = launcher.run(ToolCall(package, "ghost", "run", {}, workspace=workspace), 20)
-    assert outcome.value is None
-    assert (outcome.error or "").startswith("ModuleNotFoundError")
+def test_with_no_pyc_the_functions_children_import_the_source(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    (package / "victim.py").write_text(GENUINE)
+    (package / "spawns.py").write_text(SPAWNS)
+    outcome = launcher.run(ToolCall(package, "spawns", "through_children", {}, workspace), 20)
+    assert outcome.error is None, outcome.stderr
+    assert outcome.value == {"multiprocessing": "source", "python": "source"}
+
+
+def _no_check(_package: Path) -> None:
+    pass
+
+
+def cached_name() -> str:
+    return Path(importlib.util.cache_from_source("victim.py")).name
 
 
 def test_the_ports_of_allins_servers(package: Path, workspace: Path, data_dir: Path):

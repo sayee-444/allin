@@ -482,3 +482,10 @@ class PackageChanged(AllInError):
     is not kept: whoever asked describes it again."""
 
     code: ClassVar[str] = "package_changed"
+
+
+class PackageNotSource(AllInError):
+    """A function's ``package`` holds compiled code (``files``: ``__pycache__``, a ``.pyc`` or
+    an extension module), which no call runs: what was approved is its source (ADR-0013)."""
+
+    code: ClassVar[str] = "package_not_source"

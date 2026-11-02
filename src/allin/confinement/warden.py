@@ -263,7 +263,7 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     os.chdir(call.workspace)
     # ``-I`` left the standard library and the venv; the package goes last, so it can never
     # shadow them. The Carpeta de trabajo is never on the path.
-    sys.path_hooks.insert(0, _sources_only_in(Path(call.package)))
+    sys.path_hooks.insert(0, _sources_only_in(Path(call.package).resolve()))
     sys.path.append(call.package)
     # forkserver, the default since 3.14, needs a unix socket the filter refuses (#99).
     multiprocessing.set_start_method("spawn", force=True)
@@ -296,10 +296,12 @@ class _SourceOnlyLoader(importlib.machinery.SourceFileLoader):
 
 def _sources_only_in(package: Path) -> Callable[[str], importlib.machinery.FileFinder]:
     """A path hook for the package's folders alone: they import ``.py`` sources and nothing
-    else, neither a ``.pyc`` without its source nor compiled code (ADR-0016, #103)."""
+    else, neither a ``.pyc`` without its source nor compiled code (ADR-0016, #103). Main
+    refuses a package that holds any before it starts a call, since a process the function
+    spawns imports without this hook."""
 
     def finder(path: str) -> importlib.machinery.FileFinder:
-        if not Path(path).is_relative_to(package):
+        if not Path(path).resolve().is_relative_to(package):
             raise ImportError  # not the package's: the next hook takes it
         sources = (_SourceOnlyLoader, importlib.machinery.SOURCE_SUFFIXES)
         return importlib.machinery.FileFinder(path, sources)

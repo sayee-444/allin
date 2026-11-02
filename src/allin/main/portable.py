@@ -19,6 +19,7 @@ from allin.core.errors import (
     PortableInvalid,
 )
 from allin.core.hashing import files_hash
+from allin.core.sources import compiled_files
 
 FORMAT = 1
 MANIFEST = "manifest.json"
@@ -180,12 +181,7 @@ def _read_files(folder: Path, manifest: Manifest) -> dict[str, bytes]:
 def _check_readable(folder: Path) -> None:
     """A Kit only holds sources a person can read: compiled code or a binary refuses it whole
     (ADR-0014)."""
-    compiled = sorted(
-        path.relative_to(folder).as_posix()
-        for path in folder.rglob("*")
-        if path.name == "__pycache__" or path.suffix in (".pyc", ".pyo")
-    )
-    if compiled:
+    if compiled := compiled_files(folder):
         raise KitRejected(reason="compiled code", files=list[JsonValue](compiled))
     binary = sorted(
         path.relative_to(folder).as_posix()
