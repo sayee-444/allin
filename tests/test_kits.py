@@ -181,7 +181,7 @@ def test_a_load_cut_halfway_leaves_the_profile_as_it_was(
     monkeypatch.setattr(Path, "write_bytes", failing_write)
     chat = main.run(command(f"/kit load {kit} --take sysprompt:tutor.txt"))
     monkeypatch.undo()
-    assert any("profile_storage_failed" in line for line in chat)
+    assert any("profile_storage_failed" in line and "kits.json" in line for line in chat)
     assert len(writes) >= 2
     after = {p.name: p.read_bytes() for p in target.folder.rglob("*") if p.is_file()}
     assert {k: v for k, v in after.items() if k != "state.json"} == {

@@ -354,15 +354,19 @@ def _free_name(target: Path, kit: str) -> Path:
 def _write_all(writes: Mapping[Path, bytes]) -> None:
     """Write every file or, if one fails, put back what was there before."""
     backups: dict[Path, bytes | None] = {}
-    try:
-        for path, data in writes.items():
+    for path, data in writes.items():
+        try:
             backups[path] = path.read_bytes() if path.exists() else None
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-    except OSError as error:
-        for path, before in backups.items():
-            if before is None:
-                path.unlink(missing_ok=True)
-            else:
-                path.write_bytes(before)
-        raise ProfileStorageFailed(path=str(next(iter(writes))), reason=str(error)) from error
+        except OSError as error:
+            _put_back(backups)
+            raise ProfileStorageFailed(path=str(path), reason=str(error)) from error
+
+
+def _put_back(backups: Mapping[Path, bytes | None]) -> None:
+    for path, before in backups.items():
+        if before is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(before)
