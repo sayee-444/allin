@@ -1,0 +1,23 @@
+#15 El texto de un Turno fallido con la Ventana cerrada — prueba a mano (2026-11-01)
+Código: rama feature/15-16-turno-fallido. Servidor: el IQ3_XXS de 9931 detrás de fallproxy.py (puerto 9951),
+que mientras existe <scratch>/fall acepta cada Paso y corta la conexión sin responder: una caída con el Paso
+dentro (ADR-0023). Main en <scratch>/d15 con base_url=http://127.0.0.1:9951/v1. Sesiones wlq1mi y xyww4f.
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+1. Turno fallido con la Ventana cerrada (a-main-fallo-con-ventana-cerrada.png)
+   Se cierra la Ventana de wlq1mi; touch fall; en Main: /send wlq1mi Explica en una frase que es un FIFO.
+   Dos caídas en el mismo Paso: turn suspended y luego «turn failed: llm_unavailable: …, reached=True».
+   El Log tiene turn_failed con prompt="Explica en una frase que es un FIFO".
+2. /open lo devuelve (b-open-devuelve-el-texto.png)
+   rm fall; /open wlq1mi → el Chat reconstruido con el Prompt y el error, y el texto en el input.
+   El Log suma prompt_returned.
+3. Reenviado, no vuelve (c-reenviado-no-vuelve.png)
+   Por el camino, un /open intermedio (con un carácter borrado por el driver) trajo el texto desde el Borrador una sola vez,
+   sin otro prompt_returned. Se completó y se envió con Enter: el Turno terminó (respuesta del modelo).
+   Cerrar la Ventana y /open wlq1mi: el input sale vacío; prompt_returned sigue en 1 y no hay Borrador.
+4. Un Turno cancelado no devuelve nada (d-cancelado-no-devuelve.png)
+   En la Ventana de xyww4f: «Escribe un poema de veinte estrofas sobre tuberias»; en cuanto turn_started, se cierra su xterm.
+   Log: window_closed, turn_cancelled. /open xyww4f: el Chat muestra turn_cancelled y el input sale vacío; 0 prompt_returned.
+
+Tests: tests/test_failed_turns.py (returned_prompts sobre el Log en 9 casos y los del MainHarness con settle=True).
+824 tests, basedpyright y ruff limpios. Al final: /exit en Main y se para el proxy.

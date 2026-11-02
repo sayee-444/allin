@@ -1,0 +1,20 @@
+#16 Los Prompts en cola tras un Turno fallido — prueba a mano (2026-11-01)
+Mismo montaje que #15 (fallproxy.py en 9951 delante del IQ3_XXS de 9931; Main en <scratch>/d15). Ventana de wlq1mi abierta.
+
+1. touch fall; en Main, seguidos:
+     /send wlq1mi primero: dime un color
+     /send wlq1mi segundo: y ahora un numero
+   El primero cae una vez (turn suspended) y, mientras Main espera el /health, el segundo entra en cola detrás.
+   Al caer otra vez en el mismo Paso, el Turno falla. Log de wlq1mi:
+     turn_failed
+     prompts_dropped {'reason': 'the turn before failed', 'texts': ['segundo: y ahora un numero'], 'kinds': ['prompt']}
+     prompt_returned {'texts': ['primero: dime un color', 'segundo: y ahora un numero']}
+   La Ventana (a-vuelven-los-dos-en-orden.png): «[dropped] 1 queued prompt(s) dropped: the turn before failed», y en el
+   input «primero: dime un color» con «+1 waiting» (el segundo, como bloque propio detrás).
+2. rm fall; /send xyww4f di hola en una palabra → el Turno de xyww4f termina normal (b-main-b-sigue.png).
+   Conversaciones: wlq1mi solo tiene el Turno del FIFO (ni «primero» ni «segundo»); xyww4f tiene «di hola en una palabra».
+3. Cerrar la Ventana de wlq1mi y /open (c-chat-reconstruido.png): el Chat reconstruido muestra los dos Prompts, el error
+   y la línea [dropped]; el input trae los dos bloques desde el Borrador, sin otro prompt_returned.
+
+Tests: tests/test_failed_turns.py (los dos en orden, b corre, prompts_dropped en el Chat reconstruido, y una Compactación en
+cola sale de la cola pero nunca vuelve al input). 824 tests, basedpyright y ruff limpios.
