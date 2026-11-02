@@ -18,10 +18,18 @@ class WindowReady(BaseModel):
 
 
 class UserInput(BaseModel):
-    """Text the user submitted with Enter."""
+    """Text the user submitted with Enter; with Shift+Enter, ``interrupt`` also cuts the
+    running Turn, and the text, which may be empty, runs next (ADR-0024)."""
 
     type: Literal["user_input"] = "user_input"
     text: str
+    interrupt: bool = False
+
+
+class WithdrawQueued(BaseModel):
+    """Up on the input's first row while Prompts are queued: the last one comes back."""
+
+    type: Literal["withdraw_queued"] = "withdraw_queued"
 
 
 class InputDraft(BaseModel):
@@ -40,7 +48,7 @@ class BoxAnswer(BaseModel):
     answer: bool | None
 
 
-type WindowToMain = WindowReady | UserInput | InputDraft | BoxAnswer
+type WindowToMain = WindowReady | UserInput | WithdrawQueued | InputDraft | BoxAnswer
 WindowMessage = Annotated[WindowToMain, Field(discriminator="type")]
 
 # Main -> Window
@@ -68,12 +76,14 @@ class ChatDelta(BaseModel):
 
 
 class TurnState(BaseModel):
-    """Whether the Session has a Turn running or waiting; Enter is blocked while it does.
-    ``waiting`` says why its next Step has not started, for its border (ADR-0022)."""
+    """Whether the Session has a Turn running or waiting. ``waiting`` says why its next Step
+    has not started, for its border (ADR-0022); ``queued``, the Prompts sent while a Turn ran
+    that wait for theirs, shown below the Chat (ADR-0024)."""
 
     type: Literal["turn_state"] = "turn_state"
     active: bool
     waiting: str | None = None
+    queued: list[str] = []
 
 
 class ContextUsage(BaseModel):

@@ -27,6 +27,12 @@ class Prompt:
     attachments: tuple[Attachment, ...] = ()
     overrides: TurnOverrides = field(default_factory=TurnOverrides)
     typed: str = ""  # what the human typed, when its Command prompts changed it (#22)
+    # Sent while its Session was busy: its Chat shows it once its Turn starts (ADR-0024).
+    queued: bool = False
+
+    @property
+    def as_typed(self) -> str:
+        return self.typed or self.text
 
 
 class PromptQueue:
@@ -64,6 +70,27 @@ class PromptQueue:
 
     def has(self, session_id: SessionId) -> bool:
         return any(prompt.session_id == session_id for prompt in self._prompts)
+
+    def of(self, session_id: SessionId) -> list[Prompt]:
+        """A Session's queued Prompts, in queue order."""
+        return [prompt for prompt in self._prompts if prompt.session_id == session_id]
+
+    def jump_last(self, session_id: SessionId) -> None:
+        """Put a Session's last queued Prompt before its other Prompts (Shift+Enter)."""
+        typed = [p for p in self.of(session_id) if p.kind == "prompt"]
+        if len(typed) < 2:
+            return
+        last = typed[-1]
+        self._prompts.remove(last)
+        self._prompts.insert(self._prompts.index(typed[0]), last)
+
+    def take_last(self, session_id: SessionId) -> Prompt | None:
+        """Take out a Session's last queued Prompt that a human typed, if any (Up)."""
+        typed = [p for p in self.of(session_id) if p.kind == "prompt" and p.queued]
+        if not typed:
+            return None
+        self._prompts.remove(typed[-1])
+        return typed[-1]
 
     def session_ids(self) -> list[SessionId]:
         """The Sessions with queued Prompts, each once, in the order of their first one."""

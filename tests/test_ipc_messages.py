@@ -27,7 +27,7 @@ def test_encoded_message_is_a_single_json_line():
     line = encode(UserInput(text="a\nb"))
     assert line.endswith("\n")
     assert line.count("\n") == 1
-    assert line == '{"type":"user_input","text":"a\\nb"}\n'
+    assert line == '{"type":"user_input","text":"a\\nb","interrupt":false}\n'
 
 
 @pytest.mark.parametrize(

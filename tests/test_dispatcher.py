@@ -977,7 +977,7 @@ def test_shutting_down_cancels_turns_and_saves_the_queue_before_closing_windows(
     assert closed.fields["reason"] == "main is shutting down"
     assert main.state.load() == MainState(
         windows={a.id: 1000, b.id: 1001},
-        queue=[Prompt(a.id, "a2\nmore")],
+        queue=[Prompt(a.id, "a2\nmore", queued=True)],
         running=[Prompt(a.id, "a1"), Prompt(b.id, "b1")],
     )
     assert main.main_log()[-1].event == "main_stopped"
@@ -1037,7 +1037,9 @@ def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
         MainState(windows=windows, drafts={sid: ["hal"]}),
         MainState(windows=windows, queue=[Prompt(sid, "a1")]),  # while its input is measured
         MainState(windows=windows, running=[Prompt(sid, "a1")]),
-        MainState(windows=windows, queue=[Prompt(sid, "a2")], running=[Prompt(sid, "a1")]),
+        MainState(
+            windows=windows, queue=[Prompt(sid, "a2", queued=True)], running=[Prompt(sid, "a1")]
+        ),
     ]
 
 

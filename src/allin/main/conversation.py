@@ -36,11 +36,16 @@ class Attachment(BaseModel, frozen=True):
     kind: Literal["image", "text", "binary"]
 
 
+# What heads the Notifications that open a Prompt: data from Main, never instructions.
+NOTIFICATIONS_HEADER = "[LOGS @COMMANDS]"
+
+
 class Turn(BaseModel, frozen=True):
     prompt: str
     steps: list[Step]
     attachments: list[Attachment] = []
     cut: CutReason | None = None  # a cut Turn keeps what it generated, marked
+    notifications: list[str] = []  # what Main told the LLM ahead of its Prompt
 
 
 class Conversation(BaseModel, frozen=True):
@@ -68,15 +73,17 @@ class Conversation(BaseModel, frozen=True):
         prompt: str,
         attachments: Sequence[Attachment] = (),
         reader: "AttachmentParts | None" = None,
+        notifications: Sequence[str] = (),
     ) -> list[Item]:
         """The ``input`` for the first Step of a Turn that answers ``prompt``; ``reader``
-        gives what the LLM gets of each attachment, this Prompt's and earlier ones'."""
+        gives what the LLM gets of each attachment, this Prompt's and earlier ones', and
+        ``notifications`` go ahead of the Prompt."""
         items: list[Item] = [{"role": "developer", "content": self.sysprompt}]
         if self.summary is not None:
             items.append(summary_item(self.summary, self.summarized))
         for turn in self.turns:
             items += turn_items(turn, reader)
-        items.append(user_item(prompt, attachments, reader))
+        items.append(user_item(with_notifications(prompt, notifications), attachments, reader))
         return items
 
 
@@ -97,8 +104,17 @@ class AttachmentParts(Protocol):
 
 def turn_items(turn: Turn, reader: AttachmentParts | None = None) -> list[Item]:
     """A Turn as ``input`` items: its Prompt, then what each of its Steps produced."""
-    prompt = user_item(turn.prompt, turn.attachments, reader)
+    text = with_notifications(turn.prompt, turn.notifications)
+    prompt = user_item(text, turn.attachments, reader)
     return [prompt, *(item for step in turn.steps for item in step.output)]
+
+
+def with_notifications(prompt: str, notifications: Sequence[str]) -> str:
+    """A Prompt's text as the LLM reads it: its Notifications first, under their header, in
+    the same ``user`` message (ADR-0013)."""
+    if not notifications:
+        return prompt
+    return "\n".join([NOTIFICATIONS_HEADER, *notifications]) + f"\n\n{prompt}"
 
 
 def user_item(

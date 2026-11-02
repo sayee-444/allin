@@ -33,6 +33,8 @@ class Chat:
         self._entries: list[_Entry] = []
         self._width = 0
         self._rows: list[Row] = []
+        # Prompts waiting for their Turn, shown below every entry, even a streaming one.
+        self._queued: list[_Entry] = []
 
     def add(self, text: str, role: str | None = None, label: str | None = None) -> None:
         self._entries.append(_Entry(role, label, text, streaming=False))
@@ -44,6 +46,9 @@ class Chat:
             last.rows = None
         else:
             self._entries.append(_Entry(role, label, text, streaming=True))
+
+    def set_queued(self, texts: tuple[str, ...], label: str) -> None:
+        self._queued = [_Entry("user", label, text, streaming=False) for text in texts]
 
     def end_stream(self) -> None:
         """Close the open entry, so the next streamed text starts a new one."""
@@ -69,4 +74,11 @@ class Chat:
             if entry.rows is None:
                 entry.rows = wrap_rows(entry.display_text(), width)
             self._rows += [Row(entry.role, row, joined) for row, joined in entry.rows]
-        return self._rows
+        if not self._queued:
+            return self._rows
+        queued = [
+            Row(entry.role, row, joined)
+            for entry in self._queued
+            for row, joined in wrap_rows(entry.display_text(), width)
+        ]
+        return [*self._rows, *queued]

@@ -45,7 +45,7 @@ _POLL_MS = 50  # curses has no blocking wait on both keys and the inbox
 _BRACKETED_PASTE_ON = "\x1b[?2004h"
 _BRACKETED_PASTE_OFF = "\x1b[?2004l"
 _TOO_SMALL = "Terminal too small: please enlarge it"
-_LOCKED = " turn running: Enter is blocked "
+_LOCKED = " read only "  # Main is gone: nothing typed reaches it
 _WAITING = " +{} waiting "  # Draft blocks behind the shown one
 _WHEEL_ROWS = 3
 _ROLE_COLORS = {
@@ -77,7 +77,8 @@ class ChatStream:
 
 @dataclass(frozen=True)
 class InputLock:
-    """Block or unblock Enter (the text being typed is kept); unblocking closes the open entry."""
+    """Block Enter for good once Main is gone (the text being typed is kept); unblocking, as a
+    Turn ends, closes the open entry."""
 
     locked: bool
 
@@ -101,6 +102,14 @@ class InputText:
     """A Prompt put back in the input: shown, while whatever was there waits behind it."""
 
     text: str
+
+
+@dataclass(frozen=True)
+class QueuedPrompts:
+    """The Prompts sent while a Turn ran, waiting for theirs: shown below the Chat, and Up
+    on the input's first row withdraws the last one (ADR-0024)."""
+
+    texts: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -136,6 +145,7 @@ type ScreenUpdate = (
     | TitleMark
     | InputText
     | InputHistory
+    | QueuedPrompts
     | ShowBox
     | HideBox
     | None
@@ -171,6 +181,9 @@ class ChatScreen:
         self._keys = KeyDecoder()
         self._boxes_shown = BoxStack()
         self._on_box_closed: OnBoxClosed = lambda _: None
+        self._on_interrupt: Callable[[str], None] | None = None
+        self._on_withdraw: Callable[[], None] | None = None
+        self._queued: tuple[str, ...] = ()
         self._layout: Layout | None = None
         self._shown: Layout | None = None  # where the pads are on screen now, for the mouse
         self._boxes: tuple[curses.window, curses.window] | None = None
@@ -179,25 +192,25 @@ class ChatScreen:
         self._repaint = True  # repaint the whole terminal, not just what changed
         self.inbox: queue.Queue[ScreenUpdate] = queue.Queue()
 
-    def lock_input(self) -> None:
-        """Block Enter from the UI thread, e.g. right after a submit; ``InputLock`` undoes it."""
-        self._locked = True
-        self._dirty = True
-
     def run(
         self,
         on_submit: Callable[[str], None],
         on_draft: Callable[[tuple[str, ...]], None] | None = None,
         on_box_closed: OnBoxClosed | None = None,
+        on_interrupt: Callable[[str], None] | None = None,
+        on_withdraw: Callable[[], None] | None = None,
     ) -> None:
         """Run the UI loop until ``None`` arrives in the inbox.
 
         ``on_draft`` gets the input's Draft once the user stops typing for a moment, and at
         once when a block is sent while others wait. ``on_box_closed`` gets each answer to a
-        box.
+        box. ``on_interrupt`` gets the input's block on Shift+Enter, even an empty one, and
+        ``on_withdraw`` is called on Up while Prompts are queued (ADR-0024); without them,
+        Shift+Enter is Enter and Up only browses the history.
         """
         if on_box_closed is not None:
             self._on_box_closed = on_box_closed
+        self._on_interrupt, self._on_withdraw = on_interrupt, on_withdraw
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
         self._role_attrs = _role_attrs()
@@ -251,6 +264,11 @@ class ChatScreen:
                 self._repaint = True
             case KeyChord(key=Key.ENTER, ctrl=True):
                 self._input.insert("\n")
+            case KeyChord(key=Key.ENTER, shift=True) if self._on_interrupt and not self._locked:
+                text = self._input.take()
+                if text.strip():
+                    self._input.remember(text)
+                self._on_interrupt(text if text.strip() else "")
             case KeyChord(key=Key.ENTER) if not self._locked:
                 text = self._input.take()  # an empty block is dropped: the next one shows
                 if text.strip():
@@ -274,7 +292,11 @@ class ChatScreen:
             case KeyChord(key=Key.END):
                 self._input.end()
             case KeyChord(key=Key.UP):
-                if not self._input.up(self._input_width()):  # on the first row: the history
+                if self._input.up(self._input_width()):
+                    pass
+                elif self._queued and self._on_withdraw is not None:  # the queue goes first
+                    self._on_withdraw()
+                else:  # on the first row: the history
                     self._input.older()
             case KeyChord(key=Key.DOWN):
                 if not self._input.down(self._input_width()):
@@ -420,6 +442,9 @@ class ChatScreen:
                     self._reveal_cursor = True
                 case InputHistory(prompts):
                     self._input.load_history(prompts)
+                case QueuedPrompts(texts):
+                    self._queued = texts
+                    self._chat.set_queued(tuple(visible(text) for text in texts), "queued")
                 case ShowBox(box):
                     self._boxes_shown.show(box)
                 case HideBox(box_id):

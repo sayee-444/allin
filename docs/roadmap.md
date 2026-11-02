@@ -8,11 +8,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #22 Cursor en el input e historial de Prompts (2026-11-01).
-  - ←/→, Inicio y Fin mueven el cursor por el input de Main y de cada Ventana, cruzando saltos de línea; se escribe, se borra (Backspace, Supr, Ctrl+Backspace) y se pega en el cursor. ↑/↓ mueven entre las filas visuales, en la misma columna, y el scroll del input sigue al cursor.
-  - ↑ en la primera fila trae el Prompt anterior; ↓ en la última avanza, y pasado el más nuevo vuelve el Borrador tal como estaba. El historial de una Ventana sale de su Log, así que sobrevive a cerrarla y a reiniciar Main: el evento `prompt` guarda ahora `typed`, lo que se tecleó, cuando las directivas de #14 cambiaron el texto. El de Main vive mientras corre.
-  - Métricas: 936 tests. Antes: #14 Command prompts.
-- **Siguiente:** #56, escribir durante un Turno (ADR-0024); su ↑ para retirar lo encolado tendrá que ir antes que el historial. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; y la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019).
+- **Último hecho:** #56 Escribir durante un Turno (2026-11-01).
+  - Enter ya no se bloquea. Lo que se envía mientras la Sesión está ocupada sale bajo el Chat como `[queued]`, entra en el Chat cuando empieza su Turno (en vivo y al reconstruirlo, con el evento `prompt_started`) y corre como el Turno siguiente.
+  - ↑ en la primera fila, si hay algo en cola, retira lo último, tal como se tecleó, como un bloque propio del Borrador; sin cola, ↑ recorre el historial de #22.
+  - Shift+Enter corta el Turno y lo guarda con lo que llevaba, como Turno cortado `interrupted` (un mensaje `incomplete`, que llama acepta). Su texto, si lo hay, corre antes que lo que esperaba, y el LLM recibe en ese Prompt, bajo `[LOGS @COMMANDS]`, una Notificación que el Turno guarda (`notifications`).
+  - Cerrar la Ventana devuelve lo encolado al Borrador, como bloques y en orden.
+  - Métricas: 945 tests. Antes: #22 cursor e historial.
+- **Siguiente:** #57, Atajos de teclado con `/key`. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -65,7 +67,7 @@ Ya tienen código; verificados y comentados.
 3. ✅ #13 Selección con el ratón, rueda y portapapeles
 4. ✅ #14 Command prompts: Referencia a archivo y Sobrescritura de parámetro
 5. ✅ #22 Cursor en el input e historial de Prompts
-6. #56 Escribir durante un Turno: Enter sin bloqueo, la cola, ↑ para retirar y Shift+Enter para interrumpir (ADR-0024)
+6. ✅ #56 Escribir durante un Turno: Enter sin bloqueo, la cola, ↑ para retirar y Shift+Enter para interrumpir (ADR-0024)
 7. #57 Atajos de teclado con `/key`
 8. #23 `/help` generado del registro de Command main
 9. #19 Lo que quede de la señal durante el arranque

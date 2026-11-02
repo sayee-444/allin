@@ -21,6 +21,14 @@ class WindowConnected:
 class InputReceived:
     session_id: SessionId
     text: str
+    interrupt: bool = False  # Shift+Enter: cut the running Turn first (ADR-0024)
+
+
+@dataclass(frozen=True)
+class QueuedWithdrawn:
+    """Up in a Window: its Session's last queued Prompt goes back to the input."""
+
+    session_id: SessionId
 
 
 @dataclass(frozen=True)
@@ -212,6 +220,7 @@ class Shutdown:
 type MainEvent = (
     WindowConnected
     | InputReceived
+    | QueuedWithdrawn
     | DraftReceived
     | WindowClosed
     | ErrorOccurred
