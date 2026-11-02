@@ -71,6 +71,11 @@ class Provenance(BaseModel, frozen=True):
     by: Author
     who: str | None = None
 
+    @property
+    def writer(self) -> str:
+        """As screens name it: ``you``, ``kit tutor``, ``session abcd``."""
+        return "you" if self.by == "user" else f"{self.by} {self.who or ''}".rstrip()
+
 
 class Approval(BaseModel, frozen=True):
     """A human's Approval of one version of a piece, with what they adjusted: a smaller
@@ -147,7 +152,7 @@ class Quarantine:
             for kind, folder in _FOLDERS.items()
             if (self._folder / folder).is_dir()
             for entry in sorted((self._folder / folder).iterdir())
-            if not entry.name.startswith(".") and _is_piece(kind, entry)
+            if not entry.name.startswith((".", "_")) and _is_piece(kind, entry)
         ]
         approvals = self._approvals()
         return [self._piece(ref, approvals) for ref in refs]
@@ -240,9 +245,11 @@ class Quarantine:
 
     def _kept_from_bulk(self, piece: Piece) -> str | None:
         if piece.provenance.by != "user":
-            return f"written by {piece.provenance.by} {piece.provenance.who or ''}".rstrip()
+            return f"written by {piece.provenance.writer}"
         if piece.ref.kind != "function":
             return None
+        if not piece.modules:  # as approving it alone refuses it
+            return "no functions"
         for module, description in self.describe(piece).items():
             if isinstance(description, AllInError):
                 return f"{module} could not be described: {description.code}"
@@ -274,7 +281,9 @@ class Quarantine:
         """The Kit's while the piece is as the Kit wrote it; once it changed on disk, outside
         AllIn, the user's (ADR-0016). Pieces a Session creates arrive with Crear (#112)."""
         origin = kit_origins(self._folder).get(ref.id)
-        if origin is not None and origin.hash == digest:
+        # Without its hash (recorded before Kits kept it) there is no telling it changed: the
+        # Kit's, which never goes in bulk.
+        if origin is not None and origin.hash in (digest, None):
             return Provenance(by="kit", who=origin.kit)
         return Provenance(by="user")
 
@@ -285,9 +294,7 @@ class Quarantine:
         return _load_approvals(self._folder)
 
     def _save(self, pieces: dict[str, Approval]) -> None:
-        write_atomically(
-            self._folder / _APPROVALS, _Approvals(pieces=pieces).model_dump_json(indent=2)
-        )
+        _save_approvals(self._folder, pieces)
 
 
 def approve_installed(profile_folder: Path, installed: Path) -> None:
@@ -307,10 +314,7 @@ def approve_installed(profile_folder: Path, installed: Path) -> None:
         if digest == content_hash(seed.read_bytes()) and (kept is None or kept.hash != digest):
             approved[ref.id] = Approval(hash=digest)
     if approved:
-        write_atomically(
-            profile_folder / _APPROVALS,
-            _Approvals(pieces={**approvals, **approved}).model_dump_json(indent=2),
-        )
+        _save_approvals(profile_folder, {**approvals, **approved})
 
 
 def check_sysprompt(sysprompts: Path, name: str, data: bytes) -> None:
@@ -320,6 +324,11 @@ def check_sysprompt(sysprompts: Path, name: str, data: bytes) -> None:
     approval = _load_approvals(sysprompts.parent).pieces.get(ref.id)
     if approval is None or approval.hash != content_hash(data):
         raise PieceInQuarantine(piece=ref.id)
+
+
+def _save_approvals(profile_folder: Path, pieces: dict[str, Approval]) -> None:
+    approvals = _Approvals(pieces=pieces).model_dump_json(indent=2)
+    write_atomically(profile_folder / _APPROVALS, approvals)
 
 
 def _load_approvals(profile_folder: Path) -> _Approvals:

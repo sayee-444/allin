@@ -55,7 +55,7 @@ class Reach:
         """``display``, or writing where the user runs things: what the tool leaves there runs
         as them, out of the Encierro (ADR-0016). Their home or the whole system, a dotted
         folder or file (``.config``, ``.bashrc``, a repo's ``.git``) or a ``bin`` folder."""
-        return self.display or any(_runs_as_user(PurePosixPath(path)) for path in self.write)
+        return self.display or any(writes_as_user(path) for path in self.write)
 
     @property
     def grants(self) -> bool:
@@ -111,7 +111,10 @@ def reach_of(target: object) -> Reach:
     return declared if isinstance(declared, Reach) else MINIMUM
 
 
-def _runs_as_user(path: PurePosixPath) -> bool:
+def writes_as_user(written: str) -> bool:
+    """Whether writing ``written`` (an Alcance's path) is writing where the user runs things:
+    their home or the whole system, a dotted folder or file, or a ``bin`` folder (ADR-0016)."""
+    path = PurePosixPath(written)
     if any(part.startswith(".") or part == "bin" for part in path.parts[1:]):
         return True
     if path.parts[0] == "work":
@@ -122,8 +125,9 @@ def _runs_as_user(path: PurePosixPath) -> bool:
 
 
 def _covered(paths: tuple[str, ...], declared: tuple[str, ...]) -> bool:
+    # ``/`` holds the symbolic roots too: ``work`` and ``home`` are folders of the system.
     return all(
-        any(PurePosixPath(path).is_relative_to(PurePosixPath(d)) for d in declared)
+        any(d == "/" or PurePosixPath(path).is_relative_to(PurePosixPath(d)) for d in declared)
         for path in paths
     )
 

@@ -153,3 +153,16 @@ def test_main_says_on_start_what_waits_for_an_approval(main: MainHarness):
     (main.sysprompts / "mine.txt").write_text("Mine.")
     chat = main.run()
     assert "1 piece(s) in quarantine or rejected: /piece to see them" in chat
+
+
+@needs_landlock
+def test_reducing_the_network_to_no_ports_closes_it(main: MainHarness):
+    package(main, "fetch", FETCH)
+    main.run(
+        MainCommandEntered("/piece show function:fetch"),
+        MainCommandEntered("/piece approve function:fetch --reach fetch:net="),
+    )
+    assert main.describer is not None
+    descriptions = Descriptions(main.profile.folder.parents[1], main.describer, main.confinement)
+    [function] = Quarantine(main.profile.folder, descriptions).offered()
+    assert function.description.reach.net is False

@@ -77,7 +77,8 @@ def test_a_reach_made_by_hand_is_checked_too():
         (Reach(read=("home/Documents",)), Reach(read=("home",)), True),
         (Reach(read=("home",)), Reach(read=("home/Documents",)), False),
         (Reach(write=("/usr/lib",)), Reach(write=("/",)), True),
-        (Reach(read=("home",)), Reach(read=("/",)), False),  # roots are not paths of each other
+        (Reach(read=("home",)), Reach(read=("/",)), True),  # home is a folder of the system
+        (Reach(read=("/",)), Reach(read=("home",)), False),
         (Reach(net=(443,)), Reach(net=True), True),
         (Reach(net=(443,)), Reach(net=(443, 80)), True),
         (Reach(net=(22,)), Reach(net=(443,)), False),
@@ -117,3 +118,9 @@ def test_display_or_writing_where_the_user_runs_things_acts_as_the_user(reach: R
 def test_declaring_grant_is_told_apart():
     assert Reach(commands=("grant",)).grants
     assert not Reach(commands=("send",)).grants
+
+
+def test_a_reach_declaring_the_whole_system_may_be_reduced_to_home_or_work():
+    assert Reach(read=("home/Documents",), write=("work/out",)).within(
+        Reach(read=("/",), write=("/",))
+    )

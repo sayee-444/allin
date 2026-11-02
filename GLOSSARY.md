@@ -70,7 +70,7 @@ Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, 
 _Avoid_: ventana, chat
 
 **Carpeta de trabajo** (`workspace`):
-La carpeta donde las tools de una Sesión pueden escribir sin declarar nada más, y su directorio actual: `<carpeta de datos>/workspaces/<id>/`, aparte de la carpeta de la Sesión, que guarda su estado. La Conversación nombra sus archivos en relativo. Solo un humano la puede apuntar a otra ruta, nunca dentro de AllIn; esa ruta no es un Ajuste y nunca viaja en plantillas, Moldes ni Kits. Entre Sesiones no se comparte por defecto: los archivos viajan como adjuntos de `/send`, que Main copia a `.allin/adjuntos/<prompt>/` (ADR-0016). Un Proceso adherido tiene la suya propia.
+La carpeta donde las tools de una Sesión pueden escribir sin declarar nada más, y su directorio actual: `<carpeta de datos>/workspaces/<id>/`, aparte de la carpeta de la Sesión, que guarda su estado. La Conversación nombra sus archivos en relativo. Solo un humano la puede apuntar a otra ruta (`/session workspace <sid> <carpeta>|default`), nunca dentro de AllIn; si la contiene, el Encierro deja fuera lo de AllIn. Esa ruta no es un Ajuste y nunca viaja en plantillas, Moldes ni Kits. Entre Sesiones no se comparte por defecto: los archivos viajan como adjuntos de `/send`, que Main copia a `.allin/adjuntos/<prompt>/` (ADR-0016). Un Proceso adherido tiene la suya propia.
 _Avoid_: carpeta de la Sesión, workdir, sandbox
 
 **Chat** (`Chat`):

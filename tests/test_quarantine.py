@@ -228,3 +228,28 @@ def test_on_a_kernel_without_full_support_only_the_users_own_approved_pieces_run
     approve(approved, "gift")
     older_kernel = quarantine(profile, launcher, ConfinementSupport(abi=5))
     assert set(offered(older_kernel)) == {"shout"}
+
+
+def test_bulk_approval_leaves_out_a_package_without_functions_as_approving_it_alone_does(
+    profile: Path, launcher: ToolLauncher
+):
+    package(profile, "helpers", {"_shared": PLAIN})
+    assert quarantine(profile, launcher).approve_own().left_out == {
+        "function:helpers": "no functions"
+    }
+
+
+def test_a_kits_piece_recorded_without_its_hash_stays_the_kits(
+    profile: Path, launcher: ToolLauncher
+):
+    package(profile, "gift", {"wrap": PLAIN})
+    origin = {"kit": "presents", "version": "1"}  # as Kits wrote it before #104
+    (profile / KITS_FILE).write_text(json.dumps({"pieces": {"function:gift": origin}}))
+    piece = quarantine(profile, launcher).piece(PieceRef("function", "gift"))
+    assert (piece.provenance.by, piece.provenance.who) == ("kit", "presents")
+
+
+def test_a_loose_pycache_in_the_functions_folder_is_no_piece(profile: Path, launcher: ToolLauncher):
+    (profile / "functions" / "__pycache__").mkdir()
+    package(profile, "loud", {"shout": PLAIN})
+    assert [p.ref.id for p in quarantine(profile, launcher).pieces()] == ["function:loud"]

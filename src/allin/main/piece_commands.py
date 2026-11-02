@@ -14,7 +14,7 @@ from pydantic import JsonValue
 
 from allin.core.errors import AllInError, InvalidArguments, PieceNotShown
 from allin.core.sources import is_text
-from allin.decorators import MINIMUM, Reach
+from allin.decorators import MINIMUM, Reach, writes_as_user
 from allin.main.descriptions import Description
 from allin.main.quarantine import (
     Adjustments,
@@ -124,9 +124,7 @@ def _ref(text: str) -> PieceRef:
 
 
 def _about(piece: Piece) -> str:
-    author = piece.provenance
-    by = "you" if author.by == "user" else f"{author.by} {author.who or ''}".rstrip()
-    return f"{_STATES[piece.state]} · written by {by}"
+    return f"{_STATES[piece.state]} · written by {piece.provenance.writer}"
 
 
 def _reach_screen(module: str, described: Description | AllInError) -> list[str]:
@@ -140,7 +138,7 @@ def _reach_screen(module: str, described: Description | AllInError) -> list[str]
     lines.append("    work folder, reading the system and its package")
     lines += [f"  {_EXCESS} read {path}" for path in reach.read]
     for path in reach.write:
-        acts = Reach(write=(path,)).acts_as_user
+        acts = writes_as_user(path)
         lines.append(f"  {_EXCESS} write {path}" + (": acts as you" if acts else ""))
     if reach.network:
         lines.append(f"  {_EXCESS} network {_network(reach)}")
@@ -231,7 +229,8 @@ def _changed(reach: Reach, field: str, value: str) -> Reach:
             case "commands":
                 return replace(reach, commands=items)
             case "net":
-                net = {"off": False, "on": True}.get(value)
+                # No ports is no network: an empty list would leave UDP open with no TCP.
+                net = {"off": False, "on": True, "": False}.get(value)
                 return replace(reach, net=net if net is not None else tuple(map(int, items)))
             case "display" if value == "off":
                 return replace(reach, display=False)
