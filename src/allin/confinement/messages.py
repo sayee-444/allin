@@ -23,6 +23,10 @@ class CallTool(BaseModel, frozen=True):
     workspace: str
     read: list[str]
     write: list[str]
+    connect: list[int] | None  # the TCP ports it connects to; None: a shared layer decides
+    net_layer: int | None  # the descriptor of net=True's shared layer (``port_layer``)
+    ip: bool  # whether it may create IP sockets at all; without it UDP is closed too
+    unix: bool  # whether it may create unix sockets: ``display``
 
 
 class Cancel(BaseModel, frozen=True):

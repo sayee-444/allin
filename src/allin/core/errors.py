@@ -447,3 +447,10 @@ class ToolNotStarted(AllInError):
     starting it raised, or ``stopped`` when Main's tool launcher had already stopped."""
 
     code: ClassVar[str] = "tool_not_started"
+
+
+class InvalidReach(AllInError):
+    """``@reach`` got something that is not an Alcance: ``field`` and what it held (``value``),
+    such as a path with no symbolic root (``work``, ``home``, ``/``) or a port out of range."""
+
+    code: ClassVar[str] = "invalid_reach"

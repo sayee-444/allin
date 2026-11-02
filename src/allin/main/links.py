@@ -4,9 +4,12 @@ A Session linked to a Supervisor sends its Steps to the port in that Supervisor'
 Settings; one with no Enlace, to Main's ``base_url``, a Server Main only observes.
 """
 
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from allin.core.errors import ServerSettingsInvalid
 from allin.core.ids import ServerKey, SupervisorName
 from allin.core.settings import SessionSettings
 from allin.main.slots import server_name
@@ -38,6 +41,21 @@ class LinkResolver:
         """The Server at Main's ``base_url``, which Main only observes."""
         return Link(ServerKey(server_name(self._base_url)), self._base_url, None)
 
+    def server_ports(self) -> frozenset[int]:
+        """The port of every Supervisor's Server and of the observed one: no tool's Alcance
+        reaches them, not even with ``net=True`` (ADR-0016). Read at every call, so a
+        Supervisor created since counts."""
+        observed = urlsplit(self._base_url)
+        ports = {observed.port or (443 if observed.scheme == "https" else 80)}
+        for path in self._servers.glob("*.toml"):
+            try:
+                ports.add(load_server_settings(path).port)
+            except ServerSettingsInvalid:
+                # Its Server may still run on the port it names: keep that one out too.
+                if (port := _named_port(path)) is not None:
+                    ports.add(port)
+        return frozenset(ports)
+
     def resolve(self, settings: SessionSettings) -> Link:
         """Raises ``ServerSettingsInvalid`` if the Supervisor has no usable Server Settings."""
         if settings.server is None:
@@ -47,3 +65,14 @@ class LinkResolver:
     def resolve_name(self, name: SupervisorName) -> Link:
         server = load_server_settings(self._servers / f"{name}.toml")
         return Link(ServerKey(name), server.base_url(), name)
+
+
+def _named_port(path: Path) -> int | None:
+    """The ``port`` a Server Settings file names, read on its own when the rest is invalid."""
+    try:
+        port: object = tomllib.loads(path.read_text(encoding="utf-8")).get("port")
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
+        return port
+    return None
