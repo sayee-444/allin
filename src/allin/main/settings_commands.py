@@ -100,6 +100,8 @@ class SettingsCommands:
         self._files = files
         self._sysprompts = sysprompts
         self._profiles_of: Callable[[SessionId], list[str]] = lambda _: []
+        # Told the Atajos of Main's Chat whenever its current Settings change them (#57).
+        self.keys_changed: Callable[[dict[str, str]], None] = lambda _: None
 
     def show_profiles(self, profiles_of: Callable[[SessionId], list[str]]) -> None:
         """``/session <sid>`` also shows the Profiles the Session belongs to (ADR-0010)."""
@@ -172,6 +174,13 @@ class SettingsCommands:
             self._turns.change_link(self._sessions.load(session.id), link)
         return True
 
+    def use(self, settings: MainSettings) -> None:
+        """Make ``settings`` the current ones, on disk and in the running Main."""
+        self._use(settings)
+
+    def save_session(self, session: Session, settings: SessionSettings) -> None:
+        self._save_session(session, settings)
+
     def take(self, settings: MainSettings) -> None:
         """Main's current Settings become ``settings``: a Kit's, chosen when it loaded."""
         self._use(settings)
@@ -199,6 +208,8 @@ class SettingsCommands:
             self._turns.set_patience(settings.admission.patience)
         if settings.base_url != before.base_url:
             self._reporter.report(None, "settings_restart_needed", _RESTART_NOTE)
+        if settings.keys != before.keys:
+            self.keys_changed(settings.keys)
 
     def _save_session(self, session: Session, settings: SessionSettings) -> None:
         """Save a Session's new Settings, rendering its Sysprompt again while it has no Turn."""

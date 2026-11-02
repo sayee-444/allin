@@ -30,3 +30,4 @@ def test_the_windows_xterm_answers_no_questions_and_takes_no_colour_changes():
     assert "XTerm*allowColorOps: false" in resources
     assert not any(resource.endswith(": true") and "allow" in resource for resource in resources)
     assert "XTerm*modifyOtherKeys: 2" in resources, "Ctrl+Enter still arrives"
+    assert "XTerm*omitTranslation: fullscreen" in resources, "Alt+Enter reaches the Window"

@@ -23,7 +23,7 @@ from allin.ui.chat import Chat, Row
 from allin.ui.clipboard import Clipboard, system_clipboard
 from allin.ui.draft import DraftReporter
 from allin.ui.input_buffer import InputBuffer, cursor_place
-from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
+from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste, typed_char
 from allin.ui.layout import Layout, Rect, compute_layout
 from allin.ui.mouse import (
     DRAG_REPORTS_OFF,
@@ -35,6 +35,7 @@ from allin.ui.mouse import (
 )
 from allin.ui.sanitize import visible
 from allin.ui.selection import Point, Selection, autoscroll_rows, char_index
+from allin.ui.shortcuts import DEFAULT_KEYS, Action, Command, resolve
 from allin.ui.viewport import Viewport
 from allin.ui.wrap import cell_width, wrap_rows
 
@@ -105,6 +106,13 @@ class InputText:
 
 
 @dataclass(frozen=True)
+class KeyBindings:
+    """The screen's Atajos, key name to action or Command main (``ui.shortcuts``) (#57)."""
+
+    table: dict[str, str]
+
+
+@dataclass(frozen=True)
 class QueuedPrompts:
     """The Prompts sent while a Turn ran, waiting for theirs: shown below the Chat, and Up
     on the input's first row withdraws the last one (ADR-0024)."""
@@ -146,6 +154,7 @@ type ScreenUpdate = (
     | InputText
     | InputHistory
     | QueuedPrompts
+    | KeyBindings
     | ShowBox
     | HideBox
     | None
@@ -155,9 +164,17 @@ type OnBoxClosed = Callable[[BoxClosed], None]
 
 class ChatScreen:
     def __init__(
-        self, stdscr: curses.window, title: str, clipboard: Clipboard | None = None
+        self,
+        stdscr: curses.window,
+        title: str,
+        clipboard: Clipboard | None = None,
+        commands: bool = False,
     ) -> None:
+        """``commands``: whether an Atajo may run a Command main, sent as ``on_submit`` would
+        send what was typed (Main's Chat); a Window takes none until F2."""
         self._stdscr = stdscr
+        self._commands = commands
+        self._bindings: dict[str, str] = dict(DEFAULT_KEYS)
         self._clipboard = clipboard or system_clipboard(os.environ, shutil.which)
         self._title = visible(title)
         self._status = ""
@@ -254,29 +271,17 @@ class ChatScreen:
             return
         if not _is_view_key(chord) or chord == KeyChord(Key.RESIZE):
             self._clear_selection()  # a key that edits, or new rows: its places are gone
+        shortcut = resolve(chord, self._bindings) if isinstance(chord, KeyChord) else None
+        if shortcut is not None:
+            self._run_shortcut(shortcut, on_submit, draft)
+            self._reveal_cursor = True
+            return
         match chord:
             case Paste(text=text):
                 self._input.insert(text)
-            case KeyChord(key="v", ctrl=True, alt=False):
-                self._paste()
             case KeyChord(key=Key.RESIZE):
                 curses.update_lines_cols()
                 self._repaint = True
-            case KeyChord(key=Key.ENTER, ctrl=True):
-                self._input.insert("\n")
-            case KeyChord(key=Key.ENTER, shift=True) if self._on_interrupt and not self._locked:
-                text = self._input.take()
-                if text.strip():
-                    self._input.remember(text)
-                self._on_interrupt(text if text.strip() else "")
-            case KeyChord(key=Key.ENTER) if not self._locked:
-                text = self._input.take()  # an empty block is dropped: the next one shows
-                if text.strip():
-                    self._input.remember(text)
-                    on_submit(text)
-                    if draft is not None and self._input.blocks:
-                        # So a Main that dies right after keeps the blocks still waiting.
-                        draft.report_now(self._input.blocks, time.monotonic())
             case KeyChord(key=Key.BACKSPACE, ctrl=True):
                 self._input.delete_word()
             case KeyChord(key=Key.BACKSPACE):
@@ -291,23 +296,61 @@ class ChatScreen:
                 self._input.home()
             case KeyChord(key=Key.END):
                 self._input.end()
-            case KeyChord(key=Key.UP):
+            case KeyChord() if (char := typed_char(chord)) is not None:
+                self._input.insert(char)
+            case _:
+                pass
+        self._reveal_cursor = True
+
+    def _run_shortcut(
+        self,
+        shortcut: Action | Command,
+        on_submit: Callable[[str], None],
+        draft: DraftReporter | None,
+    ) -> None:
+        """Do what an Atajo runs (#57)."""
+        match shortcut:
+            case Command(text=text):
+                if self._commands:  # a Command main, with the human's Origin
+                    on_submit(text)
+            case "send" | "interrupt" if self._locked:
+                pass
+            case "interrupt" if self._on_interrupt is not None:
+                text = self._input.take()
+                if text.strip():
+                    self._input.remember(text)
+                self._on_interrupt(text if text.strip() else "")
+            case "send" | "interrupt":  # with nothing running here to interrupt, it sends
+                text = self._input.take()  # an empty block is dropped: the next one shows
+                if text.strip():
+                    self._input.remember(text)
+                    on_submit(text)
+                    if draft is not None and self._input.blocks:
+                        # So a Main that dies right after keeps the blocks still waiting.
+                        draft.report_now(self._input.blocks, time.monotonic())
+            case "newline":
+                self._input.insert("\n")
+            case "withdraw":
+                if self._queued and self._on_withdraw is not None:
+                    self._on_withdraw()
+            case "up":
                 if self._input.up(self._input_width()):
                     pass
                 elif self._queued and self._on_withdraw is not None:  # the queue goes first
                     self._on_withdraw()
                 else:  # on the first row: the history
                     self._input.older()
-            case KeyChord(key=Key.DOWN):
+            case "down":
                 if not self._input.down(self._input_width()):
                     self._input.newer()
-            case KeyChord(key=Key.PAGE_UP | Key.PAGE_DOWN as key):
-                self._scroll_chat(-1 if key == Key.PAGE_UP else 1)
-            case KeyChord(key=str() as char, ctrl=False, alt=False) if char.isprintable():
-                self._input.insert(char)
-            case _:
-                pass
-        self._reveal_cursor = True
+            case "older":
+                self._input.older()
+            case "newer":
+                self._input.newer()
+            case "scroll_up" | "scroll_down":
+                self._scroll_chat(-1 if shortcut == "scroll_up" else 1)
+            case "paste":
+                self._paste()
 
     def _input_width(self) -> int:
         """The columns the input wraps at, as ``_draw`` wraps it."""
@@ -442,6 +485,8 @@ class ChatScreen:
                     self._reveal_cursor = True
                 case InputHistory(prompts):
                     self._input.load_history(prompts)
+                case KeyBindings(table):
+                    self._bindings = dict(table)
                 case QueuedPrompts(texts):
                     self._queued = texts
                     self._chat.set_queued(tuple(visible(text) for text in texts), "queued")

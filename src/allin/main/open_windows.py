@@ -14,6 +14,7 @@ from allin.ipc.messages import (
     Close,
     ContextUsage,
     InputRestore,
+    KeyTable,
     PoolShared,
     PromptHistory,
 )
@@ -25,6 +26,7 @@ from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.turn import OutputKind
 from allin.main.usage import context_tokens, tokens_per_second
+from allin.ui.shortcuts import effective_keys
 
 
 class WindowLink(Protocol):
@@ -85,6 +87,8 @@ class OpenWindows:
         """
         self._links[session.id] = self._open_window(session.id)
         self._reporter.record(session.id, "window_opened", "opening window")
+        if session.settings.keys:  # its Atajos, where they differ from the defaults (#57)
+            self.send(session.id, KeyTable(bindings=effective_keys(session.settings.keys)))
         try:
             self._send_chat(session, streamed)
         except AllInError as error:

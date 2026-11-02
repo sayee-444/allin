@@ -345,3 +345,34 @@ class FileReferenceInvalid(AllInError):
     """``@<path>`` names no file Main can read; the Prompt is not sent."""
 
     code: ClassVar[str] = "file_reference_invalid"
+
+
+class KeyNameInvalid(AllInError):
+    """A key named as ``ctrl+b``, ``shift+enter``, ``alt+x`` or ``f5`` that is not one, or one
+    a Window cannot tell apart (``reason``)."""
+
+    code: ClassVar[str] = "key_name_invalid"
+
+
+class ShortcutTaken(AllInError):
+    """The key already has an Atajo (``bound``); ``--replace`` changes it."""
+
+    code: ClassVar[str] = "shortcut_taken"
+
+
+class ShortcutMissing(AllInError):
+    """``off`` on a key that has no Atajo."""
+
+    code: ClassVar[str] = "shortcut_missing"
+
+
+class LastSendKey(AllInError):
+    """Some key must always send: the last one cannot go or change."""
+
+    code: ClassVar[str] = "last_send_key"
+
+
+class ShortcutInvalid(AllInError):
+    """An Atajo runs an action of the input or, in Main's Chat, a Command main (``allowed``)."""
+
+    code: ClassVar[str] = "shortcut_invalid"

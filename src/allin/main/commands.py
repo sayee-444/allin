@@ -18,6 +18,7 @@ from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
+from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import KitCommands
 from allin.main.open_windows import OpenWindows
 from allin.main.profile_commands import ProfileCommands
@@ -75,6 +76,7 @@ class MainCommands:
         server: ServerCommands,
         profiles: ProfileCommands,
         kits: KitCommands,
+        keys: KeyCommands,
     ) -> None:
         self._boxes = boxes
         self._devastation = devastation
@@ -119,6 +121,8 @@ class MainCommands:
             "/profile": _MainCommand((), profiles.run, rest=True, optional=("action…",)),
             # A Kit writes pieces into the Profile and may suggest Supervisors (ADR-0014).
             "/kit": _MainCommand((), kits.run, rest=True, optional=("action…",), human_only=True),
+            # Only a human changes which key does what (#57, ADR-0013).
+            "/key": _MainCommand((), keys.run, rest=True, optional=("key…",), human_only=True),
             "/exit": _MainCommand((), lambda: False),
         }
 

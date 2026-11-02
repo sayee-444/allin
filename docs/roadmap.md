@@ -8,13 +8,12 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #56 Escribir durante un Turno (2026-11-01).
-  - Enter ya no se bloquea. Lo que se envía mientras la Sesión está ocupada sale bajo el Chat como `[queued]`, entra en el Chat cuando empieza su Turno (en vivo y al reconstruirlo, con el evento `prompt_started`) y corre como el Turno siguiente.
-  - ↑ en la primera fila, si hay algo en cola, retira lo último, tal como se tecleó, como un bloque propio del Borrador; sin cola, ↑ recorre el historial de #22.
-  - Shift+Enter corta el Turno y lo guarda con lo que llevaba, como Turno cortado `interrupted` (un mensaje `incomplete`, que llama acepta). Su texto, si lo hay, corre antes que lo que esperaba, y el LLM recibe en ese Prompt, bajo `[LOGS @COMMANDS]`, una Notificación que el Turno guarda (`notifications`).
-  - Cerrar la Ventana devuelve lo encolado al Borrador, como bloques y en orden.
-  - Métricas: 945 tests. Antes: #22 cursor e historial.
-- **Siguiente:** #57, Atajos de teclado con `/key`. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input.
+- **Último hecho:** #57 Atajos de teclado con `/key` (2026-11-01).
+  - Las teclas de enviar, saltar de línea, interrumpir, ↑/↓, Re Pág/Av Pág y Ctrl+V son ahora Atajos (`ui/shortcuts.py`): una tabla tecla → acción o Command main, con los de siempre por defecto. Los Ajustes guardan solo lo que cambia (`keys`, en los de Main para su Chat y en los de Sesión para su Ventana, con su valor en la plantilla), y un `off` quita uno de los de por defecto.
+  - `/key` los lista y marca los cambiados; `/key [<sid>|--template] <tecla> <acción|/comando|off> [--replace]` los cambia. Una tecla ocupada pide `--replace`, siempre queda una para enviar, solo un humano usa `/key`, y una Ventana no toma comandos hasta F2. Las teclas que una Ventana no distingue (Ctrl+↑, un carácter solo…) se rechazan al asignarlas. Un Kit no los trae: viven fuera del registro de Ajustes.
+  - La prueba a mano sacó dos fallos, corregidos: una tecla con nombre y sin Atajo escribía su nombre, y xterm se quedaba Alt+Enter para su pantalla completa (`omitTranslation: fullscreen`).
+  - Métricas: 994 tests. Antes: #56 escribir durante un Turno.
+- **Siguiente:** #23, `/help` generado del registro de Command main. **Recuerda correr `/grill-with-docs` para F2**, para que sus issues existan antes de que se acaben los pendientes. Queda pendiente, menor: tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -68,7 +67,7 @@ Ya tienen código; verificados y comentados.
 4. ✅ #14 Command prompts: Referencia a archivo y Sobrescritura de parámetro
 5. ✅ #22 Cursor en el input e historial de Prompts
 6. ✅ #56 Escribir durante un Turno: Enter sin bloqueo, la cola, ↑ para retirar y Shift+Enter para interrumpir (ADR-0024)
-7. #57 Atajos de teclado con `/key`
+7. ✅ #57 Atajos de teclado con `/key`
 8. #23 `/help` generado del registro de Command main
 9. #19 Lo que quede de la señal durante el arranque
 10. #33 Una Ventana desconectada sigue mandando Borradores (Broken pipe)

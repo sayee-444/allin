@@ -158,6 +158,8 @@ The arrows, Home and End move the cursor in the input, and typing, deleting and 
 
 Enter is never blocked: what you send while the Session's Turn runs waits below the Chat as `[queued]` and runs next. Up on the input's first row withdraws the last queued text back into the input, and Shift+Enter cuts the running Turn, keeps what it wrote, and sends your text ahead of the queue.
 
+Those keys are Shortcuts you can change with `/key`: `/key` lists them, and `/key [<sid>|--template] <key> <action|/command|off> [--replace]` binds a key (named like `ctrl+b`, `shift+enter`, `alt+x` or `f5`) to an action of the input (`send`, `newline`, `interrupt`, `withdraw`, `up`, `down`, `older`, `newer`, `scroll_up`, `scroll_down`, `paste`) or, in Main's Chat, to a Command main. Without a target it changes Main's Chat; with a Session id, that Session's Window; with `--template`, the Sessions `/new` makes.
+
 In a Prompt you type, `@key=value` changes a sampling parameter for that Turn only (`temperature`, `top_p`, `top_k`, `min_p`, `max_output_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `reasoning_budget_tokens`, `effort`), and `@./file`, `@~/file` or `@/path/file` attaches a file. The file is copied to the Session's workspace (`<data dir>/workspaces/<sid>/.allin/adjuntos/`); text goes in as text, and an image goes in as an image only if the Server sees images.
 
 | Command | What it does |

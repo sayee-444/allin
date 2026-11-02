@@ -7,6 +7,8 @@ from pathlib import Path
 
 XTERM_RESOURCES = (
     "XTerm*modifyOtherKeys: 2",  # Ctrl+Enter arrives as ESC [27;5;13~
+    # xterm keeps Alt+Enter for its full screen; without it, the key reaches the Window (#57).
+    "XTerm*omitTranslation: fullscreen",
     # No text on screen may ask xterm for its title or the clipboard (OSC 52) and have the
     # answer typed as if by the user, nor recolour it (ADR-0018); Themes (#47) reopen only
     # the size, font and colour changes, never the questions.
