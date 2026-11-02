@@ -1,0 +1,55 @@
+{
+  "weather: first description ms": 63.2,
+  "weather: kept description ms": 0.12,
+  "weather: description": {
+    "package_hash": "796893e0c521c9c65a1f1774cfe7604980784a7acd53ff6ed13d41a167361126",
+    "module": "weather",
+    "kind": "function",
+    "tools": [
+      {
+        "name": "weather",
+        "description": "Forecast for a city, a few days ahead.",
+        "parameters": {
+          "properties": {
+            "city": {
+              "title": "City",
+              "type": "string"
+            },
+            "days": {
+              "default": 3,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "title": "weather_arguments",
+          "type": "object"
+        },
+        "marks": {}
+      }
+    ],
+    "reach": {
+      "read": [
+        "home/Documents"
+      ],
+      "write": [],
+      "net": [
+        443
+      ],
+      "display": false,
+      "commands": []
+    },
+    "marks": {}
+  },
+  "weather: kept as": "<scratch>/var/descriptions/796893e0c521c9c65a1f1774cfe7604980784a7acd53ff6ed13d41a167361126.weather.json",
+  "weather: after editing, default of days": 5,
+  "weather: hash changed": true,
+  "nosy: its import ran in Main": false,
+  "nosy: called (minimum reach) ok": true,
+  "nosy: description": "{'write its package': 'PermissionError', 'write the data folder': 'PermissionError', 'read a folder outside': 'PermissionError', 'read the data folder': 'PermissionError', 'tcp 443': 'PermissionError', 'udp': 'PermissionError', 'unix socket': 'PermissionError'}",
+  "hang: error": "tool_timed_out",
+  "hang: seconds until Main went on": 2.02,
+  "after hang: weather still described": "weather"
+}
