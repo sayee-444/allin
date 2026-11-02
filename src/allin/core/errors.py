@@ -334,11 +334,42 @@ class ClipboardFailed(AllInError):
     code: ClassVar[str] = "clipboard_failed"
 
 
-class CommandSessionsNotYet(AllInError):
-    """A Prompt that starts with ``@<command>``: Command sessions arrive with F2, so it is
-    recognised and not sent."""
+class SessionCommandInPrompt(AllInError):
+    """A Prompt sent with ``/send`` that starts with ``@<command>``: a Command session is typed
+    alone in its Session's Window, so it is recognised and not sent (ADR-0025)."""
 
-    code: ClassVar[str] = "command_sessions_not_yet"
+    code: ClassVar[str] = "session_command_in_prompt"
+
+
+class SessionCommandFailed(AllInError):
+    """A Command session module failed to load; the other Command sessions go on."""
+
+    code: ClassVar[str] = "session_command_failed"
+
+
+class UnknownSessionCommand(AllInError):
+    """No Command session has this name on this machine."""
+
+    code: ClassVar[str] = "unknown_session_command"
+
+
+class InvalidSessionCommand(AllInError):
+    """A Command session's arguments do not make its Command main: ``reason`` says why."""
+
+    code: ClassVar[str] = "invalid_session_command"
+
+
+class SessionCommandNotListed(AllInError):
+    """A Session's LLM asked for a Command session that the Sessions ``not_in``, on its chain,
+    do not have in their lists (ADR-0025)."""
+
+    code: ClassVar[str] = "session_command_not_listed"
+
+
+class SessionCommandNotDeclared(AllInError):
+    """A function asked for a Command session its ``@reach(commands=[…])`` does not declare."""
+
+    code: ClassVar[str] = "session_command_not_declared"
 
 
 class ParamOverrideInvalid(AllInError):

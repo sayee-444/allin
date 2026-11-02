@@ -37,6 +37,7 @@ from allin.core.errors import ConfinementFailed
 _PR_SET_PDEATHSIG = 1
 _PR_SET_CHILD_SUBREAPER = 36
 _ANSWER_MAX = 16 * 1024 * 1024  # as Main's side: past it, the answer is not one
+_COMMAND_MAX = 64 * 1024  # as ``messages.COMMAND_MAX``: a longer Command session is refused
 _libc = ctypes.CDLL(None, use_errno=True)
 
 type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | None
@@ -81,15 +82,23 @@ def main() -> None:
         os._exit(0)
     warden = os.getpid()
     reply_out, reply_in = os.pipe()
+    asks_out, asks_in = os.pipe()  # the runner's Command sessions, to relay to Main
+    results_out, results_in = os.pipe()  # Main's results, for the runner
     pid = os.fork()
     if pid == 0:
-        os.close(reply_out)
+        for end in (reply_out, asks_out, results_in):
+            os.close(end)
         channel.close()
+        if call.function is not None:  # a description runs none
+            from allin import channel as commands  # noqa: PLC0415 - the runner's alone
+
+            commands.connect(asks_in, results_out)
         _run_function(call, reply_in, warden)
-    os.close(reply_in)
+    for end in (reply_in, asks_in, results_out):
+        os.close(end)
     runner = _Runner(pid=pid, scoped=scoped)
     signal.signal(signal.SIGTERM, lambda _signum, _frame: _take_down_and_exit(runner))
-    reply = _wait(channel, reply_out, runner)
+    reply = _wait(channel, reply_out, runner, _Relay(asks_out, results_in))
     if reply is not None:
         channel.sendall(reply)
     os._exit(0)
@@ -216,16 +225,96 @@ def _confine(call: _Call) -> bool:
     return restricted.signals_scoped
 
 
-def _wait(channel: socket.socket, reply_out: int, runner: _Runner) -> bytes | None:
-    """Wait for the runner's answer or Main's cancel; then take the call down. The line to
-    send Main, as the runner wrote it (Main parses it); ``None`` when Main cancelled."""
+@dataclass
+class _Relay:
+    """The runner's Command sessions on their way to Main, and Main's results on their way
+    back; each side's partial line until it ends."""
+
+    asks_out: int
+    results_in: int
+    asked: bytes = b""
+    from_main: bytes = b""
+
+    def ask(self, channel: socket.socket) -> bool:
+        """Pass on to Main the runner's whole Command sessions; ``False`` once it closed."""
+        chunk = os.read(self.asks_out, 1 << 16)
+        if not chunk:
+            return False
+        self.asked += chunk
+        while b"\n" in self.asked:
+            line, _, self.asked = self.asked.partition(b"\n")
+            text = _command_text(line)
+            if text is None:  # never relayed: Main gets only what this checked
+                _write_all(self.results_in, _line({"result": {"error": "malformed command"}}))
+            else:
+                channel.sendall(_line({"type": "command", "text": text}))
+        return len(self.asked) <= _COMMAND_MAX * 4  # past it, no line end in sight: not one
+
+    def answer(self, chunk: bytes) -> bool:
+        """Pass on to the runner Main's whole results; ``False`` at anything else from Main,
+        which is a cancel."""
+        self.from_main += chunk
+        while b"\n" in self.from_main:
+            line, _, self.from_main = self.from_main.partition(b"\n")
+            result = _command_result(line)
+            if result is None:
+                return False
+            _write_all(self.results_in, result)
+        return True
+
+
+def _typed(line: bytes, kind: str) -> dict[str, _Json] | None:
+    """The fields of a JSON line whose ``type`` is ``kind``; ``None`` for anything else."""
+    try:
+        message: object = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(message, dict):
+        return None
+    fields = cast(dict[str, _Json], message)
+    return fields if fields.get("type") == kind else None
+
+
+def _command_text(line: bytes) -> str | None:
+    """The text of a Command session the runner wrote, if that is what it wrote."""
+    fields = _typed(line, "command")
+    text = fields.get("text") if fields is not None else None
+    if not isinstance(text, str) or len(text) > _COMMAND_MAX:
+        return None
+    return text
+
+
+def _command_result(line: bytes) -> bytes | None:
+    """A result from Main, as the runner reads it; ``None`` for anything else."""
+    fields = _typed(line, "command_result")
+    return _line({"result": fields.get("result")}) if fields is not None else None
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    sent = 0
+    while sent < len(data):
+        sent += os.write(fd, data[sent:])
+
+
+def _wait(channel: socket.socket, reply_out: int, runner: _Runner, relay: _Relay) -> bytes | None:
+    """Wait for the runner's answer or Main's cancel, relaying its Command sessions and their
+    results meanwhile; then take the call down. The line to send Main, as the runner wrote it
+    (Main parses it); ``None`` when Main cancelled."""
     selector = selectors.DefaultSelector()
     selector.register(channel, selectors.EVENT_READ)
     selector.register(reply_out, selectors.EVENT_READ)
+    selector.register(relay.asks_out, selectors.EVENT_READ)
     answer = b""
     while True:
         for key, _ in selector.select():
-            if key.fileobj is channel:  # a cancel, or Main closed its end
+            if key.fileobj is relay.asks_out:
+                if not relay.ask(channel):
+                    selector.unregister(relay.asks_out)
+                continue
+            if key.fileobj is channel:  # a result, a cancel, or Main closed its end
+                chunk = channel.recv(1 << 16)
+                if chunk and relay.answer(chunk):
+                    continue
                 _take_down(runner)
                 os.waitpid(runner.pid, 0)
                 return None

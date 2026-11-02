@@ -16,6 +16,8 @@ MainId = NewType("MainId", str)
 SessionId = NewType("SessionId", str)
 # A piece of a Profile, as ``<kind>:<name>`` (``function:clock``): made by ``PieceRef.id``.
 PieceId = NewType("PieceId", str)
+# A Command session's name, without its ``@`` (``send``): what a Session's list holds.
+CommandName = NewType("CommandName", str)
 ROOT_MAIN_ID = MainId("root")  # the Main started from the command line; submains get their own
 
 

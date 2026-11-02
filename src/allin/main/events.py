@@ -1,7 +1,10 @@
 """Events consumed by Main's dispatcher, in arrival order (ADR-0001)."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import JsonValue
 
 from allin.core.errors import AllInError
 from allin.core.ids import BoxId, ServerKey, SessionId, SupervisorName
@@ -236,6 +239,39 @@ class ToolsStarted:
     names: tuple[str, ...]
 
 
+# How a Command main went: it ran, a human said no at its Confirmation, or why it failed.
+type CommandOutcome = Literal["ok", "rejected"] | AllInError
+
+
+@dataclass(frozen=True)
+class SessionCommandResult:
+    """How a Command session went, for whoever asked for it (ADR-0025)."""
+
+    error: str | None = None  # why it was refused or failed; ``None`` if it ran
+    # How its Server came back, after an ``@server restart``.
+    server: Literal["ready", "failed"] | None = None
+
+    def as_json(self) -> JsonValue:
+        """As the tool that asked for it reads it, on its channel."""
+        shown: dict[str, JsonValue] = (
+            {"result": "ok"} if self.error is None else {"error": self.error}
+        )
+        if self.server is not None:
+            shown["server"] = self.server
+        return shown
+
+
+@dataclass(frozen=True)
+class SessionCommandAsked:
+    """A tool of a running Turn asks for a Command session, ``@name …``, with the Turn's
+    ``origin``; ``answer`` gets how it went, from Main's thread (ADR-0025)."""
+
+    session_id: SessionId
+    text: str
+    origin: Origin
+    answer: Callable[[SessionCommandResult], None]
+
+
 @dataclass(frozen=True)
 class ToolsEnded:
     """A running Turn's tools gave back what they said: its next Step, a Continuation, waits
@@ -296,6 +332,7 @@ type MainEvent = (
     | ConfirmationRequested
     | ToolsStarted
     | ToolsEnded
+    | SessionCommandAsked
     | BoxAnswered
     | Shutdown
 )
