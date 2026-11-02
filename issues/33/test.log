@@ -24,4 +24,4 @@ Arreglo:
 
 Tests: tests/test_window_disconnect.py. Tras el EOF no se manda nada; una FIFO rota va al registro y
 no al Chat, y se avisa una sola vez; los demás errores siguen en el Chat; la pantalla en solo lectura
-solo deja pasar las teclas de la vista. 1010 tests; basedpyright y ruff limpios.
+solo deja pasar las teclas de la vista. 1006 tests; basedpyright y ruff limpios.
