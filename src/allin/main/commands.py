@@ -557,7 +557,7 @@ class MainCommands:
             self._windows.send(session.id, error_entry(str(error)))
             self._windows.put_back(session.id, text)
             raise
-        self._turns.push(session, replace(prompt, yes=yes))
+        self._turns.push(session, replace(prompt, answered_by="-y" if yes else None))
         return True
 
     def _human_prompt(self, session_id: SessionId, text: str) -> Prompt:

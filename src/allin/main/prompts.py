@@ -17,6 +17,9 @@ from allin.main.prompt_commands import TurnOverrides
 type PromptKind = Literal["prompt", "compact", "auto_compact"]
 
 
+type AutoConfirm = Literal["-y", "--devastation"]
+
+
 @dataclass(frozen=True)
 class Prompt:
     session_id: SessionId
@@ -31,10 +34,13 @@ class Prompt:
     # Sent while its Session was busy: its Chat shows it once its Turn starts (ADR-0024).
     queued: bool = False
     origin: Origin = HUMAN  # a Rewind gives back to the input only a human's (#58)
-    # Sent with ``-y`` by a human: its Turn's Confirmations are answered yes, and only its own,
-    # not those of what it sets going (ADR-0013).
-    yes: bool = False
-    # The Steps its Turn had ended when a fall suspended it, which it goes on from (ADR-0023).
+    # Who answers its Turn's Confirmations instead of a human: ``-y``, sent so by a human, for
+    # its own and not for what it sets going; or, once its Turn started, whoever answered them
+    # then, which a fall does not change (ADR-0013).
+    answered_by: AutoConfirm | None = None
+    # Its Turn started and a fall suspended it: it goes on from the Steps it had ended
+    # (ADR-0023), with what it had when it started (ADR-0013).
+    suspended: bool = False
     steps: tuple[Step, ...] = ()
 
     @property

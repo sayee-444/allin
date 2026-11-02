@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Container
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Protocol
 
 from pydantic import JsonValue
 
@@ -73,7 +73,7 @@ from allin.main.link_changes import LinkChange, failure_text, judge
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
 from allin.main.open_windows import OpenWindows, Streamed
-from allin.main.prompts import Prompt, PromptQueue
+from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import ServerProps, capacity
@@ -172,9 +172,6 @@ def _gpu_holders(holders: tuple[SupervisorName, ...]) -> str:
         return "no Supervisor is active, so something outside AllIn holds the GPU"
     names = ", ".join(holders)
     return f"the GPU is held by Supervisor {names}; it is tried again when one falls asleep"
-
-
-type AutoConfirm = Literal["-y", "--devastation"]
 
 
 @dataclass
@@ -600,11 +597,12 @@ class TurnQueue:
         self._start_turns()
 
     def _auto_confirm(self, prompt: Prompt, session: Session) -> AutoConfirm | None:
-        """Who answers the Confirmations of the Prompt's Turn: ``-y`` on it, else
+        """Who answers the Confirmations of the Prompt's Turn: ``-y`` on it, or who answered
+        them before a fall, since a Turn keeps what it had when it started; else
         ``--devastation`` if it covers the Prompt's chain and the Session its tools act in
         (ADR-0013); else a human."""
-        if prompt.yes:
-            return "-y"
+        if prompt.answered_by is not None or prompt.suspended:
+            return prompt.answered_by
         if self._devastation.answers(from_session(prompt.origin, session.id)):
             return "--devastation"
         return None
@@ -1221,7 +1219,11 @@ class TurnQueue:
         self._reporter.record(session_id, "turn_suspended", shown, **fields)
         self._windows.send(session_id, ChatAppend(role="info", label="server", text=shown))
         # It goes on from the Steps it ended: their tools are not run again (ADR-0023).
-        self._prompts.push_front(replace(running.prompt, steps=tuple(streamed.steps)))
+        steps = tuple(streamed.steps)
+        answered_by = running.auto_confirm  # it keeps who answers for it
+        self._prompts.push_front(
+            replace(running.prompt, suspended=True, steps=steps, answered_by=answered_by)
+        )
         return True
 
     def _stalled(self, running: _RunningTurn) -> None:

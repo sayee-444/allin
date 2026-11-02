@@ -14,7 +14,8 @@ from allin.core.errors import InvalidReach
 type Root = Literal["work", "home", "/"]
 ROOTS: tuple[Root, ...] = ("work", "home", "/")
 REACH_MARK = "__allin_reach__"  # where ``@reach`` leaves the Alcance on its target
-CONFIRM_MARK = "__allin_confirm__"  # where ``@confirm`` marks its target delicate
+CONFIRM = "confirm"  # the mark ``@confirm`` leaves, as a description reads it
+CONFIRM_MARK = f"__allin_{CONFIRM}__"  # where ``@confirm`` marks its target delicate
 GRANT = "grant"  # Otorgar's Command session (ADR-0025)
 # Writing under these, outside a dotted or ``bin`` folder, is not where the user runs things.
 _HARMLESS_WRITES = (PurePosixPath("/dev/shm"),)  # noqa: S108 - a path an Alcance names

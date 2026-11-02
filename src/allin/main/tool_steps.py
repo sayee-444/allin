@@ -20,7 +20,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from allin.confinement.launcher import ToolCall, ToolLauncher
 from allin.core.errors import AllInError, ToolCancelled
 from allin.core.ids import PieceId, SessionId
-from allin.decorators import Reach
+from allin.decorators import CONFIRM, Reach
 from allin.main.confirmation import ConfirmationGate
 from allin.main.conversation import TOOL_ERROR, Item, Step
 from allin.main.events import MainEvent, ToolsEnded, ToolsStarted
@@ -67,7 +67,7 @@ def session_tools(
                 "description": tool.description,
                 "parameters": tool.parameters,
             }
-            confirm = tool.name in function.confirm or tool.marks.get("confirm") is True
+            confirm = tool.name in function.confirm or tool.marks.get(CONFIRM) is True
             tools[tool.name] = SessionTool(
                 tool.name, function.package, described.module, described.reach, schema, confirm
             )
@@ -196,16 +196,16 @@ class ToolGate:
         assert self._turn is not None, "run() before the executor connected the gate"
         turn = self._turn
         calls = step.calls
-        allowed = [self._allowed(call, turn) for call in calls]
+        allowed = [self._may_run(call, turn) for call in calls]
         names = tuple(_name(call) for call in calls)
         turn.emit(ToolsStarted(turn.session_id, names))
         results: list[Item] = []
-        for call, yes in zip(calls, allowed, strict=True):
+        for call, may_run in zip(calls, allowed, strict=True):
             turn.cancellation.check()
             if self._tools is None:  # a Turn without tools: the LLM called one it does not have
                 results.append(_call_output(call, _no_tool(_name(call))))
                 continue
-            if not yes:
+            if not may_run:
                 results.append(_call_output(call, REFUSED))
                 continue
             try:
@@ -228,15 +228,22 @@ class ToolGate:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
 
-    def _allowed(self, call: Item, turn: _Turn) -> bool:
+    def _may_run(self, call: Item, turn: _Turn) -> bool:
         """Whether ``call`` may run: yes, unless it asks a Confirmation and a human says no."""
         if self._tools is None or not self._tools.confirms(call):
             return True
-        arguments: object = call.get("arguments")
-        shown = str(arguments)
-        if len(shown) > _SHOWN_ARGUMENTS:
-            shown = shown[:_SHOWN_ARGUMENTS] + "\N{HORIZONTAL ELLIPSIS}"
-        return turn.confirmation.ask(f"run {_name(call)}?", f"{_name(call)} {shown}")
+        return turn.confirmation.ask(
+            f"run {_name(call)}?", f"{_name(call)} {_arguments_shown(call)}"
+        )
+
+
+def _arguments_shown(call: Item) -> str:
+    """A call's arguments as its Confirmation shows them, cut if long."""
+    arguments: object = call.get("arguments")
+    shown = str(arguments)
+    if len(shown) <= _SHOWN_ARGUMENTS:
+        return shown
+    return shown[:_SHOWN_ARGUMENTS] + "\N{HORIZONTAL ELLIPSIS}"
 
 
 def _name(call: Item) -> str:

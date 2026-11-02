@@ -2,6 +2,7 @@ import contextlib
 import queue
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -181,12 +182,12 @@ class FakeWindowLink:
 type Between = Callable[[], None]  # something a test does between two events
 
 
+@dataclass(frozen=True)
 class Until:
     """A step of ``later``: Main goes on handling what comes in until ``done`` says so, or the
     Turns that run in threads have all ended, and only then takes the next event."""
 
-    def __init__(self, done: Callable[[], bool]) -> None:
-        self.done = done
+    done: Callable[[], bool]
 
 
 TURNS_ENDED = Until(lambda: False)

@@ -21,8 +21,8 @@ from allin.main.sessions import Session
 from allin.main.tool_steps import REFUSED
 from allin.ui.boxes import Box
 from allin.ui.screen import ShowBox
-from tests.llm_fakes import FakeLlm, full_reply, tool_call
-from tests.test_dispatcher import MainHarness, Until
+from tests.llm_fakes import DroppedStream, FakeLlm, full_reply, reasoning, tool_call
+from tests.test_dispatcher import TURNS_ENDED, MainHarness, Until, server_ready
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
 
@@ -235,3 +235,24 @@ def test_devastation_does_not_answer_it_for_a_session_without_the_exemption(main
         settle=True,
     )
     assert len(asked(main)) == 1
+
+
+def test_a_turn_a_fall_suspended_keeps_who_answered_for_it(main: MainHarness):
+    # A human answered when it started: --devastation, switched on during the fall, does not.
+    session = with_voice(main)
+    main.llm = FakeLlm(
+        DroppedStream([reasoning("…")]),
+        tool_call("shout", json.dumps({"text": "hola"})),
+        full_reply("", "listo"),
+    )
+    main.run(
+        InputReceived(session.id, "grita"),
+        TURNS_ENDED,
+        MainCommandEntered("/devastation on"),
+        server_ready(main.server),
+        box_shown(main),
+        BoxAnswered(AFTER_NOTICE, True),
+        settle=True,
+    )
+    assert len(asked(main)) == 1
+    assert outputs(main.llm.requests[-1]) == ['"HOLA"']
