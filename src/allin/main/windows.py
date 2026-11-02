@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from allin.core.errors import AllInError, WindowLaunchFailed
 from allin.core.ids import SessionId
+from allin.core.themes import Theme
 from allin.ipc.channel import Channel, FifoPair, create_fifo_pair
 from allin.ipc.messages import (
     BoxAnswer,
@@ -33,6 +34,7 @@ from allin.main.events import (
 )
 from allin.main.launcher import Launcher, xterm_command
 from allin.main.open_windows import WindowLink
+from allin.ui.look import xterm_options
 
 _CLOSE_GRACE = 2.0
 _ORPHAN_GRACE = 2.0
@@ -138,7 +140,7 @@ class WindowOpener:
         folder.mkdir(parents=True, exist_ok=True)
         return folder / f"{session_id}.jsonl"
 
-    def __call__(self, session_id: SessionId) -> WindowLink:
+    def __call__(self, session_id: SessionId, theme: Theme) -> WindowLink:
         try:
             fifos = create_fifo_pair(self._data_dir / "fifo", session_id)
             record = self._record_path(session_id)
@@ -160,7 +162,7 @@ class WindowOpener:
             str(record),
         ]
         launcher = Launcher(
-            xterm_command(window_command, title=f"AllIn · {session_id}"),
+            xterm_command(window_command, f"AllIn · {session_id}", xterm_options(theme)),
             self._data_dir / "logs" / "main" / f"{session_id}-xterm.log",
             lambda returncode: self._inbox.put(WindowClosed(session_id, returncode)),
         )

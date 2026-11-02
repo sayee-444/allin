@@ -18,6 +18,7 @@ from allin.core.errors import AllInError, NoticeFailed
 from allin.core.settings import SessionSettings, SettingKey, SettingName
 from allin.main.context_notice import CONTEXT
 from allin.main.cut_turns import CUT_TURN
+from allin.main.themes import THEME_NOTICE
 from allin.notices import NoticeEvent, NoticeType
 
 type Notify = Callable[[str, str, str], None]  # shows a Notice's type, title and text
@@ -62,6 +63,23 @@ class NoticeTypes:
                 notify(notice_type.name, title, text)
         return failed
 
+    def tell(
+        self,
+        name: str,
+        settings: SessionSettings | None,
+        variables: Mapping[str, object],
+        notify: Notify,
+    ) -> None:
+        """Show a Notice Main itself raises, not after a Step (a Theme's, #47), as the
+        Session's Settings say; Main's Chat (``settings`` ``None``) takes the defaults."""
+        notice_type = self._types.get(name)
+        if notice_type is None:
+            return
+        own = settings.notices.get(name, {}) if settings is not None else {}
+        params = {**notice_type.defaults(), **own}
+        if params["enabled"] is True:
+            notify(name, str(params["title"]), _fill(str(params["text"]), variables))
+
 
 @dataclass(frozen=True)
 class LoadedNotices:
@@ -73,7 +91,7 @@ def load_notice_types(folder: Path) -> LoadedNotices:
     """Main's own types and those the modules in ``folder`` declare, and why any module failed
     to load."""
     problems: list[AllInError] = []
-    loaded: list[NoticeType] = [CUT_TURN, CONTEXT]
+    loaded: list[NoticeType] = [CUT_TURN, CONTEXT, THEME_NOTICE]
     for path in sorted(folder.glob("*.py")) if folder.is_dir() else []:
         notices.declared.clear()
         try:

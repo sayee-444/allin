@@ -1,0 +1,26 @@
+# Dark blue, rounded borders.
+
+[font]
+family = "DejaVu Sans Mono"
+size = 11
+
+[colors]
+background = "#002b36"
+text = "#eee8d5"
+user = "#2aa198"
+reasoning = "#6c71c4"
+answer = "#859900"
+info = "#b58900"
+error = "#dc322f"
+status = "#93a1a1"
+
+[border]
+style = "rounded"
+color = "#268bd2"
+
+[window]
+size = "160x40"
+
+[glyphs]
+set = "unicode"
+icons = { user = "›", answer = "‹", error = "✗" }

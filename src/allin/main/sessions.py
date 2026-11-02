@@ -23,6 +23,7 @@ from allin.core.errors import (
 from allin.core.files import write_atomically
 from allin.core.ids import MainId, SessionId, new_session_id, parse_session_id
 from allin.core.settings import SessionSettings
+from allin.core.themes import pick_border_color
 from allin.main.conversation import (
     Conversation,
     archive_conversation,
@@ -47,6 +48,10 @@ class Session(BaseModel, frozen=True):
     created_by: MainId
     created_at: datetime
     settings: SessionSettings = Field(default_factory=SessionSettings)
+    # The palette colour its border takes under a Theme whose border is ``auto`` (#47): chosen
+    # when it is born, the one the other Sessions use least, and kept, like its id. ``None`` for
+    # a Session from before, which gets one the first time it is shown.
+    border_color: str | None = None
 
 
 class SessionStore:
@@ -74,6 +79,7 @@ class SessionStore:
                 created_by=owner,
                 created_at=datetime.now(UTC),
                 settings=settings,
+                border_color=pick_border_color(self._border_colors(but=session_id)),
             )
             save_conversation(folder, Conversation(sysprompt=sysprompt))
             write_atomically(folder / _METADATA, session.model_dump_json(indent=2))
@@ -148,6 +154,33 @@ class SessionStore:
             return Session.model_validate_json(path.read_bytes())
         except (OSError, ValidationError) as error:
             raise SessionUnreadable(session_id=session_id, reason=str(error)) from error
+
+    def with_border_color(self, session: Session) -> Session:
+        """The Session with its border colour, given now and saved if it had none (#47)."""
+        if session.border_color is not None:
+            return session
+        colored = session.model_copy(
+            update={"border_color": pick_border_color(self._border_colors(but=session.id))}
+        )
+        try:
+            write_atomically(self._root / session.id / _METADATA, colored.model_dump_json(indent=2))
+        except OSError as error:
+            raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
+        return colored
+
+    def _border_colors(self, but: SessionId) -> list[str]:
+        """The border colours the other stored Sessions have."""
+        colors: list[str] = []
+        for session_id in self.ids():
+            if session_id == but:
+                continue
+            try:
+                color = self.load(session_id).border_color
+            except (SessionNotFound, SessionUnreadable):
+                continue
+            if color is not None:
+                colors.append(color)
+        return colors
 
     def save_settings(self, session: Session, settings: SessionSettings) -> Session:
         """The Session with new Settings, already on disk."""

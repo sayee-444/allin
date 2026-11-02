@@ -21,8 +21,12 @@ def step(event, params):
     return {"tokens": event.context}
 """
 BROKEN = "raise RuntimeError('broken on purpose')\n"
-# Main's own Notice types, there with no module: a cut Turn (ADR-0004) and the Context (#29).
+# Main's own Notice types, there with no module: a cut Turn (ADR-0004), the Context (#29) and
+# what a Theme could not do (#47).
 CUT_TURN_KEYS = {
+    "notices.theme.enabled": True,
+    "notices.theme.title": "Theme",
+    "notices.theme.text": "{problem}",
     "notices.cut_turn.enabled": True,
     "notices.cut_turn.title": "Turn cut",
     "notices.cut_turn.text": "{why}; {how}",

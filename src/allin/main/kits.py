@@ -1,7 +1,7 @@
 """Kits, first part: a recipe exported from the active Profile and loaded by copy into another
 (ADR-0014).
 
-For now a Kit holds Sysprompts, part of Main's Settings and suggested Server Settings; it
+For now a Kit holds Sysprompts, Themes, part of Main's Settings and suggested Server Settings; it
 never holds Sessions, Logs, Atajos or anything of a running Main. Loading one runs nothing,
 checks it whole first and writes all of it or nothing; each piece remembers which Kit and
 version it came from (``kits.json`` in the Profile's folder).
@@ -21,6 +21,7 @@ from allin.core.errors import (
     KitReferenceMissing,
     KitRejected,
     ProfileStorageFailed,
+    ThemeInvalid,
 )
 from allin.core.settings import (
     MainSettings,
@@ -29,6 +30,7 @@ from allin.core.settings import (
     apply_settings,
     shown_settings,
 )
+from allin.core.themes import DEFAULT_THEME, is_theme_name, parse_theme
 from allin.main.portable import (
     Manifest,
     Piece,
@@ -58,7 +60,9 @@ _REQUIRED_SYSPROMPT = "session.sysprompt"
 # Server Settings a Kit may suggest: none that names a file or opens the network, but the
 # model, by its file's name (ADR-0008).
 _SERVER_KEYS = (frozenset(ServerSettings.model_fields) - REACHING_KEYS.keys()) | {"model"}
-_LOADABLE = frozenset({"settings", "sysprompt", "server"})
+_LOADABLE = frozenset({"settings", "sysprompt", "theme", "server"})
+# The Setting that names a Theme, which an exported Kit brings along (#47).
+_THEME_KEY = "session.theme"
 _SETTINGS_VALUES = TypeAdapter(dict[str, str])
 
 # What to do with a piece of the Kit that differs from the Profile's own.
@@ -108,7 +112,10 @@ class Kits:
         """Write a Kit of ``profile``'s pieces into ``folder``: those ``wanted`` (all its
         Sysprompts and its Settings if none) and what they name."""
         available = self._available(profile)
-        chosen = list(wanted) or ["settings", *(p for p in available if p.startswith("sysprompt:"))]
+        chosen = list(wanted) or [
+            "settings",
+            *(p for p in available if p.startswith(("sysprompt:", "theme:"))),
+        ]
         for piece in chosen:
             if piece not in available:
                 raise KitPieceUnknown(piece=piece)
@@ -116,6 +123,7 @@ class Kits:
         if "settings" in chosen:  # its dependencies join it by themselves
             for key in _SYSPROMPT_KEYS:
                 chosen.append(f"sysprompt:{values.get(key)}")
+            chosen.append(f"theme:{values.get(_THEME_KEY)}")
             chosen.append(f"server:{current.session.server}")
         pieces = [
             self._piece(profile, piece, values)
@@ -146,6 +154,8 @@ class Kits:
         for piece in manifest.pieces:
             if piece.kind == "sysprompt":
                 self._plan_sysprompt(profile, kit, piece, choices, writes, loaded)
+            elif piece.kind == "theme":
+                self._plan_theme(profile, kit, piece, choices, writes, loaded)
         if settings is not None and _differs(kit, current, extra):
             if choices.get("settings") == "take":
                 settings = _renamed_references(settings, extra, loaded.renamed)
@@ -169,10 +179,14 @@ class Kits:
 
     def _available(self, profile: Profile) -> list[str]:
         sysprompts = sorted(p.name for p in profile.sysprompts.glob("*") if p.is_file())
+        themes = sorted(
+            p.stem for p in profile.themes.glob("*.toml") if p.is_file() and is_theme_name(p.stem)
+        )
         servers = sorted(p.stem for p in self._servers.glob("*.toml"))
         return [
             "settings",
             *(f"sysprompt:{name}" for name in sysprompts),
+            *(f"theme:{name}" for name in themes),
             *(f"server:{name}" for name in servers),
         ]
 
@@ -184,6 +198,9 @@ class Kits:
         if kind == "sysprompt":
             data = (profile.sysprompts / name).read_bytes()
             return PieceFiles("sysprompt", name, {f"sysprompts/{name}": data})
+        if kind == "theme":
+            data = (profile.themes / f"{name}.toml").read_bytes()
+            return PieceFiles("theme", name, {f"themes/{name}.toml": data})
         settings = load_server_settings(self._servers / f"{name}.toml")
         suggested = {
             key: value
@@ -217,6 +234,40 @@ class Kits:
         writes[target] = data
         loaded.written.append(piece_id("sysprompt", target.name))
 
+    def _plan_theme(
+        self,
+        profile: Profile,
+        kit: Portable,
+        piece: Piece,
+        choices: Mapping[str, Choice],
+        writes: dict[Path, bytes],
+        loaded: KitLoaded,
+    ) -> None:
+        """A Theme comes in by its name, checked as any Theme is: one that is not valid is no
+        Theme, and the whole Kit is rejected (#47). No quarantine: it runs nothing."""
+        [data] = kit.contents(piece).values()
+        if not is_theme_name(piece.name):
+            raise KitRejected(reason="not a Theme's name", piece=piece_id("theme", piece.name))
+        try:
+            parse_theme(piece.name, data.decode("utf-8"))
+        except (UnicodeDecodeError, ThemeInvalid) as error:
+            raise KitRejected(reason=str(error), piece=piece_id("theme", piece.name)) from error
+        target = profile.themes / f"{piece.name}.toml"
+        own = target.read_bytes() if target.is_file() else None
+        if own == data:
+            return
+        choice = choices.get(piece_id("theme", piece.name), "keep")
+        if own is not None and choice == "keep":
+            loaded.kept.append(piece_id("theme", piece.name))
+            return
+        if own is not None and choice == "both":
+            target = _free_name(target, kit.manifest.name)
+            if not is_theme_name(target.stem):
+                raise KitRejected(reason="no free Theme name", piece=piece_id("theme", piece.name))
+            loaded.renamed[piece.name] = target.stem
+        writes[target] = data
+        loaded.written.append(piece_id("theme", target.stem))
+
 
 def _kit_settings(current: MainSettings, extra: Sequence[SettingKey]) -> dict[str, str]:
     """The part of Main's Settings a Kit carries: each Session's, but those no Kit brings."""
@@ -236,7 +287,7 @@ def _renamed_references(
     assignments = {
         SettingName(key): renamed[value]
         for key, value in _kit_settings(settings, extra).items()
-        if key in _SYSPROMPT_KEYS and value in renamed
+        if key in (*_SYSPROMPT_KEYS, _THEME_KEY) and value in renamed
     }
     return apply_settings(settings, assignments, extra) if assignments else settings
 
@@ -322,16 +373,25 @@ def _check_servers(kit: Portable) -> dict[str, dict[str, JsonValue]]:
 
 
 def _check_references(kit: Portable, profile: Profile) -> None:
-    """The Sysprompt the Kit's Settings name is in the Kit or in the Profile."""
+    """The Sysprompt and the Theme the Kit's Settings name are in the Kit or in the Profile;
+    ``default`` is always there, since AllIn has it built in."""
     piece = kit.manifest.piece("settings", "main")
     if piece is None:
         return
     values = _settings_values(kit, piece)
+    missing: list[JsonValue] = []
     name = values.get(_REQUIRED_SYSPROMPT)
-    if name is None or kit.manifest.piece("sysprompt", name) is not None:
-        return
-    if not (profile.sysprompts / name).is_file():
-        raise KitReferenceMissing(missing=[f"sysprompt:{name}"])
+    in_kit = name is None or kit.manifest.piece("sysprompt", name) is not None
+    if not in_kit and not (profile.sysprompts / str(name)).is_file():
+        missing.append(f"sysprompt:{name}")
+    theme = values.get(_THEME_KEY, DEFAULT_THEME)
+    theme_there = theme == DEFAULT_THEME or kit.manifest.piece("theme", theme) is not None
+    if not theme_there and not (
+        is_theme_name(theme) and (profile.themes / f"{theme}.toml").is_file()
+    ):
+        missing.append(f"theme:{theme}")
+    if missing:
+        raise KitReferenceMissing(missing=missing)
 
 
 def _provenance(profile: Profile) -> _Provenance:

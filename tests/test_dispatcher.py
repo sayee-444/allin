@@ -10,6 +10,7 @@ from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId, ServerKey, SessionId, SupervisorName
 from allin.core.settings import MainSettings, Sampling, SessionSettings
 from allin.core.slot_locks import SlotLock, SlotLocks
+from allin.core.themes import Theme
 from allin.core.wait_list import WaitList
 from allin.ipc.messages import (
     ChatAppend,
@@ -17,6 +18,7 @@ from allin.ipc.messages import (
     Close,
     ContextUsage,
     InputRestore,
+    ThemeSet,
     TurnState,
 )
 from allin.main.chat_rebuild import rebuild_chat
@@ -48,6 +50,7 @@ from allin.main.sessions import Session, SessionStore
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.slots import ServerProps
 from allin.main.state import MainState, MainStateStore
+from allin.main.themes import NO_FONT_PROBE
 from allin.ui.chat import Chat, Row
 from allin.ui.screen import ScreenUpdate
 from tests.llm_fakes import (
@@ -158,10 +161,14 @@ class FakeWindowLink:
     def __init__(self, pid: int) -> None:
         self.pid = pid
         self.sent: list[BaseModel] = []
+        self.themes: list[Theme] = []  # each Theme it was sent, kept apart from the rest
         self.closed = False
 
     def send(self, message: BaseModel) -> None:
-        self.sent.append(message)
+        if isinstance(message, ThemeSet):
+            self.themes.append(message.theme)
+        else:
+            self.sent.append(message)
 
     def close(self) -> None:
         self.closed = True
@@ -244,6 +251,8 @@ class MainHarness:
         self.notices_dir = tmp_path / "notices"  # Notice modules, loaded on each start
         self.held: list[TurnJob] = []
         self.opened: list[tuple[str, FakeWindowLink]] = []
+        self.born_with: list[tuple[str, Theme]] = []  # the Theme each Window's xterm had
+        self.fonts = NO_FONT_PROBE  # what fontconfig says: every letter there (#47)
         self.main_log_path = tmp_path / "main.jsonl"
         self.state = RecordingStateStore(self.profile.state)
         self.server_up = True  # the queue, paused on start, resumes before any event
@@ -312,6 +321,7 @@ class MainHarness:
             load_notice_types(self.notices_dir),
             lambda: self.now,
             lambda: self.now,
+            fonts=self.fonts,
         )
         self.dispatcher = dispatcher
         for event in () if settle else events:
@@ -343,8 +353,9 @@ class MainHarness:
         self.orphans.append((session_id, pid))
         return True
 
-    def _open_window(self, session_id: str) -> FakeWindowLink:
+    def _open_window(self, session_id: str, theme: Theme) -> FakeWindowLink:
         link = FakeWindowLink(pid=1000 + len(self.opened))
+        self.born_with.append((session_id, theme))
         self.opened.append((session_id, link))
         return link
 

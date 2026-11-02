@@ -16,6 +16,16 @@ from pydantic_core import ErrorDetails
 
 from allin.core.errors import InvalidSetting, MalformedAssignment, UnknownSetting
 from allin.core.ids import SUPERVISOR_NAME_PATTERN
+from allin.core.themes import (
+    DEFAULT_THEME,
+    BorderKeys,
+    ColorKeys,
+    FontKeys,
+    GlyphKeys,
+    LooseKeys,
+    ThemeName,
+    WindowKeys,
+)
 
 type SettingScope = Literal["main", "session"]
 # A Setting's dotted key as ``/set`` takes it: ``session.sampling.temperature``.
@@ -112,6 +122,25 @@ class SessionSettings(BaseModel, frozen=True):
     # Its Window's Atajos as they differ from the defaults (``ui.shortcuts``); only ``/key``
     # changes them, so only a human does (#57).
     keys: dict[str, str] = Field(default_factory=dict[str, str])
+    # Its Window's Theme by name, and the loose keys that replace the Theme's own (#47).
+    theme: ThemeName = Field(
+        default=DEFAULT_THEME, description="Theme in the themes folder its Window shows"
+    )
+    font: FontKeys = FontKeys()
+    colors: ColorKeys = ColorKeys()
+    border: BorderKeys = BorderKeys()
+    window: WindowKeys = WindowKeys()
+    glyphs: GlyphKeys = GlyphKeys()
+
+    def loose_keys(self) -> LooseKeys:
+        """What it replaces of its Theme."""
+        return LooseKeys(
+            font=self.font,
+            colors=self.colors,
+            border=self.border,
+            window=self.window,
+            glyphs=self.glyphs,
+        )
 
 
 class StepSettings(BaseModel, frozen=True):
@@ -152,6 +181,9 @@ class MainSettings(BaseModel, frozen=True):
     admission: AdmissionSettings = AdmissionSettings()
     # The Atajos of Main's own Chat as they differ from the defaults; only ``/key`` changes them.
     keys: dict[str, str] = Field(default_factory=dict[str, str])
+    theme: ThemeName = Field(
+        default=DEFAULT_THEME, description="Theme in the themes folder Main's Chat shows"
+    )
     # The Session template: copied by /new, never used by Main itself.
     session: SessionSettings = Field(default_factory=SessionSettings)
 

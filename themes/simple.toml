@@ -1,0 +1,12 @@
+# Plain characters only, for a letter or terminal without box drawing.
+
+[colors]
+user = "bright_cyan"
+answer = "bright_green"
+
+[border]
+style = "ascii"
+color = "white"
+
+[glyphs]
+set = "ascii"

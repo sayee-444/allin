@@ -18,6 +18,7 @@ from typing import Literal
 
 from allin.core.errors import AllInError, ScreenTooSmall
 from allin.core.ids import BoxId
+from allin.core.themes import AUTO, NAMED_COLORS, Theme, nearest_256, rgb
 from allin.ui.boxes import VIEW_KEYS, Box, BoxClosed, BoxStack, box_rows
 from allin.ui.chat import Chat, Row
 from allin.ui.clipboard import Clipboard, system_clipboard
@@ -25,6 +26,7 @@ from allin.ui.draft import DraftReporter
 from allin.ui.input_buffer import InputBuffer, cursor_place
 from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste, typed_char
 from allin.ui.layout import Layout, Rect, compute_layout
+from allin.ui.look import Terminal, frame_chars, restore_sequence, terminal_changes
 from allin.ui.mouse import (
     DRAG_REPORTS_OFF,
     DRAG_REPORTS_ON,
@@ -49,13 +51,6 @@ _TOO_SMALL = "Terminal too small: please enlarge it"
 _LOCKED = " read only "  # Main is gone: nothing typed reaches it
 _WAITING = " +{} waiting "  # Draft blocks behind the shown one
 _WHEEL_ROWS = 3
-_ROLE_COLORS = {
-    "user": curses.COLOR_CYAN,
-    "reasoning": curses.COLOR_MAGENTA,
-    "answer": curses.COLOR_GREEN,
-    "info": curses.COLOR_YELLOW,
-    "error": curses.COLOR_RED,
-}
 
 
 @dataclass(frozen=True)
@@ -103,6 +98,14 @@ class InputText:
     """A Prompt put back in the input: shown, while whatever was there waits behind it."""
 
     text: str
+
+
+@dataclass(frozen=True)
+class ApplyTheme:
+    """The Theme Main resolved for this screen, applied as it is (#47)."""
+
+    theme: Theme
+    terminal: Terminal
 
 
 @dataclass(frozen=True)
@@ -160,6 +163,7 @@ type ScreenUpdate = (
     | InputHistory
     | QueuedPrompts
     | KeyBindings
+    | ApplyTheme
     | ClearChat
     | ShowBox
     | HideBox
@@ -189,6 +193,14 @@ class ChatScreen:
         self._chat_rows: list[Row] = []  # self._chat wrapped to the Chat pad's width
         self._chat_view = Viewport()
         self._role_attrs: dict[str, int] = {}
+        # What the Theme applied gives (#47): the border's characters and colour, the status's
+        # colour and the boxes' fixed pair, which no Theme changes.
+        self._theme: Theme | None = None
+        self._terminal: Terminal = "window"
+        self._frame = frame_chars("single", "unicode")
+        self._border_attr = curses.A_NORMAL
+        self._status_attr = curses.A_NORMAL
+        self._box_attr = curses.A_NORMAL
         self._locked = False
         self._input = InputBuffer()
         self._input_rows: list[Row] = []  # the input wrapped to its pad's width
@@ -236,14 +248,17 @@ class ChatScreen:
         self._on_interrupt, self._on_withdraw = on_interrupt, on_withdraw
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
-        self._role_attrs = _role_attrs()
+        self._role_attrs, self._border_attr, self._status_attr, self._box_attr = _theme_attrs(
+            Theme(), "window"
+        )
         curses.mousemask(MOUSE_MASK)
         curses.mouseinterval(0)  # presses and releases as they come, never made into clicks
         _write_terminal(_BRACKETED_PASTE_ON + DRAG_REPORTS_ON)
         try:
             self._loop(on_submit, DraftReporter(on_draft) if on_draft else None)
         finally:
-            _write_terminal(_BRACKETED_PASTE_OFF + DRAG_REPORTS_OFF)
+            restore = restore_sequence(self._theme) if self._terminal == "main" else ""
+            _write_terminal(_BRACKETED_PASTE_OFF + DRAG_REPORTS_OFF + restore)
 
     def _loop(self, on_submit: Callable[[str], None], draft: DraftReporter | None) -> None:
         while True:
@@ -493,6 +508,8 @@ class ChatScreen:
                     self._reveal_cursor = True
                 case InputHistory(prompts):
                     self._input.load_history(prompts)
+                case ApplyTheme(theme, terminal):
+                    self._apply_theme(theme, terminal)
                 case ClearChat():
                     self._chat.clear()
                     self._clear_selection()
@@ -541,13 +558,13 @@ class ChatScreen:
         assert self._boxes is not None and self._pads is not None
         chat_box, input_box = self._boxes
         chat_pad, input_pad = self._pads
-        chat_box.border()  # wipes a longer status drawn before
+        self._draw_frame(chat_box)  # wipes a longer status drawn before
         # The mark goes first: a long title or status never hides it.
         parts = [part for part in (self._mark, self._title, self._status) if part]
-        title = " " + " ─ ".join(parts) + " "
-        chat_box.addnstr(0, 2, title, max(0, layout.chat_box.width - 4))
+        title = " " + f" {self._frame[2]} ".join(parts) + " "
+        chat_box.addnstr(0, 2, title, max(0, layout.chat_box.width - 4), self._status_attr)
         chat_box.noutrefresh()
-        input_box.border()
+        self._draw_frame(input_box)
         if self._locked:
             input_box.addnstr(0, 2, _LOCKED, max(0, layout.input_box.width - 4))
         if self._input.waiting:
@@ -594,6 +611,8 @@ class ChatScreen:
         top = area.top + (area.height - height) // 2
         left = area.left + (area.width - width) // 2
         window = curses.newwin(height, width, top, left)
+        # The same high-contrast pair under any Theme, so none hides a Confirmation (#47).
+        window.bkgd(" ", self._box_attr)
         window.erase()
         window.border()
         title = f" {visible(box.title)} "
@@ -605,6 +624,39 @@ class ChatScreen:
         window.noutrefresh()
         # The Chat pad is drawn again next time, so the box leaves nothing behind once gone.
         self._layout = None
+
+    def _apply_theme(self, theme: Theme, terminal: Terminal) -> None:
+        sequence = terminal_changes(self._theme, theme, terminal, xterm=_in_xterm())
+        self._theme, self._terminal = theme, terminal
+        attrs = _theme_attrs(theme, terminal)
+        self._role_attrs, self._border_attr, self._status_attr, self._box_attr = attrs
+        self._frame = frame_chars(theme.border.style, theme.glyphs.set)
+        self._chat.set_icons({str(role): icon for role, icon in theme.glyphs.icons.items()})
+        if sequence:
+            _write_terminal(sequence)
+        self._layout = None  # every box is drawn again, with the new border
+        self._repaint = True
+
+    def _draw_frame(self, window: curses.window) -> None:
+        """A box's border in the Theme's style and colour. ``border()`` takes no Unicode
+        corners, so the other styles are written as text; the very last cell fails after
+        drawing its character, as in ``_paint``."""
+        height, width = window.getmaxyx()
+        left, right, top, bottom, top_left, top_right, bottom_left, bottom_right = self._frame
+        attr = self._border_attr
+        if self._frame == frame_chars("single", "unicode"):
+            window.attrset(attr)
+            window.border()
+            window.attrset(curses.A_NORMAL)
+            return
+        with suppress(curses.error):
+            window.addstr(0, 0, top_left + top * (width - 2) + top_right, attr)
+            for y in range(1, height - 1):
+                window.addstr(y, 0, left, attr)
+                window.addstr(y, width - 1, right, attr)
+            window.addstr(height - 1, 0, bottom_left + bottom * (width - 2), attr)
+        with suppress(curses.error):
+            window.addstr(height - 1, width - 1, bottom_right, attr)
 
     def _draw_too_small(self, width: int) -> None:
         self._repaint = True
@@ -647,9 +699,7 @@ def _write_terminal(sequence: str) -> None:
 
 
 def _box(rect: Rect) -> curses.window:
-    window = curses.newwin(rect.height, rect.width, rect.top, rect.left)
-    window.border()
-    return window
+    return curses.newwin(rect.height, rect.width, rect.top, rect.left)
 
 
 def _pad(area: Rect) -> curses.window:
@@ -658,22 +708,73 @@ def _pad(area: Rect) -> curses.window:
     return curses.newpad(area.height, area.width + 1)
 
 
-def _role_attrs() -> dict[str, int]:
-    """The curses attribute that colours each Chat role; none on a terminal without colours."""
+_ROLES = ("user", "reasoning", "answer", "info", "error")
+_BORDER_PAIR, _STATUS_PAIR, _BOX_PAIR = 6, 7, 8
+_FIRST_FREE_COLOR = 16  # a Window's own colours go from here on: the 16 with a name stay
+
+
+def _theme_attrs(theme: Theme, terminal: Terminal) -> tuple[dict[str, int], int, int, int]:
+    """The curses attributes a Theme gives: each Chat role's, the border's, the status's, and
+    the boxes' fixed pair. A Window's xterm redefines colours for each ``#rrggbb``; Main's
+    Chat takes the nearest of the terminal's 256, never redefining the human's palette, which
+    a ``kill -9`` would leave changed. None on a terminal without colours."""
     if not curses.has_colors():
-        return {}
+        return {}, curses.A_NORMAL, curses.A_NORMAL, curses.A_REVERSE
     curses.start_color()
     try:
         curses.use_default_colors()
-        background = -1  # the terminal's own
+        background = -1  # the terminal's own, which the Theme sets in xterm itself
     except curses.error:
         background = curses.COLOR_BLACK
+    own = terminal == "window" and curses.can_change_color() and curses.COLORS >= 256
+    redefined: dict[str, int] = {}
+
+    def color(value: str) -> int:
+        if value in NAMED_COLORS:
+            index = list(NAMED_COLORS).index(value)
+            return index if index < curses.COLORS else index % 8
+        if own:
+            if value not in redefined:
+                index = _FIRST_FREE_COLOR + len(redefined)
+                red, green, blue = (int(value[n : n + 2], 16) * 1000 // 255 for n in (1, 3, 5))
+                curses.init_color(index, red, green, blue)
+                redefined[value] = index
+            return redefined[value]
+        nearest = nearest_256(value)
+        return nearest if nearest < curses.COLORS else _nearest_8(value)
+
+    colors = theme.colors
     attrs: dict[str, int] = {}
-    for pair, (role, colour) in enumerate(_ROLE_COLORS.items(), start=1):
-        curses.init_pair(pair, colour, background)
+    for pair, role in enumerate(_ROLES, start=1):
+        curses.init_pair(pair, color(getattr(colors, role)), background)
         attrs[role] = curses.color_pair(pair)
     attrs["reasoning"] |= curses.A_DIM
-    return attrs
+    border = curses.A_NORMAL  # ``auto`` not resolved yet: the terminal's own, as before
+    if theme.border.color != AUTO:
+        curses.init_pair(_BORDER_PAIR, color(theme.border.color), background)
+        border = curses.color_pair(_BORDER_PAIR)
+    status = curses.A_NORMAL
+    if colors.status is not None:
+        curses.init_pair(_STATUS_PAIR, color(colors.status), background)
+        status = curses.color_pair(_STATUS_PAIR)
+    curses.init_pair(_BOX_PAIR, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    return attrs, border, status, curses.color_pair(_BOX_PAIR)
+
+
+def _nearest_8(value: str) -> int:
+    """The nearest of the 8 basic colours, for a terminal with no more."""
+    target = rgb(value)
+    eight = list(NAMED_COLORS.items())[:8]
+
+    def distance(named: str) -> int:
+        return sum((int(target[n : n + 2], 16) - int(named[n : n + 2], 16)) ** 2 for n in (1, 3, 5))
+
+    return min(range(8), key=lambda index: distance(eight[index][1]))
+
+
+def _in_xterm() -> bool:
+    """Whether Main's Chat runs in an xterm, the only terminal whose letter it changes."""
+    return "XTERM_VERSION" in os.environ
 
 
 def _paint(

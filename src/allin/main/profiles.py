@@ -30,9 +30,10 @@ from allin.core.ids import (
 from allin.main.sessions import SessionStore
 from allin.main.state import MainStateStore
 
-# The folders of a Profile's pieces, copied whole by ``/profile new``; functions, Molds, Plans
-# and Themes will join them as they appear (ADR-0010).
-_PIECES = ("sysprompts",)
+# The folders of a Profile's pieces, copied whole by ``/profile new``; functions, Molds and
+# Plans will join them as they appear (ADR-0010).
+_PIECES = ("sysprompts", "themes")
+_THEMES = "themes"
 _SETTINGS = "settings"
 _SESSIONS = "sessions.json"
 _STATE = "state.json"
@@ -53,6 +54,10 @@ class Profile:
         return self.folder / "sysprompts"
 
     @property
+    def themes(self) -> Path:
+        return self.folder / _THEMES
+
+    @property
     def state(self) -> Path:
         """Its MainState's file."""
         return self.folder / _STATE
@@ -67,12 +72,16 @@ class _LastProfile(BaseModel, frozen=True):
 
 
 class ProfileStore:
-    def __init__(self, data_dir: Path, seed_sysprompts: Path) -> None:
-        """``seed_sysprompts`` are the installation's Sysprompts, which ``default`` is born
-        with."""
+    def __init__(
+        self, data_dir: Path, seed_sysprompts: Path, seed_themes: Path | None = None
+    ) -> None:
+        """``seed_sysprompts`` and ``seed_themes`` are the installation's Sysprompts and
+        Themes, which ``default`` is born with; a Profile from before Themes gets the seed
+        Themes the first time it opens (#47)."""
         self._data_dir = data_dir
         self._root = data_dir / "profiles"
         self._seed_sysprompts = seed_sysprompts
+        self._seed_themes = seed_themes
         self._last = data_dir / "state" / "last_profile.json"
 
     @property
@@ -112,6 +121,7 @@ class ProfileStore:
             if old_settings.is_dir():
                 shutil.copytree(old_settings, folder / _SETTINGS)
             _copy_folder(self._seed_sysprompts, folder / "sysprompts")
+            self._seed_themes_of(folder)
             all_sessions = sorted(SessionStore(self._data_dir / "sessions").ids())
             _write_sessions(folder, all_sessions)
             staging.rename(self._root)
@@ -130,7 +140,23 @@ class ProfileStore:
             write_atomically(self._last, _LastProfile(name=chosen).model_dump_json())
         except OSError as error:
             raise ProfileStorageFailed(path=str(self._last), reason=str(error)) from error
-        return self._profile(chosen)
+        profile = self._profile(chosen)
+        if not profile.themes.exists():
+            try:
+                self._seed_themes_of(profile.folder)
+            except OSError as error:
+                raise ProfileStorageFailed(path=str(profile.themes), reason=str(error)) from error
+        return profile
+
+    def _seed_themes_of(self, folder: Path) -> None:
+        """The installation's Themes, copied aside and moved into place in one rename."""
+        staging = folder / f".{_THEMES}.new"
+        shutil.rmtree(staging, ignore_errors=True)
+        if self._seed_themes is not None and self._seed_themes.is_dir():
+            shutil.copytree(self._seed_themes, staging)
+        else:
+            staging.mkdir()
+        staging.rename(folder / _THEMES)
 
     def find(self, name: str) -> Profile:
         """The Profile named ``name``, without making it the last one used."""
