@@ -39,6 +39,7 @@ _RESTART_NOTE = "base_url takes effect when Main restarts"
 
 SESSION_USAGE = (
     "/session <sid> | /session set <sid> [key=value…] | /session compact <sid> [instructions]"
+    " | /session id <sid> <new id>"
 )
 
 
@@ -50,6 +51,7 @@ class SessionCommand:
     session_id: str  # as typed; loading it checks it
     rest: str = ""
     compact: bool = False
+    rename: bool = False  # ``/session id <sid> <new>`` (#59): ``rest`` is the new id
 
 
 def parse_session_command(args: list[str]) -> SessionCommand | None:
@@ -58,13 +60,17 @@ def parse_session_command(args: list[str]) -> SessionCommand | None:
     the line); ``None`` if it is none of them."""
     if not args:
         return None
-    if args[0] not in ("set", "compact"):
+    if args[0] not in ("set", "compact", "id"):
         return SessionCommand(args[0]) if len(args) == 1 else None
     words = args[1].split(maxsplit=1) if len(args) > 1 else []
     if not words:
         return None
     rest = words[1] if len(words) > 1 else ""
-    return SessionCommand(words[0], rest, compact=args[0] == "compact")
+    if args[0] == "id" and len(rest.split()) != 1:
+        return None
+    return SessionCommand(
+        words[0], rest.strip(), compact=args[0] == "compact", rename=args[0] == "id"
+    )
 
 
 def _check_authority(assignments: Mapping[SettingName, str], origin: Origin) -> None:

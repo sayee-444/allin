@@ -389,3 +389,15 @@ class ArchiveMissing(AllInError):
     """A Rewind to before a Compaction needs what it archived, and it is not there."""
 
     code: ClassVar[str] = "archive_missing"
+
+
+class SessionIdInvalid(AllInError):
+    """A Session id a human chose is not 4 to 12 characters of ``[a-z0-9]``."""
+
+    code: ClassVar[str] = "session_id_invalid"
+
+
+class SessionIdTaken(AllInError):
+    """Another Session already has this id, as its id or as an alias."""
+
+    code: ClassVar[str] = "session_id_taken"

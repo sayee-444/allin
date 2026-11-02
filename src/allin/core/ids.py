@@ -5,7 +5,11 @@ from typing import NewType
 
 _ALPHABET = string.ascii_lowercase + string.digits
 _LENGTH = 6
-_SESSION_ID = re.compile(f"[{re.escape(_ALPHABET)}]{{{_LENGTH}}}")
+# A human may choose one, or change it, within these lengths (#59).
+SESSION_ID_LENGTHS = (4, 12)
+_SESSION_ID = re.compile(
+    f"[{re.escape(_ALPHABET)}]{{{SESSION_ID_LENGTHS[0]},{SESSION_ID_LENGTHS[1]}}}"
+)
 
 MainId = NewType("MainId", str)
 # A Session's id, also its folder's name: made only by ``new_session_id`` and ``parse_session_id``.
@@ -24,7 +28,8 @@ def new_prompt_id() -> str:
 
 
 def parse_session_id(text: str) -> SessionId | None:
-    """``text`` as a Session id if it has the shape of one (so it is safe as a folder name)."""
+    """``text`` as a Session id if it has the shape of one, 4 to 12 characters of ``[a-z0-9]``
+    (so it is safe as a folder name)."""
     return SessionId(text) if _SESSION_ID.fullmatch(text) is not None else None
 
 
