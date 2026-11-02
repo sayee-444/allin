@@ -526,3 +526,18 @@ def test_writing_home_reaches_beyond_allin_but_never_its_data_folder(
         launcher.stop()
     assert list(writes.values()) == ["written", "written", "PermissionError", "PermissionError"]
     assert read_state.value == {"s": "PermissionError"}
+
+
+def test_with_display_it_reaches_x11s_abstract_socket_as_libxcb_tries_it_first(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    name = f"\0allin-test-x11-{os.getpid()}"
+    with socket.socket(socket.AF_UNIX) as server:
+        server.bind(name)
+        server.listen()
+        shown = launcher.run(
+            call(package, workspace, "connect_unix", Reach(display=True), path=name), 20
+        )
+        hidden = launcher.run(call(package, workspace, "connect_unix", path=name), 20)
+    assert shown.value == "connected"
+    assert hidden.value == "PermissionError"

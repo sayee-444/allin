@@ -122,13 +122,16 @@ class Restricted:
 
 
 def restrict_self(
-    read: tuple[Path, ...], write: tuple[Path, ...], connect: tuple[int, ...] | None = ()
+    read: tuple[Path, ...],
+    write: tuple[Path, ...],
+    connect: tuple[int, ...] | None = (),
+    abstract_sockets: bool = False,
 ) -> Restricted:
     """Restrict this process and its future children to reading ``read`` and reading and
     writing ``write``, to connecting only to the TCP ports in ``connect`` (``None`` leaves TCP
-    to a later layer, such as ``port_layer``'s) and, from ABI 6, to no signal or abstract unix
-    socket outside the domain. Paths that do not exist are skipped. What the kernel lacks is
-    left out."""
+    to a later layer, such as ``port_layer``'s) and, from ABI 6, to no signal outside the
+    domain and, unless ``abstract_sockets``, no abstract unix socket outside it either. Paths
+    that do not exist are skipped. What the kernel lacks is left out."""
     abi = abi_version()
     _no_new_privs()
     if abi == 0:
@@ -138,7 +141,9 @@ def restrict_self(
     attr = _RulesetAttr(
         handled_fs,
         _NET_BIND_TCP | _NET_CONNECT_TCP if tcp else 0,
-        _SCOPE_ABSTRACT_UNIX_SOCKET | _SCOPE_SIGNAL if abi >= SCOPES_ABI else 0,
+        (_SCOPE_SIGNAL | (0 if abstract_sockets else _SCOPE_ABSTRACT_UNIX_SOCKET))
+        if abi >= SCOPES_ABI
+        else 0,
     )
     ruleset = _create(attr)
     try:

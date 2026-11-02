@@ -174,7 +174,9 @@ def _confine(call: _Call) -> bool:
     """Confine this process for good; whether signals are scoped to its domain. net=True's
     shared layer goes last, which is cheaper (#99), and its descriptor is closed before the
     function is imported: it holds no more than its channel then (ADR-0005)."""
-    restricted = landlock.restrict_self(call.read, call.write, call.connect)
+    # With display, X11's abstract socket: libxcb gives up on EPERM instead of trying the
+    # socket's path, and display already reaches every unix socket of the session (#101).
+    restricted = landlock.restrict_self(call.read, call.write, call.connect, call.unix)
     if call.net_layer is not None:
         landlock.apply_layer(call.net_layer)
         os.close(call.net_layer)
