@@ -8,14 +8,15 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #105 Origen con cadena y eslabón más débil (2026-11-02).
-  - El Origen es una cadena (humano o Main, y cada Sesión, Proceso adherido o Suscripción por la que pasa), guardada entera en el Turno, en la cola y en el Log de cada Prompt y cada comando (`["human", "session:ab12"]`). Lo guardado antes, una palabra, se lee como un eslabón.
-  - `weakest_link` da la autoridad: `-y`, `--devastation` y lo que es solo de un humano piden una cadena toda humana; el error `human_only` y el resultado de cada comando quedan también en el Log de la última Sesión de la cadena, para que #108 y #109 se lo lleven a su LLM.
-  - `--devastation` contesta una cadena solo si cubre cada eslabón (Sesiones de su Main con la Exención; nunca un Proceso adherido, y una Suscripción hasta #116).
-  - Lo que manda otra Sesión entra con cabecera de Origen (`[from Session ab12]`) y sin interpretar `@…` ni `/…`. Cerrar una Ventana cancela solo lo de Origen humano.
-  - Métricas: 1327 tests, cobertura 84 %, mutación 94 %, 24 escapes (uno nuevo: el `pyright: ignore` del validador del Origen). Antes: #104 Cuarentena y Aprobación.
-- **Siguiente:** #106 Function tools en el Turno.
-- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
+- **Último hecho:** #106 Function tools en el Turno (2026-11-02).
+  - El LLM llama tools: cada Paso lleva en `tools=[...]` las de su Sesión que estén aprobadas, cada llamada corre encerrada con el lanzador en la Carpeta de trabajo, y lo que devuelve, o su error, vuelve al LLM en el Paso siguiente y queda guardado en el Paso.
+  - Mientras corren, el Turno suelta su slot; el Paso siguiente es una Continuación que pasa delante de los Prompts nuevos y reserva lo que generó el Paso anterior y lo que devolvieron las tools.
+  - Timeout por llamada con el Ajuste de Sesión `tools.timeout` (60 s); cortar o cancelar el Turno mata la tool en menos de un segundo. Una caída repite solo el Paso a medias, sin volver a correr las tools; las dos caídas que hacen fallar un Turno son las del mismo Paso.
+  - Qué tiene cada Sesión: las fsources aprobadas de `functions/` al nacer (salvo `/new -sf=off` y salvo la que declara Otorgar) y las fagents de `agents/` con `-fa=<package>` o `/func add` (solo un humano); `/func list|remove`. Las tools con `@confirm` esperan a #107 y los métodos de fproc a #113.
+  - Probado con `llama serve` (Qwen3.8 27B Q6): el modelo llamó a dos tools en un Paso y respondió con lo que devolvieron.
+  - Métricas: 1341 tests, cobertura 85 %, mutación 94 %, 24 escapes (sin cambios). Antes: #105 Origen con cadena y eslabón más débil.
+- **Siguiente:** #107 `@confirm` en las tools.
+- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc hoy se ignora sin avisar; lo recogerá #114.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -92,7 +93,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 5. ✅ #103 Batería de fugas
 6. ✅ #104 Cuarentena y Aprobación
 7. ✅ #105 Origen con cadena y eslabón más débil
-8. #106 Function tools en el Turno
+8. ✅ #106 Function tools en el Turno
 9. #107 `@confirm` en las tools
 10. #108 Command sessions
 11. #109 Notificaciones y Conversation logs
