@@ -218,6 +218,7 @@ class ChatScreen:
         self._on_box_closed: OnBoxClosed = lambda _: None
         self._on_interrupt: Callable[[str], None] | None = None
         self._on_withdraw: Callable[[], None] | None = None
+        self._on_click: Callable[[], None] | None = None
         self._queued: tuple[str, ...] = ()
         self._layout: Layout | None = None
         self._shown: Layout | None = None  # where the pads are on screen now, for the mouse
@@ -234,6 +235,7 @@ class ChatScreen:
         on_box_closed: OnBoxClosed | None = None,
         on_interrupt: Callable[[str], None] | None = None,
         on_withdraw: Callable[[], None] | None = None,
+        on_click: Callable[[], None] | None = None,
     ) -> None:
         """Run the UI loop until ``None`` arrives in the inbox.
 
@@ -241,11 +243,13 @@ class ChatScreen:
         once when a block is sent while others wait. ``on_box_closed`` gets each answer to a
         box. ``on_interrupt`` gets the input's block on Shift+Enter, even an empty one, and
         ``on_withdraw`` is called on Up while Prompts are queued (ADR-0024); without them,
-        Shift+Enter is Enter and Up only browses the history.
+        Shift+Enter is Enter and Up only browses the history. ``on_click`` is called on each
+        mouse press (#52).
         """
         if on_box_closed is not None:
             self._on_box_closed = on_box_closed
         self._on_interrupt, self._on_withdraw = on_interrupt, on_withdraw
+        self._on_click = on_click
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
         self._role_attrs, self._border_attr, self._status_attr, self._box_attr = _theme_attrs(
@@ -402,6 +406,8 @@ class ChatScreen:
                     up = event.action == MouseAction.WHEEL_UP
                     self._scroll(pad, -_WHEEL_ROWS if up else _WHEEL_ROWS)
             case MouseAction.PRESS:
+                if self._on_click is not None:
+                    self._on_click()
                 self._clear_selection()
                 self._selecting = _pad_at(self._shown, event)
                 if self._selecting is not None:

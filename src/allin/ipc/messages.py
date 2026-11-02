@@ -18,6 +18,12 @@ class WindowReady(BaseModel):
     type: Literal["window_ready"] = "window_ready"
 
 
+class WindowUsed(BaseModel):
+    """The human clicked in the Window: it counts as used, for the Máximo de Ventanas (#52)."""
+
+    type: Literal["window_used"] = "window_used"
+
+
 class UserInput(BaseModel):
     """Text the user submitted with Enter; with Shift+Enter, ``interrupt`` also cuts the
     running Turn, and the text, which may be empty, runs next (ADR-0024)."""
@@ -49,7 +55,7 @@ class BoxAnswer(BaseModel):
     answer: bool | None
 
 
-type WindowToMain = WindowReady | UserInput | WithdrawQueued | InputDraft | BoxAnswer
+type WindowToMain = WindowReady | WindowUsed | UserInput | WithdrawQueued | InputDraft | BoxAnswer
 WindowMessage = Annotated[WindowToMain, Field(discriminator="type")]
 
 # Main -> Window

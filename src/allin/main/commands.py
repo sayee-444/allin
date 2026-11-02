@@ -11,6 +11,7 @@ from allin.core.errors import (
     AllInError,
     HumanOnly,
     InvalidArguments,
+    SessionNotOpen,
     TurnActive,
     UnknownCommand,
     WindowAlreadyOpen,
@@ -36,7 +37,7 @@ from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
 from allin.main.server_commands import human_only as server_human_only
-from allin.main.sessions import SessionStore
+from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import (
     SESSION_USAGE,
     SettingsCommands,
@@ -46,6 +47,8 @@ from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
 _ID_OPTION = "--id="  # /new --id=<id> (#59)
+_BG_OPTION = "--bg"  # /new and /open in the background (#52)
+CLOSED = "closed with /close"
 
 # Whether a command, by its arguments, is delicate or only a human's.
 type ByArguments = Callable[[list[str]], bool]
@@ -116,14 +119,35 @@ class MainCommands:
                 (),
                 self._new,
                 "create a Session from the template and open it",
-                args={"--id=<id>": "its id, 4 to 12 characters of a-z and 0-9; else a random one"},
-                optional=("--id=<id>",),
+                args={
+                    "--id=<id>": "its id, 4 to 12 characters of a-z and 0-9; else a random one",
+                    _BG_OPTION: "open it in the background, without its Window",
+                },
+                optional=("--id=<id>", _BG_OPTION),
+                takes_origin=True,
             ),
             "/open": CommandSpec(
                 ("sid",),
                 self._open,
-                "open the Window of a Session of this Main",
+                "open the Window of a Session of this Main, or bring it from the background",
+                args={"sid": "the Session's id", _BG_OPTION: "open it in the background"},
+                optional=(_BG_OPTION,),
+                takes_origin=True,
+            ),
+            "/bg": CommandSpec(
+                ("sid",),
+                self._background,
+                "send a Session to the background: its Window closes, its Turns go on",
                 args={"sid": "the Session's id"},
+                human_only=True,
+            ),
+            # Like the Window's X: cancels a running Turn, so only a human closes (ADR-0020).
+            "/close": CommandSpec(
+                ("sid",),
+                self._close,
+                "close a Session's Window, in view or in the background, as its X does",
+                args={"sid": "the Session's id"},
+                human_only=True,
             ),
             # The only Command main that queues Prompts; Enter in a Window is /send to its own.
             "/send": CommandSpec(
@@ -343,19 +367,29 @@ class MainCommands:
         shown = f"{_summary(text)}: {result}"
         self._reporter.report(session_id, "command", shown, command=text, result=result)
 
-    def _new(self, option: str | None = None) -> bool:
-        chosen = None
-        if option is not None:
-            if not option.startswith(_ID_OPTION):
+    def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
+        chosen, background = None, False
+        for option in options:
+            if option == _BG_OPTION and not background:
+                background = True
+            elif option.startswith(_ID_OPTION) and chosen is None:
+                chosen = option.removeprefix(_ID_OPTION)
+            else:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
-            chosen = option.removeprefix(_ID_OPTION)
         settings = self._settings.current.session  # copied: later changes never reach it
         sysprompt = render_sysprompt(self._sysprompts, settings)
         session = self._sessions.create(self._main_id, settings, sysprompt, chosen)
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
         self._profiles.created(session.id)
-        self._windows.open(session, self._turns.streamed(session.id))
+        self._place(session, background, origin)
         return True
+
+    def _place(self, session: Session, background: bool, origin: Origin) -> None:
+        """Open a Session in view, under the Máximo de Ventanas, or in the background."""
+        if background:
+            self._windows.to_background(session.id)
+        else:
+            self._windows.show(session, self._turns.streamed(session.id), origin == HUMAN)
 
     def _session(self, first: str, rest: str = "", origin: Origin = HUMAN) -> bool:
         target = parse_session_command([first, rest] if rest else [first])
@@ -385,12 +419,37 @@ class MainCommands:
             self._windows.open(renamed, self._turns.streamed(renamed.id))
         return True
 
-    def _open(self, session_id: str) -> bool:
+    def _open(self, session_id: str, option: str | None = None, origin: Origin = HUMAN) -> bool:
+        if option not in (None, _BG_OPTION):
+            raise InvalidArguments(usage=self._commands["/open"].usage("/open"))
         session = self._sessions.load_owned(session_id, self._main_id)
-        if self._windows.is_open(session.id):
+        background = option == _BG_OPTION
+        if self._windows.is_open(session.id) and not background:
             raise WindowAlreadyOpen(session_id=session.id)
         self._profiles.opened(session.id)  # opening another Profile's Session shares it
-        self._windows.open(session, self._turns.streamed(session.id))
+        self._place(session, background, origin)
+        return True
+
+    def _background(self, session_id: str) -> bool:
+        """``/bg``: the Session's xterm closes and nothing else changes (ADR-0020)."""
+        session = self._sessions.load_owned(session_id, self._main_id)
+        if not (self._windows.is_open(session.id) or self._windows.is_background(session.id)):
+            raise SessionNotOpen(session_id=session.id)
+        self._windows.to_background(session.id)
+        return True
+
+    def _close(self, session_id: str) -> bool:
+        """``/close``: as the Window's X, its running Turn and queue are cancelled, also in
+        the background (ADR-0013, ADR-0020)."""
+        session = self._sessions.load_owned(session_id, self._main_id)
+        if self._windows.is_open(session.id):
+            self._windows.close(session.id, CLOSED)
+        elif self._windows.is_background(session.id):
+            self._windows.forget(session.id)
+            self._reporter.record(session.id, "window_closed", f"window closed: {CLOSED}")
+        else:
+            raise SessionNotOpen(session_id=session.id)
+        self._turns.cancel(session.id, "window closed")
         return True
 
     def _send(self, session_id: str, text: str, origin: Origin = HUMAN) -> bool:

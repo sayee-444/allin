@@ -67,6 +67,12 @@ class WindowAlreadyOpen(AllInError):
     code: ClassVar[str] = "window_already_open"
 
 
+class SessionNotOpen(AllInError):
+    """The Session has no Window, in view or in the background (#52)."""
+
+    code: ClassVar[str] = "session_not_open"
+
+
 class InvalidArguments(AllInError):
     """A Command main was called with arguments it does not take; ``usage`` shows the right ones."""
 

@@ -39,6 +39,7 @@ from allin.main.events import (
     TurnRaw,
     WindowClosed,
     WindowConnected,
+    WindowUsed,
 )
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import KitCommands
@@ -123,6 +124,8 @@ class Dispatcher:
             notify_theme,
         )
         self._windows.use_themes(self._themes)
+        self._windows.watch_asking(self._boxes.asking)
+        self._windows.set_maximum(settings.current.windows.max)
         self._devastation = Devastation(
             devastation, main_screen, self._windows, sessions, self._boxes, self._reporter, main_id
         )
@@ -191,6 +194,7 @@ class Dispatcher:
         )
         settings_commands.show_profiles(self._profile_commands.profiles_of)
         settings_commands.check_theme = self._themes.book.check
+        settings_commands.windows_max_changed = self._windows.set_maximum
         settings_commands.looks_changed = self._looks_changed
         self._commands = MainCommands(
             self._reporter,
@@ -286,7 +290,10 @@ class Dispatcher:
                 self._turns.window_connected(session_id)
                 self._boxes.window_opened(session_id)
                 self._devastation.mark(session_id)
+            case WindowUsed(session_id):
+                self._windows.touch(session_id)
             case InputReceived(session_id, text, interrupt):
+                self._windows.touch(session_id)
                 self._windows.clear_draft(session_id)  # the Window's input is empty now
                 if interrupt:  # Shift+Enter: the running Turn is cut, its text goes next
                     self._turns.interrupt(session_id)
@@ -299,6 +306,7 @@ class Dispatcher:
             case QueuedWithdrawn(session_id):
                 self._turns.withdraw(session_id)
             case DraftReceived(session_id, blocks):
+                self._windows.touch(session_id)
                 self._windows.keep_draft(session_id, blocks)
             case TurnOutput(session_id, kind, text):
                 self._turns.output(session_id, kind, text)

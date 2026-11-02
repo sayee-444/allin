@@ -40,6 +40,13 @@ class MainBoxes:
         """Ask the user yes or no; ``on_answer`` gets the answer once someone gives it."""
         return self._show("confirm", session_id, title, text, on_answer, None)
 
+    def asking(self, session_id: SessionId) -> bool:
+        """Whether a Confirmation of the Session waits for its answer."""
+        return any(
+            pending.session_id == session_id and pending.on_answer is not None
+            for pending in self._pending.values()
+        )
+
     def notify(
         self, session_id: SessionId | None, title: str, text: str, kind: str | None = None
     ) -> BoxId:

@@ -22,6 +22,8 @@ class MainState(BaseModel, frozen=True):
     drafts: dict[SessionId, list[str]] = Field(default_factory=dict[SessionId, list[str]])
     queue: list[Prompt] = Field(default_factory=list[Prompt])  # waiting, in queue order
     running: list[Prompt] = Field(default_factory=list[Prompt])  # their Turns had started
+    # Sessions open in the background, without a Window (#52), in the order they went there.
+    background: list[SessionId] = Field(default_factory=list[SessionId])
 
     def renamed(self, old: SessionId, new: SessionId) -> "MainState":
         """The same MainState, with a Session renamed (#59)."""
@@ -37,6 +39,7 @@ class MainState(BaseModel, frozen=True):
             drafts={key(sid): blocks for sid, blocks in self.drafts.items()},
             queue=prompts(self.queue),
             running=prompts(self.running),
+            background=[key(sid) for sid in self.background],
         )
 
     @field_validator("drafts", mode="before")

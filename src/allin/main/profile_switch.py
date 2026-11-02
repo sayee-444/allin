@@ -106,6 +106,9 @@ class ProfileSwitch:
         for session_id in self._windows.pids():
             if session_id not in kept:
                 self._windows.close(session_id, SWITCHED)
+        for session_id in self._windows.background_ids():  # saved with its MainState (#52)
+            if session_id not in kept:
+                self._windows.forget(session_id)
 
     def _drop(self, profile: Profile) -> None:
         if self._asked is None:
