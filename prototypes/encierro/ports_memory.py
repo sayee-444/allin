@@ -10,7 +10,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import confine as c  # noqa: E402
+import confine as c
 
 N = 40
 CHILD = (
@@ -60,4 +60,4 @@ def measure(with_layer: bool) -> float:
 if __name__ == "__main__":
     base = measure(False)
     full = measure(True)
-    print(f"per process, 1 port rule: {base:.0f} KiB; 65 535 port rules: {full:.0f} KiB")  # noqa: T201
+    print(f"per process, 1 port rule: {base:.0f} KiB; 65 535 port rules: {full:.0f} KiB")

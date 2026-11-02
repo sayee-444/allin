@@ -8,9 +8,10 @@ Usage: python -I prototypes/encierro/inode.py <scratch dir>
 import os
 import shutil
 import sys
+from collections.abc import Callable
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import confine as c  # noqa: E402
+import confine as c
 
 
 def attempt(path: str) -> str:
@@ -21,7 +22,7 @@ def attempt(path: str) -> str:
         return e.strerror or str(e)
 
 
-def scenario(name: str, rule_on: str, change: "callable[[], None]", read: list[str]) -> None:  # type: ignore[valid-type]
+def scenario(name: str, rule_on: str, change: Callable[[], None], read: list[str]) -> None:
     ready_r, ready_w = os.pipe()
     go_r, go_w = os.pipe()
     out_r, out_w = os.pipe()
@@ -42,7 +43,7 @@ def scenario(name: str, rule_on: str, change: "callable[[], None]", read: list[s
     os.read(ready_r, 1)
     change()
     os.write(go_w, b"1")
-    print(f"{name}\n    {os.read(out_r, 2000).decode()}")  # noqa: T201
+    print(f"{name}\n    {os.read(out_r, 2000).decode()}")
     os.waitpid(pid, 0)
 
 

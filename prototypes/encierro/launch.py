@@ -13,12 +13,12 @@ import socket
 import statistics
 import subprocess
 import sys
-import sysconfig
 import time
+from typing import Literal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import confine as c  # noqa: E402
+import confine as c
 
 PYTHON = sys.executable
 INSTALL = os.path.dirname(os.path.dirname(HERE))  # the repo: AllIn's install folder
@@ -53,8 +53,9 @@ def tool_call(
     confine: bool = True,
     extra_read: tuple[str, ...] = (),
     extra_write: tuple[str, ...] = (),
-    net: object = None,
+    net: tuple[int, ...] | list[int] | Literal["all"] | None = None,
     shared_net_fd: int | None = None,
+    display: bool = False,
     report_born: bool = False,
     net_layer_first: bool = False,
     timeout: float = 120,
@@ -87,6 +88,7 @@ def tool_call(
         "read": [*SYSTEM_READ, PACKAGE, *extra_read],
         "write": [work, tmp, *extra_write],
         "net": net,
+        "display": display,
         "shared_net_fd": shared_net_fd,
         "work": work,
         "sys_path": SYS_PATH,
@@ -124,22 +126,17 @@ def shared_net_layer(servers: frozenset[int] = frozenset({9931})) -> int:
 
 
 def probe(scratch: str) -> None:
+    dev = ("/dev/zero", "/dev/urandom", "/dev/random")
     variants: dict[str, dict[str, tuple[str, ...]]] = {
         "minimum (system, venv, package, work, TMPDIR)": {},
-        "+ /dev/null rw, /dev/urandom /dev/zero r": {
-            "extra_read": ("/dev/urandom", "/dev/zero"),
+        "+ /dev/null rw": {"extra_write": ("/dev/null",)},
+        "+ /dev/null rw, /dev/zero /dev/urandom /dev/random r": {
+            "extra_read": dev,
             "extra_write": ("/dev/null",),
         },
-        "+ /proc r": {
-            "extra_read": ("/dev/urandom", "/dev/zero", "/proc"),
-            "extra_write": ("/dev/null",),
-        },
-        "+ /dev/shm rw (no /proc)": {
-            "extra_read": ("/dev/urandom", "/dev/zero"),
-            "extra_write": ("/dev/null", "/dev/shm"),
-        },
-        "+ /proc r, /dev/shm rw": {
-            "extra_read": ("/dev/urandom", "/dev/zero", "/proc"),
+        "+ those, /dev/shm rw": {"extra_read": dev, "extra_write": ("/dev/null", "/dev/shm")},
+        "+ those, /dev/shm rw, /proc r": {
+            "extra_read": (*dev, "/proc"),
             "extra_write": ("/dev/null", "/dev/shm"),
         },
     }
@@ -150,42 +147,57 @@ def probe(scratch: str) -> None:
         reply, _ = tool_call(scratch, net=None, **extra)  # pyright: ignore[reportArgumentType]
         report[name] = reply["result"]
     fd = shared_net_layer()
-    reply, _ = tool_call(
-        scratch,
-        net="all",
-        shared_net_fd=fd,
-        extra_read=("/dev/urandom", "/proc", "/run/systemd/resolve"),
-        extra_write=("/dev/null", "/dev/shm"),
-    )
-    report["net=True (shared layer), /proc r, /dev/shm rw, /run/systemd/resolve r"] = reply[
-        "result"
+    for label, resolve in (("without", ()), ("with", ("/run/systemd/resolve",))):
+        reply, _ = tool_call(
+            scratch,
+            net="all",
+            shared_net_fd=fd,
+            extra_read=(*dev, *resolve),
+            extra_write=("/dev/null", "/dev/shm"),
+        )
+        report[f"net=True (shared layer), {label} /run/systemd/resolve r"] = reply["result"]
+
+    # Leaks. An abstract unix socket that Main listens on, so a refused connect means the
+    # confinement and not "nobody there"; display=True lets AF_UNIX through seccomp, so that
+    # case shows Landlock's own scope.
+    abstract_name = f"\0allin-probe-{os.getpid()}"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(abstract_name)
+    listener.listen(8)
+    cases: list[tuple[str, dict[str, object]]] = [
+        ("net=False", {"net": None}),
+        ("net=True", {"net": "all", "shared_net_fd": fd}),
+        ("display=True (AF_UNIX allowed by seccomp)", {"net": None, "display": True}),
+        ("unconfined", {"confine": False}),
     ]
-    for net_name, net, sfd in (("net=False", None, None), ("net=True", "all", fd)):
+    for i, (label, kw) in enumerate(cases):
+        sleep_arg = f"30.{os.getpid()}{i}"  # a title no other process has
         reply, _ = tool_call(
             scratch,
             function="leaks",
-            kwargs={"home": HOME, "data_dir": DATA_DIR},
-            net=net,
-            shared_net_fd=sfd,
+            kwargs={
+                "home": HOME,
+                "data_dir": DATA_DIR,
+                "abstract_name": abstract_name,
+                "sleep_arg": sleep_arg,
+            },
             extra_read=("/proc",),
+            extra_write=("/dev/null",),
+            **kw,  # pyright: ignore[reportArgumentType]
         )
-        report[f"leaks, {net_name}"] = reply["result"]
-    unconf, _ = tool_call(
-        scratch,
-        function="leaks",
-        kwargs={"home": HOME, "data_dir": os.path.join(INSTALL, "var")},
-        confine=False,
-    )
-    report["leaks, unconfined"] = unconf["result"]
+        result = reply["result"]
+        assert isinstance(result, dict)
+        time.sleep(0.3)
+        alive = subprocess.run(
+            ["pgrep", "-f", "-x", f"sleep {sleep_arg}"], capture_output=True, text=True, check=False
+        ).stdout.split()
+        result["setsid grandchild alive after the call"] = str(bool(alive))
+        for pid in alive:  # matched by this run's own unique title
+            os.kill(int(pid), signal.SIGKILL)
+        report[f"leaks, {label}"] = result
+    listener.close()
     os.close(fd)
-    time.sleep(0.5)
-    survivors = subprocess.run(
-        ["pgrep", "-f", "-x", "sleep 30"], capture_output=True, text=True, check=False
-    ).stdout.split()
-    report["setsid grandchildren still alive after the calls"] = len(survivors)
-    for pid in survivors:  # only the probe's own `sleep 30`, started above
-        os.kill(int(pid), signal.SIGKILL)
-    print(json.dumps(report, indent=2))  # noqa: T201
+    print(json.dumps(report, indent=2))
 
 
 # --- question 3: born clean -------------------------------------------------------------------
@@ -222,8 +234,8 @@ def born(scratch: str) -> None:
     reply, _ = tool_call(scratch, confine=False, report_born=True)
     report["subprocess + socketpair"] = reply["born"]
     os.close(master)
-    sys.stdout = open(os.path.join(scratch, "born.json"), "w")  # noqa: SIM115
-    print(json.dumps(report, indent=2))  # noqa: T201
+    sys.stdout = open(os.path.join(scratch, "born.json"), "w")
+    print(json.dumps(report, indent=2))
 
 
 # --- question 3 (cont.): what Main trusts on the channel --------------------------------------
@@ -236,8 +248,8 @@ def _evil_put(q: "mp.Queue[object]", marker: str) -> None:
         def __reduce__(self) -> tuple[object, tuple[str]]:
             return (open, (marker, "w"))  # harmless: Main creates an empty marker file
 
-    q._sem.acquire()  # pyright: ignore  # noqa: SLF001 - the child owns the queue internals too
-    q._writer.send_bytes(pickle.dumps(Evil()))  # pyright: ignore  # noqa: SLF001
+    q._sem.acquire()  # pyright: ignore - the child owns the queue internals too
+    q._writer.send_bytes(pickle.dumps(Evil()))  # pyright: ignore
 
 
 def pickle_demo(scratch: str) -> None:
@@ -250,7 +262,7 @@ def pickle_demo(scratch: str) -> None:
     p.start()
     got = q.get(timeout=30)
     p.join()
-    print(json.dumps({"main_got": repr(got), "marker_created_by_main": os.path.exists(marker)}))  # noqa: T201
+    print(json.dumps({"main_got": repr(got), "marker_created_by_main": os.path.exists(marker)}))
 
 
 # --- seccomp alone: TIOCSTI with a real terminal ----------------------------------------------
@@ -282,7 +294,7 @@ def tiocsti(_scratch: str) -> None:
         os.close(w)
         out[label] = os.read(r, 200).decode()
         os.waitpid(pid, 0)
-    print(json.dumps(out, indent=2))  # noqa: T201
+    print(json.dumps(out, indent=2))
 
 
 # --- question 5: cost per call ----------------------------------------------------------------
@@ -290,6 +302,10 @@ def tiocsti(_scratch: str) -> None:
 
 def _noop() -> int:
     return 1
+
+
+def _noop_to(q: "mp.Queue[int]") -> None:
+    q.put(_noop())
 
 
 def cost(scratch: str) -> None:
@@ -300,7 +316,7 @@ def cost(scratch: str) -> None:
         samples.sort()
         results[name] = {
             "median_ms": round(statistics.median(samples), 1),
-            "p90_ms": round(samples[int(len(samples) * 0.9) - 1], 1),
+            "p90_ms": round(statistics.quantiles(samples, n=10)[8], 1),
         }
 
     ctx = mp.get_context("spawn")
@@ -311,7 +327,17 @@ def cost(scratch: str) -> None:
         p.start()
         p.join()
         samples.append((time.perf_counter() - t0) * 1e3)
-    summarize("multiprocessing spawn, no confinement (ADR-0005 today)", samples)
+    summarize("multiprocessing spawn, no confinement, no result", samples)
+    samples = []
+    for _ in range(runs):
+        t0 = time.perf_counter()
+        q = ctx.Queue()
+        p = ctx.Process(target=_noop_to, args=(q,))
+        p.start()
+        assert q.get(timeout=30) == 1
+        p.join()
+        samples.append((time.perf_counter() - t0) * 1e3)
+    summarize("multiprocessing spawn + Queue with the result (ADR-0005 today)", samples)
 
     fd = shared_net_layer()
     cases: dict[str, dict[str, object]] = {
@@ -344,7 +370,7 @@ def cost(scratch: str) -> None:
             "confine_ms": round(statistics.median(confine_ms), 1),
         }
     os.close(fd)
-    print(json.dumps({"end_to_end": results, "inside_child": phases}, indent=2))  # noqa: T201
+    print(json.dumps({"end_to_end": results, "inside_child": phases}, indent=2))
 
 
 if __name__ == "__main__":
@@ -353,4 +379,3 @@ if __name__ == "__main__":
     {"probe": probe, "born": born, "cost": cost, "pickle": pickle_demo, "tiocsti": tiocsti}[mode](
         scratch_dir
     )
-    _ = sysconfig

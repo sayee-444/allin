@@ -6,7 +6,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import confine as c  # noqa: E402
+import confine as c
 
 CREATE_ONLY = c.FS_MAKE_REG | c.FS_READ_FILE | c.FS_WRITE_FILE | c.FS_REMOVE_FILE | c.FS_TRUNCATE
 
@@ -42,7 +42,7 @@ def run(label: str, shm_rights: int, planted: str) -> None:
         os.write(w, "; ".join(out).encode())
         os._exit(0)
     os.close(w)
-    print(f"{label}: {os.read(r, 1000).decode()}")  # noqa: T201
+    print(f"{label}: {os.read(r, 1000).decode()}")
     os.waitpid(pid, 0)
 
 

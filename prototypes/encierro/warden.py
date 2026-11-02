@@ -14,7 +14,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import confine as c  # noqa: E402
+import confine as c
 
 
 def warden(channel: socket.socket) -> None:
@@ -63,7 +63,7 @@ def main() -> None:
         cancels.append(float(reader.readline().split()[1]))
         os.waitpid(pid, 0)
     left = subprocess.run(["pgrep", "-f", "-x", "sleep 61"], capture_output=True, check=False)
-    print(  # noqa: T201
+    print(
         f"fork of the worker: median {statistics.median(forks):.2f} ms; "
         f"cancel (kill(-1) + reap): median {statistics.median(cancels):.2f} ms; "
         f"escaped grandchildren left: {len(left.stdout.split())}"

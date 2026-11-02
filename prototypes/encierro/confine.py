@@ -8,6 +8,7 @@ import ctypes
 import os
 import struct
 from dataclasses import dataclass, field
+from typing import Literal
 
 _libc = ctypes.CDLL(None, use_errno=True)
 _libc.syscall.restype = ctypes.c_long
@@ -150,8 +151,12 @@ def no_new_privs() -> None:
     _check(_libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), "PR_SET_NO_NEW_PRIVS")
 
 
+LANDLOCK_RESTRICT_SELF_TSYNC = 1 << 3  # ABI 8: confine every thread, not just the caller
+
+
 def restrict_self(ruleset: int) -> None:
-    _check(_libc.syscall(SYS_LANDLOCK_RESTRICT_SELF, ruleset, 0), "landlock_restrict_self")
+    flags = LANDLOCK_RESTRICT_SELF_TSYNC if abi_version() >= 8 else 0
+    _check(_libc.syscall(SYS_LANDLOCK_RESTRICT_SELF, ruleset, flags), "landlock_restrict_self")
 
 
 # --- seccomp: a hand-written classic BPF filter ---------------------------------------------
@@ -257,7 +262,7 @@ class Reach:
     read: tuple[str, ...] = ()
     write: tuple[str, ...] = ()
     # None: no network. A tuple: those TCP ports. "all": every port but `server_ports`.
-    net: tuple[int, ...] | str | None = None
+    net: tuple[int, ...] | Literal["all"] | None = None
     server_ports: frozenset[int] = frozenset({9931})
     display: bool = False
 

@@ -16,7 +16,7 @@ import time
 T_START = time.perf_counter()
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import confine as c  # noqa: E402
+import confine as c
 
 
 def born_state() -> dict[str, object]:

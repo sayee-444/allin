@@ -13,7 +13,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import confine as c  # noqa: E402
+import confine as c
 
 SERVERS = frozenset({9931, 9932})
 RUNS = 15
@@ -118,22 +118,22 @@ def main() -> None:
         "check_with_net_layer": check,
         "check_without_any_layer_connect_refused_us_per_1000": baseline["connect_refused_us"],
     }
-    print(json.dumps(report, indent=2))  # noqa: T201
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         main()
     elif sys.argv[1] == "inline":
-        print(json.dumps(child_inline()))  # noqa: T201
+        print(json.dumps(child_inline()))
     elif sys.argv[1] == "inherited":
-        print(json.dumps(child_inherited(int(sys.argv[2]))))  # noqa: T201
+        print(json.dumps(child_inherited(int(sys.argv[2]))))
     elif sys.argv[1] == "check-inherited":
         fd = int(sys.argv[2])
         c.no_new_privs()
         c.restrict_self(fd)
         os.close(fd)
-        print(json.dumps(child_check()))  # noqa: T201
+        print(json.dumps(child_check()))
     elif sys.argv[1] == "check-none":
         c.no_new_privs()
-        print(json.dumps({"connect_refused_us": child_check()["connect_refused_us"]}))  # noqa: T201
+        print(json.dumps({"connect_refused_us": child_check()["connect_refused_us"]}))

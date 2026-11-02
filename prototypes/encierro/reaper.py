@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import confine as c  # noqa: E402
+import confine as c
 
 
 def confined_call(tag: str, hold: float) -> int:
@@ -48,10 +48,10 @@ if __name__ == "__main__":
     call = confined_call("52", 0.3)
     os.waitpid(call, 0)
     time.sleep(0.3)
-    print(f"Main alive: True (this line)")  # noqa: T201
-    print(f"escaped grandchild of the ending call alive: {alive('52')}")  # noqa: T201
-    print(f"sibling call alive: {os.waitpid(sibling, os.WNOHANG) == (0, 0)}")  # noqa: T201
-    print(f"sibling's grandchild alive: {alive('51')}")  # noqa: T201
+    print("Main alive: True (this line)")
+    print(f"escaped grandchild of the ending call alive: {alive('52')}")
+    print(f"sibling call alive: {os.waitpid(sibling, os.WNOHANG) == (0, 0)}")
+    print(f"sibling's grandchild alive: {alive('51')}")
     os.waitpid(sibling, 0)
     subprocess.run(["pkill", "-f", "-x", "sleep 51"], check=False)
     subprocess.run(["pkill", "-f", "-x", "sleep 52"], check=False)

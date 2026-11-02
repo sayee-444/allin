@@ -9,19 +9,19 @@ from collections.abc import Callable
 def _try(fn: Callable[[], object]) -> str:
     try:
         fn()
-    except BaseException as e:  # noqa: BLE001 - a probe reports every failure as data
+    except BaseException as e:  # a probe reports every failure as data
         return f"{type(e).__name__}: {e}"[:160]
     return "ok"
 
 
 def _imports() -> None:
-    import decimal  # noqa: F401
-    import hashlib  # noqa: F401
-    import json  # noqa: F401
-    import sqlite3  # noqa: F401
-    import ssl  # noqa: F401
+    import decimal
+    import hashlib
+    import json
+    import sqlite3
+    import ssl
 
-    import pydantic  # noqa: F401
+    import pydantic
 
 
 def _mp_queue(method: str) -> None:
@@ -124,13 +124,15 @@ def basics() -> dict[str, str]:
         "multiprocessing spawn Pool": _try(_mp_pool),
         "open /dev/null for writing": _try(_write_dev_null),
         "read /dev/urandom": _try(_read("/dev/urandom")),
+        "read /dev/zero": _try(_read("/dev/zero")),
+        "read /dev/random": _try(_read("/dev/random")),
         "read /proc/self/status": _try(_read("/proc/self/status")),
         "read /proc/cpuinfo": _try(_read("/proc/cpuinfo")),
         "getaddrinfo example.com": _try(_getaddrinfo),
     }
 
 
-def leaks(home: str, data_dir: str) -> dict[str, str]:
+def leaks(home: str, data_dir: str, abstract_name: str, sleep_arg: str) -> dict[str, str]:
     """Known exits. Each should fail under confinement."""
     import socket
 
@@ -140,7 +142,7 @@ def leaks(home: str, data_dir: str) -> dict[str, str]:
 
     def abstract() -> None:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.connect("\0allin-probe")
+        s.connect(abstract_name)  # Main listens there
 
     def io_uring() -> None:
         import ctypes
@@ -177,16 +179,24 @@ def leaks(home: str, data_dir: str) -> dict[str, str]:
         os.listdir(data_dir)
 
     def setsid_grandchild() -> None:
-        subprocess.Popen(["setsid", "sleep", "30"], start_new_session=True)
+        # Without the tool's pipes, so that Main is not kept waiting and the count means
+        # something; sleep_arg is a title unique to this run.
+        subprocess.Popen(
+            ["setsid", "sleep", sleep_arg],
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     return {
         "D-Bus session bus (AF_UNIX path)": _try(dbus),
-        "abstract unix socket": _try(abstract),
+        "abstract unix socket Main listens on": _try(abstract),
         "io_uring_setup": _try(io_uring),
         "TIOCSTI on fds 0-2": _try(tiocsti),
         "signal Main (kill 0)": _try(signal_main),
         "connect Server port 9931": _try(server_port),
         "list home": _try(read_home),
         "list data dir": _try(read_data),
-        "leave a setsid grandchild (sleep 30)": _try(setsid_grandchild),
+        "start a setsid grandchild": _try(setsid_grandchild),
     }
