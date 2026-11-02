@@ -18,6 +18,7 @@ from allin.ipc.messages import (
     UserInput,
     WindowReady,
     WindowToMain,
+    WithdrawQueued,
     decode_window_message,
 )
 from allin.main.events import (
@@ -26,6 +27,7 @@ from allin.main.events import (
     ErrorOccurred,
     InputReceived,
     MainEvent,
+    QueuedWithdrawn,
     WindowClosed,
     WindowConnected,
 )
@@ -47,8 +49,10 @@ class _WindowListener:
         match message:
             case WindowReady():
                 self._inbox.put(WindowConnected(self._session_id))
-            case UserInput(text=text):
-                self._inbox.put(InputReceived(self._session_id, text))
+            case UserInput(text=text, interrupt=interrupt):
+                self._inbox.put(InputReceived(self._session_id, text, interrupt))
+            case WithdrawQueued():
+                self._inbox.put(QueuedWithdrawn(self._session_id))
             case InputDraft(blocks=blocks):
                 self._inbox.put(DraftReceived(self._session_id, tuple(blocks)))
             case BoxAnswer(box_id=box_id, answer=answer):

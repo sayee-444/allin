@@ -77,7 +77,9 @@ def rebuild_chat(
     for entry in log:
         fields = entry.fields
         match entry.event:
-            case "prompt":
+            case "prompt" if not fields.get("queued"):
+                chat.append(_prompt(fields["text"], settings))
+            case "prompt_started":  # a queued Prompt, shown where its Turn started (ADR-0024)
                 chat.append(_prompt(fields["text"], settings))
             case "turn_finished":
                 index: int = fields["turn"]

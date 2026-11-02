@@ -25,6 +25,7 @@ from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     MainEvent,
+    QueuedWithdrawn,
     ServerChanged,
     ServerProgress,
     Shutdown,
@@ -233,10 +234,18 @@ class Dispatcher:
                 self._turns.window_connected(session_id)
                 self._boxes.window_opened(session_id)
                 self._devastation.mark(session_id)
-            case InputReceived(session_id, text):
+            case InputReceived(session_id, text, interrupt):
                 self._windows.clear_draft(session_id)  # the Window's input is empty now
-                self._commands.run(f"/send {session_id} {text}")
-                self._turns.send_turn_state(session_id)  # unblocks Enter if /send failed
+                if interrupt:  # Shift+Enter: the running Turn is cut, its text goes next
+                    self._turns.interrupt(session_id)
+                if text.strip():
+                    queued = self._turns.queued_count(session_id)
+                    self._commands.run(f"/send {session_id} {text}")
+                    if interrupt and self._turns.queued_count(session_id) > queued:
+                        self._turns.jump(session_id)
+                self._turns.send_turn_state(session_id)
+            case QueuedWithdrawn(session_id):
+                self._turns.withdraw(session_id)
             case DraftReceived(session_id, blocks):
                 self._windows.keep_draft(session_id, blocks)
             case TurnOutput(session_id, kind, text):

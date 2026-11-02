@@ -12,10 +12,12 @@ from pydantic import JsonValue
 
 from allin.core.cut import CutReason
 from allin.core.settings import Sampling
-from allin.main.conversation import Step
+from allin.main.conversation import Conversation, Step
 from allin.notices import NoticeEvent, NoticeType
 
 DEFAULT_OUTPUT_CAP = 16_384
+# The Notification the LLM gets in the Prompt after a Turn a human interrupted (ADR-0024).
+INTERRUPTED_LINE = "The human interrupted your last answer; it is kept as far as it got."
 # llama stops one token short of the slot's context: 80 in + 2 991 out of 3 072 (build 10909).
 _SLOT_MARGIN = 1
 
@@ -48,13 +50,23 @@ def cut_mark(reason: CutReason) -> str:
             return "turn cut: it reached its output cap"
         case "slot_limit":
             return "turn cut: it filled the slot's context"
+        case "interrupted":
+            return "turn cut: interrupted with Shift+Enter"
+
+
+def pending_notifications(conversation: Conversation) -> list[str]:
+    """What the next Prompt of the Conversation tells the LLM first: that its last Turn was
+    interrupted, if it was."""
+    if conversation.turns and conversation.turns[-1].cut == "interrupted":
+        return [INTERRUPTED_LINE]
+    return []
 
 
 def _check(event: NoticeEvent, params: dict[str, JsonValue]) -> Mapping[str, object] | None:
     del params  # its text and title are all it has
     sid = event.session_id
     match event.cut:
-        case None:
+        case None | "interrupted":  # the human who interrupted it needs no Notice
             return None
         case "output_cap":
             why = f"it reached its output cap of {event.output_cap} tokens"

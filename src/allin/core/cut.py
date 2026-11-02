@@ -2,5 +2,6 @@
 
 from typing import Literal
 
-# Its last Step reached its Output cap (max_output_tokens), or the slot's limit.
-type CutReason = Literal["output_cap", "slot_limit"]
+# Its last Step reached its Output cap (max_output_tokens) or the slot's limit, or a human
+# interrupted it with Shift+Enter (ADR-0024).
+type CutReason = Literal["output_cap", "slot_limit", "interrupted"]

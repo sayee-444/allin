@@ -26,6 +26,7 @@ from allin.ipc.messages import (
     TurnState,
     UserInput,
     WindowReady,
+    WithdrawQueued,
     decode_main_message,
 )
 from allin.ui.boxes import Box, BoxClosed
@@ -39,6 +40,7 @@ from allin.ui.screen import (
     InputHistory,
     InputLock,
     InputText,
+    QueuedPrompts,
     ShowBox,
     TitleMark,
 )
@@ -69,8 +71,11 @@ class _MainListener:
                 self._screen.inbox.put(ChatLine(text, role, label))
             case ChatDelta(role=role, label=label, text=text):
                 self._screen.inbox.put(ChatStream(text, role, label))
-            case TurnState(active=active, waiting=waiting):
-                self._screen.inbox.put(InputLock(active))
+            case TurnState(active=active, waiting=waiting, queued=queued):
+                # Enter is never blocked (ADR-0024); a Turn over closes what it streamed.
+                if not active:
+                    self._screen.inbox.put(InputLock(False))
+                self._screen.inbox.put(QueuedPrompts(tuple(queued)))
                 if waiting != self._waiting:
                     self._waiting = waiting
                     self._screen.inbox.put(self._border())
@@ -109,15 +114,23 @@ def _run(stdscr: curses.window, session_id: str, to_window: Path, from_window: P
     channel.send(WindowReady())
 
     def submit(text: str) -> None:
-        # Main shows the Prompt in the Chat and unblocks Enter when the Turn ends (TurnState).
-        screen.lock_input()
+        # Enter is never blocked: sent during a Turn, it waits as queued (ADR-0024).
         channel.send(UserInput(text=text))
+
+    def interrupt(text: str) -> None:
+        channel.send(UserInput(text=text, interrupt=True))
 
     def box_closed(closed: BoxClosed) -> None:
         channel.send(BoxAnswer(box_id=closed.box_id, answer=closed.answer))
 
     try:
-        screen.run(submit, lambda blocks: channel.send(InputDraft(blocks=list(blocks))), box_closed)
+        screen.run(
+            submit,
+            lambda blocks: channel.send(InputDraft(blocks=list(blocks))),
+            box_closed,
+            on_interrupt=interrupt,
+            on_withdraw=lambda: channel.send(WithdrawQueued()),
+        )
     except KeyboardInterrupt:
         pass
     finally:

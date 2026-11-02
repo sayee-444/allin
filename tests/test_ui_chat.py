@@ -42,3 +42,19 @@ def test_a_wrapped_entry_marks_the_rows_that_continue_it():
         Row("answer", "fgh", joined=True),
         Row("answer", "ij"),
     ]
+
+
+def test_queued_prompts_stay_below_the_chat_even_while_it_streams():
+    chat = Chat()
+    chat.add("a1", role="user", label="ana")
+    chat.stream("uno", role="answer", label="A")
+    chat.set_queued(("a2", "a3"), label="ana · queued")
+    chat.stream(" dos", role="answer", label="A")
+    assert [row.text for row in chat.rows(40)] == [
+        "[ana] a1",
+        "[A] uno dos",
+        "[ana · queued] a2",
+        "[ana · queued] a3",
+    ]
+    chat.set_queued((), label="ana · queued")
+    assert [row.text for row in chat.rows(40)] == ["[ana] a1", "[A] uno dos"]

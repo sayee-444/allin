@@ -19,7 +19,7 @@ import itertools
 import os
 import time
 from collections.abc import Callable, Container
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -52,7 +52,7 @@ from allin.main.chat_rebuild import (
 from allin.main.compaction import wants_compaction
 from allin.main.compactions import Compactions
 from allin.main.conversation import Conversation, Item, Step, Turn
-from allin.main.cut_turns import cut_mark, cut_reason, output_cap
+from allin.main.cut_turns import cut_mark, cut_reason, output_cap, pending_notifications
 from allin.main.devastation import Devastation
 from allin.main.events import (
     ServerAsleep,
@@ -129,6 +129,7 @@ _RESUMED_TEXT = "queue resumed: {server} is ready"
 # no progress for ``step.stall`` seconds (it fails).
 RESTARTING = "the Server restarts now"
 STALLED = "the Step made no progress"
+INTERRUPTED = "interrupted with Shift+Enter"
 _SUSPENDED_TEXT = (
     "turn suspended: {why}; what its Step gave is dropped and the Step runs again once the"
     " Server is back"
@@ -196,6 +197,11 @@ class _RunningTurn:
     need: int  # what its Step reserves of the pool: measured input plus Output cap
     context_before: int | None  # its Session's Context when it started
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
+    # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
+    interrupted: bool = False
+    notifications: list[str] = field(default_factory=list)  # told the LLM ahead of its Prompt
+    # Where its current Step's text starts in ``streamed``: (reasoning, answer).
+    step_from: tuple[int, int] = (0, 0)
     sent: bool = False  # whether its Step sent any stream event: until then it reads input
     streamed: Streamed = field(default_factory=Streamed)
     asking: BoxId | None = None  # the Confirmation it waits on, if any
@@ -294,11 +300,20 @@ class TurnQueue:
         )
 
     def push(self, session: Session, prompt: Prompt) -> None:
-        """Queue a Prompt the user sent, show it in its Window and start it if there is room."""
+        """Queue a Prompt the user sent, show it in its Window and start it if there is room.
+
+        One sent while its Session is busy waits as queued: its Chat shows it only once its
+        Turn starts (ADR-0024)."""
+        busy = self._busy(session.id)
+        if busy:
+            prompt = replace(prompt, queued=True)
         self._prompts.push(prompt)
-        self._reporter.log_session(session.id, "prompt", text=prompt.text, **_commands(prompt))
-        label = session.settings.username
-        self._windows.send(session.id, ChatAppend(role="user", label=label, text=prompt.text))
+        fields = _commands(prompt)
+        if busy:
+            fields["queued"] = True
+        self._reporter.log_session(session.id, "prompt", text=prompt.text, **fields)
+        if not busy:
+            self._show_prompt(session, prompt)
         self.send_turn_state(session.id)
         link = self._watched_link(session)
         if link is not None and not self._ready(link.key):
@@ -421,6 +436,7 @@ class TurnQueue:
         if running is None:
             return
         running.streamed.steps.append(step)
+        running.step_from = (len(running.streamed.reasoning), len(running.streamed.answer))
         running.cut = cut_reason(step, running.output_cap, running.slot_context)
         if _compacting(running):  # the Session's Context is not what its summary Step read
             return
@@ -437,6 +453,8 @@ class TurnQueue:
         self._measures.pop(session_id, None)  # its Conversation changed
         self._withdraw(running)
         turn: int | None = None  # where it was saved, unless it was a summary Step
+        if running.interrupted and isinstance(error, TurnCancelled):
+            steps, error, running.cut = _interrupted_steps(running), None, "interrupted"
         try:
             if error is not None or steps is None:
                 raise error or TurnCrashed(reason="no steps")
@@ -478,17 +496,55 @@ class TurnQueue:
         self._windows.send(session_id, cut_entry(cut))
 
     def cancel(self, session_id: SessionId, reason: str) -> None:
-        """Drop a Session's queued Prompts and stop its running Turn.
+        """Drop a Session's queued Prompts, which go back to its Draft as blocks in order, and
+        stop its running Turn.
 
         The Turn stays active until its executor reports it ended, as ``turn_cancelled`` unless
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
         self._falls.pop(session_id, None)
-        self._drop_queued(session_id, reason)
+        dropped = self._drop_queued(session_id, reason)
+        typed = [prompt.as_typed for prompt in dropped if prompt.kind == "prompt"]
+        for text in reversed(typed):  # each one put back goes ahead of the one after it
+            self._windows.put_back(session_id, text)
         running = self._running.get(session_id)
         if running is not None:
             running.cancellation.cancel(reason)
             self._withdraw(running)
+
+    def interrupt(self, session_id: SessionId) -> None:
+        """Shift+Enter: cut the Session's running Turn now. Once its executor stops it is saved
+        with what it streamed, as a Turn cut by ``interrupted`` (ADR-0024)."""
+        running = self._running.get(session_id)
+        if running is None or _compacting(running):
+            return
+        running.interrupted = True
+        running.cancellation.cancel(INTERRUPTED)
+        self._withdraw(running)
+
+    def queued_count(self, session_id: SessionId) -> int:
+        return len(self._prompts.of(session_id))
+
+    def jump(self, session_id: SessionId) -> None:
+        """The Session's last queued Prompt runs before the others it has waiting."""
+        self._prompts.jump_last(session_id)
+        self._measures.pop(session_id, None)
+        self.send_turn_state(session_id)
+        self._start_turns()
+
+    def withdraw(self, session_id: SessionId) -> None:
+        """Up: the Session's last queued Prompt leaves the queue and goes back to its input,
+        as it was typed; nothing if none waits as queued."""
+        prompt = self._prompts.take_last(session_id)
+        if prompt is None:
+            return
+        self._measures.pop(session_id, None)
+        if not self._prompts.has(session_id):
+            self._since.pop(session_id, None)
+        self._reporter.log_session(session_id, "prompt_withdrawn", text=prompt.text)
+        self._windows.put_back(session_id, prompt.as_typed)
+        self.send_turn_state(session_id)
+        self._start_turns()
 
     def confirmation_requested(self, session_id: SessionId, title: str, text: str) -> None:
         """A running Turn asks yes or no: it gives its slot back while a human answers
@@ -615,7 +671,8 @@ class TurnQueue:
         waiting = self._shown_waiting.get(session_id) if active else None
         if waiting is None and self._compactions.busy(session_id):
             waiting = "compacting…"
-        self._windows.send(session_id, TurnState(active=active, waiting=waiting))
+        queued = [p.text for p in self._prompts.of(session_id) if p.queued]
+        self._windows.send(session_id, TurnState(active=active, waiting=waiting, queued=queued))
 
     def streamed(self, session_id: SessionId) -> Streamed | None:
         """What the Session's running Turn has given so far; ``None`` if it has none."""
@@ -770,7 +827,8 @@ class TurnQueue:
         vision = isinstance(state, ServerReady) and state.props.vision
         reader = AttachmentReader(self._sessions.workspace(session.id), vision)
         conversation = self._conversation(session)
-        return conversation.request_input(prompt.text, prompt.attachments, reader)
+        notifications = pending_notifications(conversation)
+        return conversation.request_input(prompt.text, prompt.attachments, reader, notifications)
 
     def _compacts_first(
         self, prompt: Prompt, session: Session, need: int, slot_context: int
@@ -934,6 +992,11 @@ class TurnQueue:
         sampling = _sampling(prompt, session)
         cap = output_cap(sampling, slot_context)
         compacting = prompt.kind != "prompt"
+        if prompt.queued:  # it waited behind a Turn: its Chat shows it now (ADR-0024)
+            prompt = replace(prompt, queued=False)  # a Step run again never shows it twice
+            self._reporter.log_session(session.id, "prompt_started", text=prompt.text)
+            self._show_prompt(session, prompt)
+            self.send_turn_state(session.id)  # it no longer waits below the Chat
         request = TurnRequest(
             model=session.settings.model,
             input=self._compactions.request(session.id)
@@ -962,6 +1025,7 @@ class TurnQueue:
             context_before=context_tokens(conversation.turns[-1].steps)
             if conversation.turns
             else None,
+            notifications=[] if compacting else pending_notifications(conversation),
         )
         self._reserve(self._running[session.id])
         if compacting:
@@ -1271,6 +1335,18 @@ class TurnQueue:
             self._boxes.withdraw(running.asking)
             running.asking = None
 
+    def _busy(self, session_id: SessionId) -> bool:
+        """Whether a Prompt sent now would wait behind a Turn, a Prompt or a Compaction."""
+        return (
+            session_id in self._running
+            or self._prompts.has(session_id)
+            or self._compactions.busy(session_id)
+        )
+
+    def _show_prompt(self, session: Session, prompt: Prompt) -> None:
+        label = session.settings.username
+        self._windows.send(session.id, ChatAppend(role="user", label=label, text=prompt.text))
+
     def _waiting_entry(self, link: Link) -> ChatAppend:
         text = _waiting_text(link, self._states.get(link.key))
         return ChatAppend(role="info", label="queue", text=text)
@@ -1358,10 +1434,33 @@ class TurnQueue:
         conversation = self._conversation(running.session)
         attachments = list(running.prompt.attachments)
         turn = Turn(
-            prompt=running.prompt.text, steps=steps, cut=running.cut, attachments=attachments
+            prompt=running.prompt.text,
+            steps=steps,
+            cut=running.cut,
+            attachments=attachments,
+            notifications=running.notifications,
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
+
+
+def _interrupted_steps(running: _RunningTurn) -> list[Step]:
+    """An interrupted Turn's Steps: those that ended, then what its last one streamed, as the
+    items a Step gives, its message marked ``incomplete``."""
+    reasoning_from, answer_from = running.step_from
+    reasoning = running.streamed.reasoning[reasoning_from:]
+    answer = running.streamed.answer[answer_from:]
+    output: list[Item] = []
+    if reasoning:
+        part: Item = {"type": "reasoning_text", "text": reasoning}
+        output.append(
+            {"id": "rs_interrupted", "type": "reasoning", "summary": [], "content": [part]}
+        )
+    if answer:
+        text: Item = {"type": "output_text", "text": answer, "annotations": []}
+        message: Item = {"type": "message", "role": "assistant", "status": "incomplete"}
+        output.append({"id": "msg_interrupted", **message, "content": [text]})
+    return [*running.streamed.steps, Step(output=output)]
 
 
 def _sampling(prompt: Prompt, session: Session) -> Sampling:
