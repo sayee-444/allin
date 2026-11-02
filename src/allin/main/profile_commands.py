@@ -1,9 +1,14 @@
 """``/profile``: the Profiles there are, making a new one, switching to another and sharing
 Sessions between them (ADR-0010)."""
 
+from pathlib import Path
+
+from pydantic import JsonValue
+
 from allin.core.errors import InvalidArguments
 from allin.core.ids import MainId, SessionId
 from allin.main.boxes import MainBoxes
+from allin.main.profile_copy import ProfileCopies
 from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
 from allin.main.reporting import Reporter
@@ -11,7 +16,7 @@ from allin.main.sessions import SessionStore
 
 _USAGE = (
     "/profile [new [name] | switch <name> [--now] | share <sid> <profile>"
-    " | unshare <sid> [profile]]"
+    " | unshare <sid> [profile] | export <name> <folder> | import <folder> <name>]"
 )
 
 
@@ -25,6 +30,7 @@ class ProfileCommands:
         main_id: MainId,
         boxes: MainBoxes,
     ) -> None:
+        self._copies = ProfileCopies(profiles.data_dir, profiles)
         self._reporter = reporter
         self._profiles = profiles
         self._switch = switch
@@ -54,6 +60,10 @@ class ProfileCommands:
                 self._unshare(session_id, None)
             case ["unshare", session_id, name]:
                 self._unshare(session_id, name)
+            case ["export", name, folder]:
+                self._export(name, Path(folder).expanduser())
+            case ["import", folder, name]:
+                self._import(Path(folder).expanduser(), name)
             case _:
                 raise InvalidArguments(usage=_USAGE)
         return True
@@ -90,6 +100,20 @@ class ProfileCommands:
         created = self._profiles.create(name, self._switch.active)
         shown = f"profile {created.name} created"
         self._reporter.report(None, "profile_created", shown, profile=created.name)
+
+    def _export(self, name: str, folder: Path) -> None:
+        profile = self._profiles.find(name)
+        count = self._copies.export(profile, folder)
+        shown = f"profile {profile.name} exported: {count} sessions"
+        self._reporter.report(None, "profile_exported", shown, profile=profile.name, sessions=count)
+
+    def _import(self, folder: Path, name: str) -> None:
+        profile, renamed = self._copies.import_(folder, name)
+        shown = f"profile {profile.name} imported"
+        if renamed:
+            shown += ", new ids: " + ", ".join(f"{old}→{new}" for old, new in renamed.items())
+        fields: dict[str, JsonValue] = {str(old): str(new) for old, new in renamed.items()}
+        self._reporter.report(None, "profile_imported", shown, profile=profile.name, renamed=fields)
 
     def _share(self, session_id: str, name: str) -> None:
         """Only the lists change: sharing is no Traspaso, and the Session's folder stays."""

@@ -74,6 +74,15 @@ class ProfileStore:
         self._seed_sysprompts = seed_sysprompts
         self._last = data_dir / "state" / "last_profile.json"
 
+    @property
+    def data_dir(self) -> Path:
+        return self._data_dir
+
+    @property
+    def root(self) -> Path:
+        """The folder that holds every Profile's."""
+        return self._root
+
     def check(self, name: str | None) -> ProfileName:
         """The Profile Main would open for ``name`` (the last one used if ``None``), touching
         nothing: one that does not exist, nor would after ``migrate``, is an error."""

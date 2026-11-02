@@ -274,3 +274,42 @@ class ProfileStorageFailed(AllInError):
     """A Profile's folder or one of its files could not be read or written."""
 
     code: ClassVar[str] = "profile_storage_failed"
+
+
+class ExportFolderNotEmpty(AllInError):
+    """A copy of a Profile or a Kit goes into a folder that does not exist yet or is empty."""
+
+    code: ClassVar[str] = "export_folder_not_empty"
+
+
+class PortableInvalid(AllInError):
+    """A Profile's copy or a Kit is not one AllIn can read: no manifest, a broken one, or a
+    file that does not match it; nothing of it is used."""
+
+    code: ClassVar[str] = "portable_invalid"
+
+
+class PortableFormatUnknown(AllInError):
+    """The manifest says a format version this AllIn does not know."""
+
+    code: ClassVar[str] = "portable_format_unknown"
+
+
+class KitRejected(AllInError):
+    """A Kit that brings what no Kit may bring (compiled code, binaries, Atajos, a Server
+    Setting that names a file or opens the network) or a piece this AllIn cannot load yet; the
+    whole Kit is refused (ADR-0014)."""
+
+    code: ClassVar[str] = "kit_rejected"
+
+
+class KitReferenceMissing(AllInError):
+    """A piece of a Kit names one that is neither in the Kit nor in the Profile (ADR-0014)."""
+
+    code: ClassVar[str] = "kit_reference_missing"
+
+
+class KitPieceUnknown(AllInError):
+    """``/kit export`` or ``/kit load`` named a piece there is not."""
+
+    code: ClassVar[str] = "kit_piece_unknown"

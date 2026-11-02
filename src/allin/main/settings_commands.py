@@ -172,6 +172,10 @@ class SettingsCommands:
             self._turns.change_link(self._sessions.load(session.id), link)
         return True
 
+    def take(self, settings: MainSettings) -> None:
+        """Main's current Settings become ``settings``: a Kit's, chosen when it loaded."""
+        self._use(settings)
+
     def enter(self, loaded: LoadedSettings, files: MainSettingsFiles, sysprompts: Path) -> None:
         """The Settings and Sysprompts of the Profile Main just entered (``/profile switch``):
         what changes goes on in the running Main, and its default Enlace only reaches the
