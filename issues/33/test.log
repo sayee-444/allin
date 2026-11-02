@@ -1,0 +1,27 @@
+#33 Una Ventana desconectada de Main deja de mandar — prueba a mano (2026-11-01)
+Código: rama fix/33-ventana-desconectada. Main con datos en <scratch>/d33, Sesión 1w7zns, Server IQ3_XXS de 9931.
+
+1. /new abre la Ventana de 1w7zns. Se escribe «Borrador antes del kill» sin Enter y se espera 2,5 s, a que
+   la Ventana mande el Borrador.
+2. kill -9 del proceso de Main (por su pid). La Ventana muestra «[info] Main disconnected» y el input
+   pasa a «read only».
+3. Ya desconectada, se teclea « xyz», dos Backspace y «otra» + Enter. El input se queda
+   «Borrador antes del kill», como estaba, y el Chat no muestra ningún error (a-tras-kill-9-solo-lectura.png).
+   Antes, el Borrador se mandaba por la FIFO sin lector y salía «[error] channel_broken … Broken pipe».
+   Ahora la Ventana no manda nada: <data-dir>/logs/windows/1w7zns.jsonl ni siquiera se crea, porque no
+   hubo envío que fallara.
+4. Main se lanza otra vez: cierra la Ventana huérfana y abre una nueva (c-main-reiniciado.png), que
+   recupera el Borrador «Borrador antes del kill» (b-borrador-recuperado.png). Al final: /exit en Main.
+
+Arreglo:
+- MainListener marca `gone` en el EOF de Main. MainLink, por donde pasa todo lo que la Ventana manda
+  (Prompts, Borradores, interrupciones, respuestas de recuadros, WindowReady), no envía nada después.
+- Con la Ventana en solo lectura, la pantalla solo acepta las teclas que mueven la vista
+  (cambio de tamaño, scroll_up y scroll_down); el input se queda tal como estaba.
+- Si aun así un envío encuentra la FIFO rota (ChannelBroken), la Ventana no lo pinta en el Chat: lo
+  apunta en su propio registro, <data-dir>/logs/windows/<sid>.jsonl, que Main le pasa al abrirla, y
+  se da por desconectada.
+
+Tests: tests/test_window_disconnect.py. Tras el EOF no se manda nada; una FIFO rota va al registro y
+no al Chat, y se avisa una sola vez; los demás errores siguen en el Chat; la pantalla en solo lectura
+solo deja pasar las teclas de la vista. 1010 tests; basedpyright y ruff limpios.
