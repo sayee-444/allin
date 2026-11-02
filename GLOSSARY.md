@@ -291,8 +291,12 @@ Lo que el proceso de una Function tool o de un Proceso adherido puede tocar, dec
 _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 
 **Encierro** (`confinement`):
-Lo que el kernel impone al proceso de una Function tool o de un Proceso adherido según su Alcance: Landlock para archivos y TCP, y un filtro seccomp para lo que Landlock no ve (sockets unix, UDP sin red, io_uring, meter teclas en una terminal). El proceso se lo pone a sí mismo antes de importar su function, y no hereda de Main ni su terminal, ni su entorno, ni sus rutas de importación. Nada lo salta, ni `--devastation` (ADR-0016).
+Lo que el kernel impone al proceso de una Function tool o de un Proceso adherido según su Alcance: Landlock para archivos y TCP, y un filtro seccomp para lo que Landlock no ve (sockets unix, UDP sin red, io_uring, meter teclas en una terminal). El proceso se lo pone a sí mismo antes de importar su function, y no hereda de Main ni su terminal, ni su entorno, ni sus rutas de importación. De su package solo importa fuentes `.py`, compiladas en cada llamada, y Main no lanza una function cuyo package tenga un `.pyc` o código compilado. Nada lo salta, ni `--devastation` (ADR-0016).
 _Avoid_: sandbox, jaula
+
+**Batería de fugas** (`tests/test_leak_battery.py`):
+Los tests en los que una tool con el Alcance mínimo intenta cada salida conocida del Encierro (D-Bus, X11, io_uring, señales y `ptrace` a Main, la terminal, el agente SSH, un `.pyc` preparado y los puertos de los Servidores) y todos los intentos tienen que fallar. Corren en la suite y en el pre-commit, para que un cambio que reabra una salida no pase. Una salida nueva que se descubra entra en ella (ADR-0016).
+_Avoid_: tests de seguridad (es más amplio), pentest
 
 **Descripción** (`Description`):
 Lo que Main sabe de una function sin importarla: el schema de su tool para `tools=[...]` (uno por método público en una fproc), las marcas de sus decoradores y su Alcance. La saca un proceso aparte con el Encierro de descripción, que solo lee el mínimo, sin Carpeta de trabajo, sin escribir, sin red ni sockets unix y con timeout. Main la guarda con el hash de su package; cada llamada se encierra con el Alcance guardado, aunque el módulo diga otra cosa al importarse después (ADR-0016).

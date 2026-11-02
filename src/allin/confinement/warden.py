@@ -17,6 +17,7 @@ pydantic what comes back, so the boundary that matters is still parsed there.
 import contextlib
 import ctypes
 import importlib
+import importlib.machinery
 import json
 import multiprocessing
 import os
@@ -24,8 +25,10 @@ import selectors
 import signal
 import socket
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType
 from typing import cast
 
 from allin.confinement import landlock, seccomp
@@ -260,6 +263,7 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     os.chdir(call.workspace)
     # ``-I`` left the standard library and the venv; the package goes last, so it can never
     # shadow them. The Carpeta de trabajo is never on the path.
+    sys.path_hooks.insert(0, _sources_only_in(Path(call.package).resolve()))
     sys.path.append(call.package)
     # forkserver, the default since 3.14, needs a unix socket the filter refuses (#99).
     multiprocessing.set_start_method("spawn", force=True)
@@ -279,6 +283,30 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     with os.fdopen(reply_in, "wb") as out:  # writes it whole, however long
         out.write(answer)
     os._exit(0)
+
+
+class _SourceOnlyLoader(importlib.machinery.SourceFileLoader):
+    """Compiles a module of the package from its source at every import: what was approved is
+    the source, so a ``.pyc`` in ``__pycache__`` is never read (ADR-0016)."""
+
+    def get_code(self, fullname: str) -> CodeType:
+        path = self.get_filename(fullname)
+        return self.source_to_code(self.get_data(path), path)
+
+
+def _sources_only_in(package: Path) -> Callable[[str], importlib.machinery.FileFinder]:
+    """A path hook for the package's folders alone: they import ``.py`` sources and nothing
+    else, neither a ``.pyc`` without its source nor compiled code (ADR-0016, #103). Main
+    refuses a package that holds any before it starts a call, since a process the function
+    spawns imports without this hook."""
+
+    def finder(path: str) -> importlib.machinery.FileFinder:
+        if not Path(path).resolve().is_relative_to(package):
+            raise ImportError  # not the package's: the next hook takes it
+        sources = (_SourceOnlyLoader, importlib.machinery.SOURCE_SUFFIXES)
+        return importlib.machinery.FileFinder(path, sources)
+
+    return finder
 
 
 if __name__ == "__main__":

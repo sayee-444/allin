@@ -50,7 +50,14 @@ from allin.confinement.reach import (
     resolver_folder,
     x11_cookie,
 )
-from allin.core.errors import ConfinementFailed, ToolDied, ToolNotStarted, ToolTimedOut
+from allin.core.errors import (
+    ConfinementFailed,
+    PackageNotSource,
+    ToolDied,
+    ToolNotStarted,
+    ToolTimedOut,
+)
+from allin.core.sources import compiled_files
 from allin.decorators import MINIMUM, Reach
 
 _OUTPUT_KEPT = 64 * 1024  # of stdout and of stderr, each; the rest is read and dropped
@@ -154,8 +161,9 @@ class ToolLauncher:
     def run(self, call: ToolCall, timeout: float) -> ToolOutcome:
         """Run ``call`` in its own confined process and wait for its answer. Raises
         ``ToolTimedOut`` after ``timeout`` seconds, ``ToolDied`` if it ended without one and
-        ``ConfinementFailed`` if it could not confine itself and ``ToolNotStarted`` if it could
-        not be started."""
+        ``ConfinementFailed`` if it could not confine itself, ``ToolNotStarted`` if it could
+        not be started and ``PackageNotSource`` if its package holds compiled code."""
+        _refuse_compiled(call.package)
         tmp = self._data_dir / "tmp" / f"call-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
         servers = self._server_ports() if call.reach.network else frozenset[int]()
@@ -176,6 +184,7 @@ class ToolLauncher:
         descripción (ADR-0016) and give back what ``describer.describe`` makes of it. That
         process reads only the minimum (the system, AllIn's code and the package), with no
         Carpeta de trabajo, no writing, no network and no unix sockets. Raises as ``run``."""
+        _refuse_compiled(package)
         read = description_paths(self._places(package, package, package))
         message = DescribeModule(package=str(package), module=module, read=[str(p) for p in read])
         return self._converse(package, MINIMUM, None, frozenset(), lambda _: message, timeout)
@@ -317,6 +326,13 @@ class ToolLauncher:
         with contextlib.suppress(ProcessLookupError):  # nothing of the call was left
             os.killpg(process.pid, signal.SIGKILL)
         process.wait()
+
+
+def _refuse_compiled(package: Path) -> None:
+    """The warden imports only the package's sources, but a process it spawns (``multiprocessing``,
+    another ``python``) imports as Python does, ``.pyc`` first: compiled code never gets there."""
+    if files := compiled_files(package):
+        raise PackageNotSource(package=str(package), files=list[JsonValue](files))
 
 
 def _read_line(channel: socket.socket, deadline: float) -> bytes:
