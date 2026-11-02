@@ -28,6 +28,7 @@ from allin.core.ids import (
     parse_profile_name,
 )
 from allin.main.sessions import SessionStore
+from allin.main.state import MainStateStore
 
 # The folders of a Profile's pieces, copied whole by ``/profile new``; functions, Molds, Plans
 # and Themes will join them as they appear (ADR-0010).
@@ -195,6 +196,25 @@ class ProfileStore:
             _write_sessions(profile.folder, [sid for sid in listed if sid != session_id])
         except OSError as error:
             raise ProfileStorageFailed(path=str(profile.folder), reason=str(error)) from error
+
+    def rename_session(self, old: SessionId, new: SessionId) -> None:
+        """A Session renamed (#59): every Profile lists it, and keeps its MainState, under its
+        new id. The running Main keeps the active Profile's in memory and saves it itself."""
+        for name in self.names():
+            profile = self._profile(name)
+            listed = self.sessions(profile)
+            if old in listed:
+                try:
+                    _write_sessions(profile.folder, [new if s == old else s for s in listed])
+                except OSError as error:
+                    raise ProfileStorageFailed(
+                        path=str(profile.folder), reason=str(error)
+                    ) from error
+            store = MainStateStore(profile.state)
+            state = store.load()
+            renamed = state.renamed(old, new)
+            if renamed != state:
+                store.save(renamed)
 
     def profiles_of(self, session_id: SessionId) -> list[ProfileName]:
         """The Profiles whose list has the Session, sorted."""

@@ -1,7 +1,8 @@
 """Sessions on disk: one folder per Session under ``<data-dir>/sessions/<sid>/``.
 
 The folder outlives the Session's Window; ``session.json`` holds its metadata and Settings,
-``conversation.json`` its Conversation and ``log.jsonl`` its Log.
+``conversation.json`` its Conversation and ``log.jsonl`` its Log. ``aliases.json`` keeps the ids
+renamed Sessions had, which still reach them (#59): other Conversations keep them.
 """
 
 from collections.abc import Callable
@@ -11,6 +12,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ValidationError
 
 from allin.core.errors import (
+    SessionIdInvalid,
+    SessionIdTaken,
     SessionNotFound,
     SessionNotOwned,
     SessionStorageFailed,
@@ -30,6 +33,11 @@ from allin.main.log import Log, LogEntry, read_log
 
 _METADATA = "session.json"
 _LOG = "log.jsonl"
+_ALIASES = "aliases.json"
+
+
+class _Aliases(BaseModel):
+    aliases: dict[SessionId, SessionId] = {}  # an old id -> the Session's id now
 
 
 class Session(BaseModel, frozen=True):
@@ -50,11 +58,15 @@ class SessionStore:
         folder, which holds its state (ADR-0016). Made when something is first put in it."""
         return self._root.parent / "workspaces" / session_id
 
-    def create(self, owner: MainId, settings: SessionSettings, sysprompt: str) -> Session:
-        """Create a Session with a fresh id and its folder; ``sysprompt`` is already rendered."""
+    def create(
+        self, owner: MainId, settings: SessionSettings, sysprompt: str, chosen: str | None = None
+    ) -> Session:
+        """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
+        ``sysprompt`` is already rendered."""
+        wanted = None if chosen is None else self.check_new_id(chosen)
         try:
             self._root.mkdir(parents=True, exist_ok=True)
-            session_id, folder = self._new_folder()
+            session_id, folder = self._new_folder() if wanted is None else self._folder(wanted)
             session = Session(
                 id=session_id,
                 owner=owner,
@@ -68,12 +80,57 @@ class SessionStore:
             raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
         return session
 
-    def load(self, text: str) -> Session:
-        """The Session whose id is ``text``, typed by the user or read from disk."""
+    def resolve(self, text: str) -> SessionId:
+        """The id of the Session ``text`` names, by its id or by an alias it had (#59): every
+        lookup of a Session goes through here."""
         # Anything that is not an id is never turned into a path.
         session_id = parse_session_id(text)
-        if session_id is None or not (self._root / session_id).is_dir():
+        if session_id is None:
             raise SessionNotFound(session_id=text)
+        if (self._root / session_id).is_dir():
+            return session_id
+        renamed = self._aliases().get(session_id)
+        if renamed is None or not (self._root / renamed).is_dir():
+            raise SessionNotFound(session_id=text)
+        return renamed
+
+    def check_new_id(self, text: str) -> SessionId:
+        """``text`` as an id a Session may take: of the right shape, and no other Session's id
+        or alias."""
+        session_id = parse_session_id(text)
+        if session_id is None:
+            raise SessionIdInvalid(session_id=text, rule="4 to 12 characters of a-z and 0-9")
+        if self._taken(session_id):
+            raise SessionIdTaken(session_id=session_id)
+        return session_id
+
+    def rename(self, session: Session, text: str) -> Session:
+        """The Session under the id ``text``: its folder and Carpeta de trabajo move, and its
+        old id, and every alias it had, lead to the new one."""
+        new_id = self.check_new_id(text)
+        renamed = session.model_copy(update={"id": new_id})
+        aliases = {
+            alias: new_id if target == session.id else target
+            for alias, target in self._aliases().items()
+        }
+        aliases[session.id] = new_id
+        try:
+            (self._root / session.id).rename(self._root / new_id)
+            workspace = self.workspace(session.id)
+            if workspace.is_dir():
+                workspace.rename(self.workspace(new_id))
+            write_atomically(self._root / new_id / _METADATA, renamed.model_dump_json(indent=2))
+            write_atomically(
+                self._root / _ALIASES, _Aliases(aliases=aliases).model_dump_json(indent=2)
+            )
+        except OSError as error:
+            raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
+        return renamed
+
+    def load(self, text: str) -> Session:
+        """The Session whose id, or an alias of it, is ``text``, typed by the user or read
+        from disk."""
+        session_id = self.resolve(text)
         path = self._root / session_id / _METADATA
         try:
             return Session.model_validate_json(path.read_bytes())
@@ -121,14 +178,38 @@ class SessionStore:
     def log(self, session_id: SessionId) -> Log:
         if parse_session_id(session_id) is None:  # an id made by hand never becomes a path
             raise SessionNotFound(session_id=session_id)
-        return Log(self._root / session_id / _LOG)
+        # Something late about a Session just renamed goes to its Log all the same.
+        return Log(self._root / self._aliases().get(session_id, session_id) / _LOG)
 
     def read_log(self, session: Session) -> list[LogEntry]:
         return read_log(self._root / session.id / _LOG)
 
+    def _aliases(self) -> dict[SessionId, SessionId]:
+        path = self._root / _ALIASES
+        try:
+            return _Aliases.model_validate_json(path.read_bytes()).aliases
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValidationError) as error:
+            raise SessionStorageFailed(root=str(path), reason=str(error)) from error
+
+    def _taken(self, session_id: SessionId) -> bool:
+        return (self._root / session_id).exists() or session_id in self._aliases()
+
+    def _folder(self, session_id: SessionId) -> tuple[SessionId, Path]:
+        """The folder of a Session whose id a human chose."""
+        folder = self._root / session_id
+        try:
+            folder.mkdir()  # fails if taken meanwhile, so two Sessions never share one
+        except FileExistsError as error:
+            raise SessionIdTaken(session_id=session_id) from error
+        return session_id, folder
+
     def _new_folder(self) -> tuple[SessionId, Path]:
         while True:
             session_id = self._new_id()
+            if session_id in self._aliases():
+                continue  # an old id still leads to its Session
             folder = self._root / session_id
             try:
                 folder.mkdir()  # fails if taken, so two Sessions never share one

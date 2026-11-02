@@ -45,6 +45,8 @@ from allin.main.settings_commands import (
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 
+_ID_OPTION = "--id="  # /new --id=<id> (#59)
+
 # Whether a command, by its arguments, is delicate or only a human's.
 type ByArguments = Callable[[list[str]], bool]
 
@@ -110,7 +112,13 @@ class MainCommands:
         self._profiles = profiles
         # Command mains are registered once, when Main starts.
         self._commands: dict[str, CommandSpec] = {
-            "/new": CommandSpec((), self._new, "create a Session from the template and open it"),
+            "/new": CommandSpec(
+                (),
+                self._new,
+                "create a Session from the template and open it",
+                args={"--id=<id>": "its id, 4 to 12 characters of a-z and 0-9; else a random one"},
+                optional=("--id=<id>",),
+            ),
             "/open": CommandSpec(
                 ("sid",),
                 self._open,
@@ -151,13 +159,15 @@ class MainCommands:
             ),
             "/session": CommandSpec(
                 ("sid",),
-                settings.session,
-                "list a Session's Settings, change them or compact its Conversation",
+                self._session,
+                "list a Session's Settings, change them, compact its Conversation or rename it",
                 usage_text=SESSION_USAGE,
                 rest=True,
                 optional=("key=value",),
                 session_of=_session_of_session_command,
                 takes_origin=True,
+                # Only a human changes a Session's id (#59).
+                human_only=lambda args: args[:1] == ["id"],
             ),
             # Only a Command main: no Session undoes its own Prompts (GLOSSARY, Rewind).
             "/rewind": CommandSpec(
@@ -333,13 +343,46 @@ class MainCommands:
         shown = f"{_summary(text)}: {result}"
         self._reporter.report(session_id, "command", shown, command=text, result=result)
 
-    def _new(self) -> bool:
+    def _new(self, option: str | None = None) -> bool:
+        chosen = None
+        if option is not None:
+            if not option.startswith(_ID_OPTION):
+                raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
+            chosen = option.removeprefix(_ID_OPTION)
         settings = self._settings.current.session  # copied: later changes never reach it
         sysprompt = render_sysprompt(self._sysprompts, settings)
-        session = self._sessions.create(self._main_id, settings, sysprompt)
+        session = self._sessions.create(self._main_id, settings, sysprompt, chosen)
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
         self._profiles.created(session.id)
         self._windows.open(session, self._turns.streamed(session.id))
+        return True
+
+    def _session(self, first: str, rest: str = "", origin: Origin = HUMAN) -> bool:
+        target = parse_session_command([first, rest] if rest else [first])
+        if target is not None and target.rename:
+            return self._rename(target.session_id, target.rest)
+        return self._settings.session(first, rest, origin=origin)
+
+    def _rename(self, session_id: str, new_id: str) -> bool:
+        """``/session id <sid> <new>`` (#59): the Session takes a new id everywhere Main keeps
+        it, and its old one stays as an alias. Never with a Turn under way."""
+        session = self._sessions.load_owned(session_id, self._main_id)
+        if self._turns.busy(session.id):
+            raise TurnActive(
+                session_id=session.id,
+                advice="interrupt it with Shift+Enter in its Window, or wait for it to end",
+            )
+        old = session.id
+        renamed = self._sessions.rename(session, new_id)  # checks the new id first
+        was_open = self._windows.is_open(old)
+        if was_open:
+            self._windows.close(old, f"renamed to {renamed.id}")
+        self._windows.rename(old, renamed.id)
+        self._profiles.renamed(old, renamed.id)
+        shown = f"renamed from {old}; {old} still reaches it"
+        self._reporter.record(renamed.id, "session_renamed", shown, old=old)
+        if was_open:  # under its new id, which its title shows
+            self._windows.open(renamed, self._turns.streamed(renamed.id))
         return True
 
     def _open(self, session_id: str) -> bool:

@@ -72,6 +72,10 @@ class ProfileCommands:
         """A Session ``/new`` made: it belongs to the active Profile."""
         self._profiles.add_session(self._switch.active, session_id)
 
+    def renamed(self, old: SessionId, new: SessionId) -> None:
+        """A Session took a new id: every Profile follows it (#59)."""
+        self._profiles.rename_session(old, new)
+
     def opened(self, session_id: SessionId) -> None:
         """A Session a human opened: it belongs to the active Profile from now on, and if it
         was only another Profile's, a Notice says so, since a Profile is private."""

@@ -241,6 +241,12 @@ class OpenWindows:
         """What a Session's Window holds in its input now, shown block first."""
         self._drafts[session_id] = list(blocks)
 
+    def rename(self, old: SessionId, new: SessionId) -> None:
+        """A Session took a new id (#59): its Draft follows it. Its Window, if it had one, was
+        closed already, and opens again under the new id."""
+        if old in self._drafts:
+            self._drafts[new] = self._drafts.pop(old)
+
     def put_back(self, session_id: SessionId, text: str) -> None:
         """A Prompt that did not run goes back to its input, ahead of the Draft."""
         self._drafts[session_id] = put_back(self._drafts.get(session_id, []), text)

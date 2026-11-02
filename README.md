@@ -164,6 +164,8 @@ Those keys are Shortcuts you can change with `/key`: `/key` lists them, and `/ke
 
 `/rewind <sid> [n]` undoes a Session's last `n` Prompts (1 if left out): its Conversation goes back to before them, even past a Compaction, and the texts you typed come back to its input in order. It waits for no running Turn: interrupt it with Shift+Enter, or wait.
 
+`/new --id=<id>` gives a new Session the id you choose (4 to 12 characters of `a-z` and `0-9`), and `/session id <sid> <new id>` changes it later; the old id keeps reaching the Session, as an alias.
+
 In a Prompt you type, `@key=value` changes a sampling parameter for that Turn only (`temperature`, `top_p`, `top_k`, `min_p`, `max_output_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `reasoning_budget_tokens`, `effort`), and `@./file`, `@~/file` or `@/path/file` attaches a file. The file is copied to the Session's workspace (`<data dir>/workspaces/<sid>/.allin/adjuntos/`); text goes in as text, and an image goes in as an image only if the Server sees images.
 
 | Command | What it does |

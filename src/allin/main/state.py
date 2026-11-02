@@ -4,6 +4,7 @@ Saved after every change, so it survives a Main killed outright. Sessions keep t
 (Conversation, Log, Settings); this only holds what lives in Main's memory.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -21,6 +22,22 @@ class MainState(BaseModel, frozen=True):
     drafts: dict[SessionId, list[str]] = Field(default_factory=dict[SessionId, list[str]])
     queue: list[Prompt] = Field(default_factory=list[Prompt])  # waiting, in queue order
     running: list[Prompt] = Field(default_factory=list[Prompt])  # their Turns had started
+
+    def renamed(self, old: SessionId, new: SessionId) -> "MainState":
+        """The same MainState, with a Session renamed (#59)."""
+
+        def key(session_id: SessionId) -> SessionId:
+            return new if session_id == old else session_id
+
+        def prompts(listed: list[Prompt]) -> list[Prompt]:
+            return [replace(p, session_id=key(p.session_id)) for p in listed]
+
+        return MainState(
+            windows={key(sid): pid for sid, pid in self.windows.items()},
+            drafts={key(sid): blocks for sid, blocks in self.drafts.items()},
+            queue=prompts(self.queue),
+            running=prompts(self.running),
+        )
 
     @field_validator("drafts", mode="before")
     @classmethod
