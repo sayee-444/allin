@@ -40,7 +40,13 @@ from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitL
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.admission import Waiting, admit, server_waiting
 from allin.main.boxes import MainBoxes
-from allin.main.chat_rebuild import cut_entry, dropped_entry, error_entry, tokens_entry
+from allin.main.chat_rebuild import (
+    FAILED_BEFORE,
+    cut_entry,
+    dropped_entry,
+    error_entry,
+    tokens_entry,
+)
 from allin.main.compaction import wants_compaction
 from allin.main.compactions import Compactions
 from allin.main.conversation import Conversation, Item, Step, Turn
@@ -476,13 +482,7 @@ class TurnQueue:
         it had already finished; either way the Conversation only ever gets whole Turns.
         """
         self._falls.pop(session_id, None)
-        self._measures.pop(session_id, None)
-        self._since.pop(session_id, None)
-        self._compactions.drop(session_id)
-        texts: list[JsonValue] = [prompt.text for prompt in self._prompts.drop(session_id)]
-        if texts:
-            shown = dropped_entry(len(texts), reason).text
-            self._reporter.record(session_id, "prompts_dropped", shown, reason=reason, texts=texts)
+        self._drop_queued(session_id, reason)
         running = self._running.get(session_id)
         if running is not None:
             running.cancellation.cancel(reason)
@@ -1298,10 +1298,43 @@ class TurnQueue:
         fields = {"error": str(error), "reasoning": streamed.reasoning, "answer": streamed.answer}
         cancelled = isinstance(error, TurnCancelled)
         ending = "cancelled" if cancelled else "failed"
-        self._reporter.record(session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields)
+        prompt = running.prompt.text
+        self._reporter.record(
+            session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields, prompt=prompt
+        )
         self._windows.send(session_id, error_entry(str(error)))
         if not cancelled:  # its Prompt is in no Conversation, so the user may send it again
-            self._windows.send(session_id, InputRestore(text=running.prompt.text))
+            # The Session's queued Prompts leave with it: without it in the Conversation they
+            # would run out of the order they were written in (#16).
+            behind = self._drop_queued(session_id, FAILED_BEFORE)
+            if behind:
+                self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
+            typed = [queued.text for queued in behind if queued.kind == "prompt"]
+            self._give_back(session_id, [prompt, *typed])
+
+    def _drop_queued(self, session_id: SessionId, reason: str) -> list[Prompt]:
+        """Take a Session's queued Prompts out of the queue, as ``prompts_dropped`` in its Log."""
+        self._measures.pop(session_id, None)
+        self._since.pop(session_id, None)
+        self._compactions.drop(session_id)
+        dropped = self._prompts.drop(session_id)
+        if dropped:
+            shown = dropped_entry(len(dropped), reason).text
+            texts: list[JsonValue] = [prompt.text for prompt in dropped]
+            kinds: list[JsonValue] = [prompt.kind for prompt in dropped]
+            self._reporter.record(
+                session_id, "prompts_dropped", shown, reason=reason, texts=texts, kinds=kinds
+            )
+        return dropped
+
+    def _give_back(self, session_id: SessionId, texts: list[str]) -> None:
+        """Texts back to the Window's input, the first one shown first; with its Window closed
+        they come back when it opens (``returned_prompts``)."""
+        if not self._windows.is_open(session_id):
+            return
+        for text in reversed(texts):  # each one shown pushes the one before it back
+            self._windows.send(session_id, InputRestore(text=text))
+        self._reporter.log_session(session_id, "prompt_returned", texts=list[JsonValue](texts))
 
     def _save_turn(self, running: _RunningTurn, steps: list[Step]) -> int:
         """Save the finished Turn and return its index in the Conversation."""

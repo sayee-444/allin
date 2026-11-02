@@ -4,13 +4,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from allin.core.drafts import put_back
 from allin.core.errors import AllInError
 from allin.core.ids import ServerKey, SessionId
 from allin.ipc.messages import ChatDelta, Close, ContextUsage, InputRestore, PoolShared
-from allin.main.chat_rebuild import error_entry, rebuild_chat
+from allin.main.chat_rebuild import error_entry, rebuild_chat, returned_prompts
 from allin.main.conversation import Conversation, Step
 from allin.main.executors import SHUTTING_DOWN
 from allin.main.links import LinkResolver
@@ -89,6 +89,21 @@ class OpenWindows:
         # Last block first: each one shown pushes the one before it back to wait.
         for block in reversed(self._drafts.get(session.id, [])):
             self.send(session.id, InputRestore(text=block))
+        self._give_back_failed(session)
+
+    def _give_back_failed(self, session: Session) -> None:
+        """What a Turn that failed while the Window was closed left out of every input goes
+        back to it, ahead of the Draft (#15)."""
+        try:
+            texts = returned_prompts(self._sessions.read_log(session))
+        except AllInError:
+            return  # its Log is unreadable: _send_chat told it already
+        if not texts:
+            return
+        for text in reversed(texts):
+            self.put_back(session.id, text)
+        fields: list[JsonValue] = list(texts)
+        self._reporter.log_session(session.id, "prompt_returned", texts=fields)
 
     def is_open(self, session_id: SessionId) -> bool:
         return session_id in self._links
