@@ -16,7 +16,6 @@ from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_n
 from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
-from allin.main.border_marks import MainMarks
 from allin.main.boxes import MainBoxes
 from allin.main.commands import MainCommands
 from allin.main.devastation import Devastation
@@ -68,6 +67,7 @@ from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
+from allin.ui.marks import BorderMarks
 from allin.ui.screen import KeyBindings, ScreenUpdate
 from allin.ui.shortcuts import effective_keys
 
@@ -137,7 +137,7 @@ class Dispatcher:
         self._windows.use_themes(self._themes)
         self._windows.watch_asking(self._boxes.asking)
         self._windows.set_maximum(settings.current.windows.max)
-        self._marks = MainMarks(main_screen)
+        self._marks = BorderMarks(main_screen)
         self._confinement = confinement
         self._devastation = Devastation(
             devastation, self._marks, self._windows, sessions, self._boxes, self._reporter, main_id

@@ -58,7 +58,6 @@ class Unconfined(BaseModel, frozen=True):
     type: Literal["unconfined"] = "unconfined"
     call: str
     errno: int
-    reason: str
 
 
 type ToMain = Returned | Raised | Died | Unconfined

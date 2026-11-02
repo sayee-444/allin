@@ -6,7 +6,7 @@ How code in AllIn is written: read before implementing and when reviewing (`code
 
 Every value has a type that says what it means in the domain, and data from outside the program becomes a typed value at the **boundary**.
 
-- **Boundaries parse.** Data that crosses a boundary (files on disk, IPC lines, HTTP replies, Settings) is parsed into a pydantic `BaseModel` where it enters, and only the model travels inward: _parse, don't validate_. `slots.parse_props` is the pattern: a private model for the part of `/props` Main reads, one `model_validate`, `None` on `ValidationError`.
+- **Boundaries parse.** Data that crosses a boundary (files on disk, IPC lines, HTTP replies, Settings) is parsed into a pydantic `BaseModel` where it enters, and only the model travels inward: _parse, don't validate_. `slots.parse_props` is the pattern: a private model for the part of `/props` Main reads, one `model_validate`, `None` on `ValidationError`. The one exception is the Vigilante (`confinement/warden.py`): importing pydantic would cost some 35 ms of every tool call, so it reads Main's call with `json` and narrows it with `isinstance` into a private dataclass. Main still parses with pydantic everything that comes back from the tool.
 - **Pick the container by where the value lives:**
   - pydantic `BaseModel`, `frozen=True`: anything serialized (Conversation, Logs, state, IPC messages).
   - `@dataclass(frozen=True)`: values that stay in the process (Main's events, `ServerProps`, `Prompt`).

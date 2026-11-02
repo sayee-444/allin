@@ -4,13 +4,15 @@ The processes are started by one long-lived thread, the one that will also start
 adheridos: ``PR_SET_PDEATHSIG`` fires when the thread that started a process ends (ADR-0012).
 Each process is born clean (#99): ``subprocess`` with a ``socketpair`` as its only channel, a
 new session, ``/dev/null`` as input, its output kept as data, a clean environment and
-``python -I``, so nothing is imported from its current folder.
+``python -I``, so nothing is imported from its current folder. It is the Vigilante (``warden``),
+which takes the call down; Main kills what is left of its process group after every call.
 """
 
 import contextlib
 import os
 import queue
 import secrets
+import select
 import shutil
 import signal
 import socket
@@ -36,10 +38,11 @@ from allin.confinement.messages import (
     parse_to_main,
 )
 from allin.confinement.reach import installation, minimum_reach
-from allin.core.errors import ConfinementFailed, ToolDied, ToolTimedOut
+from allin.core.errors import ConfinementFailed, ToolDied, ToolNotStarted, ToolTimedOut
 
 _OUTPUT_KEPT = 64 * 1024  # of stdout and of stderr, each; the rest is read and dropped
 _ANSWER_MAX = 16 * 1024 * 1024
+_STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
 
 
@@ -64,19 +67,32 @@ class ToolOutcome:
     stderr: str
 
 
-type _Launch = tuple[list[str], dict[str, str], Path, int, Future[subprocess.Popen[bytes]]]
+@dataclass(frozen=True)
+class _Launch:
+    """What the launcher thread needs to start one call's process, and where to hand it."""
+
+    argv: list[str]
+    env: dict[str, str]
+    workspace: Path
+    channel_fd: int
+    started: Future[subprocess.Popen[bytes]]
 
 
 class ToolLauncher:
+    """The Lanzador de tools: Main's long-lived thread that starts every call's process."""
+
     def __init__(self, data_dir: Path, grace: float = 2.0) -> None:
-        """``grace`` is how long a cancelled call's warden has to take it down before Main
-        kills its process group itself."""
+        """``grace`` is how long a call's warden has to take it down before Main kills its
+        process group itself."""
         self._data_dir = data_dir
         self._grace = grace
         self._requests: queue.Queue[_Launch | None] = queue.Queue()
         self._thread = threading.Thread(target=self._serve, name="tool-launcher", daemon=True)
 
     def start(self) -> None:
+        # Calls that a crashed Main left behind: no process of theirs is alive any more.
+        for left in (self._data_dir / "tmp").glob("call-*"):
+            shutil.rmtree(left, ignore_errors=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -86,7 +102,8 @@ class ToolLauncher:
     def run(self, call: ToolCall, timeout: float) -> ToolOutcome:
         """Run ``call`` in its own confined process and wait for its answer. Raises
         ``ToolTimedOut`` after ``timeout`` seconds, ``ToolDied`` if it ended without one and
-        ``ConfinementFailed`` if it could not confine itself."""
+        ``ConfinementFailed`` if it could not confine itself and ``ToolNotStarted`` if it could
+        not be started."""
         tmp = self._data_dir / "tmp" / f"call-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
         main_end, tool_end = socket.socketpair()
@@ -97,9 +114,9 @@ class ToolLauncher:
             main_end.sendall(encode(self._message(call, tmp)))
             try:
                 line = _read_line(main_end, time.monotonic() + timeout)
-            except TimeoutError:
+            except TimeoutError as error:
                 self._cancel(main_end, process)
-                raise ToolTimedOut(seconds=timeout) from None
+                raise ToolTimedOut(seconds=timeout) from error
             self._end(process)
             return _outcome(line, out.text(), err.text())
         finally:
@@ -132,34 +149,40 @@ class ToolLauncher:
             sys.executable,
             "-I",
             "-m",
-            "allin.confinement.boot",
+            "allin.confinement.warden",
             str(os.getpid()),
             str(channel.fileno()),
         ]
         env = {"PATH": _PATH, "LANG": "C.UTF-8", "TMPDIR": str(tmp), "HOME": str(workspace)}
         started: Future[subprocess.Popen[bytes]] = Future()
-        self._requests.put((argv, env, workspace, channel.fileno(), started))
+        if not self._thread.is_alive():
+            raise ToolNotStarted(cause="stopped")
+        self._requests.put(_Launch(argv, env, workspace, channel.fileno(), started))
         return started.result()
 
     def _serve(self) -> None:
         while (request := self._requests.get()) is not None:
-            argv, env, workspace, channel_fd, started = request
             try:
-                started.set_result(
+                request.started.set_result(
                     subprocess.Popen(
-                        argv,
+                        request.argv,
                         stdin=subprocess.DEVNULL,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        env=env,
-                        cwd=workspace,
+                        env=request.env,
+                        cwd=request.workspace,
                         start_new_session=True,
                         close_fds=True,
-                        pass_fds=(channel_fd,),
+                        pass_fds=(request.channel_fd,),
                     )
                 )
-            except OSError as error:
-                started.set_exception(error)
+            # This thread must outlive any call it fails to start: the error goes to that call,
+            # which raises it.
+            except Exception as error:  # noqa: BLE001 - see above
+                request.started.set_exception(ToolNotStarted(cause=type(error).__name__))
+        while not self._requests.empty():  # asked for while stopping: they will never start
+            if (late := self._requests.get_nowait()) is not None:
+                late.started.set_exception(ToolNotStarted(cause="stopped"))
 
     def _cancel(self, main_end: socket.socket, process: subprocess.Popen[bytes]) -> None:
         """Ask the warden to take the call down; kill its group if it does not in time."""
@@ -168,11 +191,18 @@ class ToolLauncher:
         self._end(process)
 
     def _end(self, process: subprocess.Popen[bytes]) -> None:
+        """Give the warden ``grace`` to end, then kill what is left of its process group: all of
+        it if the warden did not answer, and without scoped signals (ABI < 6), the descendants
+        it could not reach. The group is killed before the warden is reaped, so its id cannot
+        have been reused."""
+        pidfd = os.pidfd_open(process.pid)
         try:
-            process.wait(self._grace)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)  # the last resort: reaches only its group
-            process.wait()
+            select.select([pidfd], [], [], self._grace)  # readable once the warden has ended
+        finally:
+            os.close(pidfd)
+        with contextlib.suppress(ProcessLookupError):  # nothing of the call was left
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
 
 
 def _read_line(channel: socket.socket, deadline: float) -> bytes:
@@ -192,16 +222,16 @@ def _read_line(channel: socket.socket, deadline: float) -> bytes:
 
 def _outcome(line: bytes, stdout: str, stderr: str) -> ToolOutcome:
     if not line:
-        raise ToolDied(exit_code=None, stderr=stderr[-2000:])
+        raise ToolDied(exit_code=None, stderr=stderr[-_STDERR_TOLD:])
     match parse_to_main(line):
         case Returned(value=value):
             return ToolOutcome(value=value, error=None, stdout=stdout, stderr=stderr)
         case Raised(error=error):
             return ToolOutcome(value=None, error=error, stdout=stdout, stderr=stderr)
         case Died(exit_code=code):
-            raise ToolDied(exit_code=code, stderr=stderr[-2000:])
-        case Unconfined(call=call, errno=errno, reason=reason):
-            raise ConfinementFailed(call=call, errno=errno, reason=reason)
+            raise ToolDied(exit_code=code, stderr=stderr[-_STDERR_TOLD:])
+        case Unconfined(call=call, errno=errno):
+            raise ConfinementFailed(call=call, errno=errno)
 
 
 class _Capture:

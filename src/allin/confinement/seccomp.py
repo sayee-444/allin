@@ -8,10 +8,9 @@ the call numbers below are x86_64's.
 """
 
 import ctypes
-import os
 import struct
 
-from allin.core.errors import ConfinementFailed
+from allin.confinement.landlock import checked
 
 _libc = ctypes.CDLL(None, use_errno=True)
 _libc.syscall.restype = ctypes.c_long
@@ -93,6 +92,7 @@ def apply_filter() -> None:
     code = program()
     buffer = ctypes.create_string_buffer(code, len(code))
     prog = _SockFprog(len(code) // 8, ctypes.cast(buffer, ctypes.c_void_p))
-    if _libc.syscall(_SYS_SECCOMP, _SET_MODE_FILTER, _FILTER_FLAG_TSYNC, ctypes.byref(prog)) < 0:
-        errno = ctypes.get_errno()
-        raise ConfinementFailed(call="seccomp", errno=errno, reason=os.strerror(errno))
+    checked(
+        _libc.syscall(_SYS_SECCOMP, _SET_MODE_FILTER, _FILTER_FLAG_TSYNC, ctypes.byref(prog)),
+        "seccomp",
+    )

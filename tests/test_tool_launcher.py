@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import textwrap
@@ -13,7 +14,7 @@ import pytest
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolCall, ToolLauncher
-from allin.core.errors import ToolTimedOut
+from allin.core.errors import ToolNotStarted, ToolTimedOut
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
 
@@ -109,6 +110,39 @@ def shout():
 
 def fail():
     raise ValueError("bad input")
+
+
+def filtered():
+    import ctypes, errno, fcntl, termios
+    out = {}
+    try:
+        socket.socket(socket.AF_UNIX).close()
+        out["unix socket"] = "created"
+    except OSError as error:
+        out["unix socket"] = errno.errorcode[error.errno]
+    pair = socket.socketpair()
+    out["socketpair"] = "created"
+    for end in pair:
+        end.close()
+    libc = ctypes.CDLL(None, use_errno=True)
+    params = ctypes.create_string_buffer(120)
+    created = libc.syscall(425, 1, params)  # io_uring_setup
+    out["io_uring"] = "created" if created >= 0 else errno.errorcode[ctypes.get_errno()]
+    for name, request in (("TIOCSTI", termios.TIOCSTI), ("TIOCLINUX", 0x541C)):
+        try:
+            fcntl.ioctl(0, request, b"x")  # on /dev/null: ENOTTY if the filter let it through
+            out[name] = "done"
+        except OSError as error:
+            out[name] = errno.errorcode[error.errno]
+    return out
+
+
+def stop_warden_and_hang(title):
+    # A child in the call's own process group, then the warden frozen: it cannot answer.
+    subprocess.Popen(["sleep", title], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    os.kill(os.getppid(), 19)  # SIGSTOP
+    while True:
+        pass
 """
 
 
@@ -182,9 +216,10 @@ def test_it_cannot_read_or_write_outside_the_minimum_reach_nor_open_the_network(
         call(package, workspace, "write", path=str(data_dir / "sessions" / "x")), timeout=20
     )
     assert wrote.value == "PermissionError"
-    assert launcher.run(call(package, workspace, "connect", port=9931), timeout=20).value == (
-        "PermissionError"
-    )
+    with socket.create_server(("127.0.0.1", 0)) as listening:
+        port = listening.getsockname()[1]
+        connected = launcher.run(call(package, workspace, "connect", port=port), timeout=20)
+    assert connected.value == "PermissionError"
     mine = launcher.run(call(package, workspace, "write", path=str(workspace / "x")), timeout=20)
     assert mine.value == "written"
 
@@ -285,3 +320,52 @@ def test_killing_main_kills_the_tools_process_and_its_descendants(
     while alive(title) and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not alive(title)
+
+
+def test_the_filter_refuses_unix_sockets_io_uring_and_typing_into_a_terminal(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    refused = launcher.run(call(package, workspace, "filtered"), timeout=20).value
+    assert refused == {
+        "unix socket": "EPERM",
+        "socketpair": "created",  # what multiprocessing needs
+        "io_uring": "EPERM",
+        "TIOCSTI": "EPERM",
+        "TIOCLINUX": "EPERM",
+    }
+
+
+def test_main_kills_the_calls_process_group_when_its_warden_does_not_answer(
+    package: Path, workspace: Path, data_dir: Path
+):
+    launcher = ToolLauncher(data_dir, grace=0.5)
+    launcher.start()
+    title = unique_title()
+    try:
+        with pytest.raises(ToolTimedOut):
+            launcher.run(call(package, workspace, "stop_warden_and_hang", title=title), timeout=1)
+    finally:
+        launcher.stop()
+    time.sleep(0.2)
+    assert not alive(title)
+
+
+def test_a_call_after_the_launcher_stopped_fails_instead_of_waiting_forever(
+    package: Path, workspace: Path, data_dir: Path
+):
+    launcher = ToolLauncher(data_dir)
+    launcher.start()
+    launcher.stop()
+    with pytest.raises(ToolNotStarted) as raised:
+        launcher.run(call(package, workspace, "echo", text="late"), timeout=5)
+    assert raised.value.fields == {"cause": "stopped"}
+
+
+def test_starting_clears_the_tmpdirs_a_crashed_main_left_behind(data_dir: Path):
+    left = data_dir / "tmp" / "call-0123456789abcdef"
+    left.mkdir(parents=True)
+    (left / "half-written").write_text("x")
+    launcher = ToolLauncher(data_dir)
+    launcher.start()
+    launcher.stop()
+    assert not left.exists()

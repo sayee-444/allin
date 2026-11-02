@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from allin.confinement.landlock import NETWORK_ABI, SCOPES_ABI, abi_version
+from allin.ui.marks import UnconfinedArea
 
 
 @dataclass(frozen=True)
@@ -10,9 +11,9 @@ class ConfinementSupport:
     abi: int  # the kernel's Landlock ABI; 0 without Landlock
 
     @property
-    def missing(self) -> tuple[str, ...]:
+    def missing(self) -> tuple[UnconfinedArea, ...]:
         """What tools run without on this kernel, as the Notice and the marks name it."""
-        missing: list[str] = []
+        missing: list[UnconfinedArea] = []
         if self.abi < 1:
             missing.append("files")
         if self.abi < NETWORK_ABI:

@@ -8,6 +8,7 @@ from allin.core.errors import MalformedMessage
 from allin.core.ids import BoxId
 from allin.core.themes import Theme
 from allin.ui.boxes import BoxKind
+from allin.ui.marks import UnconfinedArea
 
 # Window -> Main
 
@@ -154,7 +155,7 @@ class ConfinementGap(BaseModel):
     for as long as it lives, beside the --devastation mark."""
 
     type: Literal["confinement_gap"] = "confinement_gap"
-    missing: list[str]
+    missing: list[UnconfinedArea]
 
 
 class BoxHide(BaseModel):

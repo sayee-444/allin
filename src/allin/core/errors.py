@@ -424,7 +424,7 @@ class ThemeNotFound(AllInError):
 
 class ConfinementFailed(AllInError):
     """A tool's process could not confine itself: ``call`` is the system call the kernel
-    refused, with its ``errno`` and ``reason``. Nothing of the function ran (ADR-0016)."""
+    refused, with its ``errno``. Nothing of the function ran (ADR-0016)."""
 
     code: ClassVar[str] = "confinement_failed"
 
@@ -440,3 +440,10 @@ class ToolDied(AllInError):
     signal) and the end of its ``stderr``."""
 
     code: ClassVar[str] = "tool_died"
+
+
+class ToolNotStarted(AllInError):
+    """A Function tool's process could not be started: ``cause`` is the type of the error that
+    starting it raised, or ``stopped`` when Main's tool launcher had already stopped."""
+
+    code: ClassVar[str] = "tool_not_started"

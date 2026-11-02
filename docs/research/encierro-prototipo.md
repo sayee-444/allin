@@ -2,7 +2,7 @@
 
 Investigación de #99. Medida el 2026-11-02 en esta máquina: kernel 7.0.0-38-generic (x86_64), Landlock ABI 8, Python 3.14.4 del sistema con el venv del repo, `dev.tty.legacy_tiocsti = 0`. Decisiones relacionadas: ADR-0016 (encierro), ADR-0005 (un proceso por llamada), ADR-0012 (Procesos adheridos).
 
-El prototipo es desechable y no entra en `src/`: está en `prototypes/encierro/`, fuera de ruff y basedpyright, y se borra cuando #100 tenga el lanzador definitivo. Cada script se corre con `venv/bin/python -I prototypes/encierro/<script>` y dice al principio qué mide. Todas las cifras de este informe salen de una sola ejecución, cuya salida completa está en la rama `evidence`, en `issues/99/` (`test.log`, `probe.json` y `cost.json`).
+El prototipo era desechable y no entró en `src/`: estuvo en `prototypes/encierro/`, fuera de ruff y basedpyright, y se borró con #100, que trae el lanzador definitivo (`src/allin/confinement/`). Sigue en el historial: `git show 3ac8218:prototypes/encierro/<script>`. Cada script se corría con `venv/bin/python -I prototypes/encierro/<script>` y decía al principio qué mide. Todas las cifras de este informe salen de una sola ejecución, cuya salida completa está en la rama `evidence`, en `issues/99/` (`test.log`, `probe.json` y `cost.json`).
 
 | Script | Qué responde |
 |---|---|

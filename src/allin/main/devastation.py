@@ -10,11 +10,11 @@ from allin.core.errors import AllInError
 from allin.core.ids import MainId, SessionId
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import Coverage
-from allin.main.border_marks import MainMarks
 from allin.main.boxes import MainBoxes
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
+from allin.ui.marks import BorderMarks
 
 _NOTICE_TITLE = "--devastation on"
 
@@ -23,7 +23,7 @@ class Devastation:
     def __init__(
         self,
         on: bool,
-        marks: MainMarks,
+        marks: BorderMarks,
         windows: OpenWindows,
         sessions: SessionStore,
         boxes: MainBoxes,

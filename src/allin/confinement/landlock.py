@@ -130,7 +130,7 @@ def restrict_self(read: tuple[Path, ...], write: tuple[Path, ...]) -> Restricted
         _NET_BIND_TCP | _NET_CONNECT_TCP if abi >= NETWORK_ABI else 0,
         _SCOPE_ABSTRACT_UNIX_SOCKET | _SCOPE_SIGNAL if abi >= SCOPES_ABI else 0,
     )
-    ruleset = _check(
+    ruleset = checked(
         _libc.syscall(_CREATE_RULESET, ctypes.byref(attr), ctypes.sizeof(attr), 0),
         "landlock_create_ruleset",
     )
@@ -140,7 +140,7 @@ def restrict_self(read: tuple[Path, ...], write: tuple[Path, ...]) -> Restricted
         for path in write:
             _allow(ruleset, path, (_READ | _WRITE) & handled_fs)
         flags = _RESTRICT_SELF_TSYNC if abi >= 8 else 0
-        _check(_libc.syscall(_RESTRICT_SELF, ruleset, flags), "landlock_restrict_self")
+        checked(_libc.syscall(_RESTRICT_SELF, ruleset, flags), "landlock_restrict_self")
     finally:
         os.close(ruleset)
     return Restricted(abi=abi, signals_scoped=abi >= SCOPES_ABI)
@@ -155,7 +155,7 @@ def _allow(ruleset: int, path: Path, access: int) -> None:
         if not path.is_dir():
             access &= ~_DIRECTORY_ONLY
         attr = _PathBeneathAttr(access, fd)
-        _check(
+        checked(
             _libc.syscall(_ADD_RULE, ruleset, _RULE_PATH_BENEATH, ctypes.byref(attr), 0),
             "landlock_add_rule",
         )
@@ -164,11 +164,11 @@ def _allow(ruleset: int, path: Path, access: int) -> None:
 
 
 def _no_new_privs() -> None:
-    _check(_libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), "PR_SET_NO_NEW_PRIVS")
+    checked(_libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), "PR_SET_NO_NEW_PRIVS")
 
 
-def _check(result: int, call: str) -> int:
+def checked(result: int, call: str) -> int:
+    """``result`` of the system call ``call``, or ``ConfinementFailed`` with its errno."""
     if result < 0:
-        errno = ctypes.get_errno()
-        raise ConfinementFailed(call=call, errno=errno, reason=os.strerror(errno))
+        raise ConfinementFailed(call=call, errno=ctypes.get_errno())
     return result

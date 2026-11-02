@@ -294,6 +294,14 @@ _Avoid_: permiso, sandbox (como nombre del concepto), capacidades
 Lo que el kernel impone al proceso de una Function tool o de un Proceso adherido según su Alcance: Landlock para archivos y TCP, y un filtro seccomp para lo que Landlock no ve (sockets unix, UDP sin red, io_uring, meter teclas en una terminal). El proceso se lo pone a sí mismo antes de importar su function, y no hereda de Main ni su terminal, ni su entorno, ni sus rutas de importación. Nada lo salta, ni `--devastation` (ADR-0016).
 _Avoid_: sandbox, jaula
 
+**Lanzador de tools** (`ToolLauncher`):
+El thread de larga vida de Main que lanza el proceso de cada llamada a una Function tool, y lanzará también los Procesos adheridos: la señal que mata a esos procesos cuando muere Main está atada al thread que los lanzó. Cada proceso nace con `subprocess` y un `socketpair` como único canal (ADR-0005). No es el Lanzador, que abre Ventanas.
+_Avoid_: worker, pool
+
+**Vigilante** (`warden`):
+El primer proceso de una llamada a una Function tool. Se encierra, crea el proceso que importa y corre la function y, cuando esta contesta, cuando Main cancela o cuando Main muere, mata a todos los procesos de la llamada con `kill(-1)`, que el scope de señales de Landlock limita a ese Encierro (ADR-0005).
+_Avoid_: supervisor (es otra cosa), padre
+
 **Confirmación** (`Confirmation`):
 Pregunta s/n que Main hace al usuario humano antes de una acción marcada como delicada (una Function tool con el decorador `@confirm`, o un comando), en un recuadro superpuesto en la Ventana de la Sesión y en el Chat de Main; si la rechaza, el LLM recibe el rechazo como salida de la tool. Mientras espera, el Turno queda pausado sin ocupar slot y conserva su lugar: al responderse sigue como Continuación, antes que los Prompts nuevos de su Main. `-y` la salta para esa invocación, solo con Origen humano. `--devastation`, que un humano enciende en un Main y dura ese arranque, contesta sin preguntar las de ese Main y las que le suben por la Exención, si cubre todo lo que la acción toca. Ningún Ajuste la apaga por sí solo. Crear o modificar una pieza desde una Sesión siempre la pide, y además deja la pieza en cuarentena.
 _Avoid_: aprobación (es otra puerta), permiso
