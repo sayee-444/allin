@@ -1,0 +1,30 @@
+#22 Cursor en el input e historial de Prompts — prueba a mano (2026-11-01)
+Código: rama feature/22-cursor-e-historial. Servidor: el IQ3_XXS de 9931. Main con datos en <scratch>/d22, Sesión j2752x.
+Las teclas se mandan a la xterm como eventos de X (Left, Right, Up, Down, Home, End, Delete, Ctrl+BackSpace).
+
+1. Corregir a mitad de texto (a-cursor-en-medio.png, b-corregido.png)
+   Se escribe «Di el color: el cielo es verde y la hierba azul» y ← ×20 deja el cursor en «ve|rde».
+   → ×3, Ctrl+Backspace y «azul»: «… el cielo es azul y la hierba azul», lo de después intacto.
+   Fin, Ctrl+Backspace y «verde»; Inicio, Supr y «D»; ← al principio. Queda «Di el color: el cielo es azul y la hierba verde».
+   Enter: el Log apunta prompt {'text': 'Di el color: el cielo es azul y la hierba verde'}.
+2. Historial y Borrador (c-flecha-arriba.png, d-dos-arriba.png, e-borrador-intacto.png)
+   Segundo Prompt «Y el mar? Responde en una palabra @temperature=0.3». Luego se escribe «borrador a medias».
+   ↑ → «Y el mar? Responde en una palabra @temperature=0.3» (tal como se tecleó, con la directiva).
+   ↑ → «Di el color: …». ↓ ↓ → «borrador a medias», intacto.
+3. Historial al reabrir (f-reabierta-arriba.png, g-reabierta-abajo.png)
+   Se cierra la xterm de la Ventana y /open j2752x en Main. El Chat se reconstruye y el Borrador vuelve.
+   ↑ → «Y el mar? … @temperature=0.3», que sale del Log: el evento prompt guarda ahora `typed` cuando las directivas
+   cambiaron el texto: {'text': 'Y el mar? Responde en una palabra', 'overrides': {'temperature': 0.3},
+   'typed': 'Y el mar? Responde en una palabra @temperature=0.3'}. ↓ → «borrador a medias».
+4. Redimensionar (h-antes-de-redimensionar.png, i-redimensionada.png, j-arriba-tras-redimensionar.png)
+   Texto largo de tres filas con el cursor en «|MARCA». La ventana pasa de 180 a ~85 columnas: el texto se re-envuelve
+   en cinco filas y el cursor sigue en «|MARCA». ↑ sube a la fila de arriba en la misma columna.
+5. El input a su altura máxima (k-input-al-maximo-fin.png, l-input-al-maximo-arriba.png)
+   A ~50 columnas el texto ocupa más filas que el input: con Fin se ve el final; con ↑ ×7 el scroll sube con el cursor
+   hasta la primera fila. Pasada la primera fila, ↑ trae el historial; ↓ ↓ devuelve el texto largo.
+6. Main (m-main-arriba.png): ↑ en el input de Main trae lo último tecleado («/open j2752x»). Su historial vive
+   mientras Main corre: Main no tiene Log de Prompts.
+
+Tests: tests/test_ui_input_buffer.py (cursor, borrar en el cursor, filas visuales, historial y Borrador),
+tests/test_ui_keys.py (las teclas nuevas), tests/test_ui_viewport.py (Viewport.show) y tests/test_prompt_history.py
+(el historial del Log y la Ventana reabierta). Al final: /exit en Main.
