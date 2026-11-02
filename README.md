@@ -79,9 +79,9 @@ All of these derive from the concept of a **function tool**: a function the LLM 
 |---|---|:---:|
 | **fsource** | A function tool that runs a command of Main: the way the LLM acts on AllIn itself. | ❌ |
 | **fagent** | A function tool written by you or by the LLM. It runs no commands of Main. | ✅ |
-| **fscreen** | A class whose methods become tools that control a live **attached process**, which you can also operate directly. | ✅ |
+| **fproc** | A class whose methods become tools that control a live **attached process**, which you can also operate directly. | ✅ |
 
-An **fscreen** is the most powerful of the three. A Session with the right methods can drive a running process, for example a client that talks to an API, without writing new code into AllIn. Adding fscreens at run time can grow complex structures of Profiles, work and behaviour: a Profile is a set of Mains, their Sessions and their rules, such as which third-party tools they may use. Without a Sysprompt that guides the implementation, the results are often unexpected.
+An **fproc** is the most powerful of the three. A Session with the right methods can drive a running process, for example a client that talks to an API, without writing new code into AllIn. Adding fprocs at run time can grow complex structures of Profiles, work and behaviour: a Profile is a set of Mains, their Sessions and their rules, such as which third-party tools they may use. Without a Sysprompt that guides the implementation, the results are often unexpected.
 
 ---
 

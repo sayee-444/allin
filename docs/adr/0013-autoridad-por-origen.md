@@ -47,3 +47,5 @@ Con un nombre así, lo que importa es lo que `--devastation` no puede hacer:
 En F3, `/tree` dibuja el árbol de Mains: ese Main y todos sus submains hacia abajo, con los que tienen `--devastation` marcados. `/tree --exempt` dibuja el de Exención: solo lo que le sube a ese Main, en cadena, y quién termina contestando. Sin nombre empiezan en el Main donde se escriben, y desde un submain, en él. El Organizador de todo el árbol lleva las mismas marcas.
 
 Se descartó que `--devastation` fuera un Ajuste de Main copiado por cada Sesión, porque los Ajustes viajan y un Molde de un Kit dejaría de preguntar sin que nadie lo decidiera. Se descartó también que la Exención le diera `--devastation` al exento, porque cada rama lo tendría por su cuenta y apagar el de arriba no la frenaría, y que nada naciera con Exención, porque `--devastation` dejaría de valer para las Sesiones de su propio Main.
+
+**Enmienda (2026-11-02, ADR-0026).** Lo que dice un Externo entra con el Origen del Proceso adherido que lo trae, y su identidad solo se anota. Un humano puede poner la Exención a un Subperfil, pero solo cubre las acciones que no tocan nada fuera de él. La fproc sigue sin tenerla.
