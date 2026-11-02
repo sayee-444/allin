@@ -1,0 +1,36 @@
+#58 Rewind de una Sesión — prueba a mano (2026-11-01)
+Código: rama feature/58-rewind. Main con datos limpios en <scratch>/d58 (solo los Ajustes: base_url del Server
+IQ3_XXS de 9931). Sesión mz45ma, creada con /new.
+
+1. Se mandan «Responde solo: UNO», «… DOS» y «… TRES» desde la Ventana (a-antes.png).
+2. /rewind mz45ma → «rewound 1 prompt(s)». La Conversación queda en [UNO, DOS]; la Ventana rehace su Chat sin
+   TRES, el borde cuenta el contexto recortado (141) y «Responde solo: TRES» vuelve al input (b-rewind-uno.png).
+3. Con el input vacío, se manda «Escribe un poema de cuarenta versos sobre el mar» y, con su Turno en marcha,
+   /rewind mz45ma → «error turn_active: session_id='mz45ma', advice='interrupt it with Shift+Enter in its
+   Window, or wait for it to end'». La Conversación no cambia: al acabar el Turno es [UNO, DOS, poema]
+   (c-turno-activo-negado.png, en el Chat de Main).
+4. /session set mz45ma compact.keep=0.01 y /session compact mz45ma: «compacted: Prompts 1–3 summarized»
+   (d-compactada.png). conversation.json: summarized=3, un resumen y ningún Turno literal; compacted/1.json
+   guarda los tres.
+5. /rewind mz45ma 2, a antes del corte → «rewound 2 prompt(s)». conversation.json: summarized=0, summary=None,
+   turns=[UNO], tomado del archivo. La Ventana muestra solo UNO, sin la línea del corte ni el resumen; en el
+   input, «Responde solo: DOS» y, esperando detrás, el poema (e-rewind-antes-del-corte.png, «+1 waiting»).
+6. /rewind mz45ma 5 → «rewound 1 prompt(s): only 1 to undo, back at the start of the session».
+   Conversación vacía, el Sysprompt intacto. El input: UNO delante y DOS y el poema esperando, en orden
+   (f-rewind-al-inicio.png, «+2 waiting»). El Chat de Main con todo el recorrido: g-main.png.
+7. El Log de la Sesión guarda cada Rewind:
+   {"event": "rewound", "turn": 2, "asked": 1, "texts": ["Responde solo: TRES"], "origins": ["human"]}
+   {"event": "rewound", "turn": 1, "asked": 2, "texts": ["Responde solo: DOS", "Escribe un poema …"], …}
+   {"event": "rewound", "turn": 0, "asked": 5, "texts": ["Responde solo: UNO"], "origins": ["human"]}
+8. /exit y Main otra vez: la Ventana reabierta se reconstruye vacía desde el Log, con los tres bloques en el
+   input (h-reiniciado.png). Al final: /exit en Main.
+
+Un Prompt de otro Origen: en F1 no hay un camino a mano para que una Sesión mande uno. Lo cubre
+test_a_prompt_of_another_origin_is_undone_but_its_text_stays_in_the_log: se deshace igual, su texto no
+vuelve al input y queda en el Log (texts y origins del evento rewound).
+
+Tests: tests/test_rewind.py (14): el recorte de la Conversación sola (los últimos n, más de los que hay, a
+antes de una Compactación con el archivo y sin resumen, después del corte con el resumen) y, con el
+MainHarness: el último Prompt y su texto al input; n=3 y n mayor; n=0; un n malo; otro Origen; antes y
+después de una Compactación; con un Turno activo; con la Ventana cerrada; el número del Turno siguiente; y
+la Ventana que vacía su Chat. 1020 tests; basedpyright y ruff limpios.
