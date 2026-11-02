@@ -25,4 +25,5 @@ también como alias; alias que siguen a una Sesión renombrada dos veces), /new 
 Ventana abierta (se cierra, se abre con el id nuevo y su Borrador, la carpeta se mueve con su Log, el
 MainState guardado la nombra con el id nuevo), /send al id viejo, el reinicio, solo un humano, con un
 Turno activo, ids malos o tomados, las listas de todos los Perfiles y el Log al que llega algo tardío.
-1041 tests; basedpyright y ruff limpios.
+Tras la revisión de código, dos más: un renombrado que falla a medias deja la Sesión como estaba, y el
+MainState del Perfil activo se deja a Main. 1043 tests; basedpyright y ruff limpios.
