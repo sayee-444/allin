@@ -19,6 +19,9 @@ _ARCHIVE = "compacted"  # what each Compaction replaced, numbered from 1
 
 type Item = dict[str, Any]  # a Responses API input/output item, as JSON
 
+# What heads a tool's output when it failed instead of giving a value: the LLM reads it (#106).
+TOOL_ERROR = "error: "
+
 
 class Step(BaseModel, frozen=True):
     """One ``responses.create`` call: the items it produced, its token usage and llama.cpp's
@@ -39,6 +42,26 @@ class Step(BaseModel, frozen=True):
     def calls(self) -> list[Item]:
         """The tools it called, as ``function_call`` items, in order."""
         return [item for item in self.output if item.get("type") == "function_call"]
+
+    @property
+    def generated(self) -> int:
+        """The tokens it generated, as its usage says; 0 without usage."""
+        tokens: object = (self.usage or {}).get("output_tokens")
+        return tokens if isinstance(tokens, int) else 0
+
+    def failures(self) -> list[tuple[str, str]]:
+        """Each tool it called that gave back an error instead of a value, with that error."""
+        names = {_text(call, "call_id"): _text(call, "name") for call in self.calls}
+        return [
+            (names.get(_text(result, "call_id"), "?"), _text(result, "output"))
+            for result in self.results
+            if _text(result, "output").startswith(TOOL_ERROR)
+        ]
+
+
+def _text(item: Item, key: str) -> str:
+    value: object = item.get(key)
+    return value if isinstance(value, str) else ""
 
 
 class Attachment(BaseModel, frozen=True):

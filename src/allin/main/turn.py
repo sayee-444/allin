@@ -37,11 +37,13 @@ class LlmStream(Protocol):
 
 
 class Tools(Protocol):
-    """How a Turn offers tools and runs the ones a Step called (``tool_steps.ToolGate``)."""
+    """How a Turn offers tools and runs the ones a Step called (``tool_steps.ToolGate``).
+
+    A Protocol, not ``ToolGate`` itself, because ``tool_steps`` imports this module."""
 
     @property
     def schemas(self) -> list[Item]: ...
-    def run(self, calls: list[Item]) -> list[Item]: ...
+    def run(self, step: Step) -> list[Item]: ...
 
 
 class Llm(Protocol):
@@ -176,7 +178,7 @@ def run_turn(
     while True:
         step = _run_step(llm, step_request, on_output, cancellation, on_raw)
         if step.calls:
-            results = tools.run(step.calls) if tools is not None else []
+            results = tools.run(step) if tools is not None else []
             step = step.model_copy(update={"results": results})
         on_step(step)
         steps.append(step)

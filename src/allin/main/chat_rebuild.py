@@ -127,14 +127,16 @@ def _prompt(text: str, settings: SessionSettings) -> ChatAppend:
 
 def _turn_output(turn: Turn, settings: SessionSettings) -> list[ChatAppend]:
     chat: list[ChatAppend] = []
-    for item in (item for step in turn.steps for item in step.output):
-        match item.get("type"):
-            case "reasoning":
-                chat += _output(_text(item, "reasoning_text"), "", settings)
-            case "message":
-                chat += _output("", _text(item, "output_text"), settings)
-            case _:
-                pass
+    for step in turn.steps:
+        for item in step.output:
+            match item.get("type"):
+                case "reasoning":
+                    chat += _output(_text(item, "reasoning_text"), "", settings)
+                case "message":
+                    chat += _output("", _text(item, "output_text"), settings)
+                case _:
+                    pass
+        chat += _tool_entries(step)
     if (tokens := tokens_entry(turn.steps)) is not None:
         chat.append(tokens)
     if turn.cut is not None:
@@ -167,6 +169,28 @@ def dropped_entry(count: int, reason: str) -> ChatAppend:
     return ChatAppend(
         role="info", label="dropped", text=f"{count} queued prompt(s) dropped: {reason}"
     )
+
+
+def tools_entry(names: Sequence[str]) -> ChatAppend:
+    """The tools a Step called, shown while they run (#106)."""
+    return ChatAppend(role="info", label="tools", text=f"tools called: {', '.join(names)}")
+
+
+def tool_failed_entry(name: str, error: str) -> ChatAppend:
+    """A tool that failed, timed out or was taken down: the LLM reads ``error`` too."""
+    return ChatAppend(role="info", label="tools", text=f"{name} failed: {error}")
+
+
+def _tool_entries(step: Step) -> list[ChatAppend]:
+    if not step.calls:
+        return []
+    shown = [tools_entry([_field(call, "name") for call in step.calls])]
+    return shown + [tool_failed_entry(name, error) for name, error in step.failures()]
+
+
+def _field(item: Item, key: str) -> str:
+    value: object = item.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def cut_entry(reason: CutReason) -> ChatAppend:

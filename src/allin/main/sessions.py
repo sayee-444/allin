@@ -23,7 +23,7 @@ from allin.core.errors import (
     WorkspaceRefused,
 )
 from allin.core.files import write_atomically
-from allin.core.ids import MainId, SessionId, new_session_id, parse_session_id
+from allin.core.ids import MainId, PieceId, SessionId, new_session_id, parse_session_id
 from allin.core.settings import SessionSettings
 from allin.core.themes import pick_border_color
 from allin.main.conversation import (
@@ -60,7 +60,7 @@ class Session(BaseModel, frozen=True):
     border_color: str | None = None
     # Its Function tools, as pieces (``function:<package>``, ``agent:<package>``): what its
     # LLM may get in ``tools=[...]``, once each is approved (#106).
-    functions: tuple[str, ...] = ()
+    functions: tuple[PieceId, ...] = ()
 
 
 class SessionStore:
@@ -114,7 +114,7 @@ class SessionStore:
         settings: SessionSettings,
         sysprompt: str,
         chosen: str | None = None,
-        functions: tuple[str, ...] = (),
+        functions: tuple[PieceId, ...] = (),
     ) -> Session:
         """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
         ``sysprompt`` is already rendered."""
@@ -241,7 +241,7 @@ class SessionStore:
         """The Session with new Settings, already on disk."""
         return self._save(session.model_copy(update={"settings": settings}))
 
-    def save_functions(self, session: Session, functions: tuple[str, ...]) -> Session:
+    def save_functions(self, session: Session, functions: tuple[PieceId, ...]) -> Session:
         """The Session with other Function tools, already on disk."""
         return self._save(session.model_copy(update={"functions": functions}))
 

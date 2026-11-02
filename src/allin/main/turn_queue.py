@@ -50,6 +50,8 @@ from allin.main.chat_rebuild import (
     dropped_entry,
     error_entry,
     tokens_entry,
+    tool_failed_entry,
+    tools_entry,
 )
 from allin.main.compaction import wants_compaction
 from allin.main.compactions import Compactions
@@ -180,6 +182,9 @@ class _Measure:
     ticket: int
     done: bool = False
     tokens: int | None = None  # ``None`` once done: the Server could not measure it
+    # What its tools' schemas take of each Step's input at most, a character each: ``/tokenize``
+    # does not read them (#106).
+    schemas: int = 0
 
 
 @dataclass
@@ -444,6 +449,7 @@ class TurnQueue:
         if running is None:
             return
         running.streamed.steps.append(step)
+        self._falls.pop(session_id, None)  # a fall from now on leaves another Step half-done
         running.step_from = (len(running.streamed.reasoning), len(running.streamed.answer))
         running.cut = cut_reason(step, running.output_cap, running.slot_context)
         if _compacting(running):  # the Session's Context is not what its summary Step read
@@ -594,21 +600,28 @@ class TurnQueue:
         if running is None or running.cancellation.reason is not None:
             return
         self._release(running)
-        shown = f"tools called: {', '.join(names)}"
-        self._reporter.record(session_id, "tools_called", shown, tools=list[JsonValue](names))
-        self._windows.send(session_id, ChatAppend(role="info", label="tools", text=shown))
+        entry = tools_entry(names)
+        self._reporter.record(session_id, "tools_called", entry.text, tools=list[JsonValue](names))
+        self._windows.send(session_id, entry)
         self._start_turns()
 
-    def tools_ended(self, session_id: SessionId, size: int) -> None:
-        """Its tools gave back ``size`` characters: its next Step needs that much more of the
-        pool at most, a token being at least a character, and waits as a Continuation."""
+    def tools_ended(
+        self, session_id: SessionId, grows: int, failed: tuple[tuple[str, str], ...]
+    ) -> None:
+        """Its tools gave back what they said: its next Step needs ``grows`` more of the pool
+        at most, and waits for a slot as a Continuation. A tool that failed is shown, and its
+        LLM reads why."""
         running = self._running.get(session_id)
         if running is None or running.cancellation.reason is not None:
             return
-        running.need += size
+        running.need += grows
         running.resume = running.job.tools.resume
         running.ready_at = self._wall()
-        self._reporter.log_session(session_id, "tools_returned", size=size)
+        self._reporter.log_session(session_id, "tools_returned", grows=grows)
+        for name, error in failed:
+            entry = tool_failed_entry(name, error)
+            self._reporter.record(session_id, "tool_failed", entry.text, tool=name, error=error)
+            self._windows.send(session_id, entry)
         self._start_turns()
 
     def server_changed(self, server: ServerKey, state: ServerState) -> None:
@@ -855,12 +868,15 @@ class TurnQueue:
         if measure is None or measure.prompt != prompt or measure.server != link.key:
             items = self._input(prompt, session, link)
             ticket = next(self._tickets)
-            self._measures[session.id] = _Measure(prompt, link.key, ticket)
+            tools = self._tools_for(session)
+            schemas = len(json.dumps(tools.schemas)) if tools is not None else 0
+            self._measures[session.id] = _Measure(prompt, link.key, ticket, schemas=schemas)
             self._servers.measure(link.key, session.id, ticket, items)
             return None
         if not measure.done:
             return None
-        return (measure.tokens or 0) + output_cap(_sampling(prompt, session), slot_context)
+        tokens = (measure.tokens or 0) + measure.schemas
+        return tokens + output_cap(_sampling(prompt, session), slot_context)
 
     def _input(self, prompt: Prompt, session: Session, link: Link) -> list[Item]:
         """The first Step's ``input`` for the Prompt: the Conversation and the Prompt, with
@@ -1052,8 +1068,6 @@ class TurnQueue:
             },
         )
         tools = None if compacting else self._tools_for(session)
-        if tools is not None and tools.schemas:  # what they take of the input, at most
-            need += len(json.dumps(tools.schemas))
         request = replace(request, done=list(prompt.steps))
         job = TurnJob(session.id, request, link.base_url, tools=ToolGate(tools))
         auto_confirm = self._devastation.covers(session.settings)

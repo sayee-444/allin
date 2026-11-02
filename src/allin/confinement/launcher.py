@@ -219,9 +219,9 @@ class ToolLauncher:
             except TimeoutError as error:
                 self._cancel(main_end, process)
                 raise ToolTimedOut(seconds=timeout) from error
-            except _Stopped as error:
+            except ToolCancelled:
                 self._cancel(main_end, process)
-                raise ToolCancelled from error
+                raise
             self._end(process)
             return _outcome(line, out.text(), err.text())
         finally:
@@ -345,17 +345,13 @@ def _refuse_compiled(package: Path) -> None:
         raise PackageNotSource(package=str(package), files=list[JsonValue](files))
 
 
-class _Stopped(Exception):
-    pass
-
-
 def _read_line(channel: socket.socket, deadline: float, stop: Callable[[], bool]) -> bytes:
     """One line from the warden, or what came before it closed; TimeoutError at the deadline,
-    ``_Stopped`` once ``stop`` says so."""
+    ``ToolCancelled`` once ``stop`` says so."""
     data = b""
     while b"\n" not in data:
         if stop():
-            raise _Stopped
+            raise ToolCancelled
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError

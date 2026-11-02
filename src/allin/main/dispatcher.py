@@ -420,8 +420,8 @@ class Dispatcher:
                 self._turns.confirmation_requested(session_id, title, text)
             case ToolsStarted(session_id, names):
                 self._turns.tools_started(session_id, names)
-            case ToolsEnded(session_id, size):
-                self._turns.tools_ended(session_id, size)
+            case ToolsEnded(session_id, grows, failed):
+                self._turns.tools_ended(session_id, grows, failed)
             case BoxAnswered(box_id, answer):
                 self._boxes.answered(box_id, answer)
             case MainCommandEntered(text, origin):

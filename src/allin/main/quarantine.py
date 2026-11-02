@@ -28,6 +28,7 @@ from allin.core.errors import (
 )
 from allin.core.files import write_atomically
 from allin.core.hashing import content_hash, folder_hash
+from allin.core.ids import PieceId
 from allin.core.sources import binary_files, compiled_files
 from allin.decorators import Reach
 from allin.main.descriptions import Description, Descriptions
@@ -55,8 +56,8 @@ class PieceRef:
     name: str
 
     @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.name}"
+    def id(self) -> PieceId:
+        return PieceId(f"{self.kind}:{self.name}")
 
     @property
     def is_code(self) -> bool:

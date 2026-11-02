@@ -15,13 +15,13 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from allin.confinement.launcher import ToolCall, ToolLauncher
 from allin.core.errors import AllInError, ToolCancelled
-from allin.core.ids import SessionId
+from allin.core.ids import PieceId, SessionId
 from allin.decorators import Reach
-from allin.main.conversation import Item
+from allin.main.conversation import TOOL_ERROR, Item, Step
 from allin.main.events import MainEvent, ToolsEnded, ToolsStarted
 from allin.main.quarantine import OfferedFunction
 from allin.main.turn import Cancellation
@@ -43,7 +43,7 @@ class SessionTool:
 
 
 def session_tools(
-    offered: Iterable[OfferedFunction], functions: Iterable[str]
+    offered: Iterable[OfferedFunction], functions: Iterable[PieceId]
 ) -> list[SessionTool]:
     """The tools of the approved pieces among a Session's ``functions``. A tool its Approval
     marked to ask a Confirmation is left out until ``@confirm`` asks it (#107); so is one
@@ -75,7 +75,7 @@ class SessionTools:
     def __init__(
         self,
         tools: list[SessionTool],
-        launcher: ToolLauncher | None,
+        launcher: ToolLauncher,
         workspace: Path,
         timeout: float,
     ) -> None:
@@ -93,22 +93,21 @@ class SessionTools:
         """What a ``function_call`` gave back, as its ``function_call_output``: its value as
         JSON, or ``error …`` with why it failed, which the LLM reads as data. Raises
         ``ToolCancelled`` if ``stop`` took it down."""
-        output = self._output(call, stop)
-        return {"type": "function_call_output", "call_id": call.get("call_id"), "output": output}
+        return _call_output(call, self._output(call, stop))
 
     def _output(self, call: Item, stop: Callable[[], bool]) -> str:
-        name = call.get("name")
+        name: object = call.get("name")
         tool = self._tools.get(name) if isinstance(name, str) else None
-        if tool is None or self._launcher is None:
-            return f"error: there is no tool named {name!r}"
+        if tool is None:
+            return _no_tool(name)
         try:
             arguments = _arguments(call.get("arguments"))
-        except ValueError:  # pydantic's ValidationError is one
-            return "error: its arguments are not a JSON object"
+        except ValidationError:
+            return f"{TOOL_ERROR}its arguments are not a JSON object"
         try:
             self._workspace.mkdir(parents=True, exist_ok=True)  # made when first needed
         except OSError as error:
-            return f"error: its Carpeta de trabajo cannot be made: {error}"
+            return f"{TOOL_ERROR}its Carpeta de trabajo cannot be made: {error}"
         try:
             outcome = self._launcher.run(
                 ToolCall(
@@ -120,17 +119,27 @@ class SessionTools:
         except ToolCancelled:
             raise
         except AllInError as error:  # timed out, died, could not be confined or started
-            return f"error {error}"
+            return f"{TOOL_ERROR}{error}"
         if outcome.error is not None:
-            return f"error: {outcome.error}"
+            return f"{TOOL_ERROR}{outcome.error}"
         return json.dumps(outcome.value, ensure_ascii=False)
 
 
 _ARGUMENTS = TypeAdapter(dict[str, JsonValue])
 
 
+def _call_output(call: Item, output: str) -> Item:
+    call_id: object = call.get("call_id")
+    return {"type": "function_call_output", "call_id": call_id, "output": output}
+
+
+def _no_tool(name: object) -> str:
+    return f"{TOOL_ERROR}there is no tool named {name!r}"
+
+
 def _arguments(text: object) -> dict[str, JsonValue]:
-    """The LLM's arguments for a call; raises ``ValueError`` if they are not a JSON object."""
+    """The LLM's arguments for a call; raises ``ValidationError`` if they are not a JSON
+    object."""
     if not isinstance(text, str) or not text.strip():
         return {}
     return _ARGUMENTS.validate_json(text)
@@ -160,27 +169,29 @@ class ToolGate:
         """The Turn it belongs to and where its events go; its executor connects it."""
         self._turn = _Turn(session_id, cancellation, emit)
 
-    def run(self, calls: list[Item]) -> list[Item]:
-        """From the Turn's thread: run ``calls`` in order and give back their outputs once the
-        Turn holds a slot again. Raises ``TurnCancelled`` if the Turn is cancelled meanwhile,
-        which also takes down the call that runs."""
+    def run(self, step: Step) -> list[Item]:
+        """From the Turn's thread: run the calls ``step`` made, in order, and give back their
+        outputs once the Turn holds a slot again. Raises ``TurnCancelled`` if the Turn is
+        cancelled meanwhile, which also takes down the call that runs."""
         assert self._turn is not None, "run() before the executor connected the gate"
         turn = self._turn
-        names = tuple(str(call.get("name")) for call in calls)
+        calls = step.calls
+        names = tuple(_name(call) for call in calls)
         turn.emit(ToolsStarted(turn.session_id, names))
         results: list[Item] = []
         for call in calls:
             turn.cancellation.check()
-            if self._tools is None:
-                results.append(SessionTools([], None, Path(), 0).run(call, lambda: False))
+            if self._tools is None:  # a Turn without tools: the LLM called one it does not have
+                results.append(_call_output(call, _no_tool(_name(call))))
                 continue
             try:
                 results.append(self._tools.run(call, lambda: turn.cancellation.reason is not None))
             except ToolCancelled:
                 turn.cancellation.check()
                 raise
-        size = sum(len(str(result["output"])) for result in results)
-        turn.emit(ToolsEnded(turn.session_id, size))
+        done = step.model_copy(update={"results": results})
+        grows = step.generated + sum(len(_output_text(result)) for result in results)
+        turn.emit(ToolsEnded(turn.session_id, grows, tuple(done.failures())))
         while True:
             turn.cancellation.check()
             try:
@@ -192,3 +203,13 @@ class ToolGate:
     def resume(self) -> None:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
+
+
+def _name(call: Item) -> str:
+    name: object = call.get("name")
+    return str(name)
+
+
+def _output_text(result: Item) -> str:
+    output: object = result.get("output")
+    return str(output)

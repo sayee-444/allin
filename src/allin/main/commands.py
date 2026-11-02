@@ -60,6 +60,7 @@ _ID_OPTION = "--id="  # /new --id=<id> (#59)
 _BG_OPTION = "--bg"  # /new and /open in the background (#52)
 _NO_SOURCES = "-sf=off"  # /new without the Profile's fsources (#106)
 _AGENTS_OPTION = "-fa="  # /new with these fagents (#106)
+_AGENTS_USAGE = f"{_AGENTS_OPTION}<packages>"
 CLOSED = "closed with /close"
 
 # Whether a command, by its arguments, is delicate or only a human's.
@@ -140,9 +141,9 @@ class MainCommands:
                     "--id=<id>": "its id, 4 to 12 characters of a-z and 0-9; else a random one",
                     _BG_OPTION: "open it in the background, without its Window",
                     _NO_SOURCES: "without the Profile's fsources",
-                    "-fa=<packages>": "the fagents it gets, by package, comma separated",
+                    _AGENTS_USAGE: "the fagents it gets, by package, comma separated",
                 },
-                optional=("--id=<id>", _BG_OPTION, _NO_SOURCES, "-fa=<packages>"),
+                optional=("--id=<id>", _BG_OPTION, _NO_SOURCES, _AGENTS_USAGE),
                 takes_origin=True,
             ),
             "/open": CommandSpec(

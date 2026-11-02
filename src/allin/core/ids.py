@@ -14,6 +14,8 @@ _SESSION_ID = re.compile(
 MainId = NewType("MainId", str)
 # A Session's id, also its folder's name: made only by ``new_session_id`` and ``parse_session_id``.
 SessionId = NewType("SessionId", str)
+# A piece of a Profile, as ``<kind>:<name>`` (``function:clock``): made by ``PieceRef.id``.
+PieceId = NewType("PieceId", str)
 ROOT_MAIN_ID = MainId("root")  # the Main started from the command line; submains get their own
 
 
