@@ -13,6 +13,7 @@ from allin.core.errors import AllInError, TurnCrashed
 from allin.core.ids import SessionId
 from allin.main.confirmation import ConfirmationGate
 from allin.main.events import MainEvent, StepEnded, TurnEnded, TurnOutput, TurnRaw
+from allin.main.tool_steps import ToolGate
 from allin.main.turn import Cancellation, Llm, TurnRequest, run_turn
 
 SHUTTING_DOWN = "main is shutting down"
@@ -27,11 +28,14 @@ class TurnJob:
     cancellation: Cancellation = field(default_factory=Cancellation)
     # How the Turn asks for a Confirmation; the dispatcher resumes it through this.
     confirmation: ConfirmationGate = field(default_factory=ConfirmationGate)
+    # How it runs the tools its Steps call; the dispatcher resumes it once it has a slot.
+    tools: ToolGate = field(default_factory=ToolGate)
 
 
 def execute(llm: Llm, job: TurnJob, emit: Callable[[MainEvent], None]) -> None:
     """Run one Turn, reporting its output and its end through ``emit``."""
     job.confirmation.connect(job.session_id, job.cancellation, emit)
+    job.tools.connect(job.session_id, job.cancellation, emit)
     try:
         steps = run_turn(
             llm,
@@ -40,6 +44,7 @@ def execute(llm: Llm, job: TurnJob, emit: Callable[[MainEvent], None]) -> None:
             job.cancellation,
             lambda event: emit(TurnRaw(job.session_id, event)),
             lambda step: emit(StepEnded(job.session_id, step)),
+            job.tools,
         )
     except AllInError as error:
         emit(TurnEnded(job.session_id, error=error))

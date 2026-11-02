@@ -1,14 +1,14 @@
 """Running a Turn: its Steps against the LLM, streaming what it says as it arrives.
 
-In F1 a Turn has a single Step; with tools (F2) a Step that ends with pending tool calls is
-followed by another one.
+A Step that ends calling tools is followed by another one, which reads what they gave back;
+the Turn ends with the first Step that calls none (#106).
 """
 
 import socket
 import threading
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol, cast
 
 import httpx2
@@ -34,6 +34,14 @@ type OutputKind = Literal["reasoning", "answer"]
 class LlmStream(Protocol):
     def __iter__(self) -> Iterator[ResponseStreamEvent]: ...
     def close(self) -> None: ...
+
+
+class Tools(Protocol):
+    """How a Turn offers tools and runs the ones a Step called (``tool_steps.ToolGate``)."""
+
+    @property
+    def schemas(self) -> list[Item]: ...
+    def run(self, calls: list[Item]) -> list[Item]: ...
 
 
 class Llm(Protocol):
@@ -138,6 +146,9 @@ class TurnRequest:
     model: str
     input: list[Item]  # the flattened Conversation plus the Prompt
     params: dict[str, Any]  # sampling parameters to send; unset ones are left out
+    # The Steps it had ended before a fall suspended it, already in ``input``: it goes on from
+    # there, and the tools they called are not run again (ADR-0023).
+    done: list[Step] = field(default_factory=list[Step])
 
 
 def run_turn(
@@ -147,18 +158,31 @@ def run_turn(
     cancellation: Cancellation,
     on_raw: Callable[[dict[str, Any]], None],
     on_step: Callable[[Step], None],
+    tools: Tools | None = None,
 ) -> list[Step]:
-    """Run the Turn's Steps; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early.
+    """Run the Turn's Steps, all of them with ``tools``' schemas, and the tools each one calls
+    before the next; raise ``LlmRequestFailed`` or ``TurnCancelled`` if it stops early.
 
     ``LlmUnavailable``, a kind of ``LlmRequestFailed``, means the server could not be reached
     or is still loading its model.
 
     ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams and
-    ``on_step`` each Step as soon as it ends.
+    ``on_step`` each Step as soon as it ends, with what its tools gave back.
     """
-    step = _run_step(llm, request, on_output, cancellation, on_raw)
-    on_step(step)
-    return [step]
+    steps = list(request.done)
+    schemas = tools.schemas if tools is not None else []
+    params = {**request.params, "tools": schemas} if schemas else request.params
+    step_request = replace(request, params=params)
+    while True:
+        step = _run_step(llm, step_request, on_output, cancellation, on_raw)
+        if step.calls:
+            results = tools.run(step.calls) if tools is not None else []
+            step = step.model_copy(update={"results": results})
+        on_step(step)
+        steps.append(step)
+        if not step.calls or tools is None:
+            return steps
+        step_request = replace(step_request, input=[*step_request.input, *step.items])
 
 
 def _run_step(

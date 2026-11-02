@@ -22,11 +22,23 @@ type Item = dict[str, Any]  # a Responses API input/output item, as JSON
 
 class Step(BaseModel, frozen=True):
     """One ``responses.create`` call: the items it produced, its token usage and llama.cpp's
-    ``timings`` for it (prompt and generation counts and speeds)."""
+    ``timings`` for it (prompt and generation counts and speeds), and what the tools it called
+    gave back, as ``function_call_output`` items: data for the next Step (ADR-0005)."""
 
     output: list[Item]
     usage: dict[str, Any] | None = None
     timings: dict[str, Any] | None = None
+    results: list[Item] = []
+
+    @property
+    def items(self) -> list[Item]:
+        """What the next Step reads of it: what it produced, then its tools' outputs."""
+        return [*self.output, *self.results]
+
+    @property
+    def calls(self) -> list[Item]:
+        """The tools it called, as ``function_call`` items, in order."""
+        return [item for item in self.output if item.get("type") == "function_call"]
 
 
 class Attachment(BaseModel, frozen=True):
@@ -115,7 +127,7 @@ def turn_items(turn: Turn, reader: AttachmentParts | None = None) -> list[Item]:
     """A Turn as ``input`` items: its Prompt, then what each of its Steps produced."""
     text = with_notifications(turn.prompt, turn.notifications)
     prompt = user_item(text, turn.attachments, reader)
-    return [prompt, *(item for step in turn.steps for item in step.output)]
+    return [prompt, *(item for step in turn.steps for item in step.items)]
 
 
 def with_notifications(prompt: str, notifications: Sequence[str]) -> str:

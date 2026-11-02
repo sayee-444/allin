@@ -77,7 +77,7 @@ class PieceCommands:
         lines = [f"{ref.id} · {_about(piece)} · hash {piece.hash[:12]}"]
         if piece.rejected:
             lines.append(f"rejected, not source a person can read: {', '.join(piece.rejected)}")
-        if ref.kind == "function" and not piece.rejected:
+        if ref.is_code and not piece.rejected:
             for module, described in quarantine.describe(piece).items():
                 lines += _reach_screen(module, described)
         lines += _code_screen(piece)

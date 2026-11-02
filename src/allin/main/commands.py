@@ -24,6 +24,10 @@ from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
+from allin.main.func_commands import USAGE as FUNC_USAGE
+from allin.main.func_commands import FuncCommands
+from allin.main.func_commands import only_human as func_only_human
+from allin.main.func_commands import session_of as func_session_of
 from allin.main.key_commands import USAGE as KEY_USAGE
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import USAGE as KIT_USAGE
@@ -54,6 +58,8 @@ from allin.ui.organizer_view import windows_list
 
 _ID_OPTION = "--id="  # /new --id=<id> (#59)
 _BG_OPTION = "--bg"  # /new and /open in the background (#52)
+_NO_SOURCES = "-sf=off"  # /new without the Profile's fsources (#106)
+_AGENTS_OPTION = "-fa="  # /new with these fagents (#106)
 CLOSED = "closed with /close"
 
 # Whether a command, by its arguments, is delicate or only a human's.
@@ -109,7 +115,9 @@ class MainCommands:
         kits: KitCommands,
         keys: KeyCommands,
         pieces: PieceCommands,
+        functions: FuncCommands,
     ) -> None:
+        self._functions = functions
         self._boxes = boxes
         self._devastation = devastation
         self._reporter = reporter
@@ -131,8 +139,10 @@ class MainCommands:
                 args={
                     "--id=<id>": "its id, 4 to 12 characters of a-z and 0-9; else a random one",
                     _BG_OPTION: "open it in the background, without its Window",
+                    _NO_SOURCES: "without the Profile's fsources",
+                    "-fa=<packages>": "the fagents it gets, by package, comma separated",
                 },
-                optional=("--id=<id>", _BG_OPTION),
+                optional=("--id=<id>", _BG_OPTION, _NO_SOURCES, "-fa=<packages>"),
                 takes_origin=True,
             ),
             "/open": CommandSpec(
@@ -254,6 +264,17 @@ class MainCommands:
                 rest=True,
                 optional=("action…",),
                 human_only=True,
+            ),
+            # Only a human widens what a Session's LLM may call (ADR-0013).
+            "/func": CommandSpec(
+                (),
+                functions.run,
+                "list the Function tools of the Profile or of a Session, or give or take them",
+                usage_text=FUNC_USAGE,
+                rest=True,
+                optional=("action…",),
+                human_only=func_only_human,
+                session_of=func_session_of,
             ),
             # Only a human approves, on purpose: never delicate, so neither -y nor
             # --devastation answers for it (ADR-0013).
@@ -409,17 +430,22 @@ class MainCommands:
             self._reporter.log_session(SessionId(sender), event, **fields)
 
     def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
-        chosen, background = None, False
+        chosen, background, sources, agents = None, False, True, list[str]()
         for option in options:
             if option == _BG_OPTION and not background:
                 background = True
             elif option.startswith(_ID_OPTION) and chosen is None:
                 chosen = option.removeprefix(_ID_OPTION)
+            elif option == _NO_SOURCES and sources:
+                sources = False
+            elif option.startswith(_AGENTS_OPTION) and not agents:
+                agents = [a for a in option.removeprefix(_AGENTS_OPTION).split(",") if a]
             else:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
         settings = self._settings.current.session  # copied: later changes never reach it
         sysprompt = render_sysprompt(self._sysprompts, settings)
-        session = self._sessions.create(self._main_id, settings, sysprompt, chosen)
+        functions = self._functions.born_with(sources, agents)
+        session = self._sessions.create(self._main_id, settings, sysprompt, chosen, functions)
         self._reporter.record(session.id, "session_created", "session created", owner=self._main_id)
         self._profiles.created(session.id)
         self._place(session, background, origin)

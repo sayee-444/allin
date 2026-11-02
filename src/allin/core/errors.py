@@ -435,6 +435,13 @@ class ToolTimedOut(AllInError):
     code: ClassVar[str] = "tool_timed_out"
 
 
+class ToolCancelled(AllInError):
+    """A Function tool was taken down with its descendants before it answered, because its
+    Turn was cancelled."""
+
+    code: ClassVar[str] = "tool_cancelled"
+
+
 class ToolDied(AllInError):
     """A Function tool's process ended without giving its result: ``exit_code`` (negative for a
     signal) and the end of its ``stderr``."""

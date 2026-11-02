@@ -1,4 +1,6 @@
+import contextlib
 import queue
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -190,10 +192,16 @@ class DrainingInbox(queue.Queue[MainEvent]):
     def __init__(self, later: list[MainEvent | Between]) -> None:
         super().__init__()
         self._later = later
+        self.workers: list[threading.Thread] = []  # Turns run in threads of their own
 
     def get(self, block: bool = True, timeout: float | None = None) -> MainEvent:
         if not block:  # only Main stopping asks this way, to take what is left
             return super().get(block=False)
+        # With Turns in threads, the next event comes once the inbox is empty, maybe while a
+        # Turn still runs; and Shutdown only once they all ended.
+        while not self._later and any(worker.is_alive() for worker in self.workers):
+            with contextlib.suppress(queue.Empty):
+                return super().get(timeout=0.05)
         try:
             return super().get(block=False)
         except queue.Empty:
@@ -247,6 +255,9 @@ class MainHarness:
         # Whether another Main could have taken a slot lock as each Turn was submitted.
         self.slot_free_at_submit: list[bool] = []
         self.hold_turns = False
+        # Turns run each in a thread, as Main runs them: needed by a Turn that waits for Main,
+        # such as one whose tools run (#106).
+        self.threaded_turns = False
         self.now = 0.0  # Main's clock, as the test moves it
         self.main_screen: list[ScreenUpdate] = []  # boxes and marks of Main's Chat, in order
         self.devastation = False  # lit on the command line
@@ -302,6 +313,10 @@ class MainHarness:
             if self.hold_turns:
                 job.confirmation.connect(job.session_id, job.cancellation, inbox.put)
                 self.held.append(job)
+            elif self.threaded_turns:
+                worker = threading.Thread(target=execute, args=(self.llm, job, inbox.put))
+                inbox.workers.append(worker)
+                worker.start()
             else:
                 execute(self.llm, job, inbox.put)
 

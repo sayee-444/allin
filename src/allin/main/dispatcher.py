@@ -42,6 +42,8 @@ from allin.main.events import (
     SupervisorAdopted,
     ThemesChanged,
     Tick,
+    ToolsEnded,
+    ToolsStarted,
     TurnEnded,
     TurnOutput,
     TurnRaw,
@@ -49,6 +51,7 @@ from allin.main.events import (
     WindowConnected,
     WindowUsed,
 )
+from allin.main.func_commands import FuncCommands
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import KitCommands
 from allin.main.kits import Kits
@@ -65,11 +68,12 @@ from allin.main.quarantine import Quarantine
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
-from allin.main.sessions import SessionStore
+from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
+from allin.main.tool_steps import SessionTools, session_tools
 from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
 from allin.ui.marks import BorderMarks
 from allin.ui.screen import KeyBindings, ScreenUpdate
@@ -165,6 +169,7 @@ class Dispatcher:
             settings.current.admission.patience,
             clock,
             wall_clock,
+            tools_for=lambda session: self._session_tools(session, sessions, describer),
         )
         self._recovery = Recovery(
             self._reporter,
@@ -217,9 +222,8 @@ class Dispatcher:
         settings_commands.check_theme = self._themes.book.check
         settings_commands.windows_max_changed = self._windows.set_maximum
         settings_commands.looks_changed = self._looks_changed
-        self._pieces = PieceCommands(
-            self._reporter, lambda: Quarantine(self._switch.active.folder, descriptions)
-        )
+        self._quarantine = lambda: Quarantine(self._switch.active.folder, descriptions)
+        self._pieces = PieceCommands(self._reporter, self._quarantine)
         self._commands = MainCommands(
             self._reporter,
             self._windows,
@@ -245,6 +249,12 @@ class Dispatcher:
                 self._reporter, settings_commands, sessions, main_id, self._windows, main_screen
             ),
             self._pieces,
+            FuncCommands(
+                self._reporter,
+                sessions,
+                lambda sid: sessions.load_owned(sid, main_id),
+                self._quarantine,
+            ),
         )
         self._rows = RowSource(
             sessions,
@@ -273,6 +283,17 @@ class Dispatcher:
     def commands(self) -> MainCommands:
         """The Command mains, as registered: what /help is built from."""
         return self._commands
+
+    def _session_tools(
+        self, session: Session, sessions: SessionStore, launcher: ToolLauncher | None
+    ) -> SessionTools | None:
+        """The tools a Session's Turn offers its LLM, as its list and the Approvals are now
+        (#106); none without a started launcher to run them."""
+        if launcher is None:
+            return None
+        tools = session_tools(self._quarantine().offered(), session.functions)
+        workspace = sessions.workspace(session.id)
+        return SessionTools(tools, launcher, workspace, session.settings.tools.timeout)
 
     def run(self) -> None:
         """Handle events until a Shutdown event or the /exit command."""
@@ -397,6 +418,10 @@ class Dispatcher:
                 self._server_commands.adopted(name)
             case ConfirmationRequested(session_id, title, text):
                 self._turns.confirmation_requested(session_id, title, text)
+            case ToolsStarted(session_id, names):
+                self._turns.tools_started(session_id, names)
+            case ToolsEnded(session_id, size):
+                self._turns.tools_ended(session_id, size)
             case BoxAnswered(box_id, answer):
                 self._boxes.answered(box_id, answer)
             case MainCommandEntered(text, origin):

@@ -15,7 +15,9 @@ in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_fail
 Prompt back to the input, only for a human one).
 """
 
+import functools
 import itertools
+import json
 import os
 import time
 from collections.abc import Callable, Container
@@ -73,6 +75,7 @@ from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import ServerProps, capacity
 from allin.main.sysprompt import render_sysprompt
+from allin.main.tool_steps import SessionTools, ToolGate
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
 from allin.main.usage import context_tokens
 from allin.notices import NoticeEvent
@@ -205,8 +208,10 @@ class _RunningTurn:
     sent: bool = False  # whether its Step sent any stream event: until then it reads input
     streamed: Streamed = field(default_factory=Streamed)
     asking: BoxId | None = None  # the Confirmation it waits on, if any
-    answer: bool | None = None  # its answer, while it waits for a slot to go on
-    answered_at: float = 0.0  # wall clock: when it was answered, its place in the Wait list
+    # How it goes on once it holds a slot again, while it waits for one: a Confirmation was
+    # answered, or the tools its Step called gave back what they said (a Continuation).
+    resume: Callable[[], None] | None = None
+    ready_at: float = 0.0  # wall clock: since when it waits so, its place in the Wait list
 
     def release_slot(self) -> None:
         if self.slot is not None:
@@ -244,10 +249,12 @@ class TurnQueue:
         patience: float,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
+        tools_for: Callable[[Session], SessionTools | None] = lambda _: None,
     ) -> None:
         """``patience``: seconds a waiting Prompt may be overtaken (``admission.patience``);
         ``wall_clock`` places each waiter in a Wait list other Mains read too."""
         self._main_id = main_id
+        self._tools_for = tools_for  # each Turn's tools, as its Session has them when it starts
         self._pid = os.getpid()
         self._stall = stall
         self._patience = patience
@@ -580,6 +587,30 @@ class TurnQueue:
         running.asking = self._boxes.confirm(session_id, title, text, on_answer)
         self._start_turns()
 
+    def tools_started(self, session_id: SessionId, names: tuple[str, ...]) -> None:
+        """A running Turn's Step called tools: they run without its slot, so Prompts that wait
+        can use it (ADR-0004)."""
+        running = self._running.get(session_id)
+        if running is None or running.cancellation.reason is not None:
+            return
+        self._release(running)
+        shown = f"tools called: {', '.join(names)}"
+        self._reporter.record(session_id, "tools_called", shown, tools=list[JsonValue](names))
+        self._windows.send(session_id, ChatAppend(role="info", label="tools", text=shown))
+        self._start_turns()
+
+    def tools_ended(self, session_id: SessionId, size: int) -> None:
+        """Its tools gave back ``size`` characters: its next Step needs that much more of the
+        pool at most, a token being at least a character, and waits as a Continuation."""
+        running = self._running.get(session_id)
+        if running is None or running.cancellation.reason is not None:
+            return
+        running.need += size
+        running.resume = running.job.tools.resume
+        running.ready_at = self._wall()
+        self._reporter.log_session(session_id, "tools_returned", size=size)
+        self._start_turns()
+
     def server_changed(self, server: ServerKey, state: ServerState) -> None:
         """What a watched Server says of itself changed (ADR-0004, ADR-0022)."""
         if server in self._watched:
@@ -761,7 +792,7 @@ class TurnQueue:
             if not self._ready(running.link.key):
                 waiting[running.session.id] = self._server_waiting(running.link.key)
                 continue
-            since = running.answered_at
+            since = running.ready_at
             waiter = self._waiter(running.session.id, "continuation", since, running.need)
             candidates.append(_Candidate(waiter, running.link, running=running))
         for session_id in self._changes.keys() - self._falls.keys():
@@ -839,7 +870,8 @@ class TurnQueue:
         reader = AttachmentReader(self._sessions.workspace(session.id), vision)
         conversation = self._conversation(session)
         notifications = pending_notifications(conversation)
-        return conversation.request_input(prompt.text, prompt.attachments, reader, notifications)
+        items = conversation.request_input(prompt.text, prompt.attachments, reader, notifications)
+        return [*items, *(item for step in prompt.steps for item in step.items)]
 
     def _compacts_first(
         self, prompt: Prompt, session: Session, need: int, slot_context: int
@@ -1019,7 +1051,11 @@ class TurnQueue:
                 **prompt.overrides.extra_params(),
             },
         )
-        job = TurnJob(session.id, request, link.base_url)
+        tools = None if compacting else self._tools_for(session)
+        if tools is not None and tools.schemas:  # what they take of the input, at most
+            need += len(json.dumps(tools.schemas))
+        request = replace(request, done=list(prompt.steps))
+        job = TurnJob(session.id, request, link.base_url, tools=ToolGate(tools))
         auto_confirm = self._devastation.covers(session.settings)
         self._running[session.id] = _RunningTurn(
             prompt,
@@ -1038,6 +1074,7 @@ class TurnQueue:
             else None,
             notifications=[] if compacting else pending_notifications(conversation),
         )
+        self._running[session.id].streamed.steps.extend(prompt.steps)
         self._reserve(self._running[session.id])
         if compacting:
             shown = "summary step started"
@@ -1153,7 +1190,8 @@ class TurnQueue:
         fields = {"error": str(failure), "reasoning": streamed.reasoning, "answer": streamed.answer}
         self._reporter.record(session_id, "turn_suspended", shown, **fields)
         self._windows.send(session_id, ChatAppend(role="info", label="server", text=shown))
-        self._prompts.push_front(running.prompt)
+        # It goes on from the Steps it ended: their tools are not run again (ADR-0023).
+        self._prompts.push_front(replace(running.prompt, steps=tuple(streamed.steps)))
         return True
 
     def _stalled(self, running: _RunningTurn) -> None:
@@ -1286,7 +1324,7 @@ class TurnQueue:
             running
             for running in self._running.values()
             if running.slot is None
-            and running.answer is not None
+            and running.resume is not None
             and running.cancellation.reason is None
         ]
 
@@ -1329,16 +1367,17 @@ class TurnQueue:
 
     def _answered(self, running: _RunningTurn, answer: bool) -> None:
         running.asking = None
-        running.answer = answer
-        running.answered_at = self._wall()
+        running.resume = functools.partial(running.job.confirmation.resume, answer)
+        running.ready_at = self._wall()
         self._start_turns()
 
     def _resume_turn(self, running: _RunningTurn, slot: SlotLock) -> None:
-        answer, running.answer, running.slot = running.answer, None, slot
+        resume, running.resume, running.slot = running.resume, None, slot
         self._reserve(running)
         running.progress_at = self._clock()
-        assert answer is not None
-        running.job.confirmation.resume(answer)
+        running.sent = False  # a new Step reads its input first
+        assert resume is not None
+        resume()
 
     def _withdraw(self, running: _RunningTurn) -> None:
         """Its Confirmation is no longer valid: nobody answers it."""
