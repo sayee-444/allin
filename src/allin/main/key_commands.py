@@ -7,7 +7,7 @@ live outside the Settings registry, which is all a Kit carries.
 from collections.abc import Callable
 
 from allin.core.errors import AllInError, InvalidArguments
-from allin.core.ids import MainId
+from allin.core.ids import MainId, parse_session_id
 from allin.ipc.messages import KeyTable
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
@@ -79,14 +79,14 @@ class KeyCommands:
 
     def _target(self, words: list[str]) -> tuple[str | None, list[str]]:
         """Whose Atajos: Main's Chat (``None``), the template, or a Session named first. A first
-        word that names a key is the key: no Session id is a key's name. With two words, the
-        first can only be a key, so a bad one says why."""
+        word that names a key is the key: no Session id is a key's name. A first word that is
+        neither, or the first of only two, is a bad key, which says why."""
         if words[0] == _TEMPLATE:
             return _TEMPLATE, words[1:]
         try:
             parse_key(words[0])
         except AllInError:
-            if len(words) == 2:
+            if len(words) == 2 or parse_session_id(words[0]) is None:
                 raise
             return words[0], words[1:]
         return None, words

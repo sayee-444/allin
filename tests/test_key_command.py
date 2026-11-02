@@ -98,3 +98,8 @@ def test_new_sessions_inherit_the_templates_shortcuts(main: MainHarness):
 def test_a_key_the_window_cannot_tell_apart_says_why(main: MainHarness):
     main.run(MainCommandEntered("/key ctrl+up older"), settle=True)
     assert results(main)[-1].startswith("error key_name_invalid")
+
+
+def test_a_mistyped_key_before_a_command_with_arguments_says_why(main: MainHarness):
+    main.run(MainCommandEntered("/key ctlr+b /send abc123 hola"), settle=True)
+    assert results(main)[-1].startswith("error key_name_invalid")
