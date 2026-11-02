@@ -1,0 +1,55 @@
+# #52 Segundo plano y Máximo de Ventanas — evidencia de pruebas (2026-11-01)
+
+## Suite completa, basedpyright y ruff
+1137 passed in 18.11s
+0 errors, 0 warnings, 0 notes
+All checks passed!
+
+## Tests de #52
+tests/test_background.py::test_with_room_nobody_leaves_the_view PASSED
+tests/test_background.py::test_without_room_the_least_used_leaves_the_view PASSED
+tests/test_background.py::test_one_waiting_for_a_confirmation_leaves_only_if_no_other_is_left PASSED
+tests/test_background.py::test_a_lower_maximum_sends_away_those_over_it_least_used_first PASSED
+tests/test_background.py::test_no_limit_never_sends_anyone_away PASSED
+tests/test_background.py::test_bg_closes_the_xterm_without_cancelling_the_turn_which_ends_and_shows_on_open PASSED
+tests/test_background.py::test_a_window_brought_back_mid_turn_shows_what_it_streamed_and_goes_on PASSED
+tests/test_background.py::test_a_prompt_to_a_session_in_the_background_runs_its_turn_without_a_window PASSED
+tests/test_background.py::test_close_cancels_the_turn_as_the_x_does_also_in_the_background PASSED
+tests/test_background.py::test_close_and_bg_need_an_open_session PASSED
+tests/test_background.py::test_with_a_maximum_of_two_a_third_new_sends_the_least_used_away PASSED
+tests/test_background.py::test_a_click_counts_as_using_a_window PASSED
+tests/test_background.py::test_new_in_the_background_displaces_nobody PASSED
+tests/test_background.py::test_a_session_waiting_for_a_confirmation_stays_in_view PASSED
+tests/test_background.py::test_a_lower_maximum_sends_the_extra_windows_away_at_once PASSED
+tests/test_background.py::test_nothing_comes_back_from_the_background_by_itself PASSED
+tests/test_background.py::test_the_draft_of_a_session_in_the_background_comes_back_with_it PASSED
+tests/test_background.py::test_after_a_restart_what_was_in_view_comes_back_up_to_the_maximum PASSED
+tests/test_background.py::test_a_profile_switch_and_back_keeps_the_same_sessions_in_the_background PASSED
+tests/test_background.py::test_what_another_origin_opens_never_displaces_a_window PASSED
+tests/test_background.py::test_a_window_tells_main_of_its_clicks_at_most_once_every_two_seconds PASSED
+============================== 21 passed in 0.27s ==============================
+
+## Pasos a mano (data dir limpio, <scratch>/d52)
+
+1. /set windows.max=2; /new --id=uno1, dos2, tres3: el tercero manda a segundo plano a uno1,
+   la menos usada (a-max2.png); solo quedan los xterm de dos2 y tres3.
+2. /send dos2 «Cuenta del 1 al 300…»; a mitad, /bg dos2: su xterm se cierra y el Turno sigue
+   (b-main.png: «turn started», «sent to the background», ningún cancelado). /open dos2 antes
+   de que acabe: la Ventana muestra lo generado y sigue el stream (b-vuelta-a-mitad.png,
+   b-sigue.png); después, «turn finished».
+3. /send uno1 «Di hola…» con uno1 en segundo plano: el Turno corre y termina sin Ventana.
+   /send uno1 «Cuenta…» y /close uno1: «turn cancelled: reason='window closed'», como la X
+   (c-main.png).
+4. /open uno1 --bg y /exit. Estado guardado:
+     ventanas ['tres3', 'dos2'] segundo plano ['uno1']
+   Al arrancar vuelven tres3 y dos2 a la vista y uno1 en segundo plano.
+   /set windows.max=1: tres3, la menos usada, pasa a segundo plano enseguida:
+     ventanas ['dos2'] segundo plano ['uno1', 'tres3']
+5. kill -9 a Main y arrancar: cierra la Ventana huérfana, vuelve dos2 a la vista y uno1 y
+   tres3 en segundo plano (d-tras-kill.png).
+6. /profile new otro, /profile switch otro (se cierra dos2) y /profile switch default: vuelven
+   dos2 a la vista y uno1 y tres3 en segundo plano (e-perfiles.png).
+
+El Borrador que vuelve al traer la Sesión se prueba con
+test_the_draft_of_a_session_in_the_background_comes_back_with_it: las Ventanas de prueba no
+dejan teclear desde fuera (su xterm no tiene allowSendEvents, y no debe tenerlo).
