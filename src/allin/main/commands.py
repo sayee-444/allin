@@ -11,15 +11,16 @@ from allin.core.errors import (
     AllInError,
     HumanOnly,
     InvalidArguments,
+    OutsideProfile,
+    SessionCommandNotListed,
     SessionNotOpen,
     TurnActive,
     UnknownCommand,
     WindowAlreadyOpen,
     WindowLaunchFailed,
 )
-from allin.core.ids import MainId, SessionId, new_prompt_id
+from allin.core.ids import CommandName, MainId, SessionId, new_prompt_id
 from allin.core.origin import HUMAN, Origin
-from allin.core.settings import SessionSettings
 from allin.ipc.messages import OrganizerRow
 from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
@@ -44,8 +45,8 @@ from allin.main.piece_commands import USAGE as PIECE_USAGE
 from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import USAGE as PROFILE_USAGE
 from allin.main.profile_commands import ProfileCommands
-from allin.main.prompt_commands import parse_prompt, parse_send
-from allin.main.prompts import Prompt, origin_header
+from allin.main.prompt_commands import SendOptions, TurnOverrides, parse_prompt, parse_send
+from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
 from allin.main.sends import SessionSends
@@ -53,8 +54,8 @@ from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
 from allin.main.server_commands import human_only as server_human_only
-from allin.main.session_commands import chain_sessions
-from allin.main.sessions import BirthRecipe, Session, SessionStore
+from allin.main.session_commands import chain_sessions, lacking
+from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import (
     SESSION_USAGE,
     SettingsCommands,
@@ -561,54 +562,66 @@ class MainCommands:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
         template = self._settings.current.session  # copied: later changes never reach it
         mold = None if mold_name is None else self._creator.mold(mold_name)
+        task = None if mold is None else mold.recipe.task
+        if task is not None:
+            self._check_may_send(origin)  # before anything is created
+        chain = None if origin.is_human else self._chain(origin)
         settings = template if mold is None else mold.settings(template)
-        settings = self._exemption_passed(settings, origin)
+        if chain is not None and not all(s is not None and s.settings.exempt for s in chain):
+            # A Session never leaves covered what was not (ADR-0013).
+            settings = settings.model_copy(update={"exempt": False})
         sysprompt = render_sysprompt(self._sysprompts, settings)
         named = None if mold is None else mold.recipe.functions
-        functions = self._functions.born_with(sources, agents, named, origin)
+        functions = self._functions.born_with(sources, agents, named, chain)
         if commands is None and mold is not None and mold.recipe.commands is not None:
             commands = list(mold.recipe.commands)
         listed = self._functions.commands_born_with(commands, origin)
         history = [] if mold is None else [message.item() for message in mold.recipe.history]
+        version = None if mold is None else mold.version
         session = self._sessions.create(
-            self._main_id, settings, sysprompt, chosen, functions, listed, history
+            self._main_id, settings, sysprompt, chosen, functions, listed, history, version
         )
-        recipe = BirthRecipe(
-            mold=mold_name,
-            mold_hash=None if mold is None else mold.hash,
-            settings=settings,
-            sysprompt=sysprompt,
-            functions=functions,
-            commands=listed,
-            history=history,
-        )
-        self._sessions.save_recipe(session, recipe)
         self._reporter.record(
-            session.id, "session_created", "session created", owner=self._main_id, mold=mold_name
+            session.id,
+            "session_created",
+            "session created",
+            owner=self._main_id,
+            mold=None if version is None else version.piece,
         )
         self._profiles.created(session.id)
         self._place(session, background, origin)
-        if mold is not None and mold.recipe.task is not None:
-            self._send_task(session, mold.recipe.task, origin)
+        if task is not None:
+            self._send_task(session, task, origin)
         return True
 
-    def _exemption_passed(self, settings: SessionSettings, origin: Origin) -> SessionSettings:
-        """A Session never leaves covered what was not: one created through a Session without
-        the Exención is born without it, though its template or Molde bring it (ADR-0013)."""
-        if not settings.exempt or origin.is_human:
-            return settings
+    def _chain(self, origin: Origin) -> list[Session | None]:
+        """The Sessions of ``origin``'s chain; ``None`` for one that is gone or another Main's,
+        which passes on nothing."""
         ids = self._sessions.ids()
-        exempt = all(
-            SessionId(sid) in ids and self._sessions.load(sid).settings.exempt
-            for sid in chain_sessions(origin)
-        )
-        return settings if exempt else settings.model_copy(update={"exempt": False})
+        loaded = [
+            self._sessions.load(sid) if sid in ids else None for sid in chain_sessions(origin)
+        ]
+        return [s if s is not None and s.owner == self._main_id else None for s in loaded]
+
+    def _check_may_send(self, origin: Origin) -> None:
+        """A Molde's task goes as a ``/send`` of whoever creates the Session: a Session sends it
+        only if its chain may ``@send`` and it is in the active Profile, as ``/send`` asks."""
+        if origin.is_human:
+            return
+        missing = lacking(self._sessions, origin, CommandName("send"))
+        if missing:
+            raise SessionCommandNotListed(command="send", not_in=list[JsonValue](missing))
+        sender = origin.sender
+        if sender is not None and not self._profiles.in_active(SessionId(sender)):
+            raise OutsideProfile(session_id=sender)
 
     def _send_task(self, session: Session, task: str, origin: Origin) -> None:
         """A Molde's initial task, sent as a ``/send`` with the Origin of whoever created the
         Session (ADR-0011). Its text is the Molde's, never read for Command prompts."""
-        sent = task if origin.is_human else f"{origin_header(origin)}\n{task}"
-        self._turns.push(session, Prompt(session.id, sent, origin=origin))
+        if origin.is_human:
+            self._turns.push(session, Prompt(session.id, task, origin=origin))
+        else:
+            self._sends.send(session, SendOptions((), TurnOverrides(), task), origin, _ignored)
 
     def _place(self, session: Session, background: bool, origin: Origin) -> None:
         """Open a Session in view, under the Máximo de Ventanas, or in the background."""

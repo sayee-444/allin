@@ -74,7 +74,7 @@ class PieceRef:
 
 def parse_piece_ref(text: str) -> PieceRef | None:
     kind, _, name = text.partition(":")
-    if not name or "/" in name or name.startswith("."):
+    if not name or "/" in name or name.startswith(".") or not name.isprintable():
         return None
     match kind:
         case "function" | "agent" | "sysprompt" | "mold":

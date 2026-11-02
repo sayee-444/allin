@@ -10,12 +10,13 @@ import pytest
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
-from allin.core.ids import BoxId, CommandName, PieceId
+from allin.core.errors import ProfileStorageFailed
+from allin.core.ids import BoxId, CommandName, MainId, PieceId
 from allin.core.origin import HUMAN, Link, Origin
 from allin.main.descriptions import Descriptions
 from allin.main.events import BoxAnswered, InputReceived, MainCommandEntered
 from allin.main.quarantine import PieceRef, Quarantine
-from allin.main.sessions import Session
+from allin.main.sessions import MoldVersion, Session
 from allin.ui.screen import ShowBox
 from tests.test_dispatcher import MainHarness
 
@@ -143,8 +144,10 @@ def test_a_mold_gives_its_recipe_and_sends_its_task(main: MainHarness):
     [sent] = [e.fields for e in main.session_log(session) if e.event == "prompt"]
     assert sent["origin"] == ["human"]
     recipe = main.sessions.load_recipe(session)
-    assert recipe is not None and recipe.mold == "coder" and recipe.functions == (HELPER,)
-    assert recipe.mold_hash == pieces(main).piece(PieceRef("mold", "coder")).hash
+    assert recipe is not None and recipe.functions == (HELPER,)
+    approved = pieces(main).piece(PieceRef("mold", "coder")).hash
+    assert recipe.mold == MoldVersion(piece=PieceId("mold:coder"), hash=approved)
+    assert recipe.history[0]["content"] == "Contesta siempre en castellano."
 
 
 def test_one_in_quarantine_is_never_used(main: MainHarness):
@@ -175,6 +178,36 @@ def test_it_never_brings_otorgar(main: MainHarness):
     assert titles.count("Otorgar not given") == 2
 
 
+@pytest.mark.parametrize("name", ["", "../coder", "a\x00b"])
+def test_a_name_that_is_no_mold_name_never_reaches_the_disk(main: MainHarness, name: str):
+    chat = main.run(MainCommandEntered(f"/new --bg --mold={name}"), settle=True)
+    assert list(main.sessions.ids()) == []
+    assert any("invalid_arguments" in line and "--mold=<name>" in line for line in chat)
+
+
+def test_what_it_names_must_be_approved(main: MainHarness):
+    (main.profile.folder / "functions" / "pending").mkdir()
+    (main.profile.folder / "functions" / "pending" / "pending.py").write_text(
+        PACKAGES["helper"].replace("helper", "pending")
+    )
+    mold(main, "eager", 'functions = ["function:pending"]')
+    mold(main, "nameless", 'sysprompt = "nope.txt"')
+    chat = main.run(
+        MainCommandEntered("/new --bg --mold=eager"),
+        MainCommandEntered("/new --bg --mold=nameless"),
+        settle=True,
+    )
+    assert list(main.sessions.ids()) == []
+    assert any("piece_in_quarantine" in line and "function:pending" in line for line in chat)
+    assert any("sysprompt_invalid" in line or "piece_" in line for line in chat[1:])
+
+
+def test_without_sources_not_even_the_molds(main: MainHarness):
+    mold(main, "coder", CODER)
+    main.run(MainCommandEntered("/new --bg -sf=off --mold=coder"), settle=True)
+    assert born(main, set()).functions == ()
+
+
 def test_a_session_passes_on_only_what_it_has(main: MainHarness):
     mold(main, "coder", CODER)
     creator = main.create_session()
@@ -187,9 +220,26 @@ def test_a_session_passes_on_only_what_it_has(main: MainHarness):
     assert sent["text"] == f"[from Session {creator.id}]\nResume el proyecto."
 
 
+def test_its_task_goes_only_as_the_creator_may_send(main: MainHarness):
+    mold(main, "coder", CODER)
+    mute = main.create_session()
+    mute = main.sessions.save_commands(mute, ())
+    main.sessions_join_profile = False
+    outside = main.sessions.save_commands(main.create_session(), (CommandName("send"),))
+    main.run(
+        MainCommandEntered("/new --bg --mold=coder", origin=from_session(mute)),
+        MainCommandEntered("/new --bg --mold=coder", origin=from_session(outside)),
+        settle=True,
+    )
+    assert set(main.sessions.ids()) == {mute.id, outside.id}, "nothing created"
+    assert str(results(main, mute)[0]).startswith("error session_command_not_listed")
+    assert str(results(main, outside)[0]).startswith("error outside_profile")
+
+
 def test_a_session_without_exemption_creates_sessions_without_it(main: MainHarness):
     mold(main, "coder", CODER)
     creator = main.create_session(exempt=False)
+    creator = main.sessions.save_commands(creator, (CommandName("send"),))
     main.run(MainCommandEntered("/new --bg --mold=coder", origin=from_session(creator)))
     child = born(main, {creator.id})
     assert child.settings.exempt is False
@@ -197,14 +247,53 @@ def test_a_session_without_exemption_creates_sessions_without_it(main: MainHarne
     assert born(main, {creator.id, child.id}).settings.exempt is True
 
 
+def test_only_its_own_mains_sessions_pass_on_the_exemption(main: MainHarness):
+    mold(main, "coder", CODER)
+    foreign = main.create_session(owner=MainId("m-other"))
+    foreign = main.sessions.save_commands(foreign, (CommandName("send"),))
+    main.run(MainCommandEntered("/new --bg --mold=coder", origin=from_session(foreign)))
+    child = born(main, {foreign.id})
+    assert child.settings.exempt is False and child.functions == ()
+
+
+def test_create_is_not_in_the_default_list(main: MainHarness):
+    main.run(MainCommandEntered("/new --bg"), settle=True)
+    assert CommandName("create") not in born(main, set()).commands
+
+
 # Crear
 
 
-def test_a_human_creates_it_approved(main: MainHarness):
-    main.run(InputReceived(main.create_session().id, "@create sysprompt:mine.txt Hola\nmundo"))
+@pytest.mark.parametrize(
+    "typed", ["/create sysprompt:mine.txt {}", "@create sysprompt:mine.txt\n{}"]
+)
+def test_a_human_creates_it_approved(main: MainHarness, typed: str):
+    text = typed.format("Hola\nmundo")
+    session = main.create_session()
+    event = MainCommandEntered(text) if text.startswith("/") else InputReceived(session.id, text)
+    main.run(event, settle=True)
     piece = pieces(main).piece(PieceRef("sysprompt", "mine.txt"))
     assert piece.state == "approved" and piece.provenance.by == "user"
-    assert piece.path.read_text() == "Hola\nmundo"
+    assert piece.path.read_text() == "Hola\nmundo", "no newline before it"
+    assert confirms(main) == []
+
+
+def test_a_human_rewriting_it_makes_it_theirs(main: MainHarness):
+    a = main.create_session()
+    main.devastation = True
+    main.run(MainCommandEntered("/create sysprompt:mine.txt hola", origin=from_session(a)))
+    main.run(MainCommandEntered("/create sysprompt:mine.txt adiós"))
+    piece = pieces(main).piece(PieceRef("sysprompt", "mine.txt"))
+    assert piece.provenance.by == "user" and piece.state == "approved"
+
+
+def test_a_damaged_record_of_creators_is_an_error_not_the_users(main: MainHarness):
+    a = main.create_session()
+    main.devastation = True
+    main.run(MainCommandEntered("/create sysprompt:mine.txt hola", origin=from_session(a)))
+    (main.profile.folder / "created.json").write_text("{roto")
+    with pytest.raises(ProfileStorageFailed):
+        pieces(main).piece(PieceRef("sysprompt", "mine.txt"))
 
 
 def test_from_a_session_one_box_confirms_and_approves(main: MainHarness):
@@ -241,6 +330,8 @@ def test_with_devastation_it_waits_in_quarantine(main: MainHarness):
     quarantine = pieces(main)
     piece = quarantine.piece(PieceRef("sysprompt", "mine.txt"))
     assert piece.state == "quarantined"
+    assert piece.provenance.by == "session" and piece.provenance.who == a.id
+    assert results(main, a) == ["ok"]
     assert "sysprompt:mine.txt" in quarantine.approve_own().left_out, "never in bulk"
 
 

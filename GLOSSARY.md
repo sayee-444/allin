@@ -109,7 +109,7 @@ Receta con nombre para crear una Sesión especializada: su Sysprompt, sus Ajuste
 _Avoid_: perfil, plantilla, preset
 
 **Crear** (`Create`):
-Primitiva que hace algo nuevo: una Sesión, desde la plantilla o un Molde, o una pieza. Una pieza se crea con `/create <sysprompt:archivo|mold:nombre> <contenido>`, o con `@create` desde una Sesión. La de un humano queda aprobada. La de una Sesión pide un recuadro que la muestra entera y es Confirmación y Aprobación a la vez; si `--devastation` contesta por él, queda en cuarentena hasta que un humano la apruebe (ADR-0013).
+Primitiva que hace algo nuevo: una Sesión, desde la plantilla o un Molde, o una pieza. Una pieza se crea con `/create <sysprompt:archivo|mold:nombre> <contenido>`, o con `@create` desde una Sesión. La de un humano queda aprobada. La de una Sesión pide un recuadro que la muestra entera y es Confirmación y Aprobación a la vez; si `--devastation` contesta por él, queda en cuarentena hasta que un humano la apruebe. `@create` no está en la lista por defecto (ADR-0013).
 
 **Plano** (`Blueprint`):
 Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde qué Moldes, cuáles abren Ventana o nacen en segundo plano y cuál coordina. Viaja en un Kit; crear desde un Plano solo añade, nunca toca lo que ya existe.

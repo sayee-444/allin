@@ -33,6 +33,7 @@ from allin.core.ids import CommandName, PieceId
 from allin.core.settings import SessionSettings
 from allin.main.conversation import Item
 from allin.main.quarantine import PieceRef, Quarantine
+from allin.main.sessions import MoldVersion
 
 
 class HistoryMessage(BaseModel, frozen=True):
@@ -68,15 +69,22 @@ class Mold(BaseModel, frozen=True):
 
 @dataclass(frozen=True)
 class LoadedMold:
-    """An approved Molde as read, with the hash of that version."""
+    """An approved Molde as read."""
 
-    name: str
+    ref: PieceRef
     recipe: Mold
     hash: str
 
+    @property
+    def version(self) -> MoldVersion:
+        return MoldVersion(piece=self.ref.id, hash=self.hash)
+
     def settings(self, template: SessionSettings) -> SessionSettings:
         """The new Session's Ajustes: the template with the Molde's on it."""
-        return check_settings(self.name, self.recipe, template)
+        try:
+            return self.recipe.settings_over(template)
+        except ValidationError as error:
+            raise MoldInvalid(mold=self.ref.name, reason=_problem(error)) from error
 
 
 def parse_mold(name: str, text: str) -> Mold:
@@ -89,10 +97,10 @@ def parse_mold(name: str, text: str) -> Mold:
         raise MoldInvalid(mold=name, reason=_problem(error)) from error
 
 
-def load_mold(quarantine: Quarantine, name: str) -> LoadedMold:
-    """The approved Molde ``name`` and the hash of the version read; one in quarantine is
-    never used (ADR-0013)."""
-    ref = PieceRef("mold", name)
+def load_mold(quarantine: Quarantine, ref: PieceRef) -> LoadedMold:
+    """The approved Molde ``ref`` as its approved version says; one in quarantine is never
+    used (ADR-0013)."""
+    name = ref.name
     piece = quarantine.piece(ref)
     if piece.state != "approved":
         raise PieceInQuarantine(piece=ref.id)
@@ -102,15 +110,11 @@ def load_mold(quarantine: Quarantine, name: str) -> LoadedMold:
         raise MoldInvalid(mold=name, reason=str(error)) from error
     if content_hash(data) != piece.hash:  # changed since it was approved: not this one
         raise PieceInQuarantine(piece=ref.id)
-    return LoadedMold(name, parse_mold(name, data.decode("utf-8", errors="replace")), piece.hash)
-
-
-def check_settings(name: str, mold: Mold, template: SessionSettings) -> SessionSettings:
-    """``Mold.settings_over``, with what is wrong said as ``MoldInvalid``."""
     try:
-        return mold.settings_over(template)
-    except ValidationError as error:
-        raise MoldInvalid(mold=name, reason=_problem(error)) from error
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise MoldInvalid(mold=name, reason="not UTF-8 text") from error
+    return LoadedMold(ref, parse_mold(name, text), piece.hash)
 
 
 def _merged(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

@@ -7,7 +7,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
+from allin.core.errors import ProfileStorageFailed
 from allin.core.files import write_atomically
+from allin.core.ids import SessionId
 
 KITS_FILE = "kits.json"
 CREATED_FILE = "created.json"
@@ -43,7 +45,7 @@ def kits_json(pieces: Mapping[str, KitOrigin]) -> bytes:
 class SessionOrigin(BaseModel, frozen=True):
     """The Session that created a piece with Crear, and the hash it wrote."""
 
-    session: str
+    session: SessionId
     hash: str
 
 
@@ -52,12 +54,15 @@ class _SessionOrigins(BaseModel, frozen=True):
 
 
 def session_origins(profile_folder: Path) -> dict[str, SessionOrigin]:
-    """The pieces of a Profile a Session created, by piece id."""
+    """The pieces of a Profile a Session created, by piece id. One that cannot be read is an
+    error, never an empty record: those pieces would pass for the user's and go in bulk."""
+    path = profile_folder / CREATED_FILE
     try:
-        data = (profile_folder / CREATED_FILE).read_bytes()
-        return dict(_SessionOrigins.model_validate_json(data).pieces)
-    except (OSError, ValidationError):
+        return dict(_SessionOrigins.model_validate_json(path.read_bytes()).pieces)
+    except FileNotFoundError:
         return {}
+    except (OSError, ValidationError) as error:
+        raise ProfileStorageFailed(root=str(path), reason=str(error)) from error
 
 
 def record_created(profile_folder: Path, piece: str, origin: SessionOrigin | None) -> None:

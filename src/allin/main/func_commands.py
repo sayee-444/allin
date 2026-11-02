@@ -36,7 +36,7 @@ from allin.main.notifications import FUNC, Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
-from allin.main.session_commands import LoadedSessionCommands, chain_allows, chain_sessions
+from allin.main.session_commands import LoadedSessionCommands, chain_allows
 from allin.main.sessions import Change, Session, SessionStore
 
 USAGE = (
@@ -184,16 +184,22 @@ class FuncCommands:
         sources: bool,
         agents: list[str],
         named: Sequence[PieceId] | None = None,
-        origin: Origin = HUMAN,
+        chain: Sequence[Session | None] | None = None,
     ) -> tuple[PieceId, ...]:
-        """What a new Session has: the approved fsources, unless ``sources`` is off, or those a
-        Molde ``named``, but any that declares Otorgar, which only a human gives (ADR-0025);
-        and the fagents given by package name. Created through a chain of Sessions, only what
-        every one of them has. Raises ``PieceNotFound`` for one the Profile does not have."""
+        """What a new Session has: the approved fsources, or those a Molde ``named``, unless
+        ``sources`` is off; never one that declares Otorgar, which only a human gives
+        (ADR-0025); and the fagents given by package name. Created through a ``chain`` of
+        Sessions (``None`` for a human), only what every one of them has; one that is gone has
+        nothing. Raises ``PieceNotFound`` for one the Profile does not have, and
+        ``PieceInQuarantine`` for one a Molde names that is not approved."""
         quarantine = self._quarantine()
         given = [quarantine.piece(PieceRef("agent", name)).ref.id for name in agents]
         if named is not None:
             pieces = [quarantine.piece(_ref(piece_id, USAGE)) for piece_id in named]
+            pieces = [p for p in pieces if sources or p.ref.kind != "function"]
+            for piece in pieces:
+                if piece.state != "approved":
+                    raise PieceInQuarantine(piece=piece.ref.id)
             granting = [p.ref.id for p in pieces if _may_grant(quarantine, p)]
             if granting:  # it is still created, without them
                 self._boxes.notify(
@@ -214,14 +220,9 @@ class FuncCommands:
         else:
             chosen = []
         born = _unique([*chosen, *given])
-        if origin.is_human:
+        if chain is None:
             return born
-        ids = self._sessions.ids()
-        chain = [  # one that no longer exists has nothing
-            self._sessions.load(sid).functions if SessionId(sid) in ids else ()
-            for sid in chain_sessions(origin)
-        ]
-        return tuple(f for f in born if all(f in functions for functions in chain))
+        return tuple(f for f in born if all(s is not None and f in s.functions for s in chain))
 
     def commands_born_with(
         self, named: list[str] | None, origin: Origin

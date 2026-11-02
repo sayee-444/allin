@@ -231,7 +231,7 @@ def test_new_gives_the_roots_or_the_ones_named(main: MainHarness):
     first, second = (
         main.sessions.load(sid) for sid in sorted(main.sessions.ids(), key=_created(main))
     )
-    assert first.commands == ("send", "server", "conversation_logs", "create")
+    assert first.commands == ("send", "server", "conversation_logs")
     assert second.commands == ("send",)
     notices = [u.box for u in main.main_screen if isinstance(u, ShowBox)]
     assert [box.title for box in notices] == ["Command sessions missing"]
@@ -288,7 +288,7 @@ def run(call):
     (folder / "broken.py").write_text("raise RuntimeError('no')")
     loaded = load_session_command_types(folder)
     assert {"send", "server", "note", "deep"} <= set(loaded.types)
-    assert loaded.root == ("send", "server", "conversation_logs", "create", "note")
+    assert loaded.root == ("send", "server", "conversation_logs", "note")
     assert [problem.code for problem in loaded.problems] == ["session_command_failed"]
 
 

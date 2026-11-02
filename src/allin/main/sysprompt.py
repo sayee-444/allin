@@ -9,6 +9,17 @@ from allin.core.settings import SessionSettings
 from allin.main.quarantine import check_sysprompt
 
 
+def fill_sysprompt(name: str, text: str, settings: SessionSettings) -> str:
+    """The template ``text`` with its placeholders filled; raises ``SyspromptInvalid`` if it
+    has an unknown ``$name`` or a stray ``$``."""
+    try:
+        return Template(text).substitute(
+            assistant_name=settings.assistant_name, username=settings.username
+        )
+    except (KeyError, ValueError) as error:
+        raise SyspromptInvalid(name=name, reason=f"bad placeholder: {error}") from error
+
+
 def render_sysprompt(
     folder: Path, settings: SessionSettings, name: str | None = None, default: str | None = None
 ) -> str:
@@ -26,12 +37,8 @@ def render_sysprompt(
             data = path.read_bytes()
             check_sysprompt(folder, name, data)  # one in quarantine is never used (ADR-0013)
             text = data.decode("utf-8")
-        return Template(text).substitute(
-            assistant_name=settings.assistant_name, username=settings.username
-        )
     except OSError as error:
         raise SyspromptInvalid(name=name, reason=str(error)) from error
     except UnicodeDecodeError as error:
         raise SyspromptInvalid(name=name, reason="not UTF-8 text") from error
-    except (KeyError, ValueError) as error:  # unknown $name, or a stray "$"
-        raise SyspromptInvalid(name=name, reason=f"bad placeholder: {error}") from error
+    return fill_sysprompt(name, text, settings)

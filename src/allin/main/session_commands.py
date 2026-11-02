@@ -124,7 +124,7 @@ def _create(call: SessionCommandCall) -> str:
     parts = call.args.strip().split(maxsplit=1)
     if len(parts) < 2:
         raise ValueError(_CREATE_USAGE)
-    piece, content = parts[0], call.args.strip()[len(parts[0]) :].lstrip(" ")
+    piece, content = parts[0], call.args.strip()[len(parts[0]) :].lstrip()
     return f"/create {piece} {content}"
 
 
@@ -156,7 +156,8 @@ class LoadedSessionCommands:
 # Main's own, when no folder is loaded (a Main in tests).
 BUILT_IN = LoadedSessionCommands(
     {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT)},
-    tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE)),
+    # @create widens what Sessions do: given by name, never by default.
+    tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
 )
 
 
@@ -176,9 +177,9 @@ def lacking(sessions: SessionStore, origin: Origin, name: CommandName) -> list[s
     return [sid for sid in chain_sessions(origin) if name not in _listed(sessions, sid)]
 
 
-def chain_sessions(origin: Origin) -> list[str]:
+def chain_sessions(origin: Origin) -> list[SessionId]:
     """The Sessions of ``origin``'s chain, first to last."""
-    return [link.id for link in origin.chain if link.kind == "session" and link.id]
+    return [SessionId(link.id) for link in origin.chain if link.kind == "session" and link.id]
 
 
 def _listed(sessions: SessionStore, session_id: str) -> frozenset[CommandName]:

@@ -10,18 +10,15 @@ its current version, and that version never goes in a bulk approval.
 """
 
 from collections.abc import Callable
-from string import Template
 
 from pydantic import JsonValue
 
-from allin.core.errors import (
-    AllInError,
-    InvalidArguments,
-    ProfileStorageFailed,
-    SyspromptInvalid,
-)
+from allin.core.errors import AllInError, InvalidArguments, ProfileStorageFailed
 from allin.core.files import write_atomically
+from allin.core.hashing import content_hash
+from allin.core.ids import SessionId
 from allin.core.origin import HUMAN, Origin
+from allin.core.settings import SessionSettings
 from allin.main.boxes import MainBoxes
 from allin.main.devastation import Devastation
 from allin.main.events import CommandOutcome, OnOutcome
@@ -29,8 +26,10 @@ from allin.main.molds import LoadedMold, load_mold, parse_mold
 from allin.main.provenance import SessionOrigin
 from allin.main.quarantine import PieceRef, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
+from allin.main.sysprompt import fill_sysprompt
 
 USAGE = "/create <sysprompt:<file>|mold:<name>> <content>"
+MOLD_USAGE = "--mold=<name>"
 
 
 def _ignored(_: CommandOutcome) -> None:
@@ -53,7 +52,10 @@ class PieceCreator:
 
     def mold(self, name: str) -> LoadedMold:
         """The active Profile's approved Molde ``name``."""
-        return load_mold(self._quarantine(), name)
+        ref = parse_piece_ref(f"mold:{name}")
+        if ref is None:
+            raise InvalidArguments(usage=MOLD_USAGE)
+        return load_mold(self._quarantine(), ref)
 
     def create(
         self, piece: str, content: str, origin: Origin = HUMAN, answer: OnOutcome = _ignored
@@ -93,19 +95,21 @@ class PieceCreator:
         return True
 
     def _write(self, ref: PieceRef, content: str, origin: Origin, *, approve: bool) -> None:
+        """Write it and record who did; approved, it is the very bytes shown, never what is
+        on disk by then."""
         quarantine = self._quarantine()
         path = quarantine.path(ref)
+        digest = content_hash(content.encode())
+        sender = origin.sender
+        created = None if sender is None else SessionOrigin(session=SessionId(sender), hash=digest)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             write_atomically(path, content)
+            quarantine.record_creator(ref, created)
+            if approve:
+                quarantine.approve(ref, digest)
         except OSError as error:
             raise ProfileStorageFailed(root=str(path.parent), reason=str(error)) from error
-        written = quarantine.piece(ref)
-        sender = origin.sender
-        created = None if sender is None else SessionOrigin(session=sender, hash=written.hash)
-        quarantine.record_creator(ref, created)
-        if approve:
-            quarantine.approve(ref, written.hash)
         self._reporter.log_main(
             "piece_created",
             piece=ref.id,
@@ -118,8 +122,5 @@ def _check_content(ref: PieceRef, content: str) -> None:
     """Raise before anyone is asked if ``content`` is not a piece of its kind."""
     if ref.kind == "mold":
         parse_mold(ref.name, content)
-        return
-    try:
-        Template(content).substitute(assistant_name="AllIn", username="user")
-    except (KeyError, ValueError) as error:
-        raise SyspromptInvalid(name=ref.name, reason=f"not a valid template: {error}") from error
+    else:
+        fill_sysprompt(ref.name, content, SessionSettings())
