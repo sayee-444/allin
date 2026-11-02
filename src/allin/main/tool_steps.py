@@ -20,11 +20,17 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from allin.confinement.launcher import ToolCall, ToolLauncher
 from allin.core.errors import AllInError, SessionCommandNotDeclared, ToolCancelled
 from allin.core.ids import PieceId, SessionId
-from allin.core.origin import MAIN, Origin
+from allin.core.origin import Origin
 from allin.decorators import CONFIRM, Reach
 from allin.main.confirmation import ConfirmationGate
 from allin.main.conversation import TOOL_ERROR, Item, Step
-from allin.main.events import MainEvent, SessionCommandAsked, ToolsEnded, ToolsStarted
+from allin.main.events import (
+    MainEvent,
+    SessionCommandAsked,
+    SessionCommandResult,
+    ToolsEnded,
+    ToolsStarted,
+)
 from allin.main.prompt_commands import session_command_name
 from allin.main.quarantine import OfferedFunction
 from allin.main.turn import Cancellation
@@ -187,7 +193,7 @@ class _Turn:
 class ToolGate:
     """How a running Turn runs the tools a Step called and waits for a slot to go on."""
 
-    def __init__(self, tools: SessionTools | None = None, origin: Origin = MAIN) -> None:
+    def __init__(self, tools: SessionTools | None, origin: Origin) -> None:
         """``origin``: the chain its tools act with, the Turn's Prompt's and its Session."""
         self._tools = tools
         self._origin = origin
@@ -260,13 +266,13 @@ class ToolGate:
     def _ask_main(self, turn: _Turn, text: str) -> JsonValue:
         """From the call's thread: Main runs the Command session with the Turn's Origin; wait
         for how it went. Raises ``ToolCancelled`` if the Turn is cancelled meanwhile."""
-        answers: queue.Queue[JsonValue] = queue.Queue()
+        answers: queue.Queue[SessionCommandResult] = queue.Queue()
         turn.emit(SessionCommandAsked(turn.session_id, text, self._origin, answers.put))
         while True:
             if turn.cancellation.reason is not None:
                 raise ToolCancelled
             try:
-                return answers.get(timeout=_POLL)
+                return answers.get(timeout=_POLL).as_json()
             except queue.Empty:
                 continue
 

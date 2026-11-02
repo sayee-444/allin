@@ -13,11 +13,12 @@ from pydantic import JsonValue
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
-from allin.core.ids import PieceId, ServerKey
+from allin.core.ids import CommandName, PieceId, ServerKey
 from allin.core.origin import HUMAN, Link, Origin
 from allin.main.conversation import Item
 from allin.main.descriptions import Descriptions
 from allin.main.events import (
+    CommandOutcome,
     InputReceived,
     MainCommandEntered,
     ServerFailed,
@@ -27,6 +28,7 @@ from allin.main.log import Log
 from allin.main.quarantine import PieceRef, Quarantine
 from allin.main.reporting import Reporter
 from allin.main.session_commands import (
+    BUILT_IN,
     SessionCommands,
     load_session_command_types,
 )
@@ -88,7 +90,7 @@ def session(main: MainHarness, *commands: str, teller: bool = False) -> Session:
     created = main.create_session()
     if teller:
         created = main.sessions.save_functions(created, (TELLER,))
-    return main.sessions.save_commands(created, commands)
+    return main.sessions.save_commands(created, tuple(CommandName(c) for c in commands))
 
 
 def outputs(request: dict[str, Any]) -> list[Any]:
@@ -185,7 +187,7 @@ def test_what_the_command_main_says_goes_back_to_the_tool(tools: MainHarness):
     )
     tools.run(InputReceived(a.id, "dile"), settle=True)
     [output] = outputs(tools.llm.requests[1])
-    assert output["error"].startswith("error session_not_found")
+    assert output["error"].startswith("session_not_found")
 
 
 # Each Session's list
@@ -204,11 +206,14 @@ def test_new_gives_the_roots_or_the_ones_named(main: MainHarness):
     assert "@nope" in notices[0].text
 
 
-def test_a_session_creates_one_with_no_more_than_it_has(main: MainHarness):
-    creator = session(main, "send")
-    origin = Origin(chain=(*HUMAN.chain, Link("session", creator.id)))
+def test_a_session_creates_one_with_no_more_than_its_whole_chain_has(main: MainHarness):
+    # A (with @send only) asks B (with both) to create one: it gets what both have.
+    a, creator = session(main, "send"), session(main, "send", "server")
+    origin = Origin(chain=(*HUMAN.chain, Link("session", a.id), Link("session", creator.id)))
     main.run(MainCommandEntered("/new --bg", origin=origin), settle=True)
-    [created] = [main.sessions.load(sid) for sid in main.sessions.ids() if sid != creator.id]
+    [created] = [
+        main.sessions.load(sid) for sid in main.sessions.ids() if sid not in {a.id, creator.id}
+    ]
     assert created.commands == ("send",)
 
 
@@ -221,6 +226,13 @@ def test_only_a_human_widens_the_list(main: MainHarness):
     assert main.sessions.load(a.id).commands == ("send", "server")
     main.run(MainCommandEntered(f"/func remove {a.id} @server", origin=A_SESSION), settle=True)
     assert main.sessions.load(a.id).commands == ("send",)
+
+
+def test_a_func_line_that_fails_changes_nothing(main: MainHarness):
+    a = session(main)
+    main.run(MainCommandEntered(f"/func add {a.id} @server function:nope"), settle=True)
+    main.run(MainCommandEntered(f"/func add {a.id} @server @nope"), settle=True)
+    assert main.sessions.load(a.id).commands == ()
 
 
 # The modules and @server restart
@@ -254,7 +266,7 @@ def run(call):
         (ServerReady(server()), {"result": "ok", "server": "ready"}),
         (
             ServerFailed("crashes", "out of memory"),
-            {"error": "failed", "server": "failed", "reason": "out of memory"},
+            {"error": "failed: out of memory", "server": "failed"},
         ),
     ],
     ids=["ready", "failed"],
@@ -265,13 +277,13 @@ def test_server_restart_answers_once_its_server_is_ready_or_failed(
     a = main.create_session(server="gpu")
     ran: list[str] = []
 
-    def run_main(text: str, origin: Origin, done: Callable[[str], None]) -> bool:
+    def run_main(text: str, origin: Origin, done: Callable[[CommandOutcome], None]) -> bool:
         ran.append(text)
         done("ok")
         return True
 
     commands = SessionCommands(
-        load_session_command_types(main.profile.folder / "none"),
+        BUILT_IN,
         main.sessions,
         main.sessions.load,
         run_main,
@@ -279,12 +291,12 @@ def test_server_restart_answers_once_its_server_is_ready_or_failed(
     )
     answers: list[JsonValue] = []
     from_a = Origin(chain=(*HUMAN.chain, Link("session", a.id)))
-    commands.run(a.id, "@server restart", from_a, answers.append)
+    commands.run(a.id, "@server restart", from_a, lambda result: answers.append(result.as_json()))
     [refused] = answers
     assert ran == [] and "session_command_not_listed" in str(refused)
-    main.sessions.save_commands(main.sessions.load(a.id), ("server",))
+    main.sessions.save_commands(main.sessions.load(a.id), (CommandName("server"),))
     answers.clear()
-    commands.run(a.id, "@server restart", from_a, answers.append)
+    commands.run(a.id, "@server restart", from_a, lambda result: answers.append(result.as_json()))
     assert ran == ["/server restart gpu"] and answers == []  # it waits for its Server
     commands.server_changed(ServerKey("other"), state)
     assert answers == []

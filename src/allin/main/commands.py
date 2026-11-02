@@ -24,6 +24,7 @@ from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.devastation import Devastation
+from allin.main.events import CommandOutcome
 from allin.main.func_commands import USAGE as FUNC_USAGE
 from allin.main.func_commands import FuncCommands
 from allin.main.func_commands import only_human as func_only_human
@@ -343,13 +344,16 @@ class MainCommands:
         return True
 
     def run(
-        self, text: str, origin: Origin = HUMAN, answer: Callable[[str], None] | None = None
+        self,
+        text: str,
+        origin: Origin = HUMAN,
+        answer: Callable[[CommandOutcome], None] | None = None,
     ) -> bool:
         """Run a Command main and report how it went; return whether Main keeps running.
 
         A delicate one first asks a Confirmation, unless ``-y`` (only from a human) or
         ``--devastation`` answers it; it then runs when the answer comes. ``answer`` gets how
-        it went once it did: ``ok``, ``error …`` or ``rejected`` (for a tool, ADR-0025).
+        it went once it did (for a tool, ADR-0025).
         """
         answer = answer or _ignored
         name = (text.split(maxsplit=1) or [""])[0]
@@ -386,7 +390,7 @@ class MainCommands:
             keep_running = self._call(command, args, origin, yes)
         except AllInError as error:
             self._report(session_id, text, error, origin)
-            answer(f"error {error}")
+            answer(error)
         else:
             self._report(session_id, text, None, origin)
             answer("ok")
@@ -407,7 +411,7 @@ class MainCommands:
         text: str,
         session_id: str | None,
         origin: Origin,
-        answer: Callable[[str], None],
+        answer: Callable[[CommandOutcome], None],
     ) -> None:
         """Ask before a delicate command; once answered yes it runs with the Origin it came
         with, never more."""
@@ -421,7 +425,7 @@ class MainCommands:
                 self._call(command, args, origin, yes=False)
             except AllInError as error:
                 self._report(session_id, text, error, origin)
-                answer(f"error {error}")
+                answer(error)
             else:
                 self._report(session_id, text, None, origin)
                 answer("ok")
@@ -648,7 +652,7 @@ class MainCommands:
         return True
 
 
-def _ignored(_: str) -> None:
+def _ignored(_: CommandOutcome) -> None:
     pass
 
 

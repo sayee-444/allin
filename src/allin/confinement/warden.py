@@ -263,25 +263,8 @@ class _Relay:
         return True
 
 
-def _command_text(line: bytes) -> str | None:
-    """The text of a Command session the runner wrote, if that is what it wrote."""
-    try:
-        message: object = json.loads(line)
-    except ValueError:
-        return None
-    if not isinstance(message, dict):
-        return None
-    fields = cast(dict[str, object], message)
-    if fields.get("type") != "command":
-        return None
-    text = fields.get("text")
-    if not isinstance(text, str) or len(text) > _COMMAND_MAX:
-        return None
-    return text
-
-
-def _command_result(line: bytes) -> bytes | None:
-    """A result from Main, as the runner reads it; ``None`` for anything else."""
+def _typed(line: bytes, kind: str) -> dict[str, _Json] | None:
+    """The fields of a JSON line whose ``type`` is ``kind``; ``None`` for anything else."""
     try:
         message: object = json.loads(line)
     except ValueError:
@@ -289,9 +272,22 @@ def _command_result(line: bytes) -> bytes | None:
     if not isinstance(message, dict):
         return None
     fields = cast(dict[str, _Json], message)
-    if fields.get("type") != "command_result":
+    return fields if fields.get("type") == kind else None
+
+
+def _command_text(line: bytes) -> str | None:
+    """The text of a Command session the runner wrote, if that is what it wrote."""
+    fields = _typed(line, "command")
+    text = fields.get("text") if fields is not None else None
+    if not isinstance(text, str) or len(text) > _COMMAND_MAX:
         return None
-    return _line({"result": fields.get("result")})
+    return text
+
+
+def _command_result(line: bytes) -> bytes | None:
+    """A result from Main, as the runner reads it; ``None`` for anything else."""
+    fields = _typed(line, "command_result")
+    return _line({"result": fields.get("result")}) if fields is not None else None
 
 
 def _write_all(fd: int, data: bytes) -> None:

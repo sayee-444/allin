@@ -10,8 +10,6 @@ import queue
 import time
 from collections.abc import Callable
 
-from pydantic import JsonValue
-
 from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
 from allin.core.errors import AllInError
@@ -40,6 +38,7 @@ from allin.main.events import (
     ServerChanged,
     ServerProgress,
     SessionCommandAsked,
+    SessionCommandResult,
     Shutdown,
     SlotFreed,
     StepEnded,
@@ -74,9 +73,9 @@ from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
 from allin.main.server_commands import ServerCommands
 from allin.main.session_commands import (
+    BUILT_IN,
     LoadedSessionCommands,
     SessionCommands,
-    load_session_command_types,
 )
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import SettingsCommands
@@ -118,7 +117,7 @@ class Dispatcher:
         open_organizer: OpenOrganizer = no_organizer,
         confinement: ConfinementSupport = FULL_SUPPORT,
         describer: ToolLauncher | None = None,
-        session_commands: LoadedSessionCommands | None = None,
+        session_commands: LoadedSessionCommands = BUILT_IN,
     ) -> None:
         """``main_screen`` takes what Main's Chat shows besides its lines (boxes, marks);
         ``devastation`` is whether a human lit it on the command line; ``profile`` is the
@@ -191,9 +190,7 @@ class Dispatcher:
             state,
             close_orphan_window,
         )
-        command_types = session_commands or load_session_command_types(
-            profiles.data_dir / "comsession"
-        )
+        command_types = session_commands
         self._start_problems = [*settings.problems, *notices.problems, *command_types.problems]
         self._links = links
         self._settings_commands = settings_commands = SettingsCommands(
@@ -311,9 +308,9 @@ class Dispatcher:
         """A Command session a human typed in a Window: one that fails says why there, and its
         text goes back to the input."""
 
-        def answer(result: JsonValue) -> None:
-            if isinstance(result, dict) and "error" in result:
-                self._windows.send(session_id, error_entry(f"{text.strip()}: {result['error']}"))
+        def answer(result: SessionCommandResult) -> None:
+            if result.error is not None:
+                self._windows.send(session_id, error_entry(f"{text.strip()}: {result.error}"))
                 self._windows.put_back(session_id, text)
 
         self._session_commands.run(session_id, text, HUMAN, answer)

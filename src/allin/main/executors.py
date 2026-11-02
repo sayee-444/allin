@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from allin.core.errors import AllInError, TurnCrashed
 from allin.core.ids import SessionId
+from allin.core.origin import MAIN
 from allin.main.confirmation import ConfirmationGate
 from allin.main.events import MainEvent, StepEnded, TurnEnded, TurnOutput, TurnRaw
 from allin.main.tool_steps import ToolGate
@@ -29,7 +30,8 @@ class TurnJob:
     # How the Turn asks for a Confirmation; the dispatcher resumes it through this.
     confirmation: ConfirmationGate = field(default_factory=ConfirmationGate)
     # How it runs the tools its Steps call; the dispatcher resumes it once it has a slot.
-    tools: ToolGate = field(default_factory=ToolGate)
+    # By default it has none, so it never asks Main for a Command session with this Origin.
+    tools: ToolGate = field(default_factory=lambda: ToolGate(None, MAIN))
 
 
 def execute(llm: Llm, job: TurnJob, emit: Callable[[MainEvent], None]) -> None:

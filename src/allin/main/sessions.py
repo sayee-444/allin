@@ -23,7 +23,7 @@ from allin.core.errors import (
     WorkspaceRefused,
 )
 from allin.core.files import write_atomically
-from allin.core.ids import MainId, PieceId, SessionId, new_session_id, parse_session_id
+from allin.core.ids import CommandName, MainId, PieceId, SessionId, new_session_id, parse_session_id
 from allin.core.settings import SessionSettings
 from allin.core.themes import pick_border_color
 from allin.main.conversation import (
@@ -63,7 +63,7 @@ class Session(BaseModel, frozen=True):
     functions: tuple[PieceId, ...] = ()
     # The Command sessions its LLM may use, by name (``send``): it limits its tools, not a
     # human (ADR-0025). One saved before them has none.
-    commands: tuple[str, ...] = ()
+    commands: tuple[CommandName, ...] = ()
 
 
 class SessionStore:
@@ -118,7 +118,7 @@ class SessionStore:
         sysprompt: str,
         chosen: str | None = None,
         functions: tuple[PieceId, ...] = (),
-        commands: tuple[str, ...] = (),
+        commands: tuple[CommandName, ...] = (),
     ) -> Session:
         """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
         ``sysprompt`` is already rendered."""
@@ -250,7 +250,7 @@ class SessionStore:
         """The Session with other Function tools, already on disk."""
         return self._save(session.model_copy(update={"functions": functions}))
 
-    def save_commands(self, session: Session, commands: tuple[str, ...]) -> Session:
+    def save_commands(self, session: Session, commands: tuple[CommandName, ...]) -> Session:
         """The Session with another list of Command sessions, already on disk."""
         return self._save(session.model_copy(update={"commands": commands}))
 

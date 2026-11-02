@@ -24,19 +24,25 @@ from allin.core.errors import (
     SessionCommandNotListed,
     UnknownSessionCommand,
 )
-from allin.core.ids import ServerKey, SessionId
+from allin.core.ids import CommandName, ServerKey, SessionId
 from allin.core.origin import Origin
-from allin.main.events import ServerFailed, ServerReady, ServerState
+from allin.main.events import (
+    CommandOutcome,
+    ServerFailed,
+    ServerReady,
+    ServerState,
+    SessionCommandResult,
+)
 from allin.main.prompt_commands import session_command_name
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.session_commands import SessionCommandCall, SessionCommandType
 
-# How a Command session went, as the tool that asked for it reads it.
-type Answer = Callable[[JsonValue], None]
-# Runs a Command main with an Origin; calls back with how it went (``ok``, ``error …`` or
-# ``rejected``) once it did, maybe after a Confirmation. Returns whether Main keeps running.
-type RunMain = Callable[[str, Origin, Callable[[str], None]], bool]
+FOLDER = "comsession"  # in the data dir: the human's Command session modules
+type Answer = Callable[[SessionCommandResult], None]
+# Runs a Command main with an Origin; calls back with how it went once it did, maybe after a
+# Confirmation. Returns whether Main keeps running.
+type RunMain = Callable[[str, Origin, Callable[[CommandOutcome], None]], bool]
 
 
 def _send(call: SessionCommandCall) -> str:
@@ -69,16 +75,42 @@ SERVER = SessionCommandType(
 
 @dataclass(frozen=True)
 class LoadedSessionCommands:
-    types: dict[str, SessionCommandType]
-    root: tuple[str, ...]  # what a new Session gets unless ``/new`` names others
+    types: dict[CommandName, SessionCommandType]
+    root: tuple[CommandName, ...]  # what a new Session gets unless ``/new`` names others
     problems: list[AllInError] = field(default_factory=list[AllInError])
+
+
+# Main's own, when no folder is loaded (a Main in tests).
+BUILT_IN = LoadedSessionCommands(
+    {CommandName(SEND.name): SEND, CommandName(SERVER.name): SERVER},
+    (CommandName(SEND.name), CommandName(SERVER.name)),
+)
+
+
+def chain_allows(sessions: SessionStore, origin: Origin) -> frozenset[CommandName] | None:
+    """The Command sessions every Session of ``origin``'s chain has: what it may use, the
+    weakest link (ADR-0013). ``None`` for a human's, which may use any; a Session that no
+    longer exists has none."""
+    if origin.is_human:
+        return None
+    allowed: frozenset[CommandName] | None = None
+    for link in origin.chain:
+        if link.kind != "session" or not link.id:
+            continue
+        has = (
+            frozenset(sessions.load(link.id).commands)
+            if SessionId(link.id) in sessions.ids()
+            else frozenset[CommandName]()
+        )
+        allowed = has if allowed is None else allowed & has
+    return allowed
 
 
 def load_session_command_types(folder: Path) -> LoadedSessionCommands:
     """Main's own Command sessions and those the modules in ``folder`` declare, and why any
     module failed to load. One declared again keeps its first module."""
-    types = {SEND.name: SEND, SERVER.name: SERVER}
-    root = [SEND.name, SERVER.name]
+    types = dict(BUILT_IN.types)
+    root = list(BUILT_IN.root)
     problems: list[AllInError] = []
     paths = sorted(folder.rglob("*.py")) if folder.is_dir() else []
     for path in paths:
@@ -91,11 +123,12 @@ def load_session_command_types(folder: Path) -> LoadedSessionCommands:
             )
             continue
         for declared in session_commands.declared:
-            if declared.name in types:
+            name = CommandName(declared.name)
+            if name in types:
                 continue
-            types[declared.name] = declared
+            types[name] = declared
             if path.parent == folder:
-                root.append(declared.name)
+                root.append(name)
     session_commands.declared.clear()
     return LoadedSessionCommands(types, tuple(root), problems)
 
@@ -134,16 +167,15 @@ class SessionCommands:
         reply = answer or _ignored
         try:
             session = self._load(session_id)
-            kind = self._kind(text)
-            self._check_listed(kind.name, origin)
-            args = text.strip().removeprefix(f"@{kind.name}").strip()
-            command = _translate(
-                kind, SessionCommandCall(session.id, args, session.settings.server)
-            )
+            name, kind = self._kind(text)
+            self._check_listed(name, origin)
+            args = text.strip().removeprefix(f"@{name}").strip()
+            server = session.settings.server
+            command = _translate(kind, SessionCommandCall(session.id, args, server))
         except AllInError as error:
             shown = f"[{session_id}] {text.strip()[:60]}: error {error}"
             self._reporter.report(None, "session_command", shown, command=text, result=str(error))
-            reply({"error": str(error)})
+            reply(SessionCommandResult(error=str(error)))
             return True
         self._reporter.log_session(
             session.id,
@@ -152,16 +184,18 @@ class SessionCommands:
             runs=command,
             origin=list[JsonValue](origin.labels),
         )
-        restarts = command.startswith("/server restart ") and session.settings.server is not None
+        restarts = server if kind is SERVER and args == "restart" else None
 
-        def done(result: str) -> None:
-            if result != "ok":
-                reply({"error": result})
-            elif restarts:  # it answers once its Server is up again, or could not be
-                assert session.settings.server is not None
-                self._restarting.setdefault(ServerKey(session.settings.server), []).append(reply)
-            else:
-                reply({"result": "ok"})
+        def done(outcome: CommandOutcome) -> None:
+            match outcome:
+                case "ok" if restarts is not None:  # it answers once its Server is back, or not
+                    self._restarting.setdefault(ServerKey(restarts), []).append(reply)
+                case "ok":
+                    reply(SessionCommandResult())
+                case "rejected":
+                    reply(SessionCommandResult(error="rejected"))
+                case AllInError() as error:
+                    reply(SessionCommandResult(error=str(error)))
 
         return self._run_main(command, origin, done)
 
@@ -169,32 +203,27 @@ class SessionCommands:
         """A Server a tool restarted is ready again, or failed: the tool hears which."""
         if not isinstance(state, ServerReady | ServerFailed):
             return
-        result: JsonValue = (
-            {"result": "ok", "server": "ready"}
+        result = (
+            SessionCommandResult(server="ready")
             if isinstance(state, ServerReady)
-            else {"error": "failed", "server": "failed", "reason": state.reason}
+            else SessionCommandResult(error=f"failed: {state.reason}", server="failed")
         )
         for reply in self._restarting.pop(server, []):
             reply(result)
 
-    def _kind(self, text: str) -> SessionCommandType:
-        name = session_command_name(text)
-        kind = self._types.get(name) if name is not None else None
+    def _kind(self, text: str) -> tuple[CommandName, SessionCommandType]:
+        written = session_command_name(text)
+        name = CommandName(written or text.strip()[:40])
+        kind = self._types.get(name) if written is not None else None
         if kind is None:
-            raise UnknownSessionCommand(command=name or text.strip()[:40])
-        return kind
+            raise UnknownSessionCommand(command=name)
+        return name, kind
 
-    def _check_listed(self, name: str, origin: Origin) -> None:
+    def _check_listed(self, name: CommandName, origin: Origin) -> None:
         """A human may run any; anyone else only one every Session of its chain has."""
-        if origin.is_human:
-            return
-        for link in origin.chain:
-            if link.kind != "session" or not link.id:
-                continue
-            if SessionId(link.id) not in self._sessions.ids():
-                raise SessionCommandNotListed(command=name, session=link.id)
-            if name not in self._sessions.load(link.id).commands:
-                raise SessionCommandNotListed(command=name, session=link.id)
+        allowed = chain_allows(self._sessions, origin)
+        if allowed is not None and name not in allowed:
+            raise SessionCommandNotListed(command=name, chain=list[JsonValue](origin.labels))
 
 
 def _translate(kind: SessionCommandType, call: SessionCommandCall) -> str:
@@ -207,5 +236,5 @@ def _translate(kind: SessionCommandType, call: SessionCommandCall) -> str:
     return command
 
 
-def _ignored(_: JsonValue) -> None:
+def _ignored(_: SessionCommandResult) -> None:
     pass
