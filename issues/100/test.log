@@ -1,0 +1,42 @@
+# #100 — suite completa, ruff y basedpyright (597216b + cambios de la revisión)
+All checks passed!
+0 errors, 0 warnings, 0 notes
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.2.0, pluggy-1.7.0 -- <home>/Pictures/Neva/venv/bin/python
+cachedir: .pytest_cache
+rootdir: <home>/Pictures/Neva
+configfile: pyproject.toml
+plugins: anyio-4.15.1, cov-7.1.0, platformdirs-4.14.2
+collecting ... collected 28 items
+
+tests/test_tool_launcher.py::test_a_function_runs_in_its_own_process_and_returns_its_result_from_the_workspace PASSED [  3%]
+tests/test_tool_launcher.py::test_it_cannot_read_or_write_outside_the_minimum_reach_nor_open_the_network PASSED [  7%]
+tests/test_tool_launcher.py::test_it_is_born_without_a_terminal_mains_environment_or_the_workspace_on_its_path PASSED [ 10%]
+tests/test_tool_launcher.py::test_an_orphaned_grandchild_dies_when_the_call_ends PASSED [ 14%]
+tests/test_tool_launcher.py::test_a_timeout_takes_the_call_and_its_descendants_down_with_a_clear_error PASSED [ 17%]
+tests/test_tool_launcher.py::test_the_calls_tmpdir_lives_in_the_data_folder_and_is_gone_when_it_ends PASSED [ 21%]
+tests/test_tool_launcher.py::test_its_output_and_errors_come_back_as_data PASSED [ 25%]
+tests/test_tool_launcher.py::test_killing_main_kills_the_tools_process_and_its_descendants PASSED [ 28%]
+tests/test_tool_launcher.py::test_the_filter_refuses_unix_sockets_io_uring_and_typing_into_a_terminal PASSED [ 32%]
+tests/test_tool_launcher.py::test_main_kills_the_calls_process_group_when_its_warden_does_not_answer PASSED [ 35%]
+tests/test_tool_launcher.py::test_a_call_after_the_launcher_stopped_fails_instead_of_waiting_forever PASSED [ 39%]
+tests/test_tool_launcher.py::test_starting_clears_the_tmpdirs_a_crashed_main_left_behind PASSED [ 42%]
+tests/test_confinement_reach.py::test_the_installation_is_read_without_the_data_folder_inside_it PASSED [ 46%]
+tests/test_confinement_reach.py::test_a_tool_writes_only_its_workspace_its_tmpdir_and_dev_null PASSED [ 50%]
+tests/test_confinement_reach.py::test_its_own_package_and_the_harmless_devices_are_read PASSED [ 53%]
+tests/test_confinement_reach.py::test_trimming_goes_down_every_level_to_the_data_folder PASSED [ 57%]
+tests/test_confinement_reach.py::test_a_root_inside_the_data_folder_is_never_granted_as_a_broad_root PASSED [ 60%]
+tests/test_confinement_support.py::test_what_each_abi_leaves_out[0-missing0] PASSED [ 64%]
+tests/test_confinement_support.py::test_what_each_abi_leaves_out[3-missing1] PASSED [ 67%]
+tests/test_confinement_support.py::test_what_each_abi_leaves_out[5-missing2] PASSED [ 71%]
+tests/test_confinement_support.py::test_a_full_abi_misses_nothing PASSED [ 75%]
+tests/test_confinement_support.py::test_without_network_rules_main_tells_on_start_and_marks_its_chat PASSED [ 78%]
+tests/test_confinement_support.py::test_each_window_gets_the_mark_when_it_connects PASSED [ 82%]
+tests/test_confinement_support.py::test_a_full_kernel_shows_no_notice_and_no_mark PASSED [ 85%]
+tests/test_confinement_support.py::test_the_mark_stays_beside_devastations_and_after_it_goes_off PASSED [ 89%]
+tests/test_confinement_support.py::test_a_window_shows_both_marks_on_its_border PASSED [ 92%]
+tests/test_current_folder.py::test_main_started_with_python_m_ignores_modules_left_in_its_current_folder PASSED [ 96%]
+tests/test_current_folder.py::test_the_processes_main_starts_ignore_its_current_folder PASSED [100%]
+
+============================== 28 passed in 4.18s ==============================
+1187 passed in 22.27s

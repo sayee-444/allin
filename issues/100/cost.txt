@@ -1,0 +1,2 @@
+ToolLauncher.run, confined, net=False (30 calls): median 21.0 ms, p90 21.5 ms
+multiprocessing spawn + Queue, unconfined (ADR-0005 before): median 70.0 ms, p90 73.5 ms

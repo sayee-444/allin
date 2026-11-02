@@ -1,0 +1,49 @@
+{
+  "1_result_and_cwd": {
+    "text": "hola",
+    "cwd": "<scratch>/var/workspaces/s1"
+  },
+  "2_outside_reach": {
+    "state/main.json": "PermissionError",
+    "~/.ssh": "PermissionError"
+  },
+  "2_write_state": "PermissionError",
+  "2_write_workspace": "written",
+  "2_connect_local_port": "PermissionError",
+  "3_birth": {
+    "env": [
+      "HOME",
+      "LANG",
+      "PATH",
+      "TMPDIR"
+    ],
+    "ttys": [],
+    "controlling": false,
+    "json": "<python>/lib/python3.14/json/__init__.py",
+    "sockets": [],
+    "main_env_had": [
+      "SSH_AUTH_SOCK",
+      "GITHUB_TOKEN"
+    ]
+  },
+  "4_grandchild": "left",
+  "4_grandchild_alive_after_call": false,
+  "5_timeout": {
+    "error": "ToolTimedOut",
+    "code": "tool_timed_out",
+    "fields": {
+      "seconds": 1
+    },
+    "seconds_to_fail": 1.01
+  },
+  "5_descendant_alive_after_timeout": false,
+  "6_tmpdir": {
+    "was": "<scratch>/var/tmp/call-c289f35231d49d1f",
+    "exists_after": false
+  },
+  "output_as_data": {
+    "stdout": "to stdout\n",
+    "stderr": "to stderr\n"
+  },
+  "error_as_data": "ValueError: bad input"
+}
