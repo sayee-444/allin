@@ -6,13 +6,14 @@ still open; wrapping is cached per entry, so a delta only re-wraps the entry it 
 
 from dataclasses import dataclass
 
-from allin.ui.wrap import wrap
+from allin.ui.wrap import wrap_rows
 
 
 @dataclass(frozen=True)
 class Row:
     role: str | None
     text: str
+    joined: bool = False  # it continues the row before it: wrapped, with no line break
 
 
 @dataclass
@@ -21,7 +22,7 @@ class _Entry:
     label: str | None
     text: str
     streaming: bool
-    rows: list[str] | None = None  # wrapped to the Chat's width; None until wrapped
+    rows: list[tuple[str, bool]] | None = None  # wrapped to the Chat's width (wrap_rows)
 
     def display_text(self) -> str:
         return f"[{self.label}] {self.text}" if self.label else self.text
@@ -66,6 +67,6 @@ class Chat:
         del self._rows[kept:]
         for entry in self._entries[first:]:
             if entry.rows is None:
-                entry.rows = wrap(entry.display_text(), width)
-            self._rows += [Row(entry.role, row) for row in entry.rows]
+                entry.rows = wrap_rows(entry.display_text(), width)
+            self._rows += [Row(entry.role, row, joined) for row, joined in entry.rows]
         return self._rows

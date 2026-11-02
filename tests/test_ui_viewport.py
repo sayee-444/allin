@@ -34,3 +34,10 @@ def test_growing_the_pad_never_shows_past_the_end():
     view = Viewport()
     view.scroll(-5, total=100, rows=10)
     assert view.top(total=100, rows=30) == 70
+
+
+def test_follow_goes_back_to_the_last_lines():
+    view = Viewport()
+    view.scroll(-50, total=100, rows=10)
+    view.follow()
+    assert view.top(total=100, rows=10) == 90

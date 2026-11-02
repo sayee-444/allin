@@ -1,6 +1,6 @@
 import pytest
 
-from allin.ui.wrap import wrap
+from allin.ui.wrap import wrap, wrap_rows
 
 
 @pytest.mark.parametrize(
@@ -28,3 +28,7 @@ def test_rewrapping_at_a_new_width_keeps_every_character():
     text = "primera línea\nsegunda"
     assert wrap(text, 6) == ["primer", "a líne", "a", "segund", "a"]
     assert wrap(text, 20) == ["primera línea", "segunda"]
+
+
+def test_each_row_says_whether_it_continues_the_one_before():
+    assert wrap_rows("abcdef\ngh", 4) == [("abcd", False), ("ef", True), ("gh", False)]

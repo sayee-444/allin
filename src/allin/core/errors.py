@@ -313,3 +313,15 @@ class KitPieceUnknown(AllInError):
     """``/kit export`` or ``/kit load`` named a piece there is not."""
 
     code: ClassVar[str] = "kit_piece_unknown"
+
+
+class ClipboardUnavailable(AllInError):
+    """No tool here reaches the system clipboard (``tools`` says which would)."""
+
+    code: ClassVar[str] = "clipboard_unavailable"
+
+
+class ClipboardFailed(AllInError):
+    """The clipboard tool could not run, hung or failed (``tool``, ``reason``)."""
+
+    code: ClassVar[str] = "clipboard_failed"

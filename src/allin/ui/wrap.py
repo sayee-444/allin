@@ -18,18 +18,23 @@ def cell_width(char: str) -> int:
 
 
 def wrap(text: str, width: int) -> list[str]:
-    lines: list[str] = []
+    return [row for row, _ in wrap_rows(text, width)]
+
+
+def wrap_rows(text: str, width: int) -> list[tuple[str, bool]]:
+    """``wrap``, saying of each row whether it continues the one before it (no line break)."""
+    rows: list[tuple[str, bool]] = []
     for logical in text.split("\n"):
-        line, used = "", 0
+        line, used, joined = "", 0, False
         for char in printable(logical):
             cells = cell_width(char)
             if used + cells > width and line:
-                lines.append(line)
-                line, used = "", 0
+                rows.append((line, joined))
+                line, used, joined = "", 0, True
             line += char
             used += cells
-        lines.append(line)
-    return lines
+        rows.append((line, joined))
+    return rows
 
 
 def printable(line: str) -> str:

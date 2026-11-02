@@ -44,6 +44,7 @@ _SINGLE: dict[str | int, KeyChord] = {
     curses.KEY_PPAGE: KeyChord(Key.PAGE_UP),
     curses.KEY_NPAGE: KeyChord(Key.PAGE_DOWN),
     curses.KEY_RESIZE: KeyChord(Key.RESIZE),
+    "\x16": KeyChord("v", ctrl=True),  # Ctrl+V, when xterm does not send it as CSI 27
 }
 
 

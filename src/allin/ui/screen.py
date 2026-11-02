@@ -6,24 +6,37 @@ curses; other threads hand it updates through ``inbox``.
 """
 
 import curses
+import os
 import queue
+import shutil
 import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import Literal
 
-from allin.core.errors import ScreenTooSmall
+from allin.core.errors import AllInError, ScreenTooSmall
 from allin.core.ids import BoxId
 from allin.ui.boxes import VIEW_KEYS, Box, BoxClosed, BoxStack, box_rows
 from allin.ui.chat import Chat, Row
+from allin.ui.clipboard import Clipboard, system_clipboard
 from allin.ui.draft import DraftReporter
 from allin.ui.input_buffer import InputBuffer
 from allin.ui.keys import Key, KeyChord, KeyDecoder, KeyEvent, Paste
 from allin.ui.layout import Layout, Rect, compute_layout
+from allin.ui.mouse import (
+    DRAG_REPORTS_OFF,
+    DRAG_REPORTS_ON,
+    MOUSE_MASK,
+    Mouse,
+    MouseAction,
+    mouse_event,
+)
 from allin.ui.sanitize import visible
+from allin.ui.selection import Point, Selection, autoscroll_rows, char_index
 from allin.ui.viewport import Viewport
-from allin.ui.wrap import cell_width, wrap
+from allin.ui.wrap import cell_width, wrap_rows
 
 _BOX_MAX_WIDTH = 64
 _BOX_MIN_WIDTH = 16
@@ -34,6 +47,7 @@ _BRACKETED_PASTE_OFF = "\x1b[?2004l"
 _TOO_SMALL = "Terminal too small: please enlarge it"
 _LOCKED = " turn running: Enter is blocked "
 _WAITING = " +{} waiting "  # Draft blocks behind the shown one
+_WHEEL_ROWS = 3
 _ROLE_COLORS = {
     "user": curses.COLOR_CYAN,
     "reasoning": curses.COLOR_MAGENTA,
@@ -103,6 +117,8 @@ class HideBox:
     box_id: BoxId
 
 
+type PadName = Literal["chat", "input"]
+
 # A plain str is a ChatLine with no role; None asks the screen to quit.
 type ScreenUpdate = (
     str
@@ -120,8 +136,11 @@ type OnBoxClosed = Callable[[BoxClosed], None]
 
 
 class ChatScreen:
-    def __init__(self, stdscr: curses.window, title: str) -> None:
+    def __init__(
+        self, stdscr: curses.window, title: str, clipboard: Clipboard | None = None
+    ) -> None:
         self._stdscr = stdscr
+        self._clipboard = clipboard or system_clipboard(os.environ, shutil.which)
         self._title = visible(title)
         self._status = ""
         self._mark = ""
@@ -131,10 +150,20 @@ class ChatScreen:
         self._role_attrs: dict[str, int] = {}
         self._locked = False
         self._input = InputBuffer()
+        self._input_rows: list[Row] = []  # the input wrapped to its pad's width
+        self._input_view = Viewport()
+        # Text selected with the mouse, in one pad; _dragging while its button is held, at
+        # _pointer (y, x) once it moved, which may be outside the pad (autoscroll).
+        self._selection = Selection()
+        self._selecting: PadName | None = None
+        self._dragging = False
+        self._pointer: tuple[int, int] | None = None
+        self._scrolled_at = 0.0  # when the last autoscroll tick ran
         self._keys = KeyDecoder()
         self._boxes_shown = BoxStack()
         self._on_box_closed: OnBoxClosed = lambda _: None
         self._layout: Layout | None = None
+        self._shown: Layout | None = None  # where the pads are on screen now, for the mouse
         self._boxes: tuple[curses.window, curses.window] | None = None
         self._pads: tuple[curses.window, curses.window] | None = None
         self._dirty = True
@@ -163,24 +192,31 @@ class ChatScreen:
         self._stdscr.keypad(True)
         self._stdscr.timeout(_POLL_MS)
         self._role_attrs = _role_attrs()
-        _write_terminal(_BRACKETED_PASTE_ON)
+        curses.mousemask(MOUSE_MASK)
+        curses.mouseinterval(0)  # presses and releases as they come, never made into clicks
+        _write_terminal(_BRACKETED_PASTE_ON + DRAG_REPORTS_ON)
         try:
             self._loop(on_submit, DraftReporter(on_draft) if on_draft else None)
         finally:
-            _write_terminal(_BRACKETED_PASTE_OFF)
+            _write_terminal(_BRACKETED_PASTE_OFF + DRAG_REPORTS_OFF)
 
     def _loop(self, on_submit: Callable[[str], None], draft: DraftReporter | None) -> None:
         while True:
             if not self._drain_inbox():
                 return
+            now = time.monotonic()
             if draft is not None:
-                draft.update(self._input.blocks, time.monotonic())
+                draft.update(self._input.blocks, now)
+            self._autoscroll(now)
             if self._dirty:
                 self._draw()
             try:
                 key = self._stdscr.get_wch()
             except curses.error:
                 self._keys.flush()
+                continue
+            if key == curses.KEY_MOUSE:
+                self._mouse()
                 continue
             for chord in self._keys.feed(key):
                 self._dirty = True
@@ -194,9 +230,13 @@ class ChatScreen:
             if closed is not None:
                 self._on_box_closed(closed)
             return
+        if not _is_view_key(chord) or chord == KeyChord(Key.RESIZE):
+            self._clear_selection()  # a key that edits, or new rows: its places are gone
         match chord:
             case Paste(text=text):
                 self._input.insert(text)
+            case KeyChord(key="v", ctrl=True, alt=False):
+                self._paste()
             case KeyChord(key=Key.RESIZE):
                 curses.update_lines_cols()
                 self._repaint = True
@@ -219,6 +259,108 @@ class ChatScreen:
                 self._input.insert(char)
             case _:
                 pass
+        self._input_view.follow()  # the cursor, at the end of the input, is in view again
+
+    def _paste(self) -> None:
+        """Ctrl+V: the clipboard's text into the input, as a paste from the terminal."""
+        try:
+            self._input.insert(self._clipboard.paste())
+        except AllInError as error:
+            self._chat.add(visible(str(error)), "error", "error")
+
+    def _mouse(self) -> None:
+        try:
+            _, x, y, _, bstate = curses.getmouse()
+        except curses.error:
+            return  # a report curses could not read
+        event = mouse_event(x, y, bstate)
+        if event is None or self._shown is None:
+            return
+        self._dirty = True
+        match event.action:
+            case MouseAction.WHEEL_UP | MouseAction.WHEEL_DOWN:
+                pad = _pad_at(self._shown, event)
+                if pad is not None:
+                    up = event.action == MouseAction.WHEEL_UP
+                    self._scroll(pad, -_WHEEL_ROWS if up else _WHEEL_ROWS)
+            case MouseAction.PRESS:
+                self._clear_selection()
+                self._selecting = _pad_at(self._shown, event)
+                if self._selecting is not None:
+                    self._dragging = True
+                    self._selection.start(self._point(self._selecting, event.y, event.x))
+            case MouseAction.DRAG:
+                if self._dragging and self._selecting is not None:
+                    self._pointer = (event.y, event.x)
+                    self._selection.extend(self._point(self._selecting, event.y, event.x))
+            case MouseAction.RELEASE:
+                self._dragging, self._pointer = False, None
+                if self._selection.active:
+                    self._copy()
+
+    def _autoscroll(self, now: float) -> None:
+        """While a drag holds the pointer above or below its pad, scroll it once a tick,
+        faster the further out, and take the selection along."""
+        if not self._dragging or self._pointer is None or self._selecting is None:
+            return
+        if now - self._scrolled_at < _POLL_MS / 1000:
+            return
+        self._scrolled_at = now
+        area = self._area(self._selecting)
+        if area is None:
+            return
+        y, x = self._pointer
+        rows = autoscroll_rows(y, area.top, area.height)
+        if rows:
+            self._scroll(self._selecting, rows)
+            self._selection.extend(self._point(self._selecting, y, x))
+            self._dirty = True
+
+    def _copy(self) -> None:
+        text = self._selection.text(self._selectable_rows())
+        try:
+            self._clipboard.copy(text)
+        except AllInError as error:
+            self._chat.add(visible(str(error)), "error", "error")
+
+    def _selectable_rows(self) -> list[Row]:
+        if self._selecting == "chat":
+            return self._chat_rows
+        rows = list(self._input_rows)
+        if rows:  # its last cell is where the cursor sits, not text
+            last = rows[-1]
+            rows[-1] = Row(last.role, last.text.removesuffix(" "), last.joined)
+        return rows
+
+    def _clear_selection(self) -> None:
+        self._selection.clear()
+        self._selecting, self._dragging, self._pointer = None, False, None
+
+    def _point(self, pad: PadName, y: int, x: int) -> Point:
+        """The character of ``pad`` at the terminal's cell ``(y, x)``, or the nearest one
+        in view if it is outside the pad."""
+        area = self._area(pad)
+        rows = self._chat_rows if pad == "chat" else self._input_rows
+        if area is None or not rows:
+            return Point(0, 0)
+        view = self._chat_view if pad == "chat" else self._input_view
+        top = view.top(len(rows), area.height)
+        row = min(top + min(max(y - area.top, 0), area.height - 1), len(rows) - 1)
+        return Point(row, char_index(rows[row].text, max(0, x - area.left)))
+
+    def _area(self, pad: PadName) -> Rect | None:
+        if self._shown is None:
+            return None
+        return self._shown.chat_pad if pad == "chat" else self._shown.input_pad
+
+    def _scroll(self, pad: PadName, rows: int) -> None:
+        area = self._area(pad)
+        if area is None:
+            return
+        if pad == "chat":
+            self._chat_view.scroll(rows, len(self._chat_rows), area.height)
+        else:
+            self._input_view.scroll(rows, len(self._input_rows), area.height)
 
     def _drain_inbox(self) -> bool:
         while True:
@@ -268,12 +410,16 @@ class ChatScreen:
             self._layout = None
         height, width = self._stdscr.getmaxyx()
         # A trailing space reserves the cell where the cursor sits after the last character.
-        input_rows = wrap(visible(self._input.text) + " ", max(1, width - 2))
+        text = visible(self._input.text) + " "
+        input_rows = [Row(None, row, joined) for row, joined in wrap_rows(text, max(1, width - 2))]
+        self._input_rows = input_rows
         try:
             layout = compute_layout(height, width, len(input_rows))
         except ScreenTooSmall:
+            self._shown = None
             self._draw_too_small(width)
             return
+        self._shown = layout
         if layout != self._layout:
             self._layout = layout
             self._boxes = (_box(layout.chat_box), _box(layout.input_box))
@@ -297,20 +443,28 @@ class ChatScreen:
         input_box.noutrefresh()
 
         self._draw_chat(chat_pad, layout.chat_pad)
-        input_top = max(0, len(input_rows) - layout.input_pad.height)
-        _paint(input_pad, [Row(None, row) for row in input_rows[input_top:]], layout.input_pad)
+        input_area = layout.input_pad
+        input_top = self._input_view.top(len(input_rows), input_area.height)
+        shown = input_rows[input_top : input_top + input_area.height]
+        _paint(input_pad, shown, input_area, first=input_top, selection=self._selected("input"))
 
         self._draw_box(layout.chat_pad)
-        last_row = input_rows[-1][:-1]
-        cursor_y = layout.input_pad.top + len(input_rows) - 1 - input_top
-        cursor_x = layout.input_pad.left + sum(cell_width(c) for c in last_row)
+        last_row = input_rows[-1].text[:-1]
+        # Scrolled up with the wheel, the cursor waits on the pad's last row.
+        cursor_row = min(len(input_rows) - 1 - input_top, input_area.height - 1)
+        cursor_y = input_area.top + cursor_row
+        cursor_x = input_area.left + sum(cell_width(c) for c in last_row)
         curses.setsyx(cursor_y, cursor_x)
         curses.doupdate()
 
     def _draw_chat(self, pad: curses.window, area: Rect) -> None:
         self._chat_rows = self._chat.rows(area.width)
         top = self._chat_view.top(len(self._chat_rows), area.height)
-        _paint(pad, self._chat_rows[top : top + area.height], area, self._role_attrs)
+        rows = self._chat_rows[top : top + area.height]
+        _paint(pad, rows, area, self._role_attrs, first=top, selection=self._selected("chat"))
+
+    def _selected(self, pad: PadName) -> Selection | None:
+        return self._selection if self._selecting == pad else None
 
     def _draw_box(self, area: Rect) -> None:
         """The shown box, centred over the Chat, on top of what was drawn."""
@@ -343,6 +497,18 @@ class ChatScreen:
         with suppress(curses.error):
             self._stdscr.addnstr(0, 0, _TOO_SMALL, max(0, width - 1))
         self._stdscr.refresh()
+
+
+def _pad_at(layout: Layout, event: Mouse) -> PadName | None:
+    pads: tuple[tuple[PadName, Rect], ...] = (
+        ("chat", layout.chat_pad),
+        ("input", layout.input_pad),
+    )
+    for name, area in pads:
+        inside_rows = area.top <= event.y < area.top + area.height
+        if inside_rows and area.left <= event.x < area.left + area.width:
+            return name
+    return None
 
 
 def _is_view_key(chord: KeyEvent) -> bool:
@@ -391,14 +557,26 @@ def _role_attrs() -> dict[str, int]:
 
 
 def _paint(
-    pad: curses.window, rows: list[Row], area: Rect, role_attrs: dict[str, int] | None = None
+    pad: curses.window,
+    rows: list[Row],
+    area: Rect,
+    role_attrs: dict[str, int] | None = None,
+    first: int = 0,
+    selection: Selection | None = None,
 ) -> None:
-    """Show ``rows`` (already the visible slice) in ``area``."""
+    """Show ``rows`` (already the visible slice, from row ``first`` on) in ``area``, with
+    what ``selection`` holds of them in reverse video."""
     pad.erase()
     for y, row in enumerate(rows[: area.height]):
         attr = (role_attrs or {}).get(row.role or "", curses.A_NORMAL)
         # Writing the very last cell fails after drawing it, e.g. a wide character.
         with suppress(curses.error):
             pad.addstr(y, 0, row.text, attr)
+        span = selection.span(first + y, len(row.text)) if selection else None
+        if span is not None:
+            start, end = span
+            x = sum(cell_width(char) for char in row.text[:start])
+            with suppress(curses.error):
+                pad.addstr(y, x, row.text[start:end], attr | curses.A_REVERSE)
     bottom, right = area.top + area.height - 1, area.left + area.width - 1
     pad.noutrefresh(0, 0, area.top, area.left, bottom, right)
