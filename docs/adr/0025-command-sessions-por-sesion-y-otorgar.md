@@ -31,3 +31,15 @@ Main trae dos Command sessions propios, `@send <sid> <texto>` y `@server [restar
 El canal de vuelta es `allin.channel.command("@nombre …")`. Dentro del proceso de la tool escribe una línea en una tubería que solo lee su vigilante. El vigilante la pasa a Main como una petición aparte, nunca como el resultado de la llamada, y le devuelve la respuesta de Main: `{"result": "ok"}` o `{"error": …}`. Una línea que no es un Command session se contesta `malformed command` y no llega a Main. El tiempo que Main tarda en contestar no cuenta para el timeout de la llamada. Main comprueba primero lo que declara la function, luego la lista de cada Sesión de la cadena del Turno, y ejecuta el Command main con esa cadena, así que uno delicado pide Confirmación como si lo hubiera mandado la Sesión. `@server restart` contesta cuando el Servidor vuelve a estar `ready`, o con `failed` y el motivo.
 
 Todavía no hay Moldes (#112), Clon ni Restablecer, así que lo que esta decisión dice de ellos se hará con ellos. Tampoco hay aún Procesos adheridos, así que nada lleva por ahora el Origen de Main.
+
+## Enmienda (#111): cómo quedó Otorgar
+
+Otorgar es el Command session `@grant <sid> <pieza|@comando>…`, que se convierte en el Command main `/grant`. Es de Main, como `@send`, pero no va en la lista por defecto.
+
+- **Quién lo da.** Se tiene Otorgar cuando `@grant` está en la lista de la Sesión. Solo lo pone un humano con `/func add`. Dar la fsource que lo declara también da `@grant`, y quitarla lo quita. `/new` nunca lo trae, aunque se nombre en `-cs=`: la Sesión nace sin él y sale un Aviso.
+- **El Aviso y el borde.** Al dárselo, sale un Aviso en la Ventana de la Sesión, y su borde lo marca (`@grant: it may give functions and Command sessions`) mientras lo tenga.
+- **Qué da.**
+  - Solo da piezas aprobadas del Perfil y Command sessions que existen.
+  - Una pieza en cuarentena o rechazada da error, y lo mismo `@grant` o una pieza que lo declare (`grant_not_givable`).
+  - Solo da a Sesiones del Perfil activo. Lo que da deja sus Notificaciones en la Sesión que lo recibe, como `/func add`.
+- **Confirmación y Log.** `/grant` es delicado: pide Confirmación antes de mirar lo que da, como todo Command main delicado, y queda en el Log con la cadena entera. `--devastation` la contesta solo si cubre la cadena y también la Sesión que recibe.
