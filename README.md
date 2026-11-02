@@ -154,6 +154,8 @@ venv/bin/python -m allin --data-dir var
 
 Commands are typed in Main's own input. In Main and in every Window, the mouse wheel scrolls the Chat or the input under the pointer, dragging selects text and copies it to the clipboard, and Ctrl+V pastes into the input.
 
+The arrows, Home and End move the cursor in the input, and typing, deleting and pasting happen there. Up on the input's first row brings back the Session's earlier Prompts, and Down past the newest gives back what you were writing.
+
 In a Prompt you type, `@key=value` changes a sampling parameter for that Turn only (`temperature`, `top_p`, `top_k`, `min_p`, `max_output_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `reasoning_budget_tokens`, `effort`), and `@./file`, `@~/file` or `@/path/file` attaches a file. The file is copied to the Session's workspace (`<data dir>/workspaces/<sid>/.allin/adjuntos/`); text goes in as text, and an image goes in as an image only if the Server sees images.
 
 | Command | What it does |

@@ -1377,6 +1377,8 @@ def _commands(prompt: Prompt) -> dict[str, JsonValue]:
         fields["overrides"] = overrides
     if prompt.attachments:
         fields["attachments"] = [attachment.path for attachment in prompt.attachments]
+    if prompt.typed:
+        fields["typed"] = prompt.typed
     return fields
 
 

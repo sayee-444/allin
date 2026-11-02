@@ -47,6 +47,17 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
     return texts
 
 
+def prompt_history(log: Iterable[LogEntry]) -> list[str]:
+    """The Prompts the Session was sent, oldest first, as they were typed (#22)."""
+    history: list[str] = []
+    for entry in log:
+        if entry.event == "prompt":
+            typed = entry.fields.get("typed") or entry.fields.get("text")
+            if isinstance(typed, str):
+                history.append(typed)
+    return history
+
+
 def rebuild_chat(
     conversation: Conversation,
     log: Iterable[LogEntry],

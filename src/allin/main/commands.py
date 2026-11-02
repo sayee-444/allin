@@ -248,12 +248,14 @@ class MainCommands:
         prompt_id = new_prompt_id() if parsed.references else ""  # names its attachments
         workspace = self._sessions.workspace(session_id)
         names, attachments = attach(parsed.references, workspace, prompt_id, Path.cwd())
+        sent = parsed.text_with(names)
         return Prompt(
             session_id,
-            parsed.text_with(names),
+            sent,
             prompt_id=prompt_id,
             attachments=tuple(attachments),
             overrides=parsed.overrides,
+            typed=text if text != sent else "",
         )
 
     def _switch_devastation(self, state: str) -> bool:

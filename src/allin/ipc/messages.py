@@ -133,6 +133,14 @@ class BoxHide(BaseModel):
     box_id: BoxId
 
 
+class PromptHistory(BaseModel):
+    """The Session's earlier Prompts, oldest first, as they were typed: Up brings them back to
+    the input (#22)."""
+
+    type: Literal["prompt_history"] = "prompt_history"
+    prompts: list[str]
+
+
 type MainToWindow = (
     ChatAppend
     | ChatDelta
@@ -140,6 +148,7 @@ type MainToWindow = (
     | ContextUsage
     | PoolShared
     | InputRestore
+    | PromptHistory
     | BoxShow
     | BoxHide
     | Coverage

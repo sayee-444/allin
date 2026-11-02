@@ -18,7 +18,6 @@ quiero que leas primero el codigo, lo importante es como funciona, el proceso qu
   5. Lo que el nieto regresa al proceso donde inicio todo, al @src/main.py que tambien tendras que actualizar a threads y multiprocesos para que este leyendo caundo temrine el hijo y asi identificar cuando tambien se cierra la ventana del nieto, haciendo que si pasa esto se vuelva abrir la ventana nieto y el proceso original no termina. El otro proceso ahora si que recibe de src/terminal/person/start.py -> src/main.py que paralelamente es el input, main lo que hara sera trabajar con otras funciones (tambien se debera de armar un arbol), donde lo basico es algo como esto:
 
 ```python
-
 from openai import OpenAI
 
 client = OpenAI(
@@ -60,80 +59,80 @@ for event in stream:
     8. Las sesiones estaran guardadas en @src/terminal/person, con el nombre de sessions y esta su vez almacenara el chat, las skills generadas, y estas skills generadas deberan ser modulares tanto como sus function tools, ya se que anteriormente mencione que no se debera de mover tanto o extender tanto al modulo donde esta openai pero en este caso es importante que implementes una manera que las skills sean modulares, o sea de que se escriba, se pueda actualizar la sesion en el codigo de que reconozca qeu se implemento nuevo codigo como trabajaria una libreria dinamica pero para python, de esta manera el main.py cuando mande a llamra la libreria de openai, sabra como identificar las skills de dicha sesion e implementarlo en tools adecuandamente o dinamicamente dependiendo de la sesion y la solicitud:
 
     ```python
-#ejemplo de openai docs
+    # ejemplo de openai docs
 
-from openai import OpenAI
-import json
+    from openai import OpenAI
+    import json
 
-client = OpenAI()
+    client = OpenAI()
 
-# 1. Define a list of callable tools for the model
-tools = [
-    {
-        "type": "function",
-        "name": "get_horoscope",
-        "description": "Get today's horoscope for an astrological sign.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "sign": {
-                    "type": "string",
-                    "description": "An astrological sign like Taurus or Aquarius",
+    # 1. Define a list of callable tools for the model
+    tools = [
+        {
+            "type": "function",
+            "name": "get_horoscope",
+            "description": "Get today's horoscope for an astrological sign.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sign": {
+                        "type": "string",
+                        "description": "An astrological sign like Taurus or Aquarius",
+                    },
                 },
+                "required": ["sign"],
             },
-            "required": ["sign"],
         },
-    },
-]
+    ]
 
 
-def get_horoscope(sign):
-    return f"{sign}: Next Tuesday you will befriend a baby otter."
+    def get_horoscope(sign):
+        return f"{sign}: Next Tuesday you will befriend a baby otter."
 
 
-# Create a running input list we will add to over time
-input_list = [{"role": "user", "content": "What is my horoscope? I am an Aquarius."}]
+    # Create a running input list we will add to over time
+    input_list = [{"role": "user", "content": "What is my horoscope? I am an Aquarius."}]
 
-# 2. Prompt the model with tools defined
-response = client.responses.create(
-    model="gpt-6-astra",
-    tools=tools,
-    input=input_list,
-)
+    # 2. Prompt the model with tools defined
+    response = client.responses.create(
+        model="gpt-6-astra",
+        tools=tools,
+        input=input_list,
+    )
 
-# Save function call outputs for subsequent requests
-input_list += response.output
+    # Save function call outputs for subsequent requests
+    input_list += response.output
 
-for item in response.output:
-    if item.type == "function_call":
-        if item.name == "get_horoscope":
-            # 3. Execute the function logic for get_horoscope
-            sign = json.loads(item.arguments)["sign"]
-            horoscope = get_horoscope(sign)
+    for item in response.output:
+        if item.type == "function_call":
+            if item.name == "get_horoscope":
+                # 3. Execute the function logic for get_horoscope
+                sign = json.loads(item.arguments)["sign"]
+                horoscope = get_horoscope(sign)
 
-            # 4. Provide function call results to the model
-            input_list.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": item.call_id,
-                    "output": horoscope,
-                }
-            )
+                # 4. Provide function call results to the model
+                input_list.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": horoscope,
+                    }
+                )
 
-print("Final input:")
-print(input_list)
+    print("Final input:")
+    print(input_list)
 
-response = client.responses.create(
-    model="gpt-6-astra",
-    instructions="Respond only with a horoscope generated by a tool.",
-    tools=tools,
-    input=input_list,
-)
+    response = client.responses.create(
+        model="gpt-6-astra",
+        instructions="Respond only with a horoscope generated by a tool.",
+        tools=tools,
+        input=input_list,
+    )
 
-# 5. The model should be able to give a response!
-print("Final output:")
-print(response.model_dump_json(indent=2))
-print("\n" + response.output_text)
+    # 5. The model should be able to give a response!
+    print("Final output:")
+    print(response.model_dump_json(indent=2))
+    print("\n" + response.output_text)
     ```
 
 Se tendran function determinadas como llamar con popen un os read o un os write con with para que se cierre el proceso bien, no se usar un thread para que se llame ese proceso en el momento de la llamada.
