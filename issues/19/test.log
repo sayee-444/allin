@@ -1,0 +1,29 @@
+#19 Una señal durante el arranque de Main sigue el apagado ordenado — prueba a mano (2026-11-01)
+Código: rama feature/19-senal-al-arrancar.
+
+Montaje: Main en una xterm con un paso de arranque falso (en lugar de remove_stale_fifos, que corre antes
+del Dispatcher) que espera hasta que existe un archivo «go». Con Main esperando ahí, se le manda la señal
+por su pid; 0,3 s después se crea «go». La xterm sigue abierta al terminar y muestra el código de salida
+de Main y las dos últimas líneas de su Log. Datos en <scratch>/d19-<señal>.
+
+Antes (el app.py de main):
+- SIGINT: un traceback de KeyboardInterrupt sobre la terminal, desde time.sleep del paso que espera
+  (<repo>/src/allin/main/app.py, line 70, in _run → remove_stale_fifos …). Main muere sin Log de Main.
+- SIGTERM: ncurses, como SIGTERM seguía con la acción por defecto, pone su propio manejador en initscr:
+  cierra la pantalla y sale con código 1, sin main_stopped.
+- SIGHUP: la acción por defecto mata a Main (-1).
+  El test nuevo, con ese código, da: SIGTERM «assert 1 == 0», SIGINT «assert -2 == 0», SIGHUP «assert -1 == 0».
+
+Después:
+- SIGINT (a-sigint-al-arrancar.png), SIGTERM (b-…) y SIGHUP (c-…): «allin terminó con código 0», sin
+  traceback, y la terminal fuera de curses. Las últimas líneas del Log de Main son queue_paused y
+  main_stopped, como con /exit.
+
+Arreglo: ShutdownSignals se instala en la primera línea de allin.main.app.run, antes de tomar el candado
+de Main, migrar los Perfiles o abrir curses. El inbox nace ahí; la señal deja un Shutdown en él, y el
+Dispatcher lo atiende en cuanto corre. uninstall va en un finally.
+
+Tests: tests/test_startup_signal.py lanza Main de verdad en un pty de 80x24, con el mismo paso falso,
+y para SIGTERM, SIGINT y SIGHUP comprueba: código 0, sin «Traceback», que la terminal sale de la pantalla
+alternativa (\e[?1049l después del último \e[?1049h) y que el Log de Main empieza en main_started y acaba
+en main_stopped. 1002 tests; basedpyright y ruff limpios.
