@@ -1,0 +1,71 @@
+# #124 — registros de la prueba a mano (2026-11-03)
+
+Valor de prueba del Secreto: xoxb-prueba-1234-abcd (21 caracteres). Valor escrito por error en la línea: https-hook-prueba-5678.
+
+## Log de Main: /secret, Secretos, adhesiones, llamadas y comandos de la Ventana
+{"ts": "2026-11-03T04:48:48.299812-06:00", "event": "command", "command": "/secret set keeper token", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:48:52.128639-06:00", "event": "secret_set", "instance": "keeper", "name": "token"}
+{"ts": "2026-11-03T04:48:55.684774-06:00", "event": "command", "command": "/secret set keeper webhook …", "result": "error invalid_arguments: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T04:48:57.977816-06:00", "event": "command", "command": "/secret", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:00.631192-06:00", "event": "command", "command": "/secret list keeper", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:03.163837-06:00", "event": "attached", "name": "keeper", "fproc": "keeper", "pid": 803322, "file": null, "to": [], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-03T04:49:03.163893-06:00", "event": "command", "command": "/attach keeper", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:08.790040-06:00", "event": "method_called", "name": "keeper", "method": "status", "arguments": {}, "result": "\"token: 21 characters, sha256 5a6a1ecd1ccd…\"", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:08.790150-06:00", "event": "command", "command": "/call keeper status", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:13.535784-06:00", "event": "method_called", "name": "keeper", "method": "elsewhere", "arguments": {}, "result": "[]", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:13.535873-06:00", "event": "command", "command": "/call keeper elsewhere", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:18.039847-06:00", "event": "detached", "name": "keeper"}
+{"ts": "2026-11-03T04:49:18.040111-06:00", "event": "command", "command": "/detach keeper", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:21.571048-06:00", "event": "attached", "name": "keeper", "fproc": "keeper", "pid": 803422, "file": null, "to": [], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-03T04:49:21.571117-06:00", "event": "command", "command": "/attach keeper", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:27.197230-06:00", "event": "method_called", "name": "keeper", "method": "status", "arguments": {}, "result": "\"token: 21 characters, sha256 5a6a1ecd1ccd…\"", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:27.197326-06:00", "event": "command", "command": "/call keeper status", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:31.705251-06:00", "event": "session_command", "command": "@secret list", "result": "unknown_session_command: command='secret'"}
+{"ts": "2026-11-03T04:49:35.013461-06:00", "event": "session_command", "command": "@secret set keeper token", "result": "unknown_session_command: command='secret'"}
+{"ts": "2026-11-03T04:49:38.041229-06:00", "event": "command", "command": "/profile export default copia", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:41.577755-06:00", "event": "command", "command": "/kit export kit", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:45.471202-06:00", "event": "secret_removed", "instance": "keeper", "name": "token"}
+{"ts": "2026-11-03T04:49:45.471321-06:00", "event": "command", "command": "/secret remove keeper token", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:47.978941-06:00", "event": "detached", "name": "keeper"}
+{"ts": "2026-11-03T04:49:47.979221-06:00", "event": "command", "command": "/detach keeper", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:51.510369-06:00", "event": "attached", "name": "keeper", "fproc": "keeper", "pid": 803618, "file": null, "to": [], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-03T04:49:51.510427-06:00", "event": "command", "command": "/attach keeper", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:57.137693-06:00", "event": "method_called", "name": "keeper", "method": "status", "arguments": {}, "result": "\"no token\"", "origin": ["human"]}
+{"ts": "2026-11-03T04:49:57.137785-06:00", "event": "command", "command": "/call keeper status", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:50:01.429569-06:00", "event": "command", "command": "/secret", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:50:13.934154-06:00", "event": "command", "command": "/secret set keeper token", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T04:50:16.649558-06:00", "event": "secret_set", "instance": "keeper", "name": "token"}
+{"ts": "2026-11-03T04:50:18.882060-06:00", "event": "detached", "name": "keeper", "reason": "main stopped"}
+
+## Archivos de la prueba (carpeta de datos, copia del Perfil y Kit) que contienen el valor
+data/profiles/default/secrets/keeper.json
+
+## Archivos con el valor escrito por error en la línea
+(ninguno)
+
+## Permisos
+drwx------ data/profiles/default/secrets
+-rw------- data/profiles/default/secrets/keeper.json
+
+## Lo que llevan la copia del Perfil y el Kit
+copia/manifest.json
+copia/sessions/jefa/conversation.json
+copia/sessions/jefa/log.jsonl
+copia/sessions/jefa/recipe.json
+copia/sessions/jefa/session.json
+copia/sysprompts/allin.txt
+copia/sysprompts/default.txt
+copia/themes/bosque.toml
+copia/themes/claro.toml
+copia/themes/default.toml
+copia/themes/oceano.toml
+copia/themes/simple.toml
+kit/manifest.json
+kit/settings.json
+kit/sysprompts/allin.txt
+kit/sysprompts/default.txt
+kit/themes/bosque.toml
+kit/themes/claro.toml
+kit/themes/default.toml
+kit/themes/oceano.toml
+kit/themes/simple.toml

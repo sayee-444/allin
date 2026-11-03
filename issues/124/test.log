@@ -1,0 +1,74 @@
+# #124 — Secretos (2026-11-03)
+
+Sin Servidor: los Secretos no necesitan LLM.
+Main: venv/bin/python -m allin --data-dir data, lanzado desde <scratch>, en un xterm, con el código final tras la revisión (951bb96).
+
+## Preparación
+- <data-dir>/profiles/default/functions/keepers/keeper.py: la fproc de prueba `keeper`.
+  - status() da la longitud de su token y los 12 primeros caracteres de su SHA-256, nunca el token.
+  - elsewhere() busca el token en su entorno y en los archivos de su Carpeta de trabajo.
+- /piece approve --all; /new --id=jefa.
+
+## Criterios
+1. Un Secreto puesto una vez llega a la fproc en cada adhesión (01-recuadro-del-secreto.png, 02-main-lista-y-adhesiones.png)
+   /secret set keeper token -> recuadro «Secret token of keeper», que muestra 21 puntos mientras se teclea; Enter ->
+   «secret token of keeper: set; it reaches keeper from its next attach».
+   /attach keeper; /call keeper status -> "token: 21 characters, sha256 5a6a1ecd1ccd…".
+   /detach keeper; /attach keeper; /call keeper status -> lo mismo.
+   /call keeper elsewhere -> []: ni en su entorno ni en su Carpeta de trabajo.
+   /secret remove keeper token; /detach; /attach; /call keeper status -> "no token" (04-main-copias-y-quitar.png).
+2. Listar los Secretos no muestra su valor, y ninguno aparece en el Log ni en la Conversación (02, 05-registros.txt)
+   /secret -> «secrets: 1 / keeper: token»; /secret list keeper -> «keeper: token».
+   El valor escrito por error en la línea («/secret set keeper webhook <valor>») -> invalid_arguments, y el Chat y el Log
+   solo guardan «/secret set keeper webhook …».
+   Buscado en toda la carpeta de la prueba: el valor solo está en <data-dir>/profiles/default/secrets/keeper.json
+   (permisos rw------- en una carpeta rwx------), y el escrito por error en ningún archivo.
+3. Una copia del Perfil y un Kit no lo llevan (04, 05-registros.txt)
+   «/profile export default copia» y «/kit export kit» con el Secreto puesto: ninguno de sus archivos lo contiene.
+4. Desde una Sesión no se puede poner ni leer un Secreto (03-jefa-sin-secretos.png)
+   «@secret list» y «@secret set keeper token» tecleados en jefa -> unknown_session_command: no hay Command session de los
+   Secretos. /secret desde el Origen de una Sesión -> human_only, y el recuadro no lo contesta ninguna Ventana: tests.
+   Ninguna tool lo lee: el Encierro deja fuera la carpeta de datos, y `secret` no es un método que se pueda llamar.
+5. Tests de los Secretos: abajo. Los de la fproc la corren de verdad, encerrada.
+
+La revisión encontró, ya arreglado (951bb96):
+- un valor escrito por error en la línea llegaba al Log y al Chat de Main;
+- con un cambio de Perfil en espera, el Secreto se guardaba en el Perfil nuevo;
+- una Ventana podía cancelar el recuadro de un Secreto;
+- el archivo no se validaba al leerlo.
+Además, faltaba el test del reinicio por cambio de Alcance.
+
+## Tests de #124
+  tests/test_secrets.py::test_a_human_gives_its_value_in_a_box_and_no_list_shows_it PASSED
+  tests/test_secrets.py::test_its_value_is_in_no_file_but_its_own_which_only_the_user_reads PASSED
+  tests/test_secrets.py::test_a_box_left_empty_sets_nothing PASSED
+  tests/test_secrets.py::test_a_human_removes_one_and_an_unknown_one_is_an_error PASSED
+  tests/test_secrets.py::test_a_value_with_control_characters_or_too_long_is_refused_without_showing_it[control character] PASSED
+  tests/test_secrets.py::test_a_value_with_control_characters_or_too_long_is_refused_without_showing_it[too long] PASSED
+  tests/test_secrets.py::test_a_file_edited_by_hand_that_set_would_refuse_is_an_error_that_shows_no_value[name] PASSED
+  tests/test_secrets.py::test_a_file_edited_by_hand_that_set_would_refuse_is_an_error_that_shows_no_value[value] PASSED
+  tests/test_secrets.py::test_a_wrong_name_or_action_shows_its_usage_and_asks_nothing[/secret set] PASSED
+  tests/test_secrets.py::test_a_wrong_name_or_action_shows_its_usage_and_asks_nothing[/secret set bot] PASSED
+  tests/test_secrets.py::test_a_wrong_name_or_action_shows_its_usage_and_asks_nothing[/secret set Bot token] PASSED
+  tests/test_secrets.py::test_a_wrong_name_or_action_shows_its_usage_and_asks_nothing[/secret set bot to/ken] PASSED
+  tests/test_secrets.py::test_a_wrong_name_or_action_shows_its_usage_and_asks_nothing[/secret x] PASSED
+  tests/test_secrets.py::test_from_a_session_nobody_sets_lists_or_removes_one[/secret] PASSED
+  tests/test_secrets.py::test_from_a_session_nobody_sets_lists_or_removes_one[/secret set bot token] PASSED
+  tests/test_secrets.py::test_from_a_session_nobody_sets_lists_or_removes_one[/secret remove bot token] PASSED
+  tests/test_secrets.py::test_the_box_shows_in_mains_chat_alone_and_no_window_answers_it PASSED
+  tests/test_secrets.py::test_a_value_written_on_the_command_line_reaches_neither_the_log_nor_the_chat PASSED
+  tests/test_secrets.py::test_it_goes_to_the_profile_it_was_asked_in_though_main_switched_meanwhile PASSED
+  tests/test_secrets.py::test_set_once_it_reaches_the_fproc_each_time_it_is_attached_until_removed PASSED
+  tests/test_secrets.py::test_it_is_the_instances_and_another_name_of_the_same_fproc_never_gets_it PASSED
+  tests/test_secrets.py::test_it_never_travels_by_the_environment_and_lands_in_no_file_but_its_own PASSED
+  tests/test_secrets.py::test_no_copy_of_the_profile_no_kit_and_no_new_profile_carries_it PASSED
+  tests/test_secrets.py::test_its_secret_accessor_is_no_method_anyone_calls PASSED
+  tests/test_secrets.py::test_started_again_because_its_reach_changed_it_gets_them_again PASSED
+  tests/test_ui_boxes.py::test_a_secret_box_takes_what_is_typed_and_pasted_and_gives_it_on_enter PASSED
+  tests/test_ui_boxes.py::test_a_secret_box_left_empty_gives_nothing_on_enter PASSED
+  tests/test_ui_boxes.py::test_a_secret_box_never_shows_what_was_typed_and_the_next_one_starts_empty PASSED
+  tests/test_ui_boxes.py::test_a_secret_box_withdrawn_forgets_what_was_typed PASSED
+  tests/test_tool_confirm.py::test_only_mains_chat_or_its_own_sessions_window_answers_it PASSED
+============================== 38 passed in 1.11s ==============================
+
+Suite: 1700 tests, basedpyright y ruff limpios.
