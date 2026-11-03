@@ -2,28 +2,40 @@
 of the compacted Conversation, measured on the Server as the Admission measures, never the one
 before (#157, #169, ADR-0017). The fake Server counts one token per word."""
 
+import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from allin.core.ids import ServerKey
+from allin.core.ids import PieceId, ServerKey, SessionId
 from allin.ipc.messages import ContextUsage, OrganizerRows
 from allin.main.conversation import Item, summary_item, turn_items
 from allin.main.events import (
+    InputMeasured,
     InputReceived,
     MainCommandEntered,
     MainEvent,
     OrganizerConnected,
     ServerChanged,
     ServerReady,
+    Shutdown,
     WindowClosed,
 )
 from allin.main.sessions import Session
 from allin.ui.screen import ShowBox
-from tests.llm_fakes import FakeLlm
-from tests.test_compaction_f2 import seed, tooled
-from tests.test_compaction_turns import answers, compact, conversation, reply, talk, words
-from tests.test_dispatcher import MainHarness, server
+from tests.llm_fakes import FakeLlm, HangingStream, Script, Unreachable, answer, tool_call
+from tests.test_compaction_f2 import LONG, seed, talked, tooled, with_voice
+from tests.test_compaction_turns import (
+    answers,
+    compact,
+    conversation,
+    events,
+    reply,
+    talk,
+    words,
+)
+from tests.test_dispatcher import Between, MainHarness, Until, server, server_ready
 from tests.test_rewind import rewind_cmd
 
 SUMMARY = summary_item("We chose mango.", 4)
@@ -41,13 +53,19 @@ def main(tmp_path: Path) -> MainHarness:
     return harness
 
 
+@pytest.fixture
+def tooled_main(main: MainHarness, tmp_path: Path) -> Iterator[MainHarness]:
+    with with_voice(main, tmp_path) as tooled:
+        yield tooled
+
+
 def borders(main: MainHarness, session: Session, window: int = -1) -> list[int | None]:
     """Each Context a Window of the Session was shown, in order: its last one's by default."""
     sent = main.windows(session.id)[window].sent
     return [message.context for message in sent if isinstance(message, ContextUsage)]
 
 
-def compacted_by_hand(main: MainHarness, session: Session, *after: MainEvent) -> None:
+def compacted_by_hand(main: MainHarness, session: Session, *after: MainEvent | Between) -> None:
     """Six Turns, then a Compactación that keeps the last two literal, then ``after``, all
     in one run of Main."""
     main.llm = FakeLlm(*answers(6), reply("We chose mango."), reply("w"))
@@ -250,3 +268,189 @@ def test_a_compacted_session_closed_keeps_its_measured_context_in_the_organizer(
     rows = [m.rows for m in main.organizers[-1].sent if isinstance(m, OrganizerRows)][-1]
     [row] = [r for r in rows if r.session_id == session.id]
     assert (row.place, row.context) == ("closed", COMPACTED)
+
+
+# What Main does to a compacted Session afterwards never brings back the Context of before
+# (#177).
+
+
+def test_rewinding_a_turn_after_compacting_leaves_the_border_unknown_not_as_before(
+    main: MainHarness,
+):
+    session = main.create_session()
+    # p6 undone: the summary, p4 and p5 stay, and p5's Step ran before compacting.
+    compacted_by_hand(main, session, *talk(session, 1, first=6), rewind_cmd(session))
+    assert [turn.prompt for turn in conversation(main, session).turns] == ["p4", "p5"]
+    assert borders(main, session)[-1] is None
+    main.run(settle=True)  # and after a restart too
+    assert borders(main, session)[-1] is None
+
+
+def test_rewinding_a_turn_after_compacting_leaves_the_organizer_unknown_as_the_border(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.llm = FakeLlm(*answers(6), reply("We chose mango."), reply("w"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        *with_organizer(),
+        *talk(session, 6),
+        compact(session),
+        *talk(session, 1, first=6),
+        rewind_cmd(session),
+        settle=True,
+    )
+    assert organizer_contexts(main, session)[-1] is None
+    assert borders(main, session)[-1] is None
+
+
+def renamed_borders(main: MainHarness) -> list[int | None]:
+    [window] = main.windows("nuevo")
+    return [message.context for message in window.sent if isinstance(message, ContextUsage)]
+
+
+def test_a_renamed_session_keeps_the_context_measured_after_compacting(main: MainHarness):
+    session = main.create_session()
+    compacted_in_organizer(main, session, MainCommandEntered(f"/session id {session.id} nuevo"))
+    assert borders(main, session, window=0)[-1] == COMPACTED
+    assert renamed_borders(main)[-1] == COMPACTED
+    rows = [m.rows for m in main.organizers[-1].sent if isinstance(m, OrganizerRows)][-1]
+    assert [row.context for row in rows if row.session_id == "nuevo"] == [COMPACTED]
+
+
+def test_a_measure_that_comes_after_renaming_shows_under_the_new_id(
+    main: MainHarness, monkeypatch: pytest.MonkeyPatch
+):
+    held: list[MainEvent] = []
+    measure = main.servers.measure
+
+    def hold_the_compacted(
+        server: ServerKey, session_id: SessionId, ticket: int, items: list[Item]
+    ) -> None:
+        if SUMMARY in items[1:]:  # what it saved, not its summary checked: once renamed
+            held.append(InputMeasured(server, session_id, ticket, words(items)))
+        else:
+            measure(server, session_id, ticket, items)
+
+    def release() -> None:
+        assert main.servers.inbox is not None
+        for event in held:
+            main.servers.inbox.put(event)
+
+    monkeypatch.setattr(main.servers, "measure", hold_the_compacted)
+    session = main.create_session()
+    compacted_by_hand(main, session, MainCommandEntered(f"/session id {session.id} nuevo"), release)
+    assert held, "it was measured after the rename"
+    assert renamed_borders(main)[-2:] == [None, COMPACTED]
+
+
+# A Turn that yielded to compact goes on after its Steps of before, which read the Conversation
+# of before: their Context no longer holds (#177).
+
+YIELDED = 6 + 7 + 200  # its Sysprompt, the summary of p0 (5 + 2), and p1 and p2 literal
+
+
+def yielding(main: MainHarness, *after: Script) -> Session:
+    """A Session with three Turns whose next one yields to compact after its tools; once it
+    compacted, its LLM answers ``after``."""
+    session = main.sessions.save_functions(main.create_session(), (PieceId("function:voice"),))
+    seed(main, session, [talked(n) for n in range(3)])
+    shout = tool_call("shout", json.dumps({"text": LONG}))
+    main.llm = FakeLlm(shout, reply("We talked."), *after)
+    return session
+
+
+def test_a_turn_that_yielded_to_compact_shows_the_organizer_what_the_border_shows(
+    tooled_main: MainHarness,
+):
+    main = tooled_main
+    session = yielding(main, reply("done"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        *with_organizer(),
+        InputReceived(session.id, "lee"),
+        settle=True,
+    )
+    assert "turn_yielded" in events(main, session)
+    # Its first Step's, unknown once compacted, what was measured, then its second Step's:
+    # never its first Step's again, nor its summary Step's.
+    shown = [None, 10, None, YIELDED, 101]
+    assert borders(main, session) == shown
+    assert organizer_contexts(main, session) == shown
+
+
+def test_a_window_reopened_while_a_yielded_turn_goes_on_shows_the_compacted_context(
+    tooled_main: MainHarness,
+):
+    main = tooled_main
+    hanging = HangingStream([answer("half")])
+    session = yielding(main, hanging)
+    seen: list[int | None] = []
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        *with_organizer(),
+        InputReceived(session.id, "lee"),
+        Until(hanging.waiting.is_set),  # its second Step runs
+        MainCommandEntered(f"/bg {session.id}"),
+        MainCommandEntered(f"/open {session.id}"),
+        lambda: seen.extend([borders(main, session)[-1], organizer_contexts(main, session)[-1]]),
+        server_ready(server(context=2_000)),  # its Server's limit changes meanwhile
+        lambda: seen.append(borders(main, session)[-1]),
+        InputReceived(session.id, "", interrupt=True),
+        settle=True,
+    )
+    assert len(main.windows(session.id)) == 2
+    assert seen == [YIELDED, YIELDED, YIELDED]
+    [usage] = [m for m in main.windows(session.id)[-1].sent if isinstance(m, ContextUsage)][-1:]
+    assert usage.limit == 2_000
+
+
+def test_a_yielded_turn_that_a_fall_suspends_still_leaves_its_steps_of_before_out(
+    tooled_main: MainHarness,
+):
+    main = tooled_main
+    hanging = HangingStream([answer("half")])
+    session = yielding(main, Unreachable(), hanging)
+    seen: list[int | None] = []
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        *with_organizer(),
+        InputReceived(session.id, "lee"),
+        Until(lambda: "turn_suspended" in events(main, session)),  # its second Step fell
+        server_ready(main.server),  # back: it runs again
+        Until(hanging.waiting.is_set),
+        MainCommandEntered(f"/bg {session.id}"),
+        MainCommandEntered(f"/open {session.id}"),
+        lambda: seen.extend([borders(main, session)[-1], organizer_contexts(main, session)[-1]]),
+        InputReceived(session.id, "", interrupt=True),
+        settle=True,
+    )
+    assert events(main, session).count("turn_started") == 3
+    assert seen == [YIELDED, YIELDED]
+
+
+def test_a_yielded_turn_whose_compaction_a_restart_repeats_leaves_its_steps_of_before_out(
+    tooled_main: MainHarness,
+):
+    main = tooled_main
+    summarizing, hanging = HangingStream([]), HangingStream([answer("half")])
+    session = yielding(main)
+    shout = tool_call("shout", json.dumps({"text": LONG}))
+    main.llm = FakeLlm(shout, summarizing, reply("We talked."), hanging)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "lee"),
+        Until(summarizing.waiting.is_set),  # Main stops while it compacts
+        Shutdown(),
+        settle=True,
+    )
+    seen: list[int | None] = []
+    main.run(  # Main again: it compacts, then its Turn goes on
+        *with_organizer(),
+        Until(hanging.waiting.is_set),
+        lambda: seen.extend([borders(main, session)[-1], organizer_contexts(main, session)[-1]]),
+        InputReceived(session.id, "", interrupt=True),
+        settle=True,
+    )
+    assert conversation(main, session).summary == "We talked."
+    assert seen == [YIELDED, YIELDED]

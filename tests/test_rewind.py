@@ -102,6 +102,31 @@ def test_rewinding_after_the_cut_keeps_the_summary():
     assert result.turn == 3
 
 
+@pytest.mark.parametrize(
+    "compacted",
+    [
+        Conversation(sysprompt="s", summary="sum", summarized=3, turns=[turn("d"), turn("e")]),
+        Conversation(sysprompt="s", turns=[turn("a"), turn("b")], pruned=1),
+    ],
+    ids=["summarized", "pruned"],
+)
+def test_rewinding_turns_after_a_compaction_leaves_its_context_unknown(
+    compacted: Conversation,
+):
+    # The Turn it ends on may have run before the Compaction (#177).
+    assert rewind(compacted, [], 1).conversation.compacted_since_turn
+
+
+def test_rewinding_a_conversation_never_compacted_keeps_its_last_turns_context():
+    whole = Conversation(sysprompt="s", turns=[turn("a"), turn("b")])
+    assert not rewind(whole, [], 1).conversation.compacted_since_turn
+
+
+def test_rewinding_nothing_leaves_a_compacted_conversation_as_it_was():
+    compacted = Conversation(sysprompt="s", summary="sum", summarized=3, turns=[turn("d")])
+    assert rewind(compacted, [], 0).conversation == compacted
+
+
 # Through Main
 
 

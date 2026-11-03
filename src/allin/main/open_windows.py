@@ -64,6 +64,14 @@ class Streamed:
     reasoning: str = ""
     answer: str = ""
     steps: list[Step] = field(default_factory=list[Step])  # ended so far
+    # How many of them read the Conversation of before a Compactación it yielded to.
+    context_from: int = 0
+    compacting: bool = False  # a Compactación's summary Steps: they read no Conversation
+
+    def context_steps(self) -> list[Step]:
+        """Its ended Steps that read the Conversation its Session holds now, whose Context
+        the last one tells: none of a Compactación's, nor of before one (#177)."""
+        return [] if self.compacting else self.steps[self.context_from :]
 
 
 @dataclass(frozen=True)
@@ -284,9 +292,11 @@ class OpenWindows:
     def _show_current(
         self, session: Session, streamed: Streamed | None, conversation: Conversation
     ) -> None:
-        """The running Turn's Context, if a Step of it ended; else the saved one's."""
-        if streamed is not None and streamed.steps:
-            self.show_context(session, streamed.steps)
+        """The running Turn's Context, if a Step of it ended on the Conversation the Session
+        holds now; else the saved one's."""
+        steps = [] if streamed is None else streamed.context_steps()
+        if steps:
+            self.show_context(session, steps)
         else:
             self.show_saved(session, conversation)
 
@@ -410,10 +420,13 @@ class OpenWindows:
         self._drafts[session_id] = [block for block in blocks if not is_secret_command(block)]
 
     def rename(self, old: SessionId, new: SessionId) -> None:
-        """A Session took a new id (#59): its Draft follows it. Its Window, if it had one, was
-        closed already, and opens again under the new id."""
+        """A Session took a new id (#59): its Draft follows it, and what its last Compaction
+        left (#177). Its Window, if it had one, was closed already, and opens again under the
+        new id."""
         if old in self._drafts:
             self._drafts[new] = self._drafts.pop(old)
+        if old in self._compacted:
+            self._compacted[new] = self._compacted.pop(old)
         if old in self._background:
             self._background = {new if sid == old else sid: None for sid in self._background}
         if old in self._used:
