@@ -329,7 +329,7 @@ Antes va #217, en los pendientes de F2. Los otros tramos tienen su propio grilli
   - el mmproj del 9B y las Huellas de cara.
 - **El LoRA:** se entrena fuera de AllIn y entra como `--lora` en el `extra` de su Supervisor.
 
-Pendiente del usuario: mover el SN850X a la M.2_1 y reasentar la GPU, que hoy va a PCIe x1; después se vuelve a medir. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
+La GPU va a PCIe x1, y el usuario decidió el 2026-11-03 dejarla así. No frena la conversación, porque cada modelo corre entero en la VRAM: las cifras de ADR-0027 ya se midieron así. Sí alarga cada carga, que va a ~2,4 GiB/s: unos 8 s para los dos modelos del Personaje y unos 9 s para el Q6. Repartir un modelo entre la GPU y la RAM sería muy lento, y eso cuenta en el grilling de la voz. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
 
 ## F3 · Submains y Traspaso
 
