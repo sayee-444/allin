@@ -1,0 +1,55 @@
+#159 Pendientes de F2: quitar las duplicaciones que dejó #123
+Rama refactor/159-duplicaciones-de-123; commit 9022ffc (refactor) y c29b55b (merge de origin/main con #155).
+Sin llama serve: un refactor sin cambio de comportamiento; ningún criterio necesita un Servidor.
+
+== Criterio 4: sin cambio de comportamiento, la suite pasa sin tocar sus tests ==
+Tras 9022ffc, antes de añadir ningún test:
+  PYTHONPATH=src venv/bin/python -m pytest -q   -> 1716 passed
+Los tests de 9022ffc solo añaden (git diff --stat origin/main...9022ffc -- tests):
+  tests/test_origin.py           | 24 ++++++++++++++++++++++++
+  tests/test_session_commands.py |  8 ++++++++
+  2 files changed, 32 insertions(+)
+Tras el merge de origin/main (#155) y el test nuevo de @secret por la Iniciativa:
+  pytest -q                      -> 1728 passed
+  basedpyright (strict)          -> 0 errors, 0 warnings, 0 notes
+  ruff check src tests           -> All checks passed!
+  ruff format --check src tests  -> 262 files already formatted
+
+== Criterio 1: la Iniciativa corre con los mismos SessionCommandType y el mismo camino ==
+- SessionCommandType tiene el campo `initiative`: lo que el Command session es cuando una fproc lo
+  pide por su cuenta. NEW, SEND y OPEN usan ahí su misma traducción; CLOSE, `@close <sid>`, porque
+  la fproc no tiene Ventana propia. La tabla _INITIATIVE desaparece.
+- SessionCommands.run_initiative comparte con run: _args (quitar @name), _check_listed, _translate,
+  _refused (informar del error) y _result (el match sobre CommandOutcome).
+- Tests: tests/test_fproc_initiative.py entero (fproc de verdad), sin tocar;
+  test_an_fprocs_initiative_runs_only_mains_own_that_act_on_its_sessions (nuevo);
+  test_an_at_secret_it_asks_on_its_own_is_refused_and_its_value_never_kept (nuevo, tras #155).
+
+== Criterio 2: _new_of_process y _new_session comparten la secuencia; load_package_mold usa load_mold ==
+- MainCommands._born crea en el Perfil y en un Subperfil; _in_profile / _in_subprofile solo dicen
+  con qué nace (_Birth) y _record_birth en qué lista entra.
+- load_package_mold valida el nombre y llama a load_mold(quarantine, package, molds/<name>.toml).
+- Tests sin tocar: test_fproc_initiative.py, test_subprofile.py, test_molds.py.
+
+A mano, Main de la rama en su xterm (allin-main-159), --data-dir <data-dir>:
+  /new --id=nacida                                  -> session created, window connected
+  /create mold:ayudante commands = ["send"]         -> ok
+  /new --mold=ayudante --id=demolde --bg            -> session created, in the background
+Log de Main:
+  {"event": "session_created", "sid": "nacida", "owner": "root", "mold": null}
+  {"event": "command", "command": "/new --id=nacida", "result": "ok", "origin": ["human"]}
+  {"event": "command", "command": "/create mold:ayudante commands = [\"send\"]", "result": "ok", "origin": ["human"]}
+  {"event": "session_created", "sid": "demolde", "owner": "root", "mold": "mold:ayudante"}
+  {"event": "command", "command": "/new --mold=ayudante --id=demolde --bg", "result": "ok", "origin": ["human"]}
+<data-dir>/sessions/demolde/session.json: {'id': 'demolde', 'commands': ['send'], 'functions': [], 'creator': None}
+  -> los Command sessions de su Molde, sin creador (lo pidió un humano). Captura: main-new.png
+/exit -> Main y su Ventana cerrados.
+
+== Criterio 3: una sola regla dice qué proceso actúa en una cadena de Origen ==
+- allin.core.origin.actors: los eslabones que actúan (cada Sesión y cada Proceso adherido); el último
+  es quien actúa. acting_process y Subprofiles.acting_space la usan.
+- Test nuevo: tests/test_origin.py::test_who_acts_in_a_chain_is_its_last_session_or_proceso_adherido
+  (5 cadenas); tests/test_subprofile.py sin tocar.
+
+== Métricas (venv/bin/python -m scripts.metrics) ==
+  tests 1722 passed; coverage 85%; mutation 93% (919/984); type errors 0; lint 0; escapes 41
