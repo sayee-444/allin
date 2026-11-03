@@ -24,7 +24,10 @@ from allin.main.events import (
     MainCommandEntered,
     MainEvent,
     ServerChanged,
+    ServerDown,
     ServerReady,
+    ServerRestarting,
+    ServerState,
     ToolsEnded,
     ToolsStarted,
     TurnEnded,
@@ -216,10 +219,41 @@ def _continuations_measured_later(main: MainHarness) -> list[int]:
     return asked
 
 
-def _measure_arrives(main: MainHarness, session: Session, asked: list[int], tokens: int) -> None:
+def _measure_arrives(
+    main: MainHarness, session: Session, asked: list[int], count: int | None
+) -> None:
+    """The last measure asked answers: its input as ``count`` words, or unmeasured."""
     assert main.servers.inbox is not None
-    [ticket] = asked
-    main.servers.inbox.put(InputMeasured(KEY, session.id, ticket, tokens))
+    tokens = None if count is None else words(next_input(main, count))
+    main.servers.inbox.put(InputMeasured(KEY, session.id, asked[-1], tokens))
+
+
+@pytest.mark.parametrize("gone", [ServerDown(), ServerRestarting()], ids=["falls", "restarts"])
+def test_a_continuation_whose_server_is_gone_as_it_is_measured_is_measured_again_once_back(
+    main: MainHarness, gone: ServerState
+):
+    session = main.create_session(sampling=CAP)
+    asked = _continuations_measured_later(main)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "lee"),
+        *tool_gave(session, 2_000),  # estimated past the pool, truly ~ 4 000
+        ServerChanged(KEY, gone),
+        lambda: _measure_arrives(main, session, asked, None),  # it could not reach the Server
+        lambda: _asked_count(asked, 1),  # nothing to measure on until it is back
+        ServerChanged(KEY, ServerReady(main.server)),
+        lambda: _asked_count(asked, 2),
+        lambda: _measure_arrives(main, session, asked, 2_000),
+        lambda: _started_measured(main, 2_000),
+        settle=True,
+    )
+    assert len(main.servers.taken) == 2, "its next Step started"
+    assert "prompt_too_big" not in events(main, session), "it was never measured too big"
+    assert "continuation_measured" in events(main, session)
+
+
+def _asked_count(asked: list[int], count: int) -> None:
+    assert len(asked) == count
 
 
 def test_closing_the_window_while_its_next_step_is_measured_cancels_the_turn_as_ever(
@@ -282,3 +316,23 @@ def _estimated(main: MainHarness, count: int) -> int:
     """Its first Step's need, plus what its tool gave back a token per character."""
     first = words(main.held[0].request.input) + 1_000
     return first + len(" ".join(["palabra"] * count))
+
+
+def test_a_continuation_estimated_past_the_pool_is_measured_while_a_profile_switch_waits(
+    main: MainHarness,
+):
+    session = main.create_session(sampling=CAP)
+    main.profiles.create("tesis", main.profile)
+    tools_started, tools_ended = tool_gave(session, 2_000)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "lee"),
+        tools_started,
+        MainCommandEntered("/profile switch tesis"),  # it waits for the Turn to end (#197)
+        tools_ended,
+        lambda: _started_measured(main, 2_000),
+        TurnEnded(session.id, steps=[Step(output=[])]),
+        settle=True,
+    )
+    assert main.servers.measured == [session.id, session.id]
+    assert main.profiles.open(None).name == "tesis"

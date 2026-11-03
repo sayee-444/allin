@@ -5,24 +5,41 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import LlmUnavailable, TurnCancelled
+from allin.core.ids import BoxId, SessionId
 from allin.core.origin import HUMAN, from_session
 from allin.core.settings import MainSettings, SessionSettings
+from allin.core.wait_list import WaitList
 from allin.ipc.messages import Close, InputRestore
+from allin.main.conversation import Item, Step
 from allin.main.events import (
+    BoxAnswered,
     ConfirmationRequested,
     DraftReceived,
     InputReceived,
     MainCommandEntered,
+    ToolsEnded,
+    ToolsStarted,
     TurnEnded,
     WindowClosed,
 )
 from allin.main.profiles import Profile
+from allin.main.sessions import Session
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.state import MainStateStore
 from tests.pieces import approve_sysprompt
-from tests.test_dispatcher import SETTINGS, MainHarness, ended, restored, server, server_ready
+from tests.test_dispatcher import (
+    KEY,
+    SETTINGS,
+    MainHarness,
+    ended,
+    restored,
+    server,
+    server_ready,
+)
+from tests.test_pool_admission import other_main_releases, other_main_reserves
 
 GPU_TOML = 'model = "m.gguf"\ncontext = 8192\nport = 9101\n'
+CALL: Item = {"type": "function_call", "call_id": "c1", "name": "read", "arguments": "{}"}
 FELL = LlmUnavailable(reason="Connection error.", reached=True)  # its Step was half-done
 
 
@@ -346,6 +363,93 @@ def test_a_turn_waiting_for_its_confirmation_counts_as_running(main: MainHarness
     )
     assert main.profiles.open(None).name == "default"
     assert switched_out(main, a.id) == 0
+
+
+def test_without_now_a_turn_between_its_steps_takes_its_slot_back_and_ends_before_the_switch(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    other_profile(main)
+    main.hold_turns = True
+    before_it_ends: list[str] = []
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}"),
+        InputReceived(a.id, "a1"),
+        tools_started(a),  # its tools run without its slot
+        switch("tesis"),
+        InputReceived(b.id, "b1"),  # a new Prompt waits for the switch
+        tools_ended(a),
+        lambda: before_it_ends.append(main.profiles.open(None).name),
+        ended(a),
+        settle=True,
+    )
+    assert len(main.servers.taken) == 2, "its next Step got its slot back (#197)"
+    assert before_it_ends == ["default"], "the switch waits for the Turn"
+    assert prompts(main) == ["a1"], "only the Turn under way went on"
+    assert main.profiles.open(None).name == "tesis"
+    conversation = main.sessions.load_conversation(a)
+    assert conversation is not None and len(conversation.turns) == 1
+    saved = MainStateStore(main.profile.state).load()
+    assert [prompt.text for prompt in saved.queue] == ["b1"]
+
+
+def test_a_turn_between_its_steps_keeps_its_place_in_the_wait_list_while_the_switch_waits(
+    main: MainHarness,
+):
+    a = main.create_session()
+    other_profile(main)
+    main.server = server(slots=2, context=10_000)  # a pool its two slots share
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1"),
+        tools_started(a),
+        lambda: other_main_reserves(main, "x", 9_999),  # no room for its next Step
+        tools_ended(a),
+        switch("tesis"),
+        lambda: _waits_in_the_list(main, [a.id]),
+        lambda: other_main_releases(main, "x"),
+        server_ready(main.server),  # Main looks again
+        lambda: _holds_slots(main, 2),
+        ended(a),
+        settle=True,
+    )
+    assert main.profiles.open(None).name == "tesis"
+
+
+def _waits_in_the_list(main: MainHarness, sessions: list[SessionId]) -> None:
+    assert [w.session for w in WaitList(main.slot_locks_dir, KEY).look().waiting] == sessions
+
+
+def test_a_confirmation_answered_while_the_switch_waits_lets_its_turn_go_on(main: MainHarness):
+    a = main.create_session()
+    other_profile(main)
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1"),
+        ConfirmationRequested(a.id, "Delete?", "Delete the file?"),
+        switch("tesis"),
+        BoxAnswered(BoxId("b1"), True),
+        lambda: _holds_slots(main, 2),  # it took a slot again to go on
+        ended(a),
+        settle=True,
+    )
+    assert main.profiles.open(None).name == "tesis"
+
+
+def _holds_slots(main: MainHarness, count: int) -> None:
+    assert len(main.servers.taken) == count
+
+
+def tools_started(session: Session) -> ToolsStarted:
+    return ToolsStarted(session.id, ("read",), Step(output=[CALL]))
+
+
+def tools_ended(session: Session) -> ToolsEnded:
+    result = {"type": "function_call_output", "call_id": "c1", "output": "done"}
+    return ToolsEnded(session.id, Step(output=[CALL], results=[result]), len("done"))
 
 
 def test_now_given_while_waiting_cancels_what_runs(main: MainHarness):

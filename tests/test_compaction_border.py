@@ -7,9 +7,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from openai.types.responses import ResponseStreamEvent
 
 from allin.core.ids import PieceId, ServerKey, SessionId
-from allin.ipc.messages import ContextUsage, OrganizerRows
+from allin.core.settings import CompactSettings
+from allin.ipc.messages import BoxShow, ContextUsage, OrganizerRows
 from allin.main.conversation import Item, summary_item, turn_items
 from allin.main.events import (
     InputMeasured,
@@ -24,7 +26,15 @@ from allin.main.events import (
 )
 from allin.main.sessions import Session
 from allin.ui.screen import ShowBox
-from tests.llm_fakes import FakeLlm, HangingStream, Script, Unreachable, answer, tool_call
+from tests.llm_fakes import (
+    FakeLlm,
+    HangingStream,
+    Script,
+    Unreachable,
+    answer,
+    completed,
+    tool_call,
+)
 from tests.test_compaction_f2 import LONG, seed, talked, tooled, with_voice
 from tests.test_compaction_turns import (
     answers,
@@ -163,6 +173,44 @@ def test_moving_a_compacted_session_to_a_smaller_slot_weighs_what_was_measured(
     # Over the new limit as measured, though the Turn before compacting was not.
     [box] = [update.box for update in main.main_screen if isinstance(update, ShowBox)]
     assert f"already holds {COMPACTED}" in box.text
+
+
+def lowered_limit_notices(main: MainHarness) -> list[str]:
+    boxes = [update.box for update in main.main_screen if isinstance(update, ShowBox)]
+    return [box.text for box in boxes if "context limit lowered" in box.title]
+
+
+def test_a_lowered_slot_limit_names_a_compacted_session_by_what_was_measured(
+    main: MainHarness,
+):
+    session = main.create_session()
+    compacted_by_hand(main, session, server_ready(server(context=205)))
+    assert borders(main, session)[-1] == COMPACTED
+    # Over the new limit as measured, though the Turn before compacting was not (#197).
+    assert lowered_limit_notices(main) == [f"over the limit: {session.id} ({COMPACTED})"]
+
+
+def test_a_lowered_slot_limit_never_weighs_the_context_of_before_compacting(
+    main: MainHarness,
+):
+    session = main.create_session()
+    compacted_by_hand(main, session, server_ready(server(context=150)))
+    assert borders(main, session)[-1] == COMPACTED
+    # Over it either way, but named by what it holds now, not by its 199 of before.
+    assert lowered_limit_notices(main) == [f"over the limit: {session.id} ({COMPACTED})"]
+
+
+def test_a_lowered_slot_limit_does_not_name_a_compacted_session_it_could_not_measure(
+    main: MainHarness,
+):
+    def unmeasurable_once_compacted(items: list[Item]) -> int | None:
+        return None if len(items) > 1 and items[1] == SUMMARY else words(items)
+
+    main.servers.tokens_of = unmeasurable_once_compacted
+    session = main.create_session()
+    compacted_by_hand(main, session, server_ready(server(context=150)))
+    assert borders(main, session)[-1] is None
+    assert lowered_limit_notices(main) == [], "its Context is unknown, not the one before"
 
 
 def test_pruning_alone_shows_the_context_its_llm_reads_pruned(main: MainHarness):
@@ -454,3 +502,21 @@ def test_a_yielded_turn_whose_compaction_a_restart_repeats_leaves_its_steps_of_b
     )
     assert conversation(main, session).summary == "We talked."
     assert seen == [YIELDED, YIELDED]
+
+
+def test_the_context_notice_shows_again_once_a_compacted_session_crosses_it_again(
+    main: MainHarness,
+):
+    session = main.create_session(compact=CompactSettings(auto=False))
+    crossing: list[ResponseStreamEvent] = [answer("w"), completed("", "w", tokens=(850, 1))]
+    main.llm = FakeLlm(*answers(5), crossing, reply("We chose mango."), crossing)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        *talk(session, 6),
+        compact(session),
+        *talk(session, 1, first=6),  # from what was measured, 214, past 800 again
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    shown = [m for m in window.sent if isinstance(m, BoxShow) and m.title == "Context"]
+    assert len(shown) == 2, "after compacting, the Context of before no longer counts (#197)"
