@@ -1,0 +1,6 @@
+{
+  "effortLevel": "high",
+  "worktree": {
+    "symlinkDirectories": ["venv", "models"]
+  }
+}
