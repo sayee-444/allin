@@ -235,7 +235,7 @@ class AttachedProcessEnded:
 
 @dataclass(frozen=True)
 class MethodAnswered:
-    """A human's call to a Proceso adherido's method, ``/call``, answered in its own thread;
+    """A ``/call`` or ``@call`` to a Proceso adherido's method, answered in its own thread;
     ``report`` tells how it went, in Main's thread (#114)."""
 
     report: Callable[[], None]

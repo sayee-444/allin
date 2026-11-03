@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -210,6 +211,32 @@ def test_a_call_whose_turn_was_cancelled_leaves_the_next_one_its_own_answer(
             "slow_add", {"n": 5, "seconds": 1}, timeout=10, stop=lambda: time.monotonic() > stopped
         )
     assert attached.call("add", {"n": 1}, timeout=10).value == 6
+
+
+def test_waiting_for_another_call_to_end_can_be_cancelled(attached: AttachedProcess):
+    first = threading.Thread(
+        target=lambda: attached.call("slow_add", {"n": 1, "seconds": 2}, timeout=10)
+    )
+    first.start()
+    time.sleep(0.3)  # the first call holds the process
+    began = time.monotonic()
+    with pytest.raises(ToolCancelled):
+        attached.call("add", {"n": 1}, timeout=10, stop=lambda: time.monotonic() > began + 0.2)
+    assert time.monotonic() - began < 1.5, "it did not wait for the first call to end"
+    first.join()
+    assert attached.call("add", {"n": 1}, timeout=10).value == 2, "nothing owed: never sent"
+
+
+def test_a_slow_cancelled_call_does_not_spend_the_next_calls_time(attached: AttachedProcess):
+    stopped = time.monotonic() + 0.2
+    with pytest.raises(ToolCancelled):
+        attached.call(
+            "slow_add",
+            {"n": 5, "seconds": 1.5},
+            timeout=10,
+            stop=lambda: time.monotonic() > stopped,
+        )
+    assert attached.call("add", {"n": 1}, timeout=1.2).value == 6
 
 
 def test_a_class_that_cannot_be_made_fails_the_attachment(

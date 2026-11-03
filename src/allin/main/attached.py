@@ -34,6 +34,7 @@ from allin.confinement.launcher import (
 from allin.confinement.reach import install_root
 from allin.core.errors import (
     AllInError,
+    AttachedMethodNotFound,
     AttachedNameInvalid,
     AttachedNameTaken,
     AttachedNotFound,
@@ -56,7 +57,9 @@ from allin.core.ids import (
     parse_session_id,
 )
 from allin.core.origin import HUMAN, Origin
+from allin.decorators import CONFIRM, HUMAN_ONLY
 from allin.main.boxes import MainBoxes
+from allin.main.descriptions import ToolSchema
 from allin.main.events import AttachedProcessEnded, CommandOutcome, MainEvent, OnOutcome
 from allin.main.profiles import Profile
 from allin.main.quarantine import OfferedFunction, Quarantine
@@ -106,12 +109,38 @@ class _Asked:
 
 
 @dataclass(frozen=True)
-class Attachment:
+class AttachedFproc:
     """A Proceso adherido of the active Profile, attached or crashed, as its methods see it."""
 
     name: AttachedName
     offered: OfferedFunction  # its fproc, as it was approved when it started
     process: AttachedProcess
+
+    @property
+    def methods(self) -> tuple[ToolSchema, ...]:
+        """Its fproc's public methods, as its description read them."""
+        return self.offered.description.tools
+
+    def method(self, name: str) -> ToolSchema:
+        """Raises ``AttachedMethodNotFound``."""
+        for schema in self.methods:
+            if schema.name == name:
+                return schema
+        raise AttachedMethodNotFound(name=self.name, method=name)
+
+    def confirms(self, method: ToolSchema) -> bool:
+        """Whether a call to ``method`` asks a Confirmation: ``@confirm``, or its Approval."""
+        return method.name in self.offered.confirm or method.marks.get(CONFIRM) is True
+
+    def tool_name(self, method: ToolSchema) -> str:
+        """``<name>_<method>``, as ``tools=[...]`` names it: a Session may have two Procesos
+        adheridos of one fproc, and a tool's name takes no dot (ADR-0021)."""
+        return f"{self.name}_{method.name}"
+
+
+def human_only(method: ToolSchema) -> bool:
+    """Whether ``method`` is marked ``@human``: a human's alone, never a tool."""
+    return method.marks.get(HUMAN_ONLY) is True
 
 
 @dataclass
@@ -224,13 +253,13 @@ class AttachedProcesses:
         for name in names:
             self._taken(name)
 
-    def attachment(self, name: str) -> Attachment:
+    def attached_fproc(self, name: str) -> AttachedFproc:
         """The Proceso adherido ``name``, attached or crashed: a crashed one's calls raise
         ``AttachedEnded``. Raises ``AttachedNotFound``."""
         instance = self._instances.get(_name(name))
         if instance is None:
             raise AttachedNotFound(name=name)
-        return Attachment(instance.asked.name, instance.offered, instance.process)
+        return AttachedFproc(instance.asked.name, instance.offered, instance.process)
 
     def ended(self, name: AttachedName, pid: int) -> None:
         """Its process ended: one that was not detached crashed, and is not started again."""

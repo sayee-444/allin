@@ -95,6 +95,14 @@ class BirthRecipe(BaseModel, frozen=True):
     history: list[Item] = []
 
 
+class HeldMethods(BaseModel, frozen=True):
+    """A Session has the methods of the Proceso adherido ``name`` while it keeps its first
+    ``kept_from`` Turns: a Rewind to fewer takes them away (ADR-0021)."""
+
+    name: AttachedName
+    kept_from: int
+
+
 class Session(BaseModel, frozen=True):
     id: SessionId
     owner: MainId  # the only Main that may open it
@@ -113,8 +121,8 @@ class Session(BaseModel, frozen=True):
     commands: tuple[CommandName, ...] = ()
     # Its Notificaciones waiting for its next Prompt (#109).
     notifications: tuple[Notification, ...] = ()
-    # The Procesos adheridos whose methods its LLM gets as tools, by name (#114).
-    attached: tuple[AttachedName, ...] = ()
+    # The Procesos adheridos whose methods its LLM gets as tools (#114).
+    attached_methods: tuple[HeldMethods, ...] = ()
 
 
 class SessionStore:
@@ -313,9 +321,9 @@ class SessionStore:
         """The Session with other Function tools, already on disk."""
         return self._save(session.model_copy(update={"functions": functions}))
 
-    def save_attached(self, session: Session, attached: tuple[AttachedName, ...]) -> Session:
+    def save_attached_methods(self, session: Session, held: tuple[HeldMethods, ...]) -> Session:
         """The Session with the methods of other Procesos adheridos, already on disk."""
-        return self._save(session.model_copy(update={"attached": attached}))
+        return self._save(session.model_copy(update={"attached_methods": held}))
 
     def save_notifications(
         self, session: Session, notifications: tuple[Notification, ...]

@@ -15,6 +15,7 @@ import pytest
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
 from allin.core.ids import BoxId, CommandName
+from allin.main.attached_methods import held_names
 from allin.main.events import BoxAnswered, InputReceived, MainCommandEntered
 from allin.main.sessions import Session
 from allin.ui.screen import ShowBox
@@ -31,7 +32,7 @@ from allin.decorators import confirm, human, reach
 from allin.fproc import Fproc
 
 
-@reach(commands=["send", "grant"])
+@reach(commands=["send", "grant", "call"])
 class Board(Fproc):
     """A board of notes."""
 
@@ -65,6 +66,14 @@ class Board(Fproc):
     def sneak(self, sid: str) -> object:
         """Attach something, which it does not declare."""
         return command(f"@attach board other")
+
+    def again(self) -> object:
+        """Call its own process."""
+        return command("@call board pin text=x")
+
+    def fail(self) -> int:
+        """Fail."""
+        raise ValueError("no board")
 '''
 
 
@@ -94,6 +103,10 @@ def calls(main: MainHarness) -> None:
     inbox = main.servers.inbox
     assert isinstance(inbox, DrainingInbox)
     inbox.workers += [t for t in threading.enumerate() if t.name.startswith("call-")]
+
+
+def held(main: MainHarness, s: Session) -> tuple[str, ...]:
+    return held_names(main.sessions.load(s.id))
 
 
 def tool_names(request: dict[str, Any]) -> set[str]:
@@ -256,7 +269,7 @@ def test_detaching_takes_the_methods_from_every_session_and_func_gives_them_back
     seen: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
 
     def look() -> None:
-        seen.append((main.sessions.load(a.id).attached, main.sessions.load(b.id).attached))
+        seen.append((held(main, a), held(main, b)))
 
     main.run(
         MainCommandEntered(f"/attach board --to={a.id},{b.id}"),
@@ -281,14 +294,18 @@ def test_detaching_takes_the_methods_from_every_session_and_func_gives_them_back
 
 def test_only_a_human_gives_the_methods_but_a_session_gives_them_up(main: MainHarness):
     a = session(main)
+    seen: list[tuple[str, ...]] = []
     chat = main.run(
-        MainCommandEntered(f"/attach board --to={a.id}"),
+        MainCommandEntered("/attach board"),
         MainCommandEntered(f"/func add {a.id} attached:board", from_session(a)),
+        lambda: seen.append(held(main, a)),
+        MainCommandEntered(f"/func add {a.id} attached:board"),
         MainCommandEntered(f"/func remove {a.id} attached:board", from_session(a)),
+        lambda: seen.append(held(main, a)),
         settle=True,
     )
     assert any("human_only" in line for line in chat)
-    assert main.sessions.load(a.id).attached == ()
+    assert seen == [(), ()], "it could not give them, but gave them up"
 
 
 def test_called_from_mains_chat_a_method_runs_no_command_session(main: MainHarness):
@@ -301,5 +318,86 @@ def test_called_from_mains_chat_a_method_runs_no_command_session(main: MainHarne
         settle=True,
     )
     [call] = called(main)
-    assert "runs in a Session" in str(call["result"])
+    assert "command_session_without_session" in str(call["result"])
     assert prompts(main, b) == []
+
+
+def test_a_session_takes_away_only_its_own_methods(main: MainHarness):
+    a, b = session(main), session(main)
+    seen: list[tuple[str, ...]] = []
+    chat = main.run(
+        MainCommandEntered(f"/attach board --to={a.id},{b.id}"),
+        MainCommandEntered(f"/func remove {b.id} attached:board", from_session(a)),
+        lambda: seen.append(held(main, b)),
+        settle=True,
+    )
+    assert any("human_only" in line for line in chat)
+    assert seen == [("board",)], "Main stopping detaches it: look before"
+
+
+def test_a_rewind_to_before_a_session_got_the_methods_takes_them_away(main: MainHarness):
+    a = session(main)
+    main.llm = FakeLlm(full_reply("", "uno"), full_reply("", "dos"))
+    seen: list[tuple[str, ...] | str] = []
+    main.run(
+        MainCommandEntered("/attach board"),
+        InputReceived(a.id, "uno"),
+        TURNS_ENDED,
+        MainCommandEntered(f"/func add {a.id} attached:board"),
+        InputReceived(a.id, "dos"),
+        TURNS_ENDED,
+        MainCommandEntered(f"/rewind {a.id}"),
+        lambda: seen.append(held(main, a)),
+        MainCommandEntered(f"/rewind {a.id}"),
+        lambda: seen.append(held(main, a)),
+        lambda: seen.append(main.dispatcher.attached.attached_fproc("board").name),  # stays
+        settle=True,
+    )
+    assert seen == [("board",), (), "board"], "given after the first Prompt: undoing it takes them"
+
+
+def test_a_new_session_is_born_with_methods_and_a_session_passes_on_only_its_own(
+    main: MainHarness,
+):
+    a, b = session(main, "create"), session(main, "create")
+    born: dict[str, tuple[str, ...]] = {}
+    main.run(
+        MainCommandEntered(f"/attach board --to={a.id}"),
+        MainCommandEntered("/new --id=humana --bg -am=board"),
+        MainCommandEntered("/new --id=hijauno --bg -am=board", from_session(a)),
+        MainCommandEntered("/new --id=hijados --bg -am=board", from_session(b)),
+        lambda: born.update(
+            {sid: held_names(main.sessions.load(sid)) for sid in ("humana", "hijauno", "hijados")}
+        ),
+        settle=True,
+    )
+    assert born == {"humana": ("board",), "hijauno": ("board",), "hijados": ()}
+
+
+def test_a_method_never_calls_its_own_process(main: MainHarness):
+    a = session(main)
+    main.run(
+        MainCommandEntered("/attach board"),
+        InputReceived(a.id, "@call board again"),
+        lambda: calls(main),
+        TURNS_ENDED,
+        settle=True,
+    )
+    [call] = called(main)
+    assert "attached_calls_itself" in str(call["result"])
+
+
+def test_a_method_that_raises_fails_the_call(main: MainHarness):
+    main.run(
+        MainCommandEntered("/attach board"),
+        MainCommandEntered("/call board fail"),
+        lambda: calls(main),
+        TURNS_ENDED,
+        settle=True,
+    )
+    [call] = called(main)
+    assert "no board" in str(call["error"])
+    [failed] = [
+        e.fields for e in main.main_log() if e.event == "command" and "/call" in str(e.fields)
+    ]
+    assert "attached_method_failed" in str(failed["result"])

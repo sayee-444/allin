@@ -25,7 +25,7 @@ from allin.core.errors import (
     ToolCancelled,
     ToolNotStarted,
 )
-from allin.core.ids import PieceId, SessionId
+from allin.core.ids import AttachedName, PieceId, SessionId
 from allin.core.origin import Origin, from_process
 from allin.decorators import CONFIRM, Reach
 from allin.main.confirmation import ConfirmationGate
@@ -60,7 +60,7 @@ type MethodCall = Callable[
 class AttachedMethod:
     """A tool that is a Proceso adherido's method (#114): its process runs it, not a new one."""
 
-    process: str  # the Proceso adherido's name, a link of its Command sessions' Origin
+    process: AttachedName  # a link of its Command sessions' Origin
     call: MethodCall
 
 
@@ -106,10 +106,10 @@ def session_tools(
 
 # Runs a Command session a tool asked for, with its Turn's Origin, and gives back how it went;
 # the second argument is the Proceso adherido whose method asked, a link of its Origin.
-type AskMain = Callable[[str, str | None], JsonValue]
+type AskMain = Callable[[str, AttachedName | None], JsonValue]
 
 
-def _no_main(text: str, _: str | None) -> JsonValue:
+def _no_main(text: str, _: AttachedName | None) -> JsonValue:
     return {"error": f"no Main to run {text[:40]!r}"}
 
 
@@ -304,31 +304,13 @@ class ToolGate:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
 
-    def _ask_main(self, turn: _Turn, text: str, process: str | None) -> JsonValue:
+    def _ask_main(self, turn: _Turn, text: str, process: AttachedName | None) -> JsonValue:
         """From the call's thread: Main runs the Command session with the Turn's Origin, after
         the Proceso adherido ``process`` if a method of one asks; wait for how it went. Raises
         ``ToolCancelled`` if the Turn is cancelled meanwhile."""
         origin = self._origin if process is None else from_process(self._origin, process)
-        answers: queue.Queue[SessionCommandResult] = queue.Queue()
-        lock = threading.Lock()
-        waiting = [True]
-
-        def answer(result: SessionCommandResult) -> bool:
-            with lock:  # gone, Main leaves it as a Notificación instead
-                if waiting[0]:
-                    answers.put(result)
-                return waiting[0]
-
-        turn.emit(SessionCommandAsked(turn.session_id, text, origin, answer))
-        while True:
-            if turn.cancellation.reason is not None:
-                with lock:
-                    waiting[0] = False
-                raise ToolCancelled
-            try:
-                return answers.get(timeout=_POLL).as_json()
-            except queue.Empty:
-                continue
+        cancelled = lambda: turn.cancellation.reason is not None
+        return ask_main(turn.emit, turn.session_id, text, origin, cancelled)
 
     def _may_run(self, call: Item, turn: _Turn) -> bool:
         """Whether ``call`` may run: yes, unless it asks a Confirmation and a human says no."""
@@ -337,6 +319,38 @@ class ToolGate:
         return turn.confirmation.ask(
             f"run {_name(call)}?", f"{_name(call)} {_arguments_shown(call)}"
         )
+
+
+def ask_main(
+    emit: Emit,
+    session_id: SessionId,
+    text: str,
+    origin: Origin,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> JsonValue:
+    """From a call's thread: Main runs the Command session ``text`` in ``session_id`` with
+    ``origin``; wait for how it went. Raises ``ToolCancelled`` once ``cancelled`` says so, and
+    Main leaves the answer nobody waits for as a Notificación instead."""
+    answers: queue.Queue[SessionCommandResult] = queue.Queue()
+    lock = threading.Lock()
+    waiting = [True]
+
+    def answer(result: SessionCommandResult) -> bool:
+        with lock:
+            if waiting[0]:
+                answers.put(result)
+            return waiting[0]
+
+    emit(SessionCommandAsked(session_id, text, origin, answer))
+    while True:
+        if cancelled():
+            with lock:
+                waiting[0] = False
+            raise ToolCancelled
+        try:
+            return answers.get(timeout=_POLL).as_json()
+        except queue.Empty:
+            continue
 
 
 def _arguments_shown(call: Item) -> str:

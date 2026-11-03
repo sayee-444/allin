@@ -65,6 +65,7 @@ from allin.main.kit_commands import KitCommands
 from allin.main.kits import Kits
 from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
+from allin.main.method_calls import MethodCalls
 from allin.main.notices import LoadedNotices
 from allin.main.notifications import Notifications
 from allin.main.open_windows import OpenWindow, OpenWindows
@@ -258,6 +259,13 @@ class Dispatcher:
             self._attached,
             sessions,
             self._profile_commands.in_active,
+            self._turns.busy,
+            self._notifications,
+            self._reporter,
+        )
+        calls = MethodCalls(
+            self._attached,
+            sessions,
             self._notifications,
             self._windows,
             self._reporter,
@@ -308,6 +316,7 @@ class Dispatcher:
             PieceCreator(self._quarantine, self._boxes, self._devastation, self._reporter),
             self._attached,
             self._methods,
+            calls,
         )
         self._session_commands = SessionCommands(
             command_types,

@@ -533,6 +533,33 @@ class AttachedNotFound(AllInError):
     code: ClassVar[str] = "attached_not_found"
 
 
+class AttachedCallCancelled(AllInError):
+    """A Command session a Proceso adherido's method asked for, during a call that was
+    cancelled: it does not run."""
+
+    code: ClassVar[str] = "attached_call_cancelled"
+
+
+class AttachedCallsItself(AllInError):
+    """A method of the Proceso adherido ``name`` calls ``name`` again: it serves one call at a
+    time, so it would wait for itself for good."""
+
+    code: ClassVar[str] = "attached_calls_itself"
+
+
+class AttachedMethodFailed(AllInError):
+    """The method ``method`` of the Proceso adherido ``name`` raised ``error``."""
+
+    code: ClassVar[str] = "attached_method_failed"
+
+
+class CommandSessionWithoutSession(AllInError):
+    """``command`` runs in a Session, and the call it came from went through none: one called
+    from Main's Chat."""
+
+    code: ClassVar[str] = "command_session_without_session"
+
+
 class AttachedMethodNotFound(AllInError):
     """The Proceso adherido ``name`` has no public method ``method``."""
 

@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass
@@ -58,6 +59,7 @@ from allin.confinement.reach import (
     x11_cookie,
 )
 from allin.core.errors import (
+    AttachedCallCancelled,
     AttachedEnded,
     AttachFailed,
     ConfinementFailed,
@@ -77,7 +79,7 @@ _ANSWER_MAX = 16 * 1024 * 1024
 _STOP_POLL = 0.1  # how often a waiting call asks whether its Turn was cancelled
 # What a call that cannot run Command sessions gets when it asks for one: a description.
 _NO_COMMANDS: JsonValue = {"error": "this call cannot run Command sessions"}
-_CANCELLED: JsonValue = {"error": "its call was cancelled"}
+_CANCELLED: JsonValue = {"error": str(AttachedCallCancelled())}
 
 # Runs a Command session a tool asked for, as typed (``@name …``), and gives back its result.
 type OnCommand = Callable[[str], JsonValue]
@@ -535,7 +537,8 @@ class AttachedProcess:
         self._ended = threading.Event()
         self._exit_code: int | None = None  # its warden's
         self._fproc_died: int | None = None  # its fproc's process's, as its warden told it
-        self._owed = 0  # answers of cancelled calls, still to come, under ``_calls``
+        # The deadlines of cancelled calls whose answers are still to come, under ``_calls``.
+        self._owed: deque[float] = deque()
         self._reaper = threading.Thread(target=self._reap, name="attached-reaper", daemon=True)
         self._reaper.start()
 
@@ -573,11 +576,17 @@ class AttachedProcess:
         does not count in ``timeout``. Raises ``AttachedEnded`` if the process ended, before
         or during the call; ``ToolTimedOut`` after ``timeout`` seconds, which takes the whole
         Proceso adherido down; and ``ToolCancelled`` once ``stop`` says so, while the method
-        goes on: the next call skips its answer."""
-        with self._calls:
+        goes on: the next call skips its answer. Waiting for another call to end can be
+        cancelled too."""
+        while not self._calls.acquire(timeout=_STOP_POLL):
+            if stop():
+                raise ToolCancelled
+        try:
             message = self._ask(
                 CallMethod(method=method, arguments=arguments), timeout, on_command, stop
             )
+        finally:
+            self._calls.release()
         # Waiting for its end happens out of the lock, which its reaper takes to close it.
         match message:
             case Returned(value=value):
@@ -603,15 +612,17 @@ class AttachedProcess:
         were cancelled; ``None`` once it ended, or said something Main does not read."""
         if self._ended.is_set():
             return None
-        deadline = time.monotonic() + timeout
+        deadline: float | None = None
         try:
-            while self._owed:  # a cancelled call's method may still be running
-                self._answer(deadline, lambda: False, _cancelled_command)
-                self._owed -= 1
+            while self._owed:  # a cancelled call's method may still be running, in its time
+                self._answer(self._owed[0], stop, _cancelled_command)
+                self._owed.popleft()
+            deadline = time.monotonic() + timeout
             self.send(call)
             return self._answer(deadline, stop, on_command)
         except ToolCancelled:
-            self._owed += 1
+            if deadline is not None:  # sent: its answer is still to come
+                self._owed.append(deadline)
             raise
         except TimeoutError as error:
             return error
