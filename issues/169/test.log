@@ -1,0 +1,44 @@
+# #169 — Tras compactar, el Organizador muestra el Contexto nuevo (2026-11-03)
+
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9933
+Delante, el proxy de #157 (issues/157/proxy.py.txt) apuntado a 9933, en el puerto 19169: mientras exista el archivo
+`fail` a su lado, responde 500 a /apply-template de una Conversación compactada. Así el Servidor «no sabe medir».
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m169, en un xterm, con el código del commit 04c26db.
+Ajustes: /set base_url=http://127.0.0.1:19169/v1, /exit y otra vez Main.
+/new --id=fila169; /session set fila169 compact.keep=0.02; /windows abre el Organizador.
+Capturas recortadas a la fila del Organizador (0N-organizador-*.png) y al borde de la Ventana (0Nb-borde-*.png).
+
+## Criterios
+1. Tras guardarse una Compactación, la fila del Organizador deja el Contexto de antes y muestra el medido, o ninguno si no se sabe
+   - Tres Prompts de unas 200 palabras (faro, molino, esclusa). Fila: «context 7930 / 32k» (01-organizador-antes.png),
+     igual que el borde (01b-borde-antes.png).
+   - /session compact fila169 desde el Chat de Main: «Prompts 1–3 summarized». Sin ningún Turno nuevo, la fila pasa a
+     «context 235 / 32k» (02-organizador-tras-compactar.png), el mismo número que el borde, «context 235 / 32k · ? tok/s»
+     (02b-borde-tras-compactar.png). Antes de #169 la fila seguía en 7930 hasta el Turno siguiente.
+   - Otro Prompt (reloj de péndulo): fila «context 3199 / 32k» (03-organizador-antes-sin-medir.png).
+   - touch fail; /session compact fila169. El proxy rechaza una sola petición (proxy.log: «refused /apply-template
+     (2 messages)»); la Compactación se guarda («Prompts 1–4 summarized») y el Log dice context_unmeasured. La fila
+     queda sin Contexto («fila169 — in view · server base_url»), no en 3199 (04-organizador-sin-medir.png); el borde,
+     «context ? / 32k» (04b-borde-sin-medir.png).
+   - rm fail; /exit y otra vez Main; /windows: la fila sigue sin Contexto (05-organizador-tras-reiniciar.png), porque la
+     Conversación guardada lleva compacted_since_turn y este Main no la midió.
+   - El Turno siguiente («Resume en una frase…») muestra su propio Contexto en la fila y en el borde: «context 396 / 32k»
+     (06-organizador-turno-siguiente.png, 06b-borde-turno-siguiente.png).
+   - 07-log-de-fila169.jsonl: los eventos del Log de fila169 de la prueba (textos largos recortados).
+2. Al llegar la medida, la fila se actualiza sin esperar a otro cambio de la Sesión
+   - A mano, la medida llega en milisegundos tras guardarse la Compactación y la captura 02 ya la muestra sin otro Turno.
+     El paso intermedio (desconocido y luego medido, sin que cambie ningún archivo) lo prueba
+     test_once_a_compaction_is_saved_the_organizer_shows_the_compacted_context: las filas que recibe el Organizador
+     son [199, None, 214], la última al llegar el InputMeasured del Servidor.
+3. Tests: abajo.
+
+## Tests de #169 (tests/test_compaction_border.py)
+test_once_a_compaction_is_saved_the_organizer_shows_the_compacted_context PASSED
+test_a_server_that_cannot_measure_leaves_the_organizer_unknown_not_as_before PASSED
+test_after_a_restart_the_organizer_shows_a_compacted_context_unknown PASSED
+test_after_compacting_the_next_turn_shows_its_own_context_in_the_organizer PASSED
+test_a_rewind_after_compacting_leaves_the_organizer_unknown_as_the_border PASSED
+test_a_compacted_session_closed_keeps_its_measured_context_in_the_organizer PASSED
+Con el código de antes fallan todos salvo el del Turno siguiente, que ya pasaba y queda de guarda.
+Suite completa: 1756 passed; basedpyright 0 errores; ruff limpio.

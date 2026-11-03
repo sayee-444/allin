@@ -1,0 +1,31 @@
+{"ts": "2026-11-03T08:18:06.425054-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T08:18:06.430090-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T08:18:06.515343-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T08:18:31.194402-06:00", "event": "prompt", "text": "Describe en unas doscientas palabras un faro en una costa rocosa: su historia, quien lo cuida y como funciona. Sin listas.", "prompt_id": "le0fkh", "origin": ["human"]}
+{"ts": "2026-11-03T08:18:31.198239-06:00", "event": "turn_started", "need": 8107}
+{"ts": "2026-11-03T08:18:48.299071-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T08:20:47.205717-06:00", "event": "prompt", "text": "Ahora describe en unas doscientas palabras un molino de viento en una llanura: su historia, quien lo cuida y como funciona. Sin listas.", "prompt_id": "rygz8t", "origin": ["human"]}
+{"ts": "2026-11-03T08:20:47.211896-06:00", "event": "turn_started", "need": 11011}
+{"ts": "2026-11-03T08:21:01.637913-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-03T08:21:08.133829-06:00", "event": "prompt", "text": "Y por ultimo describe en unas doscientas palabras una esclusa en un canal antiguo: su historia, quien la cuida y como funciona. Sin listas.", "prompt_id": "jkir44", "origin": ["human"]}
+{"ts": "2026-11-03T08:21:08.141570-06:00", "event": "turn_started", "need": 13568}
+{"ts": "2026-11-03T08:21:21.968230-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-03T08:21:31.779650-06:00", "event": "compaction_asked", "instructions": ""}
+{"ts": "2026-11-03T08:21:31.780110-06:00", "event": "compaction_started", "kind": "compact"}
+{"ts": "2026-11-03T08:21:31.800532-06:00", "event": "compaction_step_started", "need": 16091}
+{"ts": "2026-11-03T08:21:38.546715-06:00", "event": "compacted", "summarized": 3, "summary": "Sayee pidió tres descripciones en español, de unas 200 palabras y sin listas, cada una con historia, cuidador y funcionamiento: un faro en una costa rocosa, un …", "archive": "compacted/1.json", "replaced": 7986, "tokens": 212}
+{"ts": "2026-11-03T08:22:03.054926-06:00", "event": "prompt", "text": "Describe en unas doscientas palabras un reloj de pendulo en un salon antiguo: su historia, quien le da cuerda y como funciona. Sin listas.", "prompt_id": "esckq4", "origin": ["human"]}
+{"ts": "2026-11-03T08:22:03.058901-06:00", "event": "turn_started", "need": 8274}
+{"ts": "2026-11-03T08:22:20.375850-06:00", "event": "turn_finished", "turn": 3}
+{"ts": "2026-11-03T08:22:29.234216-06:00", "event": "compaction_asked", "instructions": ""}
+{"ts": "2026-11-03T08:22:29.234786-06:00", "event": "compaction_started", "kind": "compact"}
+{"ts": "2026-11-03T08:22:29.248684-06:00", "event": "compaction_step_started", "need": 11360}
+{"ts": "2026-11-03T08:22:35.405525-06:00", "event": "compacted", "summarized": 4, "summary": "Sayee pidió descripciones en español de unas 200 palabras, sin listas, con historia, cuidador y funcionamiento. Ya se entregaron el faro de Punta Greda (1842, a…", "archive": "compacted/2.json", "replaced": 3222, "tokens": 239}
+{"ts": "2026-11-03T08:22:35.406247-06:00", "event": "context_unmeasured", "text": "the Server could not measure the compacted Conversation: its Context is unknown"}
+{"ts": "2026-11-03T08:22:54.655467-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T08:22:59.013890-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T08:22:59.098764-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T08:23:18.969952-06:00", "event": "prompt", "text": "Resume en una frase lo que hemos hablado.", "prompt_id": "5vn689", "origin": ["human"]}
+{"ts": "2026-11-03T08:23:18.974313-06:00", "event": "turn_started", "need": 8279}
+{"ts": "2026-11-03T08:23:20.311209-06:00", "event": "turn_finished", "turn": 4}
+{"ts": "2026-11-03T08:23:35.842167-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}

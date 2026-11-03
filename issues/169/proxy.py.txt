@@ -1,0 +1,64 @@
+"""A pass-through to llama serve on 9933 that, while the file ``fail`` sits next to it, answers
+500 to /apply-template for a compacted Conversation (its second message is the summary, and it
+is not a summary Step's request): the Server "cannot measure" what a Compaction saved (#157,
+reused for #169)."""
+
+import http.client
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+UPSTREAM = ("127.0.0.1", 9933)
+TOGGLE = Path(__file__).with_name("fail")
+LOG = Path(__file__).with_name("proxy.log")
+
+
+def refuses(path: str, body: bytes) -> bool:
+    if path != "/apply-template" or not TOGGLE.exists():
+        return False
+    messages = json.loads(body).get("messages", [])
+    if len(messages) < 2 or str(messages[0].get("content", "")).startswith("You summarize"):
+        return False  # a part of the Compaction's own work
+    return str(messages[1].get("content", "")).startswith("[Conversation summary")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _forward(self, method: str) -> None:
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else b""
+        if refuses(self.path, body):
+            with LOG.open("a") as log:
+                log.write(f"refused {self.path} ({len(json.loads(body)['messages'])} messages)\n")
+            self.send_response(500)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        upstream = http.client.HTTPConnection(*UPSTREAM, timeout=600)
+        headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host",)}
+        upstream.request(method, self.path, body or None, headers)
+        reply = upstream.getresponse()
+        self.send_response(reply.status)
+        for key, value in reply.getheaders():
+            if key.lower() not in ("transfer-encoding", "connection", "content-length"):
+                self.send_header(key, value)
+        self.send_header("Connection", "close")
+        self.end_headers()
+        while chunk := reply.read1(65536):
+            self.wfile.write(chunk)
+            self.wfile.flush()
+        upstream.close()
+        self.close_connection = True
+
+    def do_GET(self) -> None:
+        self._forward("GET")
+
+    def do_POST(self) -> None:
+        self._forward("POST")
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+if __name__ == "__main__":
+    ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
