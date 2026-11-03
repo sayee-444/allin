@@ -22,6 +22,7 @@ from allin.ipc.messages import (
     ThemeSet,
 )
 from allin.main.boxes import MainBoxes
+from allin.main.conversation import Conversation
 from allin.main.open_windows import OpenWindows, WindowLink
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
@@ -73,7 +74,10 @@ class _Known:
     stamp: int
     session: Session
     first_prompt: str
-    context: int | None
+    context: int | None  # its last Turn's
+    # Saved by a Compactación after its last Turn: its Context is what its Window's border
+    # shows, as the Server measures it (#169). Kept only then, not every Conversation.
+    compacted: Conversation | None
 
 
 class RowSource:
@@ -130,6 +134,8 @@ class RowSource:
         place = self.place(session_id)
         streamed = self._turns.streamed(session_id)
         context = known.context
+        if known.compacted is not None:
+            context = self._windows.saved_context(session_id, known.compacted)
         if streamed is not None and streamed.steps:
             context = context_tokens(streamed.steps)
         return OrganizerRow(
@@ -159,7 +165,8 @@ class RowSource:
         turns = conversation.turns if conversation is not None else []
         first = turns[0].as_typed if turns else ""
         context = context_tokens(turns[-1].steps) if turns else None
-        known = _Known(stamp, session, first, context)
+        compacted = conversation if conversation and conversation.compacted_since_turn else None
+        known = _Known(stamp, session, first, context, compacted)
         self._known[session_id] = known
         return known
 

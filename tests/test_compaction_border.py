@@ -1,18 +1,19 @@
-"""Once a Compactación is saved, the Window's border shows the Context of the compacted
-Conversation, measured on the Server as the Admission measures, never the one before (#157,
-ADR-0017). The fake Server counts one token per word."""
+"""Once a Compactación is saved, the Window's border and the Organizer's row show the Context
+of the compacted Conversation, measured on the Server as the Admission measures, never the one
+before (#157, #169, ADR-0017). The fake Server counts one token per word."""
 
 from pathlib import Path
 
 import pytest
 
 from allin.core.ids import ServerKey
-from allin.ipc.messages import ContextUsage
+from allin.ipc.messages import ContextUsage, OrganizerRows
 from allin.main.conversation import Item, summary_item, turn_items
 from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     MainEvent,
+    OrganizerConnected,
     ServerChanged,
     ServerReady,
     WindowClosed,
@@ -160,3 +161,92 @@ def test_pruning_alone_shows_the_context_its_llm_reads_pruned(main: MainHarness)
         read += turn_items(turn, pruned=index < 4)
     # Saved pruned, then its Prompt's Turn ran and showed its own Step.
     assert borders(main, session)[-3:] == [None, words(read), 101]
+
+
+# The Organizer's row shows the same Context as the border (#169).
+
+
+def organizer_contexts(main: MainHarness, session: Session) -> list[int | None]:
+    """Each Context the last Organizer's row of the Session showed, without repeats."""
+    shown: list[int | None] = []
+    for message in main.organizers[-1].sent:
+        if isinstance(message, OrganizerRows):
+            [context] = [r.context for r in message.rows if r.session_id == session.id]
+            if not shown or shown[-1] != context:
+                shown.append(context)
+    return shown
+
+
+def with_organizer() -> tuple[MainEvent, MainEvent]:
+    return MainCommandEntered("/windows"), OrganizerConnected()
+
+
+def compacted_in_organizer(main: MainHarness, session: Session, *after: MainEvent) -> None:
+    """Six Turns with the Organizer open, then a Compactación that keeps the last two, then
+    ``after``, all in one run of Main."""
+    main.llm = FakeLlm(*answers(6), reply("We chose mango."))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        *with_organizer(),
+        *talk(session, 6),
+        compact(session),
+        *after,
+        settle=True,
+    )
+
+
+def test_once_a_compaction_is_saved_the_organizer_shows_the_compacted_context(
+    main: MainHarness,
+):
+    session = main.create_session()
+    compacted_in_organizer(main, session)
+    # Unknown once it is saved, then what was measured, with no other change in the Session.
+    assert organizer_contexts(main, session)[-3:] == [BEFORE, None, COMPACTED]
+
+
+def test_a_server_that_cannot_measure_leaves_the_organizer_unknown_not_as_before(
+    main: MainHarness,
+):
+    def unmeasurable_once_compacted(items: list[Item]) -> int | None:
+        return None if len(items) > 1 and items[1] == SUMMARY else words(items)
+
+    main.servers.tokens_of = unmeasurable_once_compacted
+    session = main.create_session()
+    compacted_in_organizer(main, session)
+    assert organizer_contexts(main, session)[-2:] == [BEFORE, None]
+
+
+def test_after_a_restart_the_organizer_shows_a_compacted_context_unknown(main: MainHarness):
+    session = main.create_session()
+    compacted_in_organizer(main, session)
+    main.run(*with_organizer(), settle=True)
+    assert organizer_contexts(main, session) == [None]
+
+
+def test_after_compacting_the_next_turn_shows_its_own_context_in_the_organizer(
+    main: MainHarness,
+):
+    session = main.create_session()
+    compacted_in_organizer(main, session)
+    main.llm = FakeLlm(reply("w"))
+    main.run(*with_organizer(), *talk(session, 1, first=6), settle=True)
+    assert organizer_contexts(main, session)[-1] == 101
+
+
+def test_a_rewind_after_compacting_leaves_the_organizer_unknown_as_the_border(
+    main: MainHarness,
+):
+    session = main.create_session()
+    compacted_in_organizer(main, session, rewind_cmd(session))
+    assert organizer_contexts(main, session)[-1] is None
+    assert borders(main, session)[-1] is None
+
+
+def test_a_compacted_session_closed_keeps_its_measured_context_in_the_organizer(
+    main: MainHarness,
+):
+    session = main.create_session()
+    compacted_in_organizer(main, session, WindowClosed(session.id, 0))
+    rows = [m.rows for m in main.organizers[-1].sent if isinstance(m, OrganizerRows)][-1]
+    [row] = [r for r in rows if r.session_id == session.id]
+    assert (row.place, row.context) == ("closed", COMPACTED)
