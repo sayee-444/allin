@@ -1,0 +1,118 @@
+# #196 — Una sola salida para un Turno, que devuelve lo del humano, olvida sus caídas y cierra lo que abrió (2026-11-03)
+
+Código: rama refactor/196-salida-unica-del-turno, commit f48b312 (y su merge de origin/main, 9cf9730).
+Servidor (Swift IQ3_XXS con -c 32000, por si la otra sesión levantaba el suyo):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/190, sin cambios, 19932 → 9932): mientras existe <scratch>/hold, un POST de
+generación que contiene lo escrito en él espera sin respuesta; <scratch>/fall corta el POST que contiene lo escrito en
+él (una caída, ADR-0023) y crea <scratch>/down (/health 503) hasta que se borra.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m196, en el xterm allin-main-196, con
+/set base_url=http://127.0.0.1:19932/v1. Function napper/nap.py (nap.py.txt, de issues/176) en
+<data-dir>/profiles/default/functions/; /piece approve --all; /new --id=siesta196; /func add siesta196 function:napper;
+/new --id=cierre196. (El driver de X no escribe tildes.)
+
+## Criterios
+
+1. Una sola salida decide, para toda razón y todo estado del Turno, qué vuelve al Borrador, qué cae con él, qué cuenta de
+   caídas se olvida, qué se cancela y a quién se avisa; los caminos de hoy la llaman
+   - Código: TurnQueue._leave(session_id, left: Sequence[Leaving], ending: Ending, why) y turn_exit.Leaving (qué
+     vuelve, si su Turno corrió, si se avisa). La llaman _fail_turn (turn_ended: fallo, cancelación, Paso estancado;
+     cancel_running al pararse Main, como «kept»), _cancel (cerrar la Ventana, /close), cancel_prompt y cancel_woken,
+     _drop_prompt (no cabe o no puede empezar), withdraw (↑) y take_queue («kept»). keep_interjected desaparece.
+     Solo código y tests.
+2. Cada hallazgo tiene su test, que falla con el código de antes y pasa con el nuevo
+   - tests/test_turn_exit.py corrido contra origin/main (c5ea287, en un worktree aparte, sin las 2 pruebas de la
+     regla pura, que importan turn_exit): 20 fallan y 1 pasa, la guarda de que una caída tras cerrar la Ventana sigue
+     avisando a la vigilancia del Servidor (no es un hallazgo: protege lo que el arreglo mueve). Ver «Rojo en main».
+3. Lo intercalado de un Turno humano sobrevive a un kill de Main
+   - hold = «Ademas di un color». En siesta196: «Llama a la tool nap con seconds=25 y luego di listo.»; mientras corre
+     nap, «Ademas di un color.» con Enter y «sin enviar» sin Enter. Al acabar nap el texto entra en el Turno
+     (prompt_joined) y el Paso siguiente queda retenido (01-siesta-antes-del-kill.png). state.json:
+       drafts       {"siesta196": ["sin enviar"]}
+       running      ["Llama a la tool nap con seconds=25 y luego di listo."]
+       interjected  {"siesta196": ["Ademas di un color."]}
+     (antes de #196 no existía «interjected»: el texto solo pasaba al Borrador con /exit o una señal, y con un kill se
+     perdía).
+   - kill -9 del proceso de Main (por su pid); rm hold; se arranca Main de nuevo: cierra la Ventana huérfana y la
+     reabre (02-siesta-tras-el-kill.png): el input trae el Prompt con «+2 waiting». state.json:
+       drafts       {"siesta196": ["Llama a la tool nap con seconds=25 y luego di listo.", "Ademas di un color.", "sin enviar"]}
+       running      []
+       interjected  {}
+4. Cerrar la Ventana cancela el Turno humano aunque su fin llegue luego como caída (hallazgos 2 y 5)
+   - hold = fall = «Cuenta hasta tres». En cierre196: «Cuenta hasta tres.» (Enter: su Paso queda en la petición,
+     03-cierre-retenido.png). Se cierra la Ventana (kill del xterm «AllIn · cierre196», por su pid): window_closed; el
+     Turno está cancelado pero su executor sigue en la petición HTTP. rm hold: el proxy corta ese Paso (falls.log:
+     «fall /v1/responses»), y el executor acaba con LlmUnavailable detrás de la cancelación. Log de cierre196:
+       prompt, turn_started, window_closed (returncode 15), turn_cancelled (reason='window closed')
+     Ni turn_suspended ni otro turn_started, tampoco tras borrar down y volver el Servidor (queue_resumed en el Log de
+     Main). Con el código de main, la caída lo suspendía y volvía a correr sin Ventana.
+   - /open cierre196 (04-cierre-reabierta.png): el input trae «Cuenta hasta tres.».
+5. Los demás hallazgos (un Turno suspendido que ya no cabe, un Encargo que cancela un Turno suspendido, sus
+   Suscripciones, el reinicio --now, Shift+Enter, el orden tras un Rewind con la Ventana cerrada, ↑ con un Prompt de
+   otro Origen): solo tests.
+6. La suite de antes pasa sin cambiar lo que comprueba: ningún test existente cambia; 1904 pasan (con #195 fusionado).
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+Logs completos: log-de-siesta196.jsonl, log-de-cierre196.jsonl.
+
+## Rojo en main (c5ea287)
+  >       assert "turn_cancelled" in logged_events and "turn_failed" not in logged_events
+  >       assert "turn_cancelled" in logged_events and "turn_failed" not in logged_events
+  log = [LogEntry(ts=datetime.datetime(2026, 11, 3, 0, 0, tzinfo=TzInfo(0)), event='prompt_too_big', typed='duerme', origin=['... 3, 0, 0, tzinfo=TzInfo(0)), event='prompts_dropped', reason='the turn before failed', texts=['a2'], kinds=['prompt'])]
+  FAILED tests/test_turn_exit.py::test_a_suspended_turn_that_no_longer_fits_gives_back_its_texts_and_its_queue_falls
+  FAILED tests/test_turn_exit.py::test_cancelling_during_a_restart_now_does_not_resume_the_turn[window-closed]
+  FAILED tests/test_turn_exit.py::test_cancelling_during_a_restart_now_does_not_resume_the_turn[close]
+  FAILED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[window-closed-False]
+  FAILED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[window-closed-True]
+  FAILED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[close-False]
+  FAILED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[close-True]
+  FAILED tests/test_turn_exit.py::test_switching_profile_now_during_a_restart_now_does_not_resume_the_turn
+  FAILED tests/test_turn_exit.py::test_shift_enter_while_its_fall_is_in_the_inbox_saves_the_turn_cut
+  FAILED tests/test_turn_exit.py::test_a_kill_mid_turn_keeps_its_interjected_texts
+  FAILED tests/test_turn_exit.py::test_an_errand_cancelled_while_its_turn_is_suspended_gives_back_what_a_human_typed
+  FAILED tests/test_turn_exit.py::test_a_suspended_turn_that_leaves_the_queue_cancels_what_it_opened
+  FAILED tests/test_turn_exit.py::test_up_leaves_a_prompt_of_another_origin_in_the_queue
+  FAILED tests/test_turn_exit.py::test_up_on_a_prompt_someone_waits_for_tells_them_it_has_no_answer
+  FAILED tests/test_turn_exit.py::test_a_rewind_with_the_window_closed_gives_back_in_the_order_it_has_open
+  FAILED tests/test_turn_exit.py::test_one_of_another_origin_gives_back_its_texts_and_its_queue_as_the_window_opens
+  FAILED tests/test_turn_exit.py::test_a_human_prompt_that_cannot_start_goes_back_as_its_window_opens
+  FAILED tests/test_turn_exit.py::test_what_could_not_start_or_go_on_comes_back_from_the_log[a-suspended-turn-and-its-queue]
+  FAILED tests/test_turn_exit.py::test_what_could_not_start_or_go_on_comes_back_from_the_log[of-another-origin-its-texts-only]
+  FAILED tests/test_turn_exit.py::test_what_could_not_start_or_go_on_comes_back_from_the_log[each-ahead-of-the-one-before]
+  PASSED tests/test_turn_exit.py::test_a_fall_after_closing_still_tells_its_server_watch
+  20 failed, 1 passed in 0.44s
+
+## Verde en la rama
+  PASSED tests/test_turn_exit.py::test_a_suspended_turn_that_no_longer_fits_gives_back_its_texts_and_its_queue_falls
+  PASSED tests/test_turn_exit.py::test_cancelling_during_a_restart_now_does_not_resume_the_turn[window-closed]
+  PASSED tests/test_turn_exit.py::test_cancelling_during_a_restart_now_does_not_resume_the_turn[close]
+  PASSED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[window-closed-False]
+  PASSED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[window-closed-True]
+  PASSED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[close-False]
+  PASSED tests/test_turn_exit.py::test_cancelling_while_its_fall_is_in_the_inbox_cancels_the_turn[close-True]
+  PASSED tests/test_turn_exit.py::test_switching_profile_now_during_a_restart_now_does_not_resume_the_turn
+  PASSED tests/test_turn_exit.py::test_shift_enter_while_its_fall_is_in_the_inbox_saves_the_turn_cut
+  PASSED tests/test_turn_exit.py::test_a_fall_after_closing_still_tells_its_server_watch
+  PASSED tests/test_turn_exit.py::test_a_kill_mid_turn_keeps_its_interjected_texts
+  PASSED tests/test_turn_exit.py::test_an_errand_cancelled_while_its_turn_is_suspended_gives_back_what_a_human_typed
+  PASSED tests/test_turn_exit.py::test_a_suspended_turn_that_leaves_the_queue_cancels_what_it_opened
+  PASSED tests/test_turn_exit.py::test_up_leaves_a_prompt_of_another_origin_in_the_queue
+  PASSED tests/test_turn_exit.py::test_up_on_a_prompt_someone_waits_for_tells_them_it_has_no_answer
+  PASSED tests/test_turn_exit.py::test_a_rewind_with_the_window_closed_gives_back_in_the_order_it_has_open
+  PASSED tests/test_turn_exit.py::test_one_of_another_origin_gives_back_its_texts_and_its_queue_as_the_window_opens
+  PASSED tests/test_turn_exit.py::test_a_human_prompt_that_cannot_start_goes_back_as_its_window_opens
+  PASSED tests/test_turn_exit.py::test_what_could_not_start_or_go_on_comes_back_from_the_log[a-suspended-turn-and-its-queue]
+  PASSED tests/test_turn_exit.py::test_what_could_not_start_or_go_on_comes_back_from_the_log[of-another-origin-its-texts-only]
+  PASSED tests/test_turn_exit.py::test_what_could_not_start_or_go_on_comes_back_from_the_log[each-ahead-of-the-one-before]
+  PASSED tests/test_turn_exit.py::test_a_queued_prompt_leaves_with_the_texts_its_steps_took_if_its_turn_ran
+  PASSED tests/test_turn_exit.py::test_what_goes_back_is_only_what_a_human_typed
+  23 passed in 0.32s
+
+## Métricas (venv/bin/python -m scripts.metrics, antes del merge de origin/main)
+  Code health
+    tests                 1882 passed in 95.17s (0:01:35); coverage 85%
+    mutation score        94% (953/1015 mutants killed)
+    type errors           0  (basedpyright strict)
+    lint warnings         0  (ruff)
+    escapes in src        41  (cast, pyright/type: ignore, noqa)
+    PR size (median)      204.0 lines changed

@@ -1,0 +1,18 @@
+{"ts": "2026-11-03T12:51:28.488225-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T12:51:28.492903-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T12:51:28.582087-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T12:51:29.628875-06:00", "event": "functions_added", "pieces": ["function:napper"], "origin": ["human"]}
+{"ts": "2026-11-03T12:51:36.919272-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T12:51:42.233839-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T12:51:42.321602-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T12:51:53.310791-06:00", "event": "prompt", "text": "Llama a la tool nap con seconds=25 y luego di listo.", "prompt_id": "86i1r9", "origin": ["human"]}
+{"ts": "2026-11-03T12:51:53.316857-06:00", "event": "turn_started", "need": 8338}
+{"ts": "2026-11-03T12:51:54.202781-06:00", "event": "tools_called", "tools": ["nap"]}
+{"ts": "2026-11-03T12:52:00.290106-06:00", "event": "prompt", "text": "Ademas di un color.", "prompt_id": "refbgj", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T12:52:19.236651-06:00", "event": "tools_returned", "grows": 73}
+{"ts": "2026-11-03T12:52:19.236982-06:00", "event": "prompt_joined", "text": "Ademas di un color.", "prompt_id": "refbgj"}
+{"ts": "2026-11-03T12:52:39.843141-06:00", "event": "turn_failed", "error": "turn_crashed: reason='main stopped without closing it'", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T12:52:39.843178-06:00", "event": "window_closed", "returncode": null}
+{"ts": "2026-11-03T12:52:39.893516-06:00", "event": "orphan_window_closed", "pid": 1873372}
+{"ts": "2026-11-03T12:52:39.898457-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T12:52:39.987934-06:00", "event": "window_connected"}
