@@ -19,6 +19,8 @@ import json
 import os
 import threading
 
+from allin import fproc_runtime
+
 type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | None
 
 _lock = threading.Lock()  # one Command session at a time on the channel
@@ -34,7 +36,11 @@ def connect(to_warden: int, from_warden: int) -> None:
 def command(text: str) -> _Json:
     """Run a Command session, ``@name …`` as a Window takes it, and give back its result:
     ``{"result": "ok"}``, or ``{"error": …}`` with why it was refused or failed. Raises
-    ``RuntimeError`` outside a tool call, as in the encierro de descripción."""
+    ``RuntimeError`` outside a tool call, as in the encierro de descripción, and in a Proceso
+    adherido outside a thread that serves a call to one of its methods."""
+    attached = fproc_runtime.runtime()
+    if attached is not None:
+        return attached.command(text)
     if _pipes is None:
         msg = "no channel to Main: a Command session runs only from a tool call"
         raise RuntimeError(msg)

@@ -186,6 +186,17 @@ class StepSettings(BaseModel, frozen=True):
     )
 
 
+class AttachedSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    release: float = Field(
+        default=5.0,
+        gt=0,
+        description="seconds a Proceso adherido gets to end a call past its timeout before Main"
+        " kills it; for those attached from then on",
+    )
+
+
 class AdmissionSettings(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid")
 
@@ -226,6 +237,7 @@ class MainSettings(BaseModel, frozen=True):
     step: StepSettings = StepSettings()
     admission: AdmissionSettings = AdmissionSettings()
     windows: WindowsSettings = WindowsSettings()  # the Máximo de Ventanas (#52, ADR-0020)
+    attached: AttachedSettings = AttachedSettings()  # the Procesos adheridos (ADR-0012)
     # The Atajos of Main's own Chat as they differ from the defaults; only ``/key`` changes them.
     keys: dict[str, str] = Field(default_factory=dict[str, str])
     theme: ThemeName = Field(

@@ -540,6 +540,13 @@ class AttachedCallCancelled(AllInError):
     code: ClassVar[str] = "attached_call_cancelled"
 
 
+class AttachedChanged(AllInError):
+    """An ``@writes`` call to a Proceso adherido was not run: it changed since its Session last
+    read it, and is at ``revision`` now (ADR-0012). Read again, then write."""
+
+    code: ClassVar[str] = "attached_changed"
+
+
 class AttachedCallsItself(AllInError):
     """A method of the Proceso adherido ``name`` calls ``name`` again: it serves one call at a
     time, so it would wait for itself for good."""

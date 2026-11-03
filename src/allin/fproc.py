@@ -18,6 +18,8 @@ It runs inside the Proceso adherido, so it uses the standard library alone.
 from dataclasses import dataclass
 from pathlib import Path
 
+from allin import fproc_runtime
+
 
 @dataclass(frozen=True)
 class _Attached:
@@ -47,6 +49,27 @@ class Fproc:
         """The shared file it was attached with, which it may read and write; ``None`` if it
         was attached without one."""
         return _context().file
+
+    def changed(self) -> None:
+        """Say the state changed other than through an ``@writes`` method, as when the human
+        works in its own window: every Session reads again before its next ``@writes``."""
+        runtime = fproc_runtime.runtime()
+        if runtime is not None:
+            runtime.changed()
+
+    def progress(self, text: str) -> None:
+        """Tell how far the call this thread serves went: it shows where the call was made, and
+        its timeout counts again from now. Nothing outside a call."""
+        runtime = fproc_runtime.runtime()
+        if runtime is not None:
+            runtime.progress(text)
+
+    def cancelled(self) -> bool:
+        """Whether Main gave up on the call this thread serves, because its Turn was cancelled
+        or it ran out of time: the method should leave it. A method that does not is killed
+        with the whole process once its timeout and a few seconds more passed."""
+        runtime = fproc_runtime.runtime()
+        return runtime is not None and runtime.cancelled()
 
 
 def _context() -> _Attached:

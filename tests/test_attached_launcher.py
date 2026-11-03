@@ -4,6 +4,7 @@ trabajo as current folder; its methods are served one at a time until it is deta
 crashes or Main dies, and it never starts again by itself."""
 
 import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -17,7 +18,13 @@ from pydantic import JsonValue
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import AttachedProcess, FprocStart, ToolLauncher
-from allin.core.errors import AttachedEnded, AttachFailed, ToolCancelled, ToolTimedOut
+from allin.core.errors import (
+    AttachedChanged,
+    AttachedEnded,
+    AttachFailed,
+    ToolCancelled,
+    ToolTimedOut,
+)
 from allin.core.ids import AttachedName, FprocName
 from tests.test_tool_launcher import alive, unique_title
 
@@ -85,6 +92,78 @@ class Counter(Fproc):
         return 1
 '''
 
+SHARED = '''
+import threading
+import time
+
+from allin.decorators import commutative, concurrent, writes
+from allin.fproc import Fproc
+
+
+@concurrent(2)
+class Shared(Fproc):
+    """A text two Sessions share."""
+
+    def __init__(self):
+        self.text = ""
+        self.lines = []
+        self.running = 0
+        self.peak = 0
+        self.lock = threading.Lock()
+        self.left = []
+
+    def read(self) -> str:
+        return self.text
+
+    @writes
+    def write(self, text: str) -> str:
+        self.text = text
+        return text
+
+    @commutative
+    def append(self, line: str) -> int:
+        self.lines.append(line)
+        return len(self.lines)
+
+    def edit_by_hand(self, text: str) -> None:
+        """As the human would, in its own window: from a thread of its own."""
+
+        def edit():
+            self.text = text
+            self.changed()
+
+        hand = threading.Thread(target=edit)
+        hand.start()
+        hand.join()
+
+    def hold(self, seconds: float) -> int:
+        with self.lock:
+            self.running += 1
+            self.peak = max(self.peak, self.running)
+        time.sleep(seconds)
+        with self.lock:
+            self.running -= 1
+        return self.peak
+
+    def long(self, steps: int, pause: float) -> int:
+        for step in range(steps):
+            time.sleep(pause)
+            self.progress(f"step {step + 1} of {steps}")
+        return steps
+
+    def patient(self, name: str) -> str:
+        while not self.cancelled():
+            time.sleep(0.05)
+        self.left.append(name)
+        return "left"
+
+    def left_ones(self) -> list:
+        return self.left
+
+    def stubborn(self) -> None:
+        time.sleep(600)
+'''
+
 BROKEN = """
 from allin.fproc import Fproc
 
@@ -108,6 +187,7 @@ def package(data_dir: Path) -> Path:
     folder.mkdir(parents=True)
     (folder / "counter.py").write_text(COUNTER)
     (folder / "broken.py").write_text(BROKEN)
+    (folder / "shared.py").write_text(SHARED)
     return folder
 
 
@@ -120,11 +200,17 @@ def launcher(data_dir: Path) -> Iterator[ToolLauncher]:
 
 
 def start(
-    data_dir: Path, package: Path, file: Path | None = None, module: str = "counter"
+    data_dir: Path,
+    package: Path,
+    file: Path | None = None,
+    module: str = "counter",
+    at_once: int | None = 1,
 ) -> FprocStart:
     workspace = data_dir / "attached" / "default" / "notes"
     workspace.mkdir(parents=True, exist_ok=True)
-    return FprocStart(package, FprocName(module), AttachedName("notes"), workspace, file=file)
+    return FprocStart(
+        package, FprocName(module), AttachedName("notes"), workspace, file=file, at_once=at_once
+    )
 
 
 @pytest.fixture
@@ -275,11 +361,93 @@ def test_detaching_it_takes_its_descendants_down(attached: AttachedProcess):
     assert not alive(title)
 
 
-def test_a_call_past_its_timeout_takes_the_whole_process_down(attached: AttachedProcess):
+@pytest.fixture
+def shared(launcher: ToolLauncher, data_dir: Path, package: Path) -> Iterator[AttachedProcess]:
+    """``Shared``, two calls at a time as its ``@concurrent(2)`` says; a call past its timeout
+    gets half a second to end."""
+    process = launcher.attach(
+        start(data_dir, package, module="shared", at_once=2), timeout=20, release=0.5
+    )
+    yield process
+    process.detach()
+
+
+def test_a_write_from_a_session_that_did_not_see_the_last_one_is_refused(
+    shared: AttachedProcess,
+):
+    seen_a = shared.call("read", {}, timeout=10, seen=-1).revision
+    seen_b = shared.call("read", {}, timeout=10, seen=-1).revision
+    assert seen_a == seen_b == 0
+    wrote = shared.call("write", {"text": "de A"}, timeout=10, seen=seen_a)
+    assert (wrote.value, wrote.revision) == ("de A", 1)
+    with pytest.raises(AttachedChanged) as refused:
+        shared.call("write", {"text": "de B"}, timeout=10, seen=seen_b)
+    assert refused.value.fields["revision"] == 1
+    assert shared.call("read", {}, timeout=10).value == "de A", "B's write never ran"
+    seen_b = shared.call("read", {}, timeout=10, seen=seen_b).revision
+    assert shared.call("write", {"text": "de B"}, timeout=10, seen=seen_b).value == "de B"
+
+
+def test_a_change_the_fproc_marks_also_asks_to_read_again(shared: AttachedProcess):
+    seen = shared.call("read", {}, timeout=10, seen=-1).revision
+    shared.call("edit_by_hand", {"text": "a mano"}, timeout=10)
+    with pytest.raises(AttachedChanged):
+        shared.call("write", {"text": "encima"}, timeout=10, seen=seen)
+
+
+def test_a_commutative_write_is_never_refused_nor_counts_as_a_read(shared: AttachedProcess):
+    shared.call("write", {"text": "x"}, timeout=10)  # a human's: nobody checks it
+    appended = shared.call("append", {"line": "una"}, timeout=10, seen=0)
+    assert (appended.value, appended.revision) == (1, None)
+
+
+def test_concurrent_two_runs_two_calls_at_once_and_holds_the_third(shared: AttachedProcess):
+    peaks: list[int] = []
+
+    def hold() -> None:
+        value = shared.call("hold", {"seconds": 0.6}, timeout=10).value
+        assert isinstance(value, int)
+        peaks.append(value)
+
+    began = time.monotonic()
+    holders = [threading.Thread(target=hold) for _ in range(3)]
+    for holder in holders:
+        holder.start()
+    for holder in holders:
+        holder.join()
+    assert max(peaks) == 2, "never three at once"
+    assert time.monotonic() - began >= 1.2, "the third waited for a free turn"
+
+
+def test_a_call_that_tells_its_progress_does_not_time_out(shared: AttachedProcess):
+    told: list[str] = []
+    outcome = shared.call("long", {"steps": 5, "pause": 0.3}, timeout=0.6, on_progress=told.append)
+    assert outcome.value == 5
+    assert told == [f"step {n} of 5" for n in range(1, 6)]
+
+
+def test_cancelling_a_call_reaches_its_method(shared: AttachedProcess):
+    stopped = time.monotonic() + 0.3
+    with pytest.raises(ToolCancelled):
+        shared.call("patient", {"name": "a"}, timeout=10, stop=lambda: time.monotonic() > stopped)
+    for _ in range(40):
+        if shared.call("left_ones", {}, timeout=10).value == ["a"]:
+            break
+        time.sleep(0.05)
+    assert shared.call("left_ones", {}, timeout=10).value == ["a"]
+
+
+def test_a_call_that_does_not_end_after_its_timeout_takes_the_whole_process_down(
+    shared: AttachedProcess,
+):
+    began = time.monotonic()
     with pytest.raises(ToolTimedOut):
-        attached.call("hang", {}, timeout=0.5)
+        shared.call("stubborn", {}, timeout=0.3)
+    assert time.monotonic() - began < 1, "the call fails at its timeout"
+    assert shared.wait() == -signal.SIGKILL
+    assert shared.hung is not None and "stubborn" in shared.hung
     with pytest.raises(AttachedEnded):
-        attached.call("add", {"n": 1}, timeout=10)
+        shared.call("read", {}, timeout=10)
 
 
 STAND_IN_MAIN = """

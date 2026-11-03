@@ -242,6 +242,15 @@ class MethodAnswered:
 
 
 @dataclass(frozen=True)
+class MethodProgressed:
+    """A Proceso adherido's method told how far a call went: ``line`` shows in the Window of
+    the Session that called it, or in Main's Chat for ``None`` (ADR-0012)."""
+
+    session_id: SessionId | None
+    line: str
+
+
+@dataclass(frozen=True)
 class SlotFreed:
     """A slot lock another Main held is free, while Prompts here waited for one."""
 
@@ -347,6 +356,7 @@ type MainEvent = (
     | SupervisorAdopted
     | AttachedProcessEnded
     | MethodAnswered
+    | MethodProgressed
     | ServerProgress
     | InputMeasured
     | Tick

@@ -16,15 +16,18 @@ In ``tools=[...]`` each method is ``<name>_<method>``; one marked ``@human`` nev
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from pydantic import JsonValue
 
+from allin.confinement.launcher import OnCommand, ToolOutcome
 from allin.core.errors import AllInError, HumanOnly, InvalidArguments
 from allin.core.ids import AttachedName, SessionId, parse_attached_name
 from allin.core.origin import Origin
 from allin.main.attached import AttachedFproc, AttachedProcesses, human_only
 from allin.main.conversation import Item
 from allin.main.descriptions import ToolSchema
+from allin.main.events import MainEvent, MethodProgressed
 from allin.main.func_commands import ATTACHED
 from allin.main.notifications import FUNC, Notifications, told_line
 from allin.main.reporting import Reporter
@@ -44,15 +47,17 @@ class AttachedMethods:
         busy: Callable[[SessionId], bool],
         notifications: Notifications,
         reporter: Reporter,
+        emit: Callable[[MainEvent], None],
     ) -> None:
         """``busy``: whether a Session's Turn is under way, so what it gets now belongs to that
-        Prompt."""
+        Prompt; ``emit`` takes what a method tells of its progress, from its call's thread."""
         self._attached = attached
         self._sessions = sessions
         self._in_profile = in_profile
         self._busy = busy
         self._notifications = notifications
         self._reporter = reporter
+        self._emit = emit
 
     def given(self, name: AttachedName, to: tuple[SessionId, ...]) -> None:
         """``name`` was attached for ``to``: each of them gets its methods."""
@@ -111,18 +116,66 @@ class AttachedMethods:
         for held in session.attached_methods:
             if held.kept_from > turns:
                 self._take(self._sessions.load(session.id), held.name)
+        for attached in self._attached.fprocs():
+            attached.revisions.forget(session.id, turns)
 
     def tools(self, session: Session) -> list[SessionTool]:
-        """The methods its LLM gets, as tools: those of each Proceso adherido it has that is
-        attached, or crashed, whose calls fail; never one marked ``@human``."""
+        """The methods its LLM gets, as tools, for the Turn about to start: those of each
+        Proceso adherido it has that is attached, or crashed, whose calls fail; never one
+        marked ``@human``. Each call notes the revision it saw for the Session, and an
+        ``@writes`` checks it."""
+        conversation = self._sessions.load_conversation(session)
+        caller = _Caller(session.id, 0 if conversation is None else conversation.next_turn)
         tools: list[SessionTool] = []
         for name in held_names(session):
             try:
                 attached = self._attached.attached_fproc(name)
             except AllInError:
                 continue  # detached meanwhile, or another Profile's
-            tools.extend(_tool(attached, m) for m in attached.methods if not human_only(m))
+            tools.extend(
+                self._tool(attached, m, caller) for m in attached.methods if not human_only(m)
+            )
         return tools
+
+    def _tool(self, attached: AttachedFproc, method: ToolSchema, caller: "_Caller") -> SessionTool:
+        name = attached.tool_name(method)
+        schema: Item = {
+            "type": "function",
+            "name": name,
+            "description": method.description,
+            "parameters": method.parameters,
+        }
+        described = attached.offered.description
+        called = f"{attached.name}.{method.name}"
+
+        def call(
+            arguments: dict[str, JsonValue],
+            timeout: float,
+            stop: Callable[[], bool],
+            on_command: OnCommand,
+        ) -> ToolOutcome:
+            revisions = attached.revisions
+            outcome = attached.process.call(
+                method.name,
+                arguments,
+                timeout,
+                on_command,
+                stop,
+                lambda text: self._emit(MethodProgressed(caller.session_id, f"{called}: {text}")),
+                revisions.seen(caller.session_id),
+            )
+            revisions.saw(caller.session_id, caller.turn, outcome.revision)
+            return outcome
+
+        return SessionTool(
+            name,
+            attached.offered.package,
+            described.module,
+            described.reach,
+            schema,
+            attached.confirms(method),
+            AttachedMethod(attached.name, call),
+        )
 
     def _give(self, session: Session, name: AttachedName) -> None:
         if name in held_names(session):
@@ -153,30 +206,12 @@ def held_names(session: Session) -> tuple[AttachedName, ...]:
     return tuple(held.name for held in session.attached_methods)
 
 
-def _tool(attached: AttachedFproc, method: ToolSchema) -> SessionTool:
-    name = attached.tool_name(method)
-    schema: Item = {
-        "type": "function",
-        "name": name,
-        "description": method.description,
-        "parameters": method.parameters,
-    }
-    process = attached.process
-    described = attached.offered.description
-    return SessionTool(
-        name,
-        attached.offered.package,
-        described.module,
-        described.reach,
-        schema,
-        attached.confirms(method),
-        AttachedMethod(
-            attached.name,
-            lambda arguments, timeout, stop, on_command: process.call(
-                method.name, arguments, timeout, on_command, stop
-            ),
-        ),
-    )
+@dataclass(frozen=True)
+class _Caller:
+    """Whose LLM a method's tool serves, and in which Turn."""
+
+    session_id: SessionId
+    turn: int
 
 
 def _name(text: str) -> AttachedName:

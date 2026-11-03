@@ -447,7 +447,7 @@ def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> b
                 from_main += chunk
                 while b"\n" in from_main:
                     line, _, from_main = from_main.partition(b"\n")
-                    for_runner = _method_call(line) or _command_result(line)
+                    for_runner = _for_runner(line)
                     if for_runner is None:
                         return False  # a detach, or anything else: Main is done with it
                     _write_all(calls_in, for_runner)
@@ -461,29 +461,32 @@ def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> b
                 channel.sendall(line + b"\n")  # Main parses it
 
 
-def _method_call(line: bytes) -> bytes | None:
-    """A method call from Main, as the runner reads it; ``None`` for anything else."""
-    fields = _typed(line, "method")
-    if fields is None:
-        return None
-    method, arguments = fields.get("method"), fields.get("arguments")
-    if not isinstance(method, str) or not isinstance(arguments, dict):
-        return None
-    return _line({"method": method, "arguments": arguments})
+_FOR_RUNNER = {  # what Main sends a Proceso adherido's runner, and the fields it keeps
+    "method": ("method", "arguments", "seen"),
+    "command_result": ("result",),
+    "cancel_call": (),
+}
+
+
+def _for_runner(line: bytes) -> bytes | None:
+    """A call from Main, a Command session's result or a cancel, as the runner reads it, with
+    its call's id; ``None`` for anything else."""
+    for kind, kept in _FOR_RUNNER.items():
+        fields = _typed(line, kind)
+        if fields is not None and isinstance(fields.get("id"), int):
+            return _line({"type": kind, "id": fields["id"], **{k: fields.get(k) for k in kept}})
+    return None
 
 
 def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> None:
     """The runner of a Proceso adherido: import the fproc from its package, make its class in
-    its Carpeta de trabajo and answer each call to one of its public methods, one at a time,
-    until its calls end. While it serves one, a method runs Command sessions through Main on
-    the same pipes (``allin.channel``). It never returns."""
+    its Carpeta de trabajo and answer each call to one of its public methods until its calls
+    end (``allin.fproc_runtime``). It never returns."""
     assert call.fproc is not None
     _prepare_runner(call, warden)
     replies = os.fdopen(replies_in, "wb")
     try:
-        from allin import channel, fproc  # noqa: PLC0415 - the runner's alone
-
-        channel.connect(replies_in, calls_out)
+        from allin import fproc, fproc_runtime  # noqa: PLC0415 - the runner's alone
 
         fproc.attached_as(
             call.fproc.name, None if call.fproc.file is None else Path(call.fproc.file)
@@ -495,24 +498,8 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
         _answer(replies, _line({"type": "raised", "error": f"{type(error).__name__}: {error}"}))
         os._exit(0)
     _answer(replies, answer)
-    # Unbuffered: a Command session's result is read from the same pipe, by ``allin.channel``.
-    with os.fdopen(calls_out, "rb", buffering=0) as calls:
-        for line in calls:
-            _answer(replies, _run_method(fproc_class, instance, line))
+    fproc_runtime.serve(fproc_class, instance, calls_out, replies)
     os._exit(0)
-
-
-def _run_method(fproc_class: type, instance: object, line: bytes) -> bytes:
-    """The answer to one method call, as the line Main reads."""
-    try:
-        message = json.loads(line)
-        method, arguments = message["method"], message["arguments"]
-        if not isinstance(vars(fproc_class).get(method), FunctionType) or method.startswith("_"):
-            return _line({"type": "raised", "error": f"NoSuchMethod: {method!r}"})
-        value = getattr(instance, method)(**arguments)
-        return _line({"type": "returned", "value": value})
-    except BaseException as error:  # noqa: BLE001 - the method's error is its output, as data
-        return _line({"type": "raised", "error": f"{type(error).__name__}: {error}"})
 
 
 def _answer(replies: IO[bytes], line: bytes) -> None:

@@ -58,11 +58,24 @@ class AttachFproc(BaseModel, frozen=True):
 
 
 class CallMethod(BaseModel, frozen=True):
-    """Main to a Proceso adherido's warden: call this public method of its fproc."""
+    """Main to a Proceso adherido's warden: call this public method of its fproc. ``id`` tells
+    its answers apart from those of the calls that run with it; ``seen`` is the revision its
+    Session saw last, which an ``@writes`` method checks, and ``None`` for one nobody checks:
+    a human's (ADR-0012)."""
 
     type: Literal["method"] = "method"
+    id: int
     method: str
     arguments: dict[str, JsonValue]
+    seen: int | None = None
+
+
+class CancelCall(BaseModel, frozen=True):
+    """Main to a Proceso adherido's warden: the call ``id`` was cancelled, or ran out of time;
+    its fproc leaves it (``Fproc.cancelled``)."""
+
+    type: Literal["cancel_call"] = "cancel_call"
+    id: int
 
 
 class Detach(BaseModel, frozen=True):
@@ -86,6 +99,7 @@ class RunCommand(BaseModel, frozen=True):
 
     type: Literal["command"] = "command"
     text: str = Field(max_length=COMMAND_MAX)
+    id: int | None = None  # in a Proceso adherido, the call it runs for
 
 
 class CommandResult(BaseModel, frozen=True):
@@ -93,6 +107,7 @@ class CommandResult(BaseModel, frozen=True):
 
     type: Literal["command_result"] = "command_result"
     result: JsonValue
+    id: int | None = None  # in a Proceso adherido, the call that asked
 
 
 class Attached(BaseModel, frozen=True):
@@ -106,6 +121,8 @@ class Returned(BaseModel, frozen=True):
 
     type: Literal["returned"] = "returned"
     value: JsonValue
+    id: int | None = None  # in a Proceso adherido, the call it answers
+    revision: int | None = None  # the revision the call saw, if its Session is to note it
 
 
 class Raised(BaseModel, frozen=True):
@@ -113,6 +130,29 @@ class Raised(BaseModel, frozen=True):
 
     type: Literal["raised"] = "raised"
     error: str
+    id: int | None = None
+    revision: int | None = None
+
+
+class Stale(BaseModel, frozen=True):
+    """An ``@writes`` method was not run: its Session had not seen ``revision``, the current
+    one (ADR-0012)."""
+
+    type: Literal["stale"] = "stale"
+    id: int
+    revision: int
+
+
+PROGRESS_MAX = 2000  # of what a call says of its progress, in characters
+
+
+class Progress(BaseModel, frozen=True):
+    """A method tells how far the call ``id`` went (``Fproc.progress``): its timeout counts
+    again from now."""
+
+    type: Literal["progress"] = "progress"
+    id: int
+    text: str = Field(max_length=PROGRESS_MAX)
 
 
 class Died(BaseModel, frozen=True):
@@ -130,7 +170,7 @@ class Unconfined(BaseModel, frozen=True):
     errno: int
 
 
-type ToMain = Returned | Raised | Died | Unconfined | RunCommand | Attached
+type ToMain = Returned | Raised | Died | Unconfined | RunCommand | Attached | Stale | Progress
 
 _to_main: TypeAdapter[ToMain] = TypeAdapter(Annotated[ToMain, Field(discriminator="type")])
 
