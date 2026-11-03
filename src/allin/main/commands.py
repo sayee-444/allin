@@ -1027,6 +1027,7 @@ class MainCommands:
         if was_open:
             self._windows.close(old, f"renamed to {renamed.id}")
         self._windows.rename(old, renamed.id)
+        self._turns.renamed(old, renamed)
         self._profiles.renamed(old, renamed.id)
         self._subprofiles.renamed(old, renamed.id)
         self._subscriptions.renamed(old, renamed.id)

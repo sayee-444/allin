@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from allin.core.ids import SessionId, SubscriptionId
-from allin.main.conversation import Attachment
+from allin.main.conversation import Attachment, Step
 from allin.main.prompt_commands import TurnOverrides
 from allin.main.prompts import Prompt, PromptQueue
 from tests.origins import A_SESSION
@@ -140,3 +140,13 @@ def test_a_new_turn_leaves_what_its_session_has_waiting_to_wait_for_its_own():
     queue.push(replace(TYPED, session_id=B, text="otra"))
     queue.turn_started(A)
     assert [p.in_window for p in queue.all()] == [False, True]
+
+
+def test_a_compaction_leaves_out_of_the_context_the_steps_its_session_had_ended():
+    queue = PromptQueue()
+    step = Step(output=[])
+    queue.push(Prompt(A, "yielded", suspended=True, steps=(step, step)))
+    queue.push(Prompt(A, "next"))
+    queue.push(Prompt(B, "other", suspended=True, steps=(step,)))
+    queue.compacted(A)
+    assert [p.context_from for p in queue.all()] == [2, 0, 0]

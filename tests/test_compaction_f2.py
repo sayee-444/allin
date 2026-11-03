@@ -2,7 +2,8 @@
 between the Steps of a Turn, ``@compact``, its event and the Notificación of live state."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -151,8 +152,8 @@ def shout(text: str) -> str:
 '''
 
 
-@pytest.fixture
-def tooled_main(main: MainHarness, tmp_path: Path) -> Iterator[MainHarness]:
+@contextmanager
+def with_voice(main: MainHarness, tmp_path: Path) -> Generator[MainHarness]:
     """The same Main with the real confined ``voice`` package, approved."""
     if abi_version() < 6:
         pytest.skip("needs Landlock ABI 6 (kernel 6.12)")
@@ -165,6 +166,12 @@ def tooled_main(main: MainHarness, tmp_path: Path) -> Iterator[MainHarness]:
     approve_voice(main)
     yield main
     main.describer.stop()
+
+
+@pytest.fixture
+def tooled_main(main: MainHarness, tmp_path: Path) -> Iterator[MainHarness]:
+    with with_voice(main, tmp_path) as tooled:
+        yield tooled
 
 
 def approve_voice(main: MainHarness) -> None:
