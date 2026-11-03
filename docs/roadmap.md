@@ -9,7 +9,7 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
 - **Último hecho:** los pendientes de Pre-RAG, de #153 a #197 (fusionados hasta el PR #200, 2026-11-03): la Iniciativa y el Externo (#153, #154, #159, #179), los Secretos fuera del Log y del Borrador (#155, #178, #195), lo que vuelve al input o al Borrador (#156, #166, #171, #174, #176, #182, #196), el Contexto tras compactar (#157, #169, #177, #197), el Supervisor sin modelo (#158) y las caídas y la cola (#181, #185, #188, #190, #197). Métricas al cerrar #197: 1914 tests, cobertura 85 %, mutación 94 %, 41 escapes. Qué cambió en cada uno, cómo se probó a mano y sus métricas está en el comentario de cierre de su issue. Después, las preguntas abiertas de #104 a #197 pasaron a decisiones según los ADR (abajo), y lo que el código no cumplía, a #201–#206. Luego, #209 (2026-11-03): una sola lectura del `@secret` de una línea (`read_secret`) para el recorte del Log, el rechazo y la vuelta a la entrada, que no engañan opciones (también entre comillas), tabs, saltos de línea ni escapes de JSON, y que vale también para la Iniciativa; lo que encontró fuera de sus formas, a #210. Métricas al cerrar #209: 1951 tests, cobertura 85 %, mutación 94 %, 41 escapes. Y #208 (2026-11-03), en paralelo: Shift+Enter con el Turno suspendido, o cedido para compactar, lo guarda cortado con los Pasos que terminó y lo escrito va detrás, sin heredar su cuenta de caídas; los caminos que salían de la cola sin la salida única (la Compactación que falla al medirse o se guarda, la automática que no puede empezar, que ya deja seguir a su Prompt, y el Prompt cuya Conversación no se lee al arrancar) pasan por `_leave`, que tiene el final `saved`; y una Continuación que reserva el pool entero porque su Servidor, aún listo, no la midió se mide otra vez si el Servidor cambia; lo que encontró fuera, a #212. Métricas al cerrar #208 (con #209 fusionado): 1963 tests, cobertura 86 %, mutación 94 %, 41 escapes.
-- **Siguiente:** #201 a #206, #210, #212, #214 y #217, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019). Luego el Personaje (ADR-0027 a ADR-0029), cuyos issues se abren cuando empiece el RAG, y después F3, con su grilling. #18 sigue en `needs-triage`, para F3.
+- **Siguiente:** #201 a #206, #210, #212, #214 y #217, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues: primero se actualiza `llama`, que el usuario autorizó el 2026-11-03, y luego viene su prototipo (ADR-0019). Luego el Personaje (ADR-0027 a ADR-0029), cuyos issues se abren cuando empiece el RAG, y después F3, con su grilling. #18 sigue en `needs-triage`, para F3.
 - **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
 
 ### Preguntas que sí necesitan al usuario
@@ -278,7 +278,7 @@ Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelve
 
 ## RAG · Memoria de consulta
 
-Sin issues ni milestone todavía. Va después de F2, porque necesita el encierro, los Command sessions, las fsources, las Notificaciones, los Procesos adheridos y la Aprobación, además de los Supervisores (#24–#27) y los Perfiles (#30); no necesita F3 (ADR-0019). Empieza con un prototipo desechable que mide lo que el diseño aún no sabe: los umbrales y el tope del reranker, cuánto tarda el reranker en CPU, si el modelo de embeddings cabe en la GPU junto al Q6, si el modo router de `llama serve` sirve con dos modelos, si la build en uso corre Qwen3-Reranker, y si el modelo usa `buscar` y hace caso a las Pistas. Después: la fproc `rag` adherida por el Ajuste `rag`; los Supervisores de embeddings y reranker, con `@embed` y `@rerank`; la búsqueda por palabras (FTS5), que funciona sin modelos; los Segmentos por Sesión; `buscar` y `leer` con sus Fichas; las Pistas; los Corpus, con `/rag add` y su Aprobación; el historial por Turno, con las marcas de deshecho y la puesta al día; el manual de AllIn y el catálogo de functions; y la descripción de imágenes y video con el Sysprompt `describir`. De la revisión del Supervisor: el Ajuste `rag` es de cada Sesión, copiado del de Main en `/new`, y Main adhiere el RAG siempre; sus Supervisores despiertan cuando el RAG los necesita, y `describir` va al Enlace por defecto (ADR-0019, ADR-0022). Indexar un Corpus, reindexar al adherirse y la puesta al día son llamadas largas, y el RAG contesta búsquedas mientras tanto (ADR-0019). Su Alcance declara solo `@embed` y `@rerank` (ADR-0025). Del grilling de las fprocs: el RAG de cada Subperfil, otra instancia de la fproc `rag`, al que la fproc añade lo que trae con su procedencia (ADR-0026).
+Sin issues ni milestone todavía. Va después de F2, porque necesita el encierro, los Command sessions, las fsources, las Notificaciones, los Procesos adheridos y la Aprobación, además de los Supervisores (#24–#27) y los Perfiles (#30); no necesita F3 (ADR-0019). Antes de su prototipo se actualiza `llama` (autorizado por el usuario el 2026-11-03; hoy es la 0.4.0-dev, build 10909, un solo binario en `~/.local/bin/llama`). Se guarda el binario viejo para volver atrás, se comprueba el Supervisor con la build nueva y se repiten las mediciones del Personaje (ADR-0027). Así el prototipo ya mide con ella. Empieza con un prototipo desechable que mide lo que el diseño aún no sabe: los umbrales y el tope del reranker, cuánto tarda el reranker en CPU, si el modelo de embeddings cabe en la GPU junto al Q6, si el modo router de `llama serve` sirve con dos modelos, si la build en uso corre Qwen3-Reranker, y si el modelo usa `buscar` y hace caso a las Pistas. Después: la fproc `rag` adherida por el Ajuste `rag`; los Supervisores de embeddings y reranker, con `@embed` y `@rerank`; la búsqueda por palabras (FTS5), que funciona sin modelos; los Segmentos por Sesión; `buscar` y `leer` con sus Fichas; las Pistas; los Corpus, con `/rag add` y su Aprobación; el historial por Turno, con las marcas de deshecho y la puesta al día; el manual de AllIn y el catálogo de functions; y la descripción de imágenes y video con el Sysprompt `describir`. De la revisión del Supervisor: el Ajuste `rag` es de cada Sesión, copiado del de Main en `/new`, y Main adhiere el RAG siempre; sus Supervisores despiertan cuando el RAG los necesita, y `describir` va al Enlace por defecto (ADR-0019, ADR-0022). Indexar un Corpus, reindexar al adherirse y la puesta al día son llamadas largas, y el RAG contesta búsquedas mientras tanto (ADR-0019). Su Alcance declara solo `@embed` y `@rerank` (ADR-0025). Del grilling de las fprocs: el RAG de cada Subperfil, otra instancia de la fproc `rag`, al que la fproc añade lo que trae con su procedencia (ADR-0026).
 
 ## Personaje
 
@@ -289,11 +289,47 @@ Va después del RAG, que es su memoria, y antes de F3, que no necesita (ADR-0027
 3. «Personaje · Voz».
 4. «Personaje · Vista».
 
+«Personaje · Texto» tiene doce issues, que se abren con sus bloqueos cuando empiece la fase del RAG.
+
+Primitivas de Main, para cualquier fproc:
+
+1. Un Ajuste del Perfil adhiere fprocs y despierta y duerme sus Supervisores al entrar y al salir (enmienda de ADR-0022).
+2. Una fproc declara sus Ajustes, y las Sesiones de su Subperfil pueden cambiarlos.
+3. Main le avisa a una fproc cuando termina cada Turno de su Subperfil, y antes de soltarla, con un tope.
+4. Una fproc muestra un Aviso.
+5. La tool de Main que marca una Confidencia: la marca queda en el Turno, y la respetan el Reposo y la exportación. El filtro por presencia va en «Personaje · Discord».
+6. Marcar Sesiones para entrenar y exportarlas en JSONL, nunca las que tengan una Confidencia (tras 5).
+
+El Personaje, en su package:
+
+7. Su fproc, su Subperfil y sus Charlas: abrirlas y cerrarlas por la pausa o al despedirse, dejar lista la siguiente, mandar el Autorretrato y la Relación al abrir, y la voz interior marcada (tras 1, 2, 3 y las Pistas del RAG).
+8. Su Reposo: reflexiona en el 27B al cerrarse cada Charla, con citas, versiones y la vuelta atrás, sin ver Confidencias (tras 5 y 7).
+9. Su iniciativa por texto: los silencios, escribir primero con el Aviso, la despedida y la vuelta (tras 3, 4 y 8).
+10. Las pruebas con la GPU: el 27B hace del usuario, un juez puntúa contra el Núcleo, y se comprueban las citas y la latencia (tras 9).
+
+Del usuario (`ready-for-human`):
+
+11. Escribir su Núcleo y crear su Perfil y sus Supervisores, con una guía; el 9B lleva `-b 256 -ub 256 --reasoning off` en `extra` (tras 1 y 7).
+12. Las Charlas largas y naturales (tras 10 y 11).
+
 Cada milestone se trabaja con un `/goal`, y el usuario lo revisa antes de pasar al siguiente. Lo que necesita su voz o su cara, como registrarlo o las Charlas largas, va en issues `ready-for-human`.
 
 «Personaje · Texto» se prueba en dos capas. Sin modelo, en cada `pytest`, su fproc corre con un `llama` falso y un reloj falso. Se comprueba que abra y cierre las Charlas por la pausa, que deje lista la siguiente y la cambie al terminar la reflexión, que mande el Autorretrato y la Relación al abrir, las versiones y la vuelta atrás, la despedida y el tope para escribir primero. Con la GPU, aparte, el 27B hace del usuario con un guion de carácter y conversa con ella varias Charlas, con Reposos entre medio. Se comprueba que cada frase del Autorretrato cite Turnos que existen y que no se aleje de su Núcleo, que un LLM juez puntúa en cada Charla, y se mide cuánto tarda su primer token. El usuario solo entra en las Charlas largas y naturales.
 
-Antes hacen falta las primitivas genéricas de «Lo que falta en Main» (ADR-0027), entre ellas #217. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
+Antes va #217, en los pendientes de F2. Los otros tramos tienen su propio grilling antes de abrir sus issues:
+
+- **Discord:** cómo la presenta el usuario en un servidor, el aviso de las reglas (+18), cómo elige canal en su tiempo libre, cómo se enlazan las cuentas con los Conocidos y el filtro por presencia.
+- **Voz:**
+  - el STT y el TTS: Voxtral Realtime necesita la `llama` nueva;
+  - la VRAM: con el STT y el TTS queda al filo de los 32 GB, y quizá el TTS vaya en la CPU;
+  - la latencia, el eco, el registro del usuario y las Huellas, y los detalles de tomar la palabra.
+- **Vista:**
+  - las capturas de pantalla, que necesitan un intermediario porque D-Bus está cerrado (ADR-0016);
+  - la webcam, por ruta y con su Alcance;
+  - el mmproj del 9B y las Huellas de cara.
+- **El LoRA:** se entrena fuera de AllIn y entra como `--lora` en el `extra` de su Supervisor.
+
+Pendiente del usuario: mover el SN850X a la M.2_1 y reasentar la GPU, que hoy va a PCIe x1; después se vuelve a medir. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
 
 ## F3 · Submains y Traspaso
 
