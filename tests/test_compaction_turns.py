@@ -379,4 +379,6 @@ def test_a_compaction_wakes_who_subscribed_to_it(main: MainHarness):
         settle=True,
     )
     [wake] = [e.fields for e in main.session_log(watcher) if e.event == "prompt"]
-    assert f"Session {session.id} compacted: Prompts 1\N{EN DASH}4 summarized" in str(wake["text"])
+    ids = [str(e.fields["prompt_id"]) for e in main.session_log(session) if e.event == "prompt"]
+    shown = f"Session {session.id} compacted: Prompts 1\N{EN DASH}4 summarized"
+    assert f"{shown} (ids {', '.join(ids[:4])})" in str(wake["text"])

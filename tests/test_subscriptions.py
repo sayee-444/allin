@@ -264,3 +264,62 @@ def test_with_its_profile_inactive_it_is_frozen_and_what_came_wakes_it_on_return
     [wake] = woken(main, a)
     assert f"Session {b.id} rewound Prompt 1" in str(wake["text"])
     assert "its time came" not in str(wake["text"]), "the timer ran only with its Profile"
+
+
+def test_suscripciones_survive_a_restart_and_a_prompt_cut_by_it_still_answers(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/subscribe {a.id} timer:5"),
+        MainCommandEntered(f"/send {b.id} --reply-to={a.id} hola"),  # its Turn dies with Main
+        settle=True,
+    )
+
+    def later() -> None:
+        main.now += 6
+
+    main.run(later, Tick(), settle=True)
+    [wake] = woken(main, a)
+    text = str(wake["text"])
+    assert "its time came" in text
+    assert f"Session {b.id} did not answer" in text
+
+
+def test_a_rewind_cancels_a_reply_that_came_but_has_not_woken_it_yet(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/send {a.id} uno"),
+        # A's Turn, under way, asks B; B answers before A's Turn ends.
+        MainCommandEntered(f"/send {b.id} --reply-to=me hola", origin=from_session(a)),
+        answers(a, "1"),
+        answers(b, "de B"),
+        MainCommandEntered(f"/rewind {a.id} 1"),
+        Tick(),
+        settle=True,
+    )
+    assert woken(main, a) == []
+    [cancelled] = logged(main, a, "subscription_cancelled")
+    assert cancelled["reason"] == "rewound"
+
+
+def test_a_reply_to_an_old_id_wakes_the_session_by_its_new_one(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    old = a.id
+    main.run(
+        MainCommandEntered(f"/session id {old} nuevaa"),
+        MainCommandEntered(f"/send {b.id} --reply-to={old} hola"),
+        answers(b, "hola"),
+        Tick(),
+        settle=True,
+    )
+    renamed = main.sessions.load(a.id)
+    assert renamed.id == "nuevaa"
+    assert len(woken(main, renamed)) == 1
+
+
+def test_only_a_session_of_the_active_profile_subscribes(main: MainHarness):
+    main.sessions_join_profile = False
+    a = main.create_session()
+    chat = main.run(MainCommandEntered(f"/subscribe {a.id} timer:5"), settle=True)
+    assert any("outside_profile" in line for line in chat), chat

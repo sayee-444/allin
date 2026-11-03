@@ -100,8 +100,8 @@ class Recovery:
             drafts[prompt.session_id] = put_back(draft, prompt.text)
         self._windows.replace_drafts(drafts)
         self._subscriptions.restore(saved.subscriptions)
-        for prompt in saved.running:  # put back to an input, it answers no one
-            self._subscriptions.not_answered(prompt, "Main stopped during its Turn", ran=False)
+        for prompt in saved.running:  # in no Conversation, it answers no one
+            self._subscriptions.failed(prompt, "Main stopped during its Turn")
         self._turns.requeue(saved.queue)
         for session_id in saved.background:
             if not self._windows.is_open(session_id):

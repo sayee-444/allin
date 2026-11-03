@@ -36,6 +36,7 @@ from allin.core.errors import (
 )
 from allin.core.ids import (
     AttachedName,
+    PromptId,
     SessionId,
     SubscriptionId,
     new_subscription_id,
@@ -55,10 +56,30 @@ SUBSCRIBE_USAGE = "/subscribe <sid> [process:<name>|timer:<seconds>|rewind:<sid>
 UNSUBSCRIBE_USAGE = "/unsubscribe <sid> <subscription>"
 
 
+def parse_watch(event: str) -> "Watch":
+    """What ``event``, as ``/subscribe`` takes it, waits for; raises ``SubscriptionInvalid``."""
+    kind, _, target = event.partition(":")
+    match kind:
+        case "process" if (name := parse_attached_name(target)) is not None:
+            return OnProcess(name=name)
+        case "timer":
+            try:
+                seconds = float(target)
+            except ValueError:
+                seconds = 0.0
+            if 0 < seconds < float("inf"):
+                return OnTime(left=seconds)
+        case "rewind" | "compact" if (sid := parse_session_id(target)) is not None:
+            return OnSession(kind=kind, session_id=sid)
+        case _:
+            pass
+    raise SubscriptionInvalid(event=event, usage=SUBSCRIBE_USAGE)
+
+
 class OnReply(BaseModel, frozen=True):
     kind: Literal["reply"] = "reply"
     session_id: SessionId  # the Session that answers
-    prompt_id: str
+    prompt_id: PromptId
 
 
 class OnProcess(BaseModel, frozen=True):
@@ -144,7 +165,24 @@ class SubscriptionState(BaseModel, frozen=True):
 
     def renamed(self, old: SessionId, new: SessionId) -> "SubscriptionState":
         """The same, with a Session renamed (#59) wherever one is named, but in Origins."""
-        return SubscriptionState.model_validate(_renamed(self.model_dump(), old, new))
+
+        def key(session_id: SessionId) -> SessionId:
+            return new if session_id == old else session_id
+
+        def subscription(s: Subscription) -> Subscription:
+            watch = s.watch
+            if isinstance(watch, OnReply | OnSession):
+                watch = watch.model_copy(update={"session_id": key(watch.session_id)})
+            return s.model_copy(update={"session_id": key(s.session_id), "watch": watch})
+
+        return SubscriptionState(
+            open=[subscription(s) for s in self.open],
+            pending=[
+                h.model_copy(update={"subscription": subscription(h.subscription)})
+                for h in self.pending
+            ],
+            debts=[d.model_copy(update={"session_id": key(d.session_id)}) for d in self.debts],
+        )
 
 
 # Applies a change to the Suscripciones of every Profile but the active one, frozen.
@@ -198,23 +236,26 @@ class Subscriptions:
     def listed(self, session_id: SessionId) -> list[Subscription]:
         return [s for s in self._open.values() if s.session_id == session_id]
 
-    def subscribe(self, session_id: SessionId, event: str, origin: Origin) -> Subscription:
+    def subscribe(self, session_id: SessionId, watch: Watch, origin: Origin) -> Subscription:
         """Open one for ``session_id``, which must be ``origin``'s own if a Session asks."""
         _check_own(session_id, origin)
-        return self._opened(session_id, self._watch(event), origin)
+        if isinstance(watch, OnSession):
+            self._sessions.load(watch.session_id)  # raises if there is none
+        return self._opened(session_id, watch, origin)
 
     def reply_to(
-        self, subscriber: SessionId, target: SessionId, prompt_id: str, origin: Origin
+        self, subscriber: SessionId, target: SessionId, prompt_id: PromptId, origin: Origin
     ) -> SubscriptionId:
         """Open the reply ``--reply-to`` asks for: ``target``'s answer to ``prompt_id``."""
         _check_own(subscriber, origin)
-        self._sessions.load(subscriber)  # raises if there is none
         watch = OnReply(session_id=target, prompt_id=prompt_id)
         return self._opened(subscriber, watch, origin).id
 
-    def unsubscribe(self, session_id: SessionId, subscription_id: str, origin: Origin) -> None:
+    def unsubscribe(
+        self, session_id: SessionId, subscription_id: SubscriptionId, origin: Origin
+    ) -> None:
         _check_own(session_id, origin)
-        subscription = self._open.get(SubscriptionId(subscription_id))
+        subscription = self._open.get(subscription_id)
         if subscription is None or subscription.session_id != session_id:
             raise SubscriptionNotFound(session_id=session_id, subscription=subscription_id)
         self._cancel(subscription, "unsubscribed")
@@ -225,11 +266,10 @@ class Subscriptions:
         """A Turn of ``prompt`` was saved as ``turn``: its answer goes to the replies waiting
         for it, unless that Turn left replies of its own open."""
         # Its replies stay open until a Turn of its own took what they brought.
-        waiting = [*self._open.values(), *(h.subscription for h in self._pending)]
         left_open = tuple(
             dict.fromkeys(
                 s.id
-                for s in waiting
+                for s in self._waiting()
                 if s.session_id == prompt.session_id
                 and s.in_turn
                 and s.opened_turn == turn
@@ -237,7 +277,7 @@ class Subscriptions:
             )
         )
         origin = from_session(prompt.origin, prompt.session_id)
-        for debt in self._debts_of(prompt):
+        for debt in self._take_debts(prompt):
             waiting = (*debt.waiting, *left_open)
             if waiting:
                 held = Debt(
@@ -249,23 +289,25 @@ class Subscriptions:
                 )
                 self._debts.append(held)
             else:
-                self._reply(debt.owed, f"Session {prompt.session_id} answered:\n{answer}", origin)
+                self._reply(debt.owed, _answered(prompt.session_id, answer), origin)
 
-    def not_answered(self, prompt: Prompt, why: str, ran: bool) -> None:
-        """``prompt`` will not be answered; ``ran``: its Turn ran and is in no Conversation,
-        so what it opened is cancelled, as a Rewind of it would."""
-        if ran:
-            conversation = self._sessions.load_conversation(self._sessions.load(prompt.session_id))
-            turn = 0 if conversation is None else conversation.next_turn
-            for subscription in list(self._open.values()):
-                if (
-                    subscription.session_id == prompt.session_id
-                    and subscription.in_turn
-                    and subscription.opened_after(turn)
-                ):
-                    self._cancel(subscription, "its Turn was not saved")
+    def failed(self, prompt: Prompt, why: str) -> None:
+        """``prompt``'s Turn ran and is in no Conversation: what it opened is cancelled, as a
+        Rewind of it would, and who waits hears why it has no answer."""
+        turn = self._next_turn(prompt.session_id)
+        for subscription in self._waiting():
+            if (
+                subscription.session_id == prompt.session_id
+                and subscription.in_turn
+                and subscription.opened_after(turn)
+            ):
+                self._cancel(subscription, "its Turn was not saved")
+        self.dropped(prompt, why)
+
+    def dropped(self, prompt: Prompt, why: str) -> None:
+        """``prompt`` left the queue before its Turn: who waits hears why it has no answer."""
         origin = from_session(prompt.origin, prompt.session_id)
-        for debt in self._debts_of(prompt):
+        for debt in self._take_debts(prompt):
             self._reply(debt.owed, f"Session {prompt.session_id} did not answer: {why}", origin)
 
     def announced(self, process: AttachedName, text: str, origin: Origin) -> None:
@@ -278,9 +320,22 @@ class Subscriptions:
     ) -> None:
         """The Session went back to before its Turn ``turn``: what it opened since is
         cancelled, and who waits for its Rewinds hears which Prompts it undid."""
-        for subscription in list(self._open.values()):
+        for subscription in self._waiting():
             if subscription.session_id == session_id and subscription.opened_after(turn):
                 self._cancel(subscription, "rewound")
+
+        def frozen_cancel(state: SubscriptionState) -> SubscriptionState:
+            def undone_by_it(s: Subscription) -> bool:
+                return s.session_id == session_id and s.opened_after(turn)
+
+            return state.model_copy(
+                update={
+                    "open": [s for s in state.open if not undone_by_it(s)],
+                    "pending": [h for h in state.pending if not undone_by_it(h.subscription)],
+                }
+            )
+
+        self._frozen(frozen_cancel)  # a Session both Profiles share
         if not undone:
             return
         ids = ", ".join(t.prompt_id for t in undone if t.prompt_id)
@@ -288,8 +343,17 @@ class Subscriptions:
         text = f"Session {session_id} rewound Prompt{numbers}" + (f" (ids {ids})" if ids else "")
         self._session_changed("rewind", session_id, text, origin)
 
-    def compacted(self, session_id: SessionId, summarized: int, origin: Origin) -> None:
+    def compacted(
+        self,
+        session_id: SessionId,
+        summarized: int,
+        ids: Sequence[PromptId],
+        origin: Origin,
+    ) -> None:
+        """``ids``: those of the Prompts it summarized now; earlier ones already were."""
+        shown = ", ".join(i for i in ids if i)
         text = f"Session {session_id} compacted: Prompt{_numbers(1, summarized)} summarized"
+        text += f" (ids {shown})" if shown else ""
         self._session_changed("compact", session_id, text, origin)
 
     def tick(self) -> None:
@@ -310,33 +374,12 @@ class Subscriptions:
 
     # Inside -------------------------------------------------------------------------------
 
-    def _watch(self, event: str) -> Watch:
-        kind, _, target = event.partition(":")
-        match kind:
-            case "process" if (name := parse_attached_name(target)) is not None:
-                return OnProcess(name=name)
-            case "timer":
-                try:
-                    seconds = float(target)
-                except ValueError:
-                    seconds = 0.0
-                if seconds > 0:
-                    return OnTime(left=seconds)
-            case "rewind" | "compact" if (sid := parse_session_id(target)) is not None:
-                self._sessions.load(sid)  # raises if there is none
-                return OnSession(kind=kind, session_id=sid)
-            case _:
-                pass
-        raise SubscriptionInvalid(event=event, usage=SUBSCRIBE_USAGE)
-
     def _opened(self, session_id: SessionId, watch: Watch, origin: Origin) -> Subscription:
-        session = self._sessions.load(session_id)
-        conversation = self._sessions.load_conversation(session)
         subscription = Subscription(
             id=new_subscription_id(),
             session_id=session_id,
             watch=watch,
-            opened_turn=0 if conversation is None else conversation.next_turn,
+            opened_turn=self._next_turn(session_id),
             in_turn=self._turns.has_turn(session_id),
             origin=origin,
         )
@@ -365,16 +408,33 @@ class Subscriptions:
             subscription=subscription.id,
             reason=why,
         )
-        for debt in [d for d in self._debts if subscription.id in d.waiting]:
-            self._debts.remove(debt)
-            waiting = tuple(w for w in debt.waiting if w != subscription.id)
-            if waiting:
-                self._debts.append(debt.model_copy(update={"waiting": waiting}))
+        for debt in self._release({subscription.id}):
+            if debt.waiting:
+                self._debts.append(debt)
                 continue
-            answer = f"Session {debt.session_id} answered:\n{debt.answer}"
+            answer = _answered(debt.session_id, debt.answer)
             self._reply(debt.owed, answer, from_session(debt.origin, debt.session_id))
 
-    def _debts_of(self, prompt: Prompt) -> list[Debt]:
+    def _waiting(self) -> list[Subscription]:
+        """Those open, and those that fired and wait for their Session's Prompt."""
+        waiting = [*self._open.values(), *(h.subscription for h in self._pending)]
+        return list({s.id: s for s in waiting}.values())
+
+    def _next_turn(self, session_id: SessionId) -> int:
+        conversation = self._sessions.load_conversation(self._sessions.load(session_id))
+        return 0 if conversation is None else conversation.next_turn
+
+    def _release(self, done: set[SubscriptionId]) -> list[Debt]:
+        """Take out the held answers that waited for any of ``done``, which no longer do."""
+        released = [d for d in self._debts if done & set(d.waiting)]
+        for debt in released:
+            self._debts.remove(debt)
+        return [
+            d.model_copy(update={"waiting": tuple(w for w in d.waiting if w not in done)})
+            for d in released
+        ]
+
+    def _take_debts(self, prompt: Prompt) -> list[Debt]:
         """What ``prompt``'s Turn answers: its own Prompt's replies, and the answers held back
         for the replies that woke it, which no longer wait for those."""
         debts: list[Debt] = []
@@ -388,11 +448,7 @@ class Subscriptions:
                     origin=prompt.origin,
                 )
             )
-        for debt in [d for d in self._debts if set(d.waiting) & set(prompt.woke_by)]:
-            self._debts.remove(debt)
-            waiting = tuple(w for w in debt.waiting if w not in prompt.woke_by)
-            debts.append(debt.model_copy(update={"waiting": waiting}))
-        return debts
+        return [*debts, *self._release(set(prompt.woke_by))]
 
     def _reply(self, owed: Sequence[SubscriptionId], text: str, origin: Origin) -> None:
         for subscription_id in owed:
@@ -407,11 +463,10 @@ class Subscriptions:
                 waiting = next((s for s in state.open if s.id == sid), None)
                 if waiting is None:
                     return state
-                happened = Happened(subscription=waiting, text=text, origin=origin)
                 kept = [s for s in state.open if s.id != sid]
-                return state.model_copy(
-                    update={"open": kept, "pending": [*state.pending, happened]}
-                )
+                came = [Happened(subscription=waiting, text=text, origin=origin)]
+                pending = [*state.pending, *self._uncut(came)]
+                return state.model_copy(update={"open": kept, "pending": pending})
 
             self._frozen(frozen_reply)
 
@@ -424,14 +479,22 @@ class Subscriptions:
                 self._happened(subscription, text, origin)
 
         def frozen_change(state: SubscriptionState) -> SubscriptionState:
-            came = [
-                Happened(subscription=s, text=text, origin=origin)
-                for s in state.open
-                if s.watch == watch
-            ]
+            came = self._uncut(
+                [
+                    Happened(subscription=s, text=text, origin=origin)
+                    for s in state.open
+                    if s.watch == watch
+                ]
+            )
             return state.model_copy(update={"pending": [*state.pending, *came]}) if came else state
 
         self._frozen(frozen_change)
+
+    def _uncut(self, came: list[Happened]) -> list[Happened]:
+        """What a frozen Profile keeps of ``came``: a chain past its cap is cut there too,
+        without a Notificación, its Session being out of view."""
+        repeats = self._settings().repeats
+        return [h for h in came if h.origin.chain.count(h.subscription.link) < repeats]
 
     def _happened(self, subscription: Subscription, text: str, origin: Origin) -> None:
         """It waits for its Session's next Prompt, unless its chain already went through it as
@@ -470,7 +533,7 @@ class Subscriptions:
             try:
                 session = self._sessions.load(session_id)
             except AllInError as error:  # gone meanwhile: nobody to wake
-                self._reporter.show(session_id, f"its Suscripciones' events dropped: {error}")
+                self._reporter.error(error, session_id)
                 continue
             longest = max(came, key=lambda h: len(h.origin.chain))
             origin = Origin(chain=(*longest.origin.chain, longest.subscription.link))
@@ -484,15 +547,8 @@ class Subscriptions:
             self._turns.push(session, prompt)
 
 
-def _renamed(data: JsonValue, old: SessionId, new: SessionId) -> JsonValue:
-    if isinstance(data, list):
-        return [_renamed(item, old, new) for item in data]
-    if isinstance(data, dict):
-        return {
-            key: new if key == "session_id" and value == old else _renamed(value, old, new)
-            for key, value in data.items()
-        }
-    return data
+def _answered(session_id: SessionId, answer: str) -> str:
+    return f"Session {session_id} answered:\n{answer}"
 
 
 def _check_own(session_id: SessionId, origin: Origin) -> None:

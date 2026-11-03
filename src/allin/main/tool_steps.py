@@ -25,7 +25,7 @@ from allin.core.errors import (
     ToolCancelled,
     ToolNotStarted,
 )
-from allin.core.ids import AttachedName, PieceId, SessionId
+from allin.core.ids import NO_PROMPT_ID, AttachedName, PieceId, PromptId, SessionId
 from allin.core.origin import Origin, from_process
 from allin.decorators import CONFIRM, Reach
 from allin.main.confirmation import ConfirmationGate
@@ -55,7 +55,7 @@ class CallFrame:
     """What a method's call knows of the Turn it runs in (#116): its Prompt's id, and where
     what the method announces goes."""
 
-    prompt_id: str
+    prompt_id: PromptId
     on_announce: Callable[[str], None]
 
 
@@ -161,7 +161,7 @@ class SessionTools:
         self._launcher = launcher
         self._workspace = workspace
         self._timeout = timeout
-        self._prompt_id = ""  # of the call that runs, as ``run`` was given it
+        self._prompt_id = NO_PROMPT_ID  # of the call that runs, as ``run`` was given it
         self._announced: Announced = _no_announce
 
     @property
@@ -178,7 +178,7 @@ class SessionTools:
         call: Item,
         stop: Callable[[], bool],
         ask_main: AskMain = _no_main,
-        prompt_id: str = "",
+        prompt_id: PromptId = NO_PROMPT_ID,
         announced: Announced = _no_announce,
     ) -> Item:
         """What a ``function_call`` gave back, as its ``function_call_output``: its value as
@@ -269,7 +269,9 @@ class _Turn:
 class ToolGate:
     """How a running Turn runs the tools a Step called and waits for a slot to go on."""
 
-    def __init__(self, tools: SessionTools | None, origin: Origin, prompt_id: str = "") -> None:
+    def __init__(
+        self, tools: SessionTools | None, origin: Origin, prompt_id: PromptId = NO_PROMPT_ID
+    ) -> None:
         """``origin``: the chain its tools act with, the Turn's Prompt's and its Session;
         ``prompt_id``: the Turn's Prompt's, which each tool may ask for (#116)."""
         self._tools = tools

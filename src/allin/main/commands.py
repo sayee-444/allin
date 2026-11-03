@@ -14,12 +14,20 @@ from allin.core.errors import (
     OutsideProfile,
     SessionCommandNotListed,
     SessionNotOpen,
+    SubscriptionNotFound,
     TurnActive,
     UnknownCommand,
     WindowAlreadyOpen,
     WindowLaunchFailed,
 )
-from allin.core.ids import CommandName, MainId, SessionId, new_prompt_id
+from allin.core.ids import (
+    NO_PROMPT_ID,
+    CommandName,
+    MainId,
+    SessionId,
+    new_prompt_id,
+    parse_subscription_id,
+)
 from allin.core.origin import HUMAN, Origin
 from allin.ipc.messages import OrganizerRow
 from allin.main.attached import ATTACH_USAGE, DETACH_USAGE, AttachedProcesses
@@ -64,7 +72,12 @@ from allin.main.settings_commands import (
     SettingsCommands,
     parse_session_command,
 )
-from allin.main.subscriptions import SUBSCRIBE_USAGE, UNSUBSCRIBE_USAGE, Subscriptions
+from allin.main.subscriptions import (
+    SUBSCRIBE_USAGE,
+    UNSUBSCRIBE_USAGE,
+    Subscriptions,
+    parse_watch,
+)
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 from allin.ui.organizer_view import windows_list
@@ -813,6 +826,7 @@ class MainCommands:
             return True
         reply_to, typed = _reply_to(text)
         try:
+            subscriber = None if reply_to is None else self._active_session(reply_to)
             prompt = self._human_prompt(session.id, typed)
         except AllInError as error:
             # It was not sent: its Window says why, and the text is the human's again.
@@ -820,9 +834,8 @@ class MainCommands:
             self._windows.put_back(session.id, text)
             raise
         prompt = replace(prompt, answered_by="-y" if yes else None)
-        if reply_to is not None:  # its answer wakes that Session (#116)
+        if subscriber is not None:  # its answer wakes that Session (#116)
             prompt = replace(prompt, prompt_id=prompt.prompt_id or new_prompt_id())
-            subscriber = self._sessions.load_owned(reply_to, self._main_id).id
             owed = self._subscriptions.reply_to(subscriber, session.id, prompt.prompt_id, origin)
             prompt = replace(prompt, owed=(owed,))
         self._turns.push(session, prompt)
@@ -833,7 +846,7 @@ class MainCommands:
         """A human's Prompt with its Command prompts done (#14): its overrides taken out and
         its files copied to the Carpeta de trabajo, which the text then names."""
         parsed = parse_prompt(text)
-        prompt_id = new_prompt_id() if parsed.references else ""  # names its attachments
+        prompt_id = new_prompt_id() if parsed.references else NO_PROMPT_ID  # names its attachments
         workspace = self._sessions.workspace(session_id)
         names, attachments = attach(parsed.references, workspace, prompt_id, Path.cwd())
         sent = parsed.text_with(names)
@@ -885,19 +898,29 @@ class MainCommands:
         self._windows.rebuild_chat(session)
         return True
 
-    def _subscribe(self, session_id: str, event: str | None = None, *, origin: Origin) -> bool:
+    def _active_session(self, session_id: str) -> SessionId:
+        """This Main's Session ``session_id`` names, which is of the active Profile."""
         session = self._sessions.load_owned(session_id, self._main_id)
+        if not self._profiles.in_active(session.id):
+            raise OutsideProfile(session_id=session.id)
+        return session.id
+
+    def _subscribe(self, session_id: str, event: str | None = None, *, origin: Origin) -> bool:
+        subscriber = self._active_session(session_id)
         if event is None:
-            listed = self._subscriptions.listed(session.id)
+            listed = self._subscriptions.listed(subscriber)
             lines = [f"{s.id}  {s.event}" for s in listed] or ["no suscripciones"]
-            self._reporter.show(session.id, "\n".join(lines))
+            self._reporter.show(subscriber, "\n".join(lines))
             return True
-        self._subscriptions.subscribe(session.id, event, origin)
+        self._subscriptions.subscribe(subscriber, parse_watch(event), origin)
         return True
 
     def _unsubscribe(self, session_id: str, subscription: str, *, origin: Origin) -> bool:
-        session = self._sessions.load_owned(session_id, self._main_id)
-        self._subscriptions.unsubscribe(session.id, subscription, origin)
+        subscriber = self._active_session(session_id)
+        parsed = parse_subscription_id(subscription)
+        if parsed is None:
+            raise SubscriptionNotFound(session_id=subscriber, subscription=subscription)
+        self._subscriptions.unsubscribe(subscriber, parsed, origin)
         return True
 
     def _switch_devastation(self, state: str) -> bool:

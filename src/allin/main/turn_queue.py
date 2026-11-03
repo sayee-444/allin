@@ -37,7 +37,7 @@ from allin.core.errors import (
     TurnCrashed,
 )
 from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName, new_prompt_id
-from allin.core.origin import Origin, from_session
+from allin.core.origin import from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -55,7 +55,7 @@ from allin.main.chat_rebuild import (
     tools_entry,
 )
 from allin.main.compaction import summary_text, wants_compaction
-from allin.main.compactions import Compactions
+from allin.main.compactions import Compacted, Compactions
 from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
@@ -246,9 +246,12 @@ class Answers(Protocol):
         """Its Turn was saved as ``turn``; ``answer``: what its last Step wrote."""
         ...
 
-    def not_answered(self, prompt: Prompt, why: str, ran: bool) -> None:
-        """Its Turn failed or was cancelled (``ran``), or it left the queue before one
-        started."""
+    def failed(self, prompt: Prompt, why: str) -> None:
+        """Its Turn failed or was cancelled, and is in no Conversation."""
+        ...
+
+    def dropped(self, prompt: Prompt, why: str) -> None:
+        """It left the queue before a Turn of it started."""
         ...
 
 
@@ -256,7 +259,10 @@ class _NoAnswers:
     def answered(self, prompt: Prompt, turn: int, answer: str) -> None:
         pass
 
-    def not_answered(self, prompt: Prompt, why: str, ran: bool) -> None:
+    def failed(self, prompt: Prompt, why: str) -> None:
+        pass
+
+    def dropped(self, prompt: Prompt, why: str) -> None:
         pass
 
 
@@ -340,7 +346,7 @@ class TurnQueue:
             self._conversation,
         )
 
-    def listen(self, answers: Answers, compacted: Callable[[SessionId, int, Origin], None]) -> None:
+    def listen(self, answers: Answers, compacted: Compacted) -> None:
         """Who hears each Prompt's answer, and each Compactación done, from now on: the
         Suscripciones (#116)."""
         self._answers = answers
@@ -996,7 +1002,7 @@ class TurnQueue:
         self._since.pop(session_id, None)
         self._compactions.forget(session_id)
         self._windows.show_error(error, session_id)
-        self._answers.not_answered(prompt, f"it could not start: {error}", ran=False)
+        self._answers.dropped(prompt, f"it could not start: {error}")
         if isinstance(error, PromptTooBig):
             self._windows.send(session_id, InputRestore(text=prompt.text))
             if not self._compacts_alone(session_id):
@@ -1474,8 +1480,13 @@ class TurnQueue:
             running.asking = None
 
     def has_turn(self, session_id: SessionId) -> bool:
-        """Whether the Session has a Turn under way, maybe waiting for its Server again."""
-        return session_id in self._running
+        """Whether the Session has a Turn under way: running, suspended until its Server is
+        back (ADR-0023), or a Compactación's (ADR-0017)."""
+        return (
+            session_id in self._running
+            or any(prompt.suspended for prompt in self._prompts.of(session_id))
+            or self._compactions.busy(session_id)
+        )
 
     def waking(self, session_id: SessionId) -> bool:
         """Whether a Suscripción's Prompt for the Session waits in the queue."""
@@ -1545,7 +1556,7 @@ class TurnQueue:
             session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields, prompt=prompt
         )
         self._windows.send(session_id, error_entry(str(error)))
-        self._answers.not_answered(running.prompt, f"its Turn {ending}: {error}", ran=True)
+        self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
         if not cancelled:  # its Prompt is in no Conversation, so the user may send it again
             # The Session's queued Prompts leave with it: without it in the Conversation they
             # would run out of the order they were written in (#16).
@@ -1570,7 +1581,7 @@ class TurnQueue:
             self._compactions.drop(session_id)  # one it was doing, or would have done
         for prompt in dropped:
             if prompt.kind == "prompt":
-                self._answers.not_answered(prompt, f"it left the queue: {reason}", ran=False)
+                self._answers.dropped(prompt, f"it left the queue: {reason}")
         if dropped:
             shown = dropped_entry(len(dropped), reason).text
             texts: list[JsonValue] = [prompt.text for prompt in dropped]

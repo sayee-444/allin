@@ -77,7 +77,7 @@ from allin.core.errors import (
     ToolNotStarted,
     ToolTimedOut,
 )
-from allin.core.ids import AttachedName, FprocName, Revision
+from allin.core.ids import NO_PROMPT_ID, AttachedName, FprocName, PromptId, Revision
 from allin.core.sources import compiled_files
 from allin.decorators import MINIMUM, Reach
 
@@ -118,7 +118,7 @@ class ToolCall:
     arguments: dict[str, JsonValue]
     workspace: Path  # the Session's Carpeta de trabajo: its current folder
     reach: Reach = MINIMUM  # as its description read it (#102), never by importing it
-    prompt_id: str = ""  # the Prompt whose Turn calls it, which it may ask for (#116)
+    prompt_id: PromptId = NO_PROMPT_ID  # the Prompt whose Turn calls it (#116)
 
 
 @dataclass(frozen=True)
@@ -529,6 +529,8 @@ type OnEnd = Callable[["AttachedProcess"], None]
 
 # What a call hears of the method while it waits for it: a line of progress.
 type OnProgress = Callable[[str], None]
+# Something a method announced, for the Sessions subscribed to its process (#116).
+type OnAnnounce = Callable[[str], None]
 
 
 class _Turns:
@@ -583,7 +585,7 @@ class _Hooks:
 
     on_command: OnCommand | None
     on_progress: OnProgress | None
-    on_announce: OnProgress | None
+    on_announce: OnAnnounce | None
 
 
 @dataclass
@@ -675,8 +677,8 @@ class AttachedProcess:
         on_progress: OnProgress | None = None,
         seen: Revision | None = None,
         *,
-        on_announce: OnProgress | None = None,
-        prompt_id: str = "",
+        on_announce: OnAnnounce | None = None,
+        prompt_id: PromptId = NO_PROMPT_ID,
     ) -> ToolOutcome:
         """Call a public method of its fproc and wait for its answer, once it is this call's
         turn. Each Command session the method asks for goes to ``on_command``, each line of
@@ -719,7 +721,7 @@ class AttachedProcess:
         pending: _Pending,
         timeout: float,
         stop: Callable[[], bool],
-        hooks: "_Hooks",
+        hooks: _Hooks,
     ) -> ToolOutcome:
         on_command, on_progress = hooks.on_command, hooks.on_progress
         deadline = time.monotonic() + timeout

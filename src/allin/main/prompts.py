@@ -7,7 +7,7 @@ from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from typing import Literal
 
-from allin.core.ids import SessionId, SubscriptionId
+from allin.core.ids import NO_PROMPT_ID, PromptId, SessionId, SubscriptionId
 from allin.core.origin import HUMAN, LinkKind, Origin
 from allin.main.conversation import Attachment, Step
 from allin.main.prompt_commands import TurnOverrides
@@ -27,7 +27,7 @@ class Prompt:
     kind: PromptKind = "prompt"
     # Its id, which its Turn and each of its tools know (#116), and which names its
     # attachments' folder; the queue gives one to a Prompt that comes without it.
-    prompt_id: str = ""
+    prompt_id: PromptId = NO_PROMPT_ID
     attachments: tuple[Attachment, ...] = ()
     overrides: TurnOverrides = field(default_factory=TurnOverrides)
     typed: str = ""  # what the human typed, when its Command prompts changed it (#22)
