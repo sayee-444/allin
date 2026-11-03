@@ -1,5 +1,6 @@
 """The Command mains: what each one is called, the arguments it takes and what it does."""
 
+import functools
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -38,6 +39,7 @@ from allin.main.chat_rebuild import error_entry
 from allin.main.creations import USAGE as CREATE_USAGE
 from allin.main.creations import PieceCreator
 from allin.main.devastation import Devastation
+from allin.main.errands import BATCH_USAGE, ERRAND_USAGE, parse_errand
 from allin.main.events import CommandOutcome, OnOutcome
 from allin.main.func_commands import GRANT_USAGE, FuncCommands
 from allin.main.func_commands import USAGE as FUNC_USAGE
@@ -290,6 +292,30 @@ class MainCommands:
                     "subscription": "its id, as /subscribe lists it",
                 },
                 usage_text=UNSUBSCRIBE_USAGE,
+                takes_origin=True,
+            ),
+            "/errand": CommandSpec(
+                ("sid", "errand"),
+                functools.partial(self._errand, batch=False),
+                "Encargo: hand tasks out to other Sessions, and wake one with every result",
+                args={
+                    "sid": "the Session it wakes: a Session's LLM, only its own",
+                    "errand": "its options, its workers and their tasks",
+                },
+                usage_text=ERRAND_USAGE,
+                rest=True,
+                takes_origin=True,
+            ),
+            "/batch": CommandSpec(
+                ("sid", "batch"),
+                functools.partial(self._errand, batch=True),
+                "Lote: tasks free workers take in turns, and wake one with every result",
+                args={
+                    "sid": "the Session it wakes: a Session's LLM, only its own",
+                    "batch": "its options, its workers and its tasks",
+                },
+                usage_text=BATCH_USAGE,
+                rest=True,
                 takes_origin=True,
             ),
             "/raw": CommandSpec(
@@ -913,6 +939,25 @@ class MainCommands:
             self._reporter.show(subscriber, "\n".join(lines))
             return True
         self._subscriptions.subscribe(subscriber, parse_watch(event), origin)
+        return True
+
+    def _errand(self, session_id: str, text: str, *, batch: bool, origin: Origin) -> bool:
+        """``/errand`` and ``/batch``: its Session and every worker of the active Profile."""
+        coordinator = self._active_session(session_id)
+        errand = parse_errand(text, batch, self._settings.current.errand)
+        workers = errand.workers or tuple(p.worker for p in errand.parts if p.worker is not None)
+        known = {worker: self._active_session(worker) for worker in workers}  # by its id now
+        errand = errand.model_copy(
+            update={
+                "workers": tuple(known[w] for w in errand.workers),
+                "parts": tuple(
+                    p.model_copy(update={"worker": known[p.worker]}) if p.worker else p
+                    for p in errand.parts
+                ),
+            }
+        )
+        opened = self._subscriptions.open_errand(coordinator, errand, origin)
+        self._reporter.show(coordinator, f"errand {opened.id}: {opened.event}")
         return True
 
     def _unsubscribe(self, session_id: str, subscription: str, *, origin: Origin) -> bool:

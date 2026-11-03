@@ -213,6 +213,8 @@ class Dispatcher:
             state,
             close_orphan_window,
             self._subscriptions,
+            self._boxes,
+            self._notifications,
         )
         command_types = session_commands
         self._start_problems = [*settings.problems, *notices.problems, *command_types.problems]

@@ -6,9 +6,13 @@ says in each Session's Log what a Main killed outright could not (``close_left_o
 
 from collections.abc import Callable
 
+from pydantic import JsonValue
+
 from allin.core.drafts import put_back
 from allin.core.errors import AllInError, TurnCrashed
 from allin.core.ids import MainId, SessionId
+from allin.main.boxes import MainBoxes
+from allin.main.notifications import ERRAND, Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
@@ -37,8 +41,13 @@ class Recovery:
         state: MainStateStore,
         close_orphan_window: CloseOrphanWindow,
         subscriptions: Subscriptions,
+        boxes: MainBoxes,
+        notifications: Notifications,
     ) -> None:
         self._reporter = reporter
+        self._boxes = boxes
+        self._notifications = notifications
+        self._unclean = False  # the last Main died without closing what it had open
         self._subscriptions = subscriptions
         self._windows = windows
         self._turns = turns
@@ -67,7 +76,9 @@ class Recovery:
                 error = str(TurnCrashed(reason=_MAIN_DIED))
                 fields = {"error": error, "reasoning": "", "answer": ""}
                 self._reporter.record(session.id, "turn_failed", f"turn failed: {error}", **fields)
+                self._unclean = True
             if _last_index(events, "window_opened") > _last_index(events, "window_closed"):
+                self._unclean = True
                 shown = f"window closed: {_MAIN_DIED}"
                 self._reporter.record(session.id, "window_closed", shown, returncode=None)
 
@@ -78,8 +89,24 @@ class Recovery:
         goes back to its Window's input, shown ahead of the Draft, and is not sent again by
         itself.
         The queue waits for the server's ``/health``, which may still be loading the model.
+        If the last Main died, the Informe de recuperación tells what it left half done.
         """
-        self._put_back()
+        if self._put_back() or self._unclean:
+            self._report()
+
+    def _report(self) -> None:
+        """The Informe de recuperación: for now, the Encargos the dead Main had open, which
+        go on, its workers that died with it counted as no answer (ADR-0011)."""
+        errands = self._subscriptions.errands()
+        if not errands:
+            return
+        lines = [f"errand {s.id} of Session {s.session_id} ({s.event}): goes on" for s in errands]
+        for subscription in errands:
+            told = f"Main stopped while your errand {subscription.id} was open; it goes on"
+            self._notifications.leave(subscription.session_id, ERRAND, told)
+        self._reporter.log_main("recovery_report", errands=list[JsonValue](lines))
+        text = "Left half done when Main last stopped:\n" + "\n".join(lines)
+        self._boxes.notify(None, "Recovery report", text, kind="recovery_report")
 
     def enter(self, state: MainStateStore) -> None:
         """Put back the MainState of the Profile Main just entered (``/profile switch``): the
@@ -88,7 +115,8 @@ class Recovery:
         self._saved = MainState()
         self._put_back()
 
-    def _put_back(self) -> None:
+    def _put_back(self) -> bool:
+        """Whether Turns were running when the state was saved last."""
         try:
             self._saved = self._state.load()
         except AllInError as error:
@@ -101,7 +129,7 @@ class Recovery:
         self._windows.replace_drafts(drafts)
         self._subscriptions.restore(saved.subscriptions)
         for prompt in saved.running:  # in no Conversation, it answers no one
-            self._subscriptions.failed(prompt, "Main stopped during its Turn")
+            self._subscriptions.lost(prompt, "Main stopped during its Turn")
         self._turns.requeue(saved.queue)
         for session_id in saved.background:
             if not self._windows.is_open(session_id):
@@ -129,6 +157,7 @@ class Recovery:
                 self._windows.show_error(error, session_id)
         self._turns.tell_waiting()  # once the Windows are open
         self.save()
+        return bool(saved.running)
 
     def leave(self, queue: list[Prompt]) -> None:
         """Keep the MainState of the Profile Main leaves (``/profile switch``): its Windows and
