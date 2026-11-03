@@ -8,4 +8,14 @@ Mientras algo está en cola, ↑ en la primera línea del input, antes de recorr
 
 Shift+Enter interrumpe. Corta el Turno en ese momento y lo guarda con lo que llevaba, como un Turno cortado, y cancela las tools que estuvieran corriendo. El texto va como el siguiente Prompt de esa Sesión, antes que los que ya esperaban, y el LLM recibe una Notificación de que lo interrumpieron. xterm ya manda Shift+Enter distinto de Enter gracias a la opción que la Ventana usa para Ctrl+Enter (`modifyOtherKeys`). Las dos teclas son Atajos por defecto, que un humano puede cambiar con `/key`.
 
-Cerrar la Ventana devuelve al Borrador lo que estaba en cola, como el Prompt de un Turno de Origen humano que se cancela; pasar a segundo plano no cambia nada. Se descartó seguir bloqueando Enter, que hace esperar al humano sin necesidad. Se descartó también que, en F2, lo escrito esperara siempre al Turno siguiente, porque un Turno largo no se podría corregir sin cancelarlo. Queda por comprobar en F2 que la plantilla de chat del modelo acepta un mensaje del usuario justo después de la salida de una tool.
+Cerrar la Ventana devuelve al Borrador lo que estaba en cola, como el Prompt de un Turno de Origen humano que se cancela; pasar a segundo plano no cambia nada. Se descartó seguir bloqueando Enter, que hace esperar al humano sin necesidad. Se descartó también que, en F2, lo escrito esperara siempre al Turno siguiente, porque un Turno largo no se podría corregir sin cancelarlo.
+
+## Cómo quedó en F2 (#121)
+
+Comprobado con `llama serve` (Qwen3.8-27B): la plantilla de chat pone el mensaje del usuario justo después del `<tool_response>`, y el LLM lo obedece.
+
+- Entra lo que espera en cola cuando el Turno va a empezar su siguiente Paso: al tener otra vez slot tras sus tools, o al seguir tras una caída o una Compactación. Si el Turno ya no tiene otro Paso, lo escrito corre como el Turno siguiente, como en F1.
+- Solo entra texto llano. Lo que lleva Command prompts (`@clave=valor`, `@./ruta`) o `-y` vale para un Turno entero, así que espera el suyo, y lo escrito después también, para no cambiar el orden en que el humano lo escribió.
+- Tampoco entra lo que no cabe en lo que le queda al slot del Turno, contado a un token por carácter: espera su propio Turno, que se mide y compacta si hace falta.
+- Lo que entró se guarda en el Paso tras cuyas tools entró, y el Chat lo muestra en ese punto, en vivo y al reconstruirse. Si el Turno falla, vuelve al input con el Prompt; un Rewind lo devuelve también.
+- Si Shift+Enter corta el Turno durante sus tools, se guarda el Paso que las llamó, cada llamada con un error como salida que dice que el humano lo interrumpió y que la tool pudo hacer parte de su trabajo, para que el LLM sepa qué había puesto en marcha.
