@@ -6,12 +6,13 @@ ahead of the text. Main is not enclosed, so it never reaches a file for a Sessio
 that Session's tools reach: an attachment comes from the sender's Carpeta de trabajo, and one
 from outside, as resolved through any link, waits for a human's Approval, which neither ``-y``
 nor ``--devastation`` gives; what is copied is the very file the human saw. It is copied to ``.allin/adjuntos/<prompt>/`` in
-the receiver's Carpeta de trabajo, unless it is in there already. Both ends must be Sessions of
-the active Profile, which is private (ADR-0010). A sender that is no Session (Main, a Proceso
+the receiver's Carpeta de trabajo, unless it is in there already. Both ends must be in one space:
+the active Profile, which is private, or one Subperfil (ADR-0010, ADR-0026). A sender that is no Session (Main, a Proceso
 adherido) has no Carpeta de trabajo: every file it attaches is from outside.
 """
 
-from collections.abc import Callable, Sequence
+import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -20,7 +21,8 @@ from allin.core.errors import (
     AllInError,
     AttachmentNotApproved,
     FileReferenceInvalid,
-    OutsideProfile,
+    InvalidArguments,
+    OutsiderNotFromProcess,
     SubscriptionInvalid,
     SubscriptionNotOwn,
 )
@@ -32,10 +34,13 @@ from allin.main.events import OnOutcome
 from allin.main.prompt_commands import SendOptions
 from allin.main.prompts import Prompt, origin_header
 from allin.main.sessions import Session, SessionStore
+from allin.main.subprofiles import Subprofiles, acting_process
 from allin.main.subscriptions import Subscriptions
 from allin.main.turn_queue import TurnQueue
 
 ME = "me"  # ``--reply-to=me``: the Session that sends, as its LLM writes it (#116)
+_OUTSIDER = re.compile(r"[\w.:@+-]{1,64}")  # an Externo's identity, as ``discord:juan``
+OUTSIDER_USAGE = "--outsider=<who>: up to 64 letters, digits and . : @ + - _"
 
 
 class SessionSends:
@@ -44,15 +49,15 @@ class SessionSends:
         sessions: SessionStore,
         turns: TurnQueue,
         boxes: MainBoxes,
-        in_profile: Callable[[SessionId], bool],
+        subprofiles: Subprofiles,
         subscriptions: Subscriptions,
     ) -> None:
-        """``in_profile``: whether a Session is one of the active Profile's."""
+        """``subprofiles``: the spaces of the active Profile, which only a human crosses."""
         self._sessions = sessions
         self._subscriptions = subscriptions
         self._turns = turns
         self._boxes = boxes
-        self._in_profile = in_profile
+        self._subprofiles = subprofiles
 
     def send(
         self, target: Session, options: SendOptions, origin: Origin, answer: OnOutcome
@@ -60,6 +65,8 @@ class SessionSends:
         """Queue the Prompt for ``target``; ``answer`` hears how it went, maybe only once a
         human answered the Approval of a file from outside."""
         self._check_profile(target, origin)
+        if options.outsider is not None:
+            _check_outsider(options.outsider, origin)
         subscriber = (
             None if options.reply_to is None else self._subscriber(options.reply_to, origin)
         )
@@ -90,11 +97,9 @@ class SessionSends:
         self._boxes.confirm(None, "Approve files", f"{text}\nCopy them?", on_approval)
 
     def _check_profile(self, target: Session, origin: Origin) -> None:
-        """Neither end may be out of the active Profile: ``/send`` never crosses it."""
-        sender = self._sending_session(origin)
-        for session_id in (target.id, *([sender] if sender is not None else [])):
-            if not self._in_profile(session_id):
-                raise OutsideProfile(session_id=session_id)
+        """Both ends are in one space, the active Profile or one Subperfil: ``/send`` never
+        crosses either boundary, which only a human does (ADR-0010, ADR-0026)."""
+        self._subprofiles.check_reach(origin, target.id)
 
     def _push(
         self,
@@ -113,8 +118,9 @@ class SessionSends:
             owed = (self._subscriptions.reply_to(subscriber, target.id, prompt_id, origin),)
         prompt = Prompt(
             target.id,
-            f"{origin_header(origin)}\n{options.text}",  # data: never read for @… or /…
+            f"{origin_header(origin, options.outsider)}\n{options.text}",  # never read for @…
             origin=origin,
+            outsider=options.outsider,
             prompt_id=prompt_id,
             attachments=tuple(attachments),
             overrides=options.overrides,
@@ -133,8 +139,7 @@ class SessionSends:
         session = self._sessions.load(SessionId(reply_to))  # raises if there is none
         if sender is not None and sender != session.id:
             raise SubscriptionNotOwn(session_id=session.id, sender=sender)
-        if not self._in_profile(session.id):
-            raise OutsideProfile(session_id=session.id)
+        self._subprofiles.check_reach(origin, session.id)
         return session.id
 
     def _sending_session(self, origin: Origin) -> SessionId | None:
@@ -148,6 +153,15 @@ class SessionSends:
         """The Carpeta de trabajo of the Session that sends; none if no Session does."""
         sender = self._sending_session(origin)
         return None if sender is None else self._sessions.workspace(sender)
+
+
+def _check_outsider(outsider: str, origin: Origin) -> None:
+    """Only a Proceso adherido brings an Externo's words, and names them in a way that cannot
+    pass for anything else in its Prompt's header (ADR-0026)."""
+    if acting_process(origin) is None:
+        raise OutsiderNotFromProcess(outsider=outsider, origin=list[JsonValue](origin.labels))
+    if _OUTSIDER.fullmatch(outsider) is None:
+        raise InvalidArguments(usage=OUTSIDER_USAGE)
 
 
 def _source(path: str, base: Path | None) -> Path:

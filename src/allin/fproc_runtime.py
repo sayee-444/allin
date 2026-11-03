@@ -13,10 +13,14 @@ The warden's runner hands it the fproc's instance and its two pipes, and it answ
   catches it.
 - **Cancelling.** Main says which call it gave up on; ``Fproc.cancelled()`` tells the method,
   and a Command session it asks for from then on does not run.
+- **Initiative.** A Command session asked from a thread that serves no call, such as one its
+  ``__init__`` started, goes as the fproc's own (ADR-0026), with an id of its own, once Main
+  knows the class was made.
 
 It runs inside the Proceso adherido, so it uses the standard library alone.
 """
 
+import itertools
 import json
 import os
 import sys
@@ -46,10 +50,13 @@ class _Call:
 class _Runtime:
     """The calls under way and the revision, shared by every thread of the process."""
 
-    def __init__(self, fproc_class: type, instance: object, replies: IO[bytes]) -> None:
-        self._class = fproc_class
-        self._instance = instance
+    def __init__(self, replies: IO[bytes]) -> None:
+        self._class: type = object  # the fproc's, once made
+        self._instance: object = None
         self._replies = replies
+        self._serving = threading.Event()  # Main knows the class was made: it reads the rest
+        self._initiatives: dict[int, Queue[_Json]] = {}  # each waits for its result
+        self._initiative_ids = itertools.count(1)
         self._writing = threading.Lock()  # one line at a time on the pipe to Main
         self._calls: dict[int, _Call] = {}
         self._calls_lock = threading.Lock()
@@ -58,9 +65,12 @@ class _Runtime:
         self._writes = threading.Lock()  # one ``@writes`` at a time, with its check
         self._local = threading.local()  # ``call``: the one the thread serves
 
-    def serve(self, calls: IO[bytes]) -> None:
-        """Read Main's lines until they end: calls, the results of their Command sessions, and
-        which ones were cancelled."""
+    def serve(self, fproc_class: type, instance: object, calls: IO[bytes]) -> None:
+        """Once Main knows the class was made: read Main's lines until they end, the calls,
+        the results of their Command sessions and of those asked on its own, and which calls
+        were cancelled."""
+        self._class, self._instance = fproc_class, instance
+        self._serving.set()
         for line in calls:
             try:
                 message = cast(dict[str, _Json], json.loads(line))
@@ -71,6 +81,11 @@ class _Runtime:
                 continue
             if kind == "method":
                 self._start(call_id, message)
+            elif kind == "initiative_result":
+                with self._calls_lock:
+                    waiting = self._initiatives.get(call_id)
+                if waiting is not None:
+                    waiting.put(message.get("result"))
             elif (call := self._call(call_id)) is not None:
                 if kind == "command_result":
                     call.results.put(message.get("result"))
@@ -79,12 +94,28 @@ class _Runtime:
 
     def command(self, text: str) -> _Json:
         """For ``allin.channel.command``: ask Main for a Command session for the call this
-        thread serves. Raises ``RuntimeError`` in a thread that serves none."""
-        call = self._current()
+        thread serves, or on the fproc's own from a thread that serves none."""
+        call = getattr(self._local, "call", None)
+        if not isinstance(call, _Call):
+            return self._initiative(text)
         if call.cancelled.is_set():
             return _CANCELLED
         self._send({"type": "command", "id": call.id, "text": text})
         return call.results.get()  # Main answers each, a cancelled call's too
+
+    def _initiative(self, text: str) -> _Json:
+        """A Command session on the fproc's own (ADR-0026), once Main reads its lines."""
+        waiting: Queue[_Json] = Queue()
+        with self._calls_lock:
+            initiative_id = next(self._initiative_ids)
+            self._initiatives[initiative_id] = waiting
+        try:
+            self._serving.wait()
+            self._send({"type": "initiative", "id": initiative_id, "text": text})
+            return waiting.get()  # Main answers each
+        finally:
+            with self._calls_lock:
+                del self._initiatives[initiative_id]
 
     def progress(self, text: str) -> None:
         call = getattr(self._local, "call", None)
@@ -204,13 +235,19 @@ def _raised(call: _Call, error: BaseException) -> dict[str, _Json]:
 _runtime: _Runtime | None = None  # the process's one, once its class was made
 
 
-def serve(fproc_class: type, instance: object, calls_out: int, replies: IO[bytes]) -> None:
-    """Set by the warden's runner once the class was made: answer Main's calls until they
-    end."""
+def prepare(replies: IO[bytes]) -> None:
+    """Set by the warden's runner before it makes the class, so that a thread its
+    ``__init__`` starts may already ask Main for Command sessions on its own."""
     global _runtime  # noqa: PLW0603 - the process's one Proceso adherido
-    _runtime = _Runtime(fproc_class, instance, replies)
+    _runtime = _Runtime(replies)
+
+
+def serve(fproc_class: type, instance: object, calls_out: int) -> None:
+    """Set by the warden's runner once Main knows the class was made: answer Main's calls until
+    they end."""
+    assert _runtime is not None, "serve() before prepare()"
     with os.fdopen(calls_out, "rb") as calls:
-        _runtime.serve(calls)
+        _runtime.serve(fproc_class, instance, calls)
 
 
 def runtime() -> _Runtime | None:

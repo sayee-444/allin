@@ -12,6 +12,10 @@ current folder is its own Carpeta de trabajo, which outlives it: what it keeps t
 again when it is attached with the same name. ``Fproc``'s own members are never tools: only the
 methods the class itself defines are.
 
+Between calls it may act on its own (ADR-0026): from a thread of its own, such as one its
+``__init__`` starts, ``allin.channel.command`` runs the Command sessions its Alcance declares on
+the Sessions it created, in its Subperfil (``@subprofile``), from the Moldes of its package.
+
 It runs inside the Proceso adherido, so it uses the standard library alone.
 """
 

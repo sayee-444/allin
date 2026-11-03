@@ -1273,7 +1273,11 @@ class TurnQueue:
             self._reporter.record(session.id, "compaction_step_started", shown, need=need)
             self.send_turn_state(session.id)  # its border says so while the Step runs
         else:
-            self._reporter.record(session.id, "turn_started", "turn started", need=need)
+            # An Externo's words are noted with whose they were, and nothing more (ADR-0026).
+            outsider: dict[str, JsonValue] = (
+                {} if prompt.outsider is None else {"outsider": prompt.outsider}
+            )
+            self._reporter.record(session.id, "turn_started", "turn started", need=need, **outsider)
         self._submit_turn(job)
 
     def _server_changed(self, server: ServerKey, state: ServerState) -> None:
@@ -1881,6 +1885,7 @@ class TurnQueue:
             notifications=running.notifications,
             typed=running.prompt.typed,
             origin=running.prompt.origin,
+            outsider=running.prompt.outsider,
             prompt_id=running.prompt.prompt_id,
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))

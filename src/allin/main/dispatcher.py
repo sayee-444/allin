@@ -32,6 +32,7 @@ from allin.main.events import (
     ConfirmationRequested,
     DraftReceived,
     ErrorOccurred,
+    InitiativeAsked,
     InputMeasured,
     InputReceived,
     MainCommandEntered,
@@ -63,6 +64,7 @@ from allin.main.events import (
     WindowUsed,
 )
 from allin.main.func_commands import FuncCommands
+from allin.main.initiative import FprocInitiative, asker
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import KitCommands
 from allin.main.kits import Kits
@@ -92,6 +94,7 @@ from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
 from allin.main.status import live_state
+from allin.main.subprofiles import Subprofiles
 from allin.main.subscriptions import Subscriptions, SubscriptionState
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.tool_steps import SessionTools, session_tools
@@ -260,6 +263,9 @@ class Dispatcher:
         self._profile_commands = ProfileCommands(
             self._reporter, profiles, self._switch, sessions, main_id, self._boxes
         )
+        self._subprofiles = Subprofiles(
+            lambda: self._switch.active, self._profile_commands.in_active
+        )
         settings_commands.show_profiles(self._profile_commands.profiles_of)
         settings_commands.check_theme = self._themes.book.check
         settings_commands.windows_max_changed = self._windows.set_maximum
@@ -341,7 +347,12 @@ class Dispatcher:
             self._methods,
             calls,
             self._subscriptions,
+            self._subprofiles,
         )
+        self._initiative = FprocInitiative(
+            self._attached, sessions, self._reporter, self._commands.run
+        )
+        self._attached.act_through(lambda name: asker(inbox.put, name), self._subprofiles.ensure)
         self._session_commands = SessionCommands(
             command_types,
             sessions,
@@ -581,6 +592,8 @@ class Dispatcher:
                 self._turns.tools_ended(session_id, step, grows)
             case SessionCommandAsked(session_id, text, origin, answer):
                 self._session_commands.run(session_id, text, origin, answer)
+            case InitiativeAsked(name, text, answer):
+                self._initiative.run(name, text, answer)
             case BoxAnswered(box_id, answer):
                 self._boxes.answered(box_id, answer)
             case MainCommandEntered(text, origin):

@@ -32,7 +32,7 @@ from allin.core.hashing import content_hash
 from allin.core.ids import CommandName, PieceId
 from allin.core.settings import SessionSettings
 from allin.main.conversation import Item, user_item
-from allin.main.quarantine import PieceRef, Quarantine
+from allin.main.quarantine import PieceRef, Quarantine, parse_piece_ref
 from allin.main.sessions import MoldVersion
 
 
@@ -119,6 +119,30 @@ def load_mold(quarantine: Quarantine, ref: PieceRef) -> LoadedMold:
     except UnicodeDecodeError as error:
         raise MoldInvalid(mold=name, reason="not UTF-8 text") from error
     return LoadedMold(ref, parse_mold(name, text), piece.hash)
+
+
+PACKAGE_MOLDS = "molds"  # in an fproc's package: the Moldes it creates its Sessions from
+
+
+def load_package_mold(quarantine: Quarantine, package: PieceRef, name: str) -> LoadedMold:
+    """The Molde ``name`` of an fproc's ``package``, ``molds/<name>.toml``, as it was approved
+    with the package (ADR-0026): one whose package is in quarantine is never used."""
+    if parse_piece_ref(f"mold:{name}") is None:
+        raise MoldInvalid(mold=name, reason="not a Molde's name")
+    piece = quarantine.piece(package)
+    if piece.state != "approved":
+        raise PieceInQuarantine(piece=package.id)
+    try:
+        data = (piece.path / PACKAGE_MOLDS / f"{name}.toml").read_bytes()
+    except OSError as error:
+        raise MoldInvalid(mold=name, reason=str(error)) from error
+    if quarantine.piece(package).hash != piece.hash:  # changed while it was read
+        raise PieceInQuarantine(piece=package.id)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise MoldInvalid(mold=name, reason="not UTF-8 text") from error
+    return LoadedMold(package, parse_mold(name, text), piece.hash)
 
 
 def _merged(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, JsonValue, ValidationError
 from allin.confinement.launcher import (
     AttachedProcess,
     FprocStart,
+    OnCommand,
     ToolLauncher,
     close_left_warden,
 )
@@ -59,7 +60,7 @@ from allin.core.ids import (
     parse_session_id,
 )
 from allin.core.origin import HUMAN, Origin
-from allin.decorators import CONFIRM, HUMAN_ONLY, at_once
+from allin.decorators import CONFIRM, HUMAN_ONLY, at_once, has_subprofile
 from allin.main.boxes import MainBoxes
 from allin.main.descriptions import ToolSchema
 from allin.main.events import AttachedProcessEnded, CommandOutcome, MainEvent, OnOutcome
@@ -222,6 +223,8 @@ class AttachedProcesses:
         self._release = release  # Main's Setting, read as each one is attached
         self._given: Callable[[AttachedName, tuple[SessionId, ...]], None] = _nobody
         self._taken: Callable[[AttachedName], None] = _nobody
+        self._asker: Callable[[AttachedName], OnCommand | None] = lambda _: None
+        self._subprofile: Callable[[AttachedName], None] = _nobody
         self._instances: dict[AttachedName, _Instance] = {}
 
     def listen(
@@ -233,6 +236,25 @@ class AttachedProcesses:
         detached, so no Session keeps them (#114)."""
         self._given = given
         self._taken = taken
+
+    def act_through(
+        self,
+        asker: Callable[[AttachedName], OnCommand],
+        subprofile: Callable[[AttachedName], None],
+    ) -> None:
+        """``asker`` gives what runs the Command sessions an instance asks on its own, between
+        calls; ``subprofile`` hears that one whose fproc declares ``@subprofile`` was attached,
+        so it has its Subperfil (ADR-0026)."""
+        self._asker = asker
+        self._subprofile = subprofile
+
+    def attached_by(self, name: str) -> Origin:
+        """Who attached the Proceso adherido ``name``: what it does on its own goes with that
+        chain, and never with more (ADR-0026). Raises ``AttachedNotFound``."""
+        instance = self._instances.get(_name(name))
+        if instance is None:
+            raise AttachedNotFound(name=name)
+        return instance.asked.origin
 
     def run(self, *options: str, origin: Origin = HUMAN, answer: OnOutcome = _ignored) -> bool:
         """``/attach``: list them, or attach one; ``answer`` hears how it went, maybe once a
@@ -510,8 +532,11 @@ class AttachedProcesses:
             self._start_timeout,
             lambda ended: self._emit(AttachedProcessEnded(name, ended.pid)),
             self._release(),
+            self._asker(name),
         )
         self._instances[name] = _Instance(asked, profile, offered, process)
+        if has_subprofile(described.marks):
+            self._subprofile(name)
         self._save()
         self._given(name, asked.to)
         verb = "started again: its fproc's Alcance changed" if restarted else "attached"

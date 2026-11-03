@@ -239,6 +239,33 @@ CREATE = SessionCommandType(
 )
 
 
+NEW_USAGE = "@new <mold> [--id=<id>]"
+
+
+def new_command(args: str) -> str:
+    """``@new``'s Command main: a Session from a Molde, born in the background; for a Session's
+    LLM a Molde of the Profile, for an fproc one of its package, in its Subperfil (ADR-0026)."""
+    words = args.split()
+    if not 1 <= len(words) <= 2 or words[0].startswith("-"):
+        raise ValueError(NEW_USAGE)
+    if any(not word.startswith("--id=") for word in words[1:]):
+        raise ValueError(NEW_USAGE)
+    return " ".join(["/new", f"--mold={words[0]}", "--bg", *words[1:]])
+
+
+def _new(call: SessionCommandCall) -> str:
+    return new_command(call.args)
+
+
+NEW = SessionCommandType(
+    "new",
+    NEW_USAGE,
+    "create a Session from a Molde, in the background, and hear its id; an fproc's come from"
+    " its package, in its Subperfil",
+    _new,
+)
+
+
 _ATTACH_USAGE = "@attach <fproc> [name] [--file=<path>]"
 
 
@@ -380,6 +407,7 @@ BUILT_IN = LoadedSessionCommands(
             STATUS,
             COMPACT,
             CREATE,
+            NEW,
             GRANT,
             ATTACH,
             CALL,
@@ -389,7 +417,7 @@ BUILT_IN = LoadedSessionCommands(
             CLOSE,
         )
     },
-    # @create, @attach and @call widen what Sessions do: given by name, never by default; a
+    # @create, @new, @attach and @call widen what Sessions do: given by name, never by default; a
     # Suscripción only wakes its own Session, with its chain capped (#116), and an Encargo
     # sends no more than @send would (#117), @status only reads (#118) and @compact only touches
     # its own Conversation, which a Rewind gives back (#119). The fsource ``windows`` needs

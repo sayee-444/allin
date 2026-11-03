@@ -12,6 +12,8 @@ from allin.core.errors import (
     AllInError,
     HumanOnly,
     InvalidArguments,
+    MoldNotDeclared,
+    NoSubprofile,
     NotItsSession,
     OutsideProfile,
     SessionCommandNotListed,
@@ -24,6 +26,7 @@ from allin.core.errors import (
 )
 from allin.core.ids import (
     NO_PROMPT_ID,
+    AttachedName,
     CommandName,
     MainId,
     SessionId,
@@ -31,6 +34,8 @@ from allin.core.ids import (
     parse_subscription_id,
 )
 from allin.core.origin import HUMAN, Origin
+from allin.core.settings import SessionSettings
+from allin.decorators import has_subprofile
 from allin.ipc.messages import OrganizerRow, Place
 from allin.main.attached import ATTACH_USAGE, DETACH_USAGE, AttachedProcesses
 from allin.main.attached_methods import AttachedMethods
@@ -68,7 +73,7 @@ from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
 from allin.main.server_commands import delicate as server_delicate
 from allin.main.server_commands import human_only as server_human_only
-from allin.main.session_commands import chain_sessions, lacking
+from allin.main.session_commands import NEW_USAGE, chain_sessions, lacking
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import (
     SESSION_USAGE,
@@ -78,6 +83,7 @@ from allin.main.settings_commands import (
 from allin.main.status import PARTS_SHOWN as STATUS_PARTS
 from allin.main.status import USAGE as STATUS_USAGE
 from allin.main.status import Sources, parse_part, read
+from allin.main.subprofiles import Subprofiles, acting_process
 from allin.main.subscriptions import (
     SUBSCRIBE_USAGE,
     UNSUBSCRIBE_USAGE,
@@ -103,6 +109,19 @@ CLOSED = "closed with /close"
 
 # Whether a command, by its arguments, is delicate or only a human's.
 type ByArguments = Callable[[list[str]], bool]
+
+
+@dataclass(frozen=True)
+class _NewAsked:
+    """What ``/new`` was asked."""
+
+    chosen: str | None = None  # --id=
+    background: bool = False
+    sources: bool = True
+    agents: tuple[str, ...] = ()
+    commands: tuple[str, ...] | None = None
+    mold: str | None = None
+    methods: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,10 +190,13 @@ class MainCommands:
         methods: AttachedMethods,
         calls: MethodCalls,
         subscriptions: Subscriptions,
+        subprofiles: Subprofiles,
     ) -> None:
         self._functions = functions
+        self._subprofiles = subprofiles
         self._notifications = notifications
         self._methods = methods
+        self._attached = attached
         self._creator = creator
         self._boxes = boxes
         self._devastation = devastation
@@ -193,7 +215,7 @@ class MainCommands:
             attached=attached.views,
             supervisors=server.supervisors,
         )
-        self._sends = SessionSends(sessions, turns, boxes, profiles.in_active, subscriptions)
+        self._sends = SessionSends(sessions, turns, boxes, subprofiles, subscriptions)
         self._organizer: Organizer | None = None
         self._organizer_rows: Callable[[], list[OrganizerRow]] = list
         # Command mains are registered once, when Main starts.
@@ -221,6 +243,7 @@ class MainCommands:
                     _METHODS_USAGE,
                 ),
                 takes_origin=True,
+                takes_answer=True,
             ),
             "/create": CommandSpec(
                 ("piece", "content"),
@@ -261,13 +284,14 @@ class MainCommands:
                 takes_origin=True,
                 takes_answer=True,
             ),
-            # Like the Window's X: cancels a running Turn, so only a human closes (ADR-0020).
+            # Like the Window's X: cancels a running Turn, so only a human closes (ADR-0020),
+            # and an fproc the Sessions of its Subperfil, which are its own (ADR-0026).
             "/close": CommandSpec(
                 ("sid",),
                 self._close,
                 "close a Session's Window, in view or in the background, as its X does",
                 args={"sid": "the Session's id"},
-                human_only=True,
+                takes_origin=True,
             ),
             # The only Command main that queues Prompts; Enter in a Window is /send to its own.
             "/send": CommandSpec(
@@ -691,50 +715,72 @@ class MainCommands:
         if sender is not None and SessionId(sender) in self._sessions.ids():  # not one gone
             self._reporter.log_session(SessionId(sender), event, **fields)
 
-    def _new(self, *options: str, origin: Origin = HUMAN) -> bool:
-        chosen, background, sources, agents = None, False, True, list[str]()
-        commands: list[str] | None = None
-        mold_name: str | None = None
-        methods: str | None = None
+    def _new(self, *options: str, origin: Origin = HUMAN, answer: OnOutcome) -> bool:
+        """Whoever asked hears the new Session's id and where it is; one an fproc asks for is
+        born in its Subperfil (ADR-0026)."""
+        asked = self._parse_new(options)
+        process = acting_process(origin)
+        if process is None:
+            session, in_view = self._new_session(asked, origin)
+        else:
+            session, in_view = self._new_of_process(process, asked, origin), False
+        place: Place = "view" if in_view else "background"
+        answer(Queried({"session_id": session.id, "place": place}))
+        return True
+
+    def _parse_new(self, options: tuple[str, ...]) -> _NewAsked:
+        asked = _NewAsked()
         for option in options:
-            if option == _BG_OPTION and not background:
-                background = True
-            elif option.startswith(_ID_OPTION) and chosen is None:
-                chosen = option.removeprefix(_ID_OPTION)
-            elif option == _NO_SOURCES and sources:
-                sources = False
-            elif option.startswith(_AGENTS_OPTION) and not agents:
-                agents = [a for a in option.removeprefix(_AGENTS_OPTION).split(",") if a]
-            elif option.startswith(_COMMANDS_OPTION) and commands is None:
-                commands = [c for c in option.removeprefix(_COMMANDS_OPTION).split(",") if c]
-            elif option.startswith(_MOLD_OPTION) and mold_name is None:
-                mold_name = option.removeprefix(_MOLD_OPTION)
-            elif option.startswith(_METHODS_OPTION) and methods is None:
-                methods = option.removeprefix(_METHODS_OPTION)
+            if option == _BG_OPTION and not asked.background:
+                asked = replace(asked, background=True)
+            elif option.startswith(_ID_OPTION) and asked.chosen is None:
+                asked = replace(asked, chosen=option.removeprefix(_ID_OPTION))
+            elif option == _NO_SOURCES and asked.sources:
+                asked = replace(asked, sources=False)
+            elif option.startswith(_AGENTS_OPTION) and not asked.agents:
+                agents = tuple(a for a in option.removeprefix(_AGENTS_OPTION).split(",") if a)
+                asked = replace(asked, agents=agents)
+            elif option.startswith(_COMMANDS_OPTION) and asked.commands is None:
+                commands = tuple(c for c in option.removeprefix(_COMMANDS_OPTION).split(",") if c)
+                asked = replace(asked, commands=commands)
+            elif option.startswith(_MOLD_OPTION) and asked.mold is None:
+                asked = replace(asked, mold=option.removeprefix(_MOLD_OPTION))
+            elif option.startswith(_METHODS_OPTION) and asked.methods is None:
+                asked = replace(asked, methods=option.removeprefix(_METHODS_OPTION))
             else:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
+        return asked
+
+    def _new_session(self, asked: _NewAsked, origin: Origin) -> tuple[Session, bool]:
+        """A Session of the active Profile: the new Session and whether it is in view."""
         template = self._settings.current.session  # copied: later changes never reach it
-        mold = None if mold_name is None else self._creator.mold(mold_name)
+        mold = None if asked.mold is None else self._creator.mold(asked.mold)
         task = None if mold is None else mold.recipe.task
         if task is not None:
             self._check_may_send(origin)  # before anything is created
         chain = None if origin.is_human else self._chain(origin)
-        settings = template if mold is None else mold.settings(template)
-        if chain is not None and not all(s is not None and s.settings.exempt for s in chain):
-            # A Session never leaves covered what was not (ADR-0013).
-            settings = settings.model_copy(update={"exempt": False})
+        settings = self._born_exempt(template if mold is None else mold.settings(template), chain)
         sysprompt = render_sysprompt(self._sysprompts, settings)
         named = None if mold is None else mold.recipe.functions
-        functions = self._functions.born_with(sources, agents, named, chain)
+        functions = self._functions.born_with(asked.sources, list(asked.agents), named, chain)
+        commands: list[str] | None = None if asked.commands is None else list(asked.commands)
         if commands is None and mold is not None and mold.recipe.commands is not None:
-            commands = list(mold.recipe.commands)
+            commands = [str(name) for name in mold.recipe.commands]
         listed = self._functions.commands_born_with(commands, origin)
-        attached = self._methods.born_with(methods or "", chain)
+        attached = self._methods.born_with(asked.methods or "", chain)
         history = [] if mold is None else [message.item() for message in mold.recipe.history]
         version = None if mold is None else mold.version
         creator = None if origin.sender is None else SessionId(origin.sender)
         session = self._sessions.create(
-            self._main_id, settings, sysprompt, chosen, functions, listed, history, version, creator
+            self._main_id,
+            settings,
+            sysprompt,
+            asked.chosen,
+            functions,
+            listed,
+            history,
+            version,
+            creator,
         )
         self._reporter.record(
             session.id,
@@ -745,10 +791,66 @@ class MainCommands:
         )
         self._profiles.created(session.id)
         self._methods.given_at_birth(session, attached)
-        self._place(session, background, origin)
+        in_view = self._place(session, asked.background, origin)
         if task is not None:
             self._send_task(session, task, origin)
-        return True
+        return session, in_view
+
+    def _new_of_process(self, name: AttachedName, asked: _NewAsked, origin: Origin) -> Session:
+        """A Session the Proceso adherido ``name`` creates: only in its Subperfil, from a Molde
+        of its package its Alcance names, born in the background with the Molde's functions
+        and Command sessions alone, never more than every Session of ``origin``'s chain has,
+        and never Otorgar (ADR-0026)."""
+        if asked.mold is None or asked.agents or asked.commands is not None or asked.methods:
+            raise InvalidArguments(usage=NEW_USAGE)
+        fproc = self._attached.attached_fproc(name)
+        described = fproc.offered.description
+        if not has_subprofile(described.marks):
+            raise NoSubprofile(name=name)
+        if asked.mold not in described.reach.molds:
+            raise MoldNotDeclared(mold=asked.mold, name=name, declared=list(described.reach.molds))
+        mold = self._creator.package_mold(fproc.offered.piece, asked.mold)
+        task = mold.recipe.task
+        if task is not None:
+            self._check_may_send(origin)
+        chain = self._chain(origin)
+        settings = self._born_exempt(mold.settings(self._settings.current.session), chain)
+        sysprompt = render_sysprompt(self._sysprompts, settings)
+        functions = self._functions.born_with(True, [], mold.recipe.functions or (), chain)
+        named = [str(name) for name in mold.recipe.commands or ()]
+        listed = self._functions.commands_born_with(named, origin)
+        history = [message.item() for message in mold.recipe.history]
+        session = self._sessions.create(
+            self._main_id,
+            settings,
+            sysprompt,
+            asked.chosen,
+            functions,
+            listed,
+            history,
+            mold.version,
+        )
+        self._reporter.record(
+            session.id,
+            "session_created",
+            f"session created by {name}, in its Subperfil",
+            owner=self._main_id,
+            mold=asked.mold,
+            subprofile=name,
+        )
+        self._subprofiles.add_session(name, session.id)
+        self._windows.to_background(session.id)
+        if task is not None:
+            self._send_task(session, task, origin)
+        return session
+
+    def _born_exempt(
+        self, settings: SessionSettings, chain: list[Session | None] | None
+    ) -> SessionSettings:
+        """A Session never leaves covered what was not (ADR-0013)."""
+        if chain is not None and not all(s is not None and s.settings.exempt for s in chain):
+            return settings.model_copy(update={"exempt": False})
+        return settings
 
     def _chain(self, origin: Origin) -> list[Session | None]:
         """The Sessions of ``origin``'s chain; ``None`` for one that is gone or another Main's,
@@ -767,9 +869,7 @@ class MainCommands:
         missing = lacking(self._sessions, origin, CommandName("send"))
         if missing:
             raise SessionCommandNotListed(command="send", not_in=list[JsonValue](missing))
-        sender = origin.sender
-        if sender is not None and not self._profiles.in_active(SessionId(sender)):
-            raise OutsideProfile(session_id=sender)
+        self._subprofiles.acting_space(origin)  # raises if who sends it is out of reach
 
     def _send_task(self, session: Session, task: str, origin: Origin) -> None:
         """A Molde's initial task, sent as a ``/send`` with the Origin of whoever created the
@@ -892,10 +992,10 @@ class MainCommands:
         return True
 
     def _check_in_reach(self, session: Session, origin: Origin) -> None:
-        """A Session's LLM reaches only the Sessions of the active Profile, which only a human
-        crosses (ADR-0010)."""
-        if not origin.is_human and not self._profiles.in_active(session.id):
-            raise OutsideProfile(session_id=session.id)
+        """A Session's LLM reaches only the Sessions of its space, the active Profile or a
+        Subperfil, which only a human crosses (ADR-0010, ADR-0026)."""
+        if not origin.is_human:
+            self._subprofiles.check_reach(origin, session.id)
 
     def _check_may_background(self, session: Session, origin: Origin) -> None:
         """A human sends any Session to the background; a Session's LLM only its own and those
@@ -914,10 +1014,15 @@ class MainCommands:
         made = (session.id,) if session.creator is None else (session.id, session.creator)
         return any(self._sessions.same(sid, asker) for sid in made)
 
-    def _close(self, session_id: str) -> bool:
+    def _close(self, session_id: str, origin: Origin = HUMAN) -> bool:
         """``/close``: as the Window's X, its running Turn and queue are cancelled, also in
-        the background (ADR-0013, ADR-0020)."""
+        the background (ADR-0013, ADR-0020). A human's, or an fproc's on its own Sessions."""
         session = self._sessions.load_owned(session_id, self._main_id)
+        if not origin.is_human:
+            process = acting_process(origin)
+            if process is None:
+                raise HumanOnly(action="/close", origin=list[JsonValue](origin.labels))
+            self._subprofiles.check_reach(origin, session.id)
         if self._windows.is_open(session.id):
             self._windows.close(session.id, CLOSED)
         elif self._windows.is_background(session.id):

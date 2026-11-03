@@ -95,6 +95,7 @@ class Turn(BaseModel, frozen=True):
     # changed it, and who sent it.
     typed: str = ""
     origin: Origin = HUMAN
+    outsider: str | None = None  # the Externo whose words its Prompt was (ADR-0026)
     prompt_id: PromptId = NO_PROMPT_ID  # its Prompt's, which its tools knew (#116)
 
     @property

@@ -141,6 +141,8 @@ class SendOptions:
     overrides: TurnOverrides
     text: str
     reply_to: str | None = None  # the Session its answer wakes, a Suscripción (#116)
+    # Whose words they are, an Externo's, when a Proceso adherido brings them (ADR-0026).
+    outsider: str | None = None
 
 
 def parse_send(text: str) -> SendOptions:
@@ -149,6 +151,7 @@ def parse_send(text: str) -> SendOptions:
     attach: list[str] = []
     overrides: dict[str, str] = {}
     reply_to: str | None = None
+    outsider: str | None = None
     rest = text
     while (option := _SEND_OPTION.match(rest)) is not None:
         rest = rest[option.end() :]
@@ -161,11 +164,13 @@ def parse_send(text: str) -> SendOptions:
             attach.append(value)
         elif key == "reply-to":
             reply_to = value
+        elif key == "outsider":
+            outsider = value
         else:
             overrides[key] = value
     if rest is text:
         return SendOptions((), TurnOverrides(), text)  # without options it goes exactly as written
-    return SendOptions(tuple(attach), parse_overrides(overrides), rest, reply_to)
+    return SendOptions(tuple(attach), parse_overrides(overrides), rest, reply_to, outsider)
 
 
 def _unquoted(value: str) -> str:
