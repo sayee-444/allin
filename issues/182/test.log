@@ -1,0 +1,53 @@
+# #182 — Al reabrir la Ventana vuelve lo de un Turno fallido aunque después llegara un Prompt de otro Origen (2026-11-03)
+
+Código: rama fix/182-turno-fallido-vuelve-tras-prompt-de-otro-origen, commit a08b28f.
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/176, sin cambios, 19932 → 9932): cae el POST de generación cuyo cuerpo contiene
+lo escrito en <scratch>/fall, y cada caída crea <scratch>/down (/health 503) hasta que se borra.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m182, en el xterm allin-main-182, con /set base_url=http://127.0.0.1:19932/v1
+(y Main reiniciado). Function en <data-dir>/profiles/default/functions/teller/tell.py (tell.py.txt, la de #171:
+«@send <sid> <text>»). /piece approve --all; /new --id=caja182; /new --id=lider182; /func add lider182 function:teller.
+compare.py.txt corre returned_prompts (lo que vuelve al input al abrir la Ventana) sobre un Log con el código de main
+(antes de #182) y con el de la rama. (El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Tras un Turno fallido con la Ventana cerrada, un Prompt de otra Sesión que llega y termina su Turno no impide que,
+   al reabrir la Ventana, vuelva lo del Turno fallido, en el mismo orden que con ella abierta
+   - fall = «Cuenta hasta tres». Desde Main: /close caja182; /send caja182 Cuenta hasta tres. @top_k=5 → cae (turn
+     suspended); /send caja182 Y luego hasta cuatro. (humano, en cola).
+   - rm down: cae otra vez y el Turno falla (01-main-turno-fallido.png). El Log:
+       turn_failed      typed="Cuenta hasta tres. @top_k=5"  origin=["human"]
+       prompts_dropped  reason="the turn before failed"  texts=["Y luego hasta cuatro."]  origins=[["human"]]
+   - rm fall. En lider182: «Llama a la tool tell una vez con sid=caja182 y text=Di adios en una palabra.»
+     (02-lider-envia.png). En caja182, con la Ventana cerrada, el Log suma
+       prompt         text="[from Session lider182]\nDi adios en una palabra."  origin=["human","session:lider182"]
+       turn_finished  turn=0
+   - compare.py sobre ese Log, antes de abrir la Ventana:
+       main (antes de #182): []
+       rama de #182:         ['Cuenta hasta tres. @top_k=5', 'Y luego hasta cuatro.']
+   - /open caja182 (03-caja-al-reabrir.png): el input trae «Cuenta hasta tres. @top_k=5», tal como se tecleó, con
+     «+1 waiting» (el de la cola); el mismo orden que con la Ventana abierta (el Prompt fallido delante y los de su
+     cola detrás, test_a_failed_turn_gives_back_what_was_typed_with_its_window_open). El Log suma
+       prompt_returned  texts=["Cuenta hasta tres. @top_k=5", "Y luego hasta cuatro."]
+     Log completo: 05-log-de-caja182.jsonl.
+2. Un Prompt humano posterior sigue borrándolo, como hoy (#15)
+   - /new --id=otra182; /close otra182; fall = «Cuenta hasta cinco»; /send otra182 Cuenta hasta cinco. @top_k=5;
+     rm down: turn_failed. rm fall. En lider182: «Llama a la tool tell una vez con sid=otra182 y text=Di hola en una
+     palabra.» → turn_finished en otra182. compare.py: main [], rama ['Cuenta hasta cinco. @top_k=5'].
+   - Desde Main (humano): /send otra182 Di si en una palabra. → turn_finished. compare.py: main [], rama [].
+   - /open otra182 (04-otra-al-reabrir.png): el input queda vacío y el Log no suma prompt_returned.
+     Log completo: 06-log-de-otra182.jsonl.
+3. Tests: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+
+## Tests de #182
+tests/test_failed_turns.py::test_what_goes_back_to_the_input_is_read_from_the_log (10 casos nuevos y 1 cambiado: lo de
+  un Turno fallido sigue tras un Prompt de otro Origen y el fin de su Turno, también cancelado, tras un Rewind y tras un
+  Turno fallido sin Prompt; lo borra un Prompt humano posterior, con Origen o de un Log sin él; lo de cada Turno
+  fallido va delante de lo del anterior, con su cola detrás de lo suyo; lo que no cupo después va delante) PASSED
+tests/test_failed_turns.py::test_a_prompt_of_another_origin_after_a_failed_turn_leaves_it_to_come_back_on_open PASSED
+tests/test_failed_turns.py::test_sent_again_it_does_not_come_back_on_the_next_open (el de #15, sin cambios) PASSED
+Suite completa: 1825 pasan; basedpyright y ruff limpios.

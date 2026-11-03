@@ -1,0 +1,18 @@
+"""returned_prompts on one Session's Log, with main's code (before #182) and with the branch's."""
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+from allin.main import chat_rebuild
+from allin.main.log import LogEntry
+
+log_path, old_source = Path(sys.argv[1]), Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("chat_rebuild_main", old_source)
+assert spec is not None and spec.loader is not None
+old = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(old)
+log = [LogEntry.model_validate(json.loads(line)) for line in log_path.read_text().splitlines()]
+sys.stdout.write(f"main (antes de #182): {old.returned_prompts(log)}\n")
+sys.stdout.write(f"rama de #182:         {chat_rebuild.returned_prompts(log)}\n")

@@ -1,0 +1,24 @@
+{"ts": "2026-11-03T10:35:12.172897-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T10:35:12.177367-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:35:12.269141-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T10:35:20.618482-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T10:35:28.360921-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:35:28.449118-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T10:35:47.758189-06:00", "event": "window_closed", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T10:35:49.014129-06:00", "event": "prompt", "text": "Cuenta hasta tres.", "overrides": {"top_k": 5}, "typed": "Cuenta hasta tres. @top_k=5", "prompt_id": "ef3i7k", "origin": ["human"]}
+{"ts": "2026-11-03T10:35:49.019067-06:00", "event": "turn_started", "need": 8380}
+{"ts": "2026-11-03T10:35:49.055979-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T10:35:53.118250-06:00", "event": "prompt", "text": "Y luego hasta cuatro.", "prompt_id": "zvbabn", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T10:35:58.424047-06:00", "event": "turn_started", "need": 8380}
+{"ts": "2026-11-03T10:35:58.425443-06:00", "event": "turn_failed", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": "", "joined": [], "typed": "Cuenta hasta tres. @top_k=5", "origin": ["human"], "prompt": "Cuenta hasta tres."}
+{"ts": "2026-11-03T10:35:58.425570-06:00", "event": "prompts_dropped", "reason": "the turn before failed", "texts": ["Y luego hasta cuatro."], "kinds": ["prompt"], "origins": [["human"]]}
+{"ts": "2026-11-03T10:36:12.812874-06:00", "event": "prompt", "text": "[from Session lider182]\nDi adios en una palabra.", "prompt_id": "55oyci", "origin": ["human", "session:lider182"]}
+{"ts": "2026-11-03T10:36:12.818251-06:00", "event": "turn_started", "need": 8390}
+{"ts": "2026-11-03T10:36:14.232140-06:00", "event": "tools_called", "tools": ["tell"]}
+{"ts": "2026-11-03T10:36:14.257192-06:00", "event": "session_command", "command": "@send lider182 Adiós", "runs": "/send lider182 Adiós", "origin": ["human", "session:lider182", "session:caja182"]}
+{"ts": "2026-11-03T10:36:14.258484-06:00", "event": "command", "command": "/send lider182 Adiós", "result": "ok", "origin": ["human", "session:lider182", "session:caja182"]}
+{"ts": "2026-11-03T10:36:14.259711-06:00", "event": "tools_returned", "grows": 124}
+{"ts": "2026-11-03T10:36:15.486112-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T10:36:37.398917-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:36:37.399459-06:00", "event": "prompt_returned", "texts": ["Cuenta hasta tres. @top_k=5", "Y luego hasta cuatro."]}
+{"ts": "2026-11-03T10:36:37.486088-06:00", "event": "window_connected"}
