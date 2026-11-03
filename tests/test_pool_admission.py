@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from allin.core.ids import MainId, SessionId
+from allin.core.origin import HUMAN, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.core.wait_list import Reservation, Waiter, WaitList
@@ -25,7 +26,7 @@ from allin.main.events import (
 from allin.main.sessions import Session
 from allin.main.slots import ServerProps
 from tests.llm_fakes import FakeLlm, answer, completed
-from tests.test_dispatcher import KEY, MainHarness, ended, server, turn_lines
+from tests.test_dispatcher import KEY, MainHarness, ended, restored, server, turn_lines
 
 OTHER = MainId("other")
 
@@ -167,6 +168,31 @@ def test_a_prompt_bigger_than_the_pool_fails_without_waiting(main: MainHarness):
     assert InputRestore(text="too much") in window.sent  # it is in no Conversation
     states = [m for m in window.sent if isinstance(m, TurnState)]
     assert states[-1] == TurnState(active=False)  # Enter works again
+
+
+def test_a_human_prompt_that_does_not_fit_goes_back_as_it_was_typed(main: MainHarness):
+    main.server = server(slots=2, context=128_000)
+    session = session_needing(main, 130_000)
+    main.hold_turns = True
+    main.run(*open_all(session), InputReceived(session.id, "too much @top_k=5"), settle=True)
+    [window] = main.windows(session.id)
+    assert restored(window) == ["too much @top_k=5"]  # with its Command prompts (#171)
+
+
+def test_a_prompt_of_another_origin_that_does_not_fit_never_goes_to_the_input(main: MainHarness):
+    main.server = server(slots=2, context=128_000)
+    session, sender = session_needing(main, 130_000), main.create_session()
+    main.hold_turns = True
+    origin = from_session(HUMAN, sender.id)
+    main.run(
+        *open_all(session),
+        MainCommandEntered(f"/send {session.id} too much", origin=origin),
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    errors = [m.text for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
+    assert errors == ["prompt_too_big: need=130000, limit=128000"]
+    assert restored(window) == []  # it fails towards its sender, not into the human's input
 
 
 def context_notices(main: MainHarness, session: Session) -> list[str]:

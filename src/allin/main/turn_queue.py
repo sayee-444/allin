@@ -20,7 +20,7 @@ import itertools
 import json
 import os
 import time
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
@@ -1124,7 +1124,7 @@ class TurnQueue:
         self._windows.show_error(error, session_id)
         self._answers.dropped(prompt, f"it could not start: {error}")
         if isinstance(error, PromptTooBig):
-            self._windows.send(session_id, InputRestore(text=prompt.text))
+            self._give_back(session_id, _typed_by_human([prompt]))  # a human's, as typed (#171)
             if not self._compacts_alone(session_id):
                 hint = f"/session compact {session_id} may make room for it"
                 self._windows.send(session_id, ChatAppend(role="info", label="context", text=hint))
@@ -1836,6 +1836,7 @@ class TurnQueue:
         }
         if running.prompt.typed:  # apart from what its LLM read, for its input (#166)
             fields["typed"] = running.prompt.typed
+        fields["origin"] = list[JsonValue](running.prompt.origin.labels)  # whose input (#171)
         cancelled = isinstance(error, TurnCancelled)
         ending = "cancelled" if cancelled else "failed"
         prompt = running.prompt.text
@@ -1854,9 +1855,11 @@ class TurnQueue:
             behind = self._drop_queued(session_id, FAILED_BEFORE)
             if behind:
                 self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
-            # As they were typed, with their Command prompts (#166).
-            typed = [queued.as_typed for queued in behind if queued.kind == "prompt"]
-            self._give_back(session_id, [running.prompt.as_typed, *joined, *typed])
+            # A human's only, as they were typed, with their Command prompts (#166, #171); the
+            # others failed towards whoever sent them. Its Textos intercalados are a human's.
+            self._give_back(
+                session_id, [*_typed_by_human([running.prompt]), *joined, *_typed_by_human(behind)]
+            )
 
     def _cancelled_prompt(self, running: _RunningTurn) -> list[str]:
         """What of a cancelled Turn's Prompt goes back to its Draft, ahead of its Textos
@@ -1891,13 +1894,14 @@ class TurnQueue:
             fields: dict[str, JsonValue] = {"texts": texts, "kinds": kinds}
             if any(prompt.typed for prompt in dropped):  # apart, for the input (#166)
                 fields["typed"] = [prompt.as_typed for prompt in dropped]
+            fields["origins"] = [list[JsonValue](prompt.origin.labels) for prompt in dropped]
             self._reporter.record(session_id, "prompts_dropped", shown, reason=reason, **fields)
         return dropped
 
     def _give_back(self, session_id: SessionId, texts: list[str]) -> None:
         """Texts back to the Window's input, the first one shown first; with its Window closed
         they come back when it opens (``returned_prompts``)."""
-        if not self._windows.is_open(session_id):
+        if not texts or not self._windows.is_open(session_id):
             return
         for text in reversed(texts):  # each one shown pushes the one before it back
             self._windows.send(session_id, InputRestore(text=text))
@@ -1927,6 +1931,14 @@ class TurnQueue:
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
+
+
+def _typed_by_human(prompts: Iterable[Prompt]) -> list[str]:
+    """What of ``prompts`` goes back to an input, as it was typed: a human's Prompts, never a
+    queued Compaction (GLOSSARY: Prompt)."""
+    return [
+        prompt.as_typed for prompt in prompts if prompt.kind == "prompt" and prompt.origin.is_human
+    ]
 
 
 def _not_human(prompt: Prompt) -> bool:

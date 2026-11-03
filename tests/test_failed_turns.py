@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import TurnCancelled
+from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import InputRestore
 from allin.main.chat_rebuild import FAILED_BEFORE, rebuild_chat, returned_prompts
 from allin.main.events import InputReceived, MainCommandEntered, TurnEnded, WindowClosed
@@ -28,8 +29,13 @@ def entry(event: str, **fields: object) -> LogEntry:
     return LogEntry.model_validate({"ts": "2026-11-01T00:00:00Z", "event": event, **fields})
 
 
-def failed(prompt: str) -> LogEntry:
-    return entry("turn_failed", prompt=prompt, error="llm_unavailable", reasoning="", answer="")
+SENT = ["human", "session:ab12"]  # what another Session sent with ``@send``
+
+
+def failed(prompt: str, **fields: object) -> LogEntry:
+    return entry(
+        "turn_failed", prompt=prompt, error="llm_unavailable", reasoning="", answer="", **fields
+    )
 
 
 @pytest.mark.parametrize(
@@ -89,6 +95,32 @@ def failed(prompt: str) -> LogEntry:
                 ),
             ],
             ["a1 @top_k=5", "a2 @top_k=3", "a3"],
+        ),
+        # Only a human's (#171); a Log from before it names no Origin, and was a human's.
+        ([failed("a1", origin=SENT)], []),
+        ([failed("a1", origin=["human"])], ["a1"]),
+        ([failed("a1", origin=["not a link"])], []),  # unreadable: never taken for a human's
+        ([failed("a1"), failed("a2", origin=SENT)], []),
+        (
+            [
+                failed("a1", origin=SENT),
+                entry(
+                    "prompts_dropped",
+                    reason=FAILED_BEFORE,
+                    texts=["a2", "a3", "a4"],
+                    kinds=["prompt", "prompt", "prompt"],
+                    origins=[SENT, ["human"], SENT],
+                ),
+            ],
+            ["a3"],
+        ),
+        (
+            [
+                failed("a1", origin=SENT),
+                entry("prompts_dropped", reason=FAILED_BEFORE, texts=["a2"]),
+                entry("prompt_returned", texts=["a2"]),
+            ],
+            [],
         ),
     ],
 )
@@ -185,7 +217,12 @@ def test_a_failed_turn_takes_its_sessions_queued_prompts_back_to_the_input_in_or
     conversation_b = main.sessions.load_conversation(b)
     assert conversation_b is not None and [t.prompt for t in conversation_b.turns] == ["b1"]
     [dropped] = [e for e in main.session_log(a) if e.event == "prompts_dropped"]
-    assert dropped.fields == {"reason": FAILED_BEFORE, "texts": ["a2"], "kinds": ["prompt"]}
+    assert dropped.fields == {
+        "reason": FAILED_BEFORE,
+        "texts": ["a2"],
+        "kinds": ["prompt"],
+        "origins": [["human"]],
+    }
 
 
 def test_the_dropped_prompts_show_in_the_rebuilt_chat(main: MainHarness):
@@ -263,3 +300,60 @@ def test_a_failed_turn_gives_back_what_was_typed_as_its_window_opens(main: MainH
     )
     main.run(MainCommandEntered(f"/open {a.id}"), settle=True)
     assert restored(main.windows(a.id)[0]) == ["a1 @top_k=5", "a2 @top_k=3", "a3"]
+
+
+def test_a_failed_turn_gives_back_only_the_human_prompts_with_its_window_open(main: MainHarness):
+    a, sender = main.create_session(), main.create_session()
+    sent = from_session(HUMAN, sender.id)
+    main.server_up = False  # all wait, so a2 and a3 are queued behind a1
+    main.llm = failing_twice()
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/send {a.id} a1", origin=sent),
+        MainCommandEntered(f"/send {a.id} a2 @top_k=3"),
+        MainCommandEntered(f"/send {a.id} a3", origin=sent),
+        server_ready(main.server),
+        server_ready(main.server),
+        settle=True,
+    )
+    # The others failed towards whoever sent them (#171).
+    assert restored(main.windows(a.id)[0]) == ["a2 @top_k=3"]
+    log = main.session_log(a)
+    [failed_turn] = [e for e in log if e.event == "turn_failed"]
+    assert failed_turn.fields["origin"] == sent.labels
+    [dropped] = [e for e in log if e.event == "prompts_dropped"]
+    assert dropped.fields["origins"] == [["human"], sent.labels]
+    main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
+    assert restored(main.windows(a.id)[1]) == [], "its Draft keeps it, not the Log again"
+
+
+def test_a_failed_turn_gives_back_only_the_human_prompts_as_its_window_opens(main: MainHarness):
+    a, sender = main.create_session(), main.create_session()
+    sent = from_session(HUMAN, sender.id)
+    main.server_up = False
+    main.llm = failing_twice()
+    main.run(
+        MainCommandEntered(f"/send {a.id} a1", origin=sent),
+        MainCommandEntered(f"/send {a.id} a2 @top_k=3"),
+        MainCommandEntered(f"/send {a.id} a3", origin=sent),
+        server_ready(main.server),
+        server_ready(main.server),
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {a.id}"), settle=True)
+    assert restored(main.windows(a.id)[0]) == ["a2 @top_k=3"]
+
+
+def test_a_failed_turn_of_another_origin_alone_gives_nothing_back(main: MainHarness):
+    a, sender = main.create_session(), main.create_session()
+    main.llm = failing_twice()
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/send {a.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        server_ready(main.server),
+        settle=True,
+    )
+    assert restored(main.windows(a.id)[0]) == []
+    assert all(e.event != "prompt_returned" for e in main.session_log(a))
+    main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
+    assert restored(main.windows(a.id)[1]) == []
