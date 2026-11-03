@@ -124,6 +124,21 @@ SUBSCRIBE = SessionCommandType(
     "list your Suscripciones, or open one: the event wakes you with a Prompt once your Turn ended",
     _subscribe,
 )
+_COMPACT_USAGE = "@compact [instructions]"
+
+
+def _compact(call: SessionCommandCall) -> str:
+    """Always its own Conversation (ADR-0017); the instructions guide its summary."""
+    return f"/session compact {call.session_id} {call.args}".rstrip()
+
+
+COMPACT = SessionCommandType(
+    "compact",
+    _COMPACT_USAGE,
+    "compact your Conversation now, at the end of a phase of work: its old Turns become a"
+    " summary, guided by your instructions",
+    _compact,
+)
 _STATUS_USAGE = f"@status [{STATUS_PARTS}]"
 
 
@@ -294,6 +309,7 @@ BUILT_IN = LoadedSessionCommands(
             ERRAND,
             BATCH,
             STATUS,
+            COMPACT,
             CREATE,
             GRANT,
             ATTACH,
@@ -302,7 +318,8 @@ BUILT_IN = LoadedSessionCommands(
     },
     # @create, @attach and @call widen what Sessions do: given by name, never by default; a
     # Suscripción only wakes its own Session, with its chain capped (#116), and an Encargo
-    # sends no more than @send would (#117), and @status only reads (#118).
+    # sends no more than @send would (#117), @status only reads (#118) and @compact only touches
+    # its own Conversation, which a Rewind gives back (#119).
     tuple(
         CommandName(kind.name)
         for kind in (
@@ -314,6 +331,7 @@ BUILT_IN = LoadedSessionCommands(
             ERRAND,
             BATCH,
             STATUS,
+            COMPACT,
         )
     ),
 )

@@ -118,6 +118,13 @@ class TurnCancelled(AllInError):
     code: ClassVar[str] = "turn_cancelled"
 
 
+class TurnYielded(AllInError):
+    """A Turn stopped between two Steps so its Session compacts first: it goes on from the
+    Steps it ended once that is done (ADR-0017, #119)."""
+
+    code: ClassVar[str] = "turn_yielded"
+
+
 class StepStalled(AllInError):
     """A Step made no progress for ``step.stall`` seconds; Main cancelled it (ADR-0023)."""
 
@@ -564,6 +571,13 @@ class SubscriptionNotOwn(AllInError):
     (ADR-0011)."""
 
     code: ClassVar[str] = "subscription_not_own"
+
+
+class CompactionNotOwn(AllInError):
+    """A Session asked to compact another one: each compacts only its own Conversation
+    (ADR-0017)."""
+
+    code: ClassVar[str] = "compaction_not_own"
 
 
 class ErrandInvalid(AllInError):

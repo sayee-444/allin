@@ -22,6 +22,7 @@ from allin.main.attached_methods import AttachedMethods
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry, logs_entry
 from allin.main.commands import MainCommands
+from allin.main.compactions import CompactionDone
 from allin.main.creations import PieceCreator
 from allin.main.descriptions import Descriptions
 from allin.main.devastation import Devastation
@@ -69,7 +70,7 @@ from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
 from allin.main.method_calls import MethodCalls
 from allin.main.notices import LoadedNotices
-from allin.main.notifications import Notifications
+from allin.main.notifications import COMPACT, Notifications
 from allin.main.open_windows import OpenWindow, OpenWindows
 from allin.main.organizer import OpenOrganizer, Organizer, RowSource, command_for, no_organizer
 from allin.main.piece_commands import PieceCommands
@@ -90,6 +91,7 @@ from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
+from allin.main.status import live_state
 from allin.main.subscriptions import Subscriptions, SubscriptionState
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.tool_steps import SessionTools, session_tools
@@ -194,6 +196,7 @@ class Dispatcher:
             notifications=self._notifications,
         )
         self._profiles = profiles
+        self._sessions = sessions
         self._subscriptions = Subscriptions(
             sessions,
             self._turns,
@@ -203,7 +206,7 @@ class Dispatcher:
             clock,
             self._change_frozen,
         )
-        self._turns.listen(self._subscriptions, self._subscriptions.compacted)
+        self._turns.listen(self._subscriptions, self._compacted)
         self._recovery = Recovery(
             self._reporter,
             self._windows,
@@ -373,6 +376,17 @@ class Dispatcher:
     def attached(self) -> AttachedProcesses:
         """The Procesos adheridos of the active Profile, whose methods are called on them."""
         return self._attached
+
+    def _compacted(self, done: CompactionDone) -> None:
+        """Who subscribed hears of it, and the Session is told what it still has open, which
+        its summary may have lost (ADR-0017)."""
+        self._subscriptions.compacted(done)
+        session = self._sessions.load(done.session_id)
+        held = {h.name for h in session.attached_methods}
+        own = [v for v in self._subscriptions.views() if v.session == session.id]
+        attached = [v for v in self._attached.views() if v.name in held]
+        if own or attached:  # with nothing open there is nothing it could forget
+            self._notifications.leave(session.id, COMPACT, live_state(own, attached))
 
     @property
     def commands(self) -> MainCommands:

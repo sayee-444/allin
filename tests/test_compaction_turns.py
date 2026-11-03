@@ -132,7 +132,8 @@ def test_the_window_keeps_showing_every_turn_with_the_cut_line_and_the_summary(
         MainCommandEntered(f"/open {session.id}"), *talk(session, 6), compact(session), settle=True
     )
     live = [m for m in sent(main, session) if isinstance(m, ChatAppend)]
-    assert live[-2:] == compacted_entries(4, "We chose mango.")
+    cut = live.index(compacted_entries(4, "We chose mango.")[0])
+    assert live[cut : cut + 2] == compacted_entries(4, "We chose mango.")
     border = [m.waiting for m in sent(main, session) if isinstance(m, TurnState)]
     assert "compacting…" in border
     main.run(MainCommandEntered(f"/open {session.id}"), settle=True)  # rebuilt from disk

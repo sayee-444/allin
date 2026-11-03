@@ -110,3 +110,32 @@ def test_each_archived_conversation_is_kept_in_its_own_file_in_order(tmp_path: P
     assert archive_conversation(tmp_path, second) == "compacted/2.json"
     assert load_archived(tmp_path) == [first, second]
     assert load_archived(tmp_path / "none") == []
+
+
+def _tooled(output: str) -> Turn:
+    call = {"type": "function_call", "call_id": "c1", "name": "read", "arguments": "{}"}
+    result = {"type": "function_call_output", "call_id": "c1", "output": output}
+    return Turn(
+        prompt="read it", steps=[Step(output=[call], results=[result]), Step(output=[ANSWER])]
+    )
+
+
+def test_a_pruned_turn_reads_its_long_tool_outputs_as_one_line_and_keeps_them_whole():
+    long, short = "x" * 8_000, "ok"
+    conversation = Conversation(sysprompt="s", pruned=1).with_turn(_tooled(long))
+    conversation = conversation.with_turn(_tooled(long)).with_turn(_tooled(short))
+    outputs = [
+        item["output"]
+        for item in conversation.request_input("next")
+        if item.get("type") == "function_call_output"
+    ]
+    assert outputs == ["[tool output omitted: ~2k tokens; archived]", long, short]
+    assert conversation.turns[0].steps[0].results[0]["output"] == long  # nothing is lost
+
+
+def test_a_short_tool_output_is_never_pruned():
+    conversation = Conversation(sysprompt="s", pruned=1).with_turn(_tooled("ok"))
+    [output] = [
+        i for i in conversation.request_input("n") if i.get("type") == "function_call_output"
+    ]
+    assert output["output"] == "ok"

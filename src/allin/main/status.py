@@ -2,7 +2,7 @@
 Profile alone: the queue, the Subscriptions and Encargos, the Procesos adheridos, the Servers
 its Enlaces watch and the Supervisors with their capacity. The tree of Mains comes with F3."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal, get_args
 
@@ -182,3 +182,24 @@ def _supervisor(supervisor: SupervisorView) -> str:
     default = " (default Enlace)" if supervisor.default else ""
     capacity = f"; its Server {_capacity(supervisor.server)}" if supervisor.server else ""
     return f"{supervisor.name}{default}: {supervisor.status}{capacity}"
+
+
+def live_state(subscriptions: Sequence[SubscriptionView], attached: Sequence[AttachedView]) -> str:
+    """What a Session still has open after a Compactación, which its summary may have lost
+    (ADR-0017): its Encargos and Suscripciones and the Procesos adheridos whose methods it
+    has. Main leaves it only when something is open."""
+    errands = [s for s in subscriptions if s.progress is not None]
+    others = [s for s in subscriptions if s.progress is None]
+    parts = [
+        "Encargos: " + "; ".join(f"{s.id} ({s.event}, {s.progress})" for s in errands)
+        if errands
+        else "no Encargos",
+        "Suscripciones: " + "; ".join(f"{s.id} ({s.event})" for s in others)
+        if others
+        else "no Suscripciones",
+        "Procesos adheridos: "
+        + "; ".join(f"{a.name} ({', '.join(a.methods) or 'no methods'})" for a in attached)
+        if attached
+        else "no Procesos adheridos",
+    ]
+    return "after compacting, still open: " + ", ".join(parts)

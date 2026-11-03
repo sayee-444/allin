@@ -30,7 +30,8 @@ def rewind(conversation: Conversation, archived: Sequence[Conversation], n: int)
         if not earlier:
             raise ArchiveMissing(turn=target)
         source = earlier[-1]
-    kept = source.model_copy(update={"turns": source.turns[: target - source.summarized]})
+    turns = source.turns[: target - source.summarized]
+    kept = source.model_copy(update={"turns": turns, "pruned": min(source.pruned, len(turns))})
     return Rewound(kept, undone, target)
 
 

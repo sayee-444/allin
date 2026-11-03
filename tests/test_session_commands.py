@@ -240,6 +240,7 @@ def test_new_gives_the_roots_or_the_ones_named(main: MainHarness):
         "errand",
         "batch",
         "status",
+        "compact",
     )
     assert second.commands == ("send",)
     notices = [u.box for u in main.main_screen if isinstance(u, ShowBox)]
@@ -306,6 +307,7 @@ def run(call):
         "errand",
         "batch",
         "status",
+        "compact",
         "note",
     )
     assert [problem.code for problem in loaded.problems] == ["session_command_failed"]

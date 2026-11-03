@@ -11,7 +11,7 @@ from pathlib import Path
 from pydantic import JsonValue
 
 from allin.confinement.reach import install_root
-from allin.core.errors import HumanOnly, InvalidArguments, SyspromptLocked
+from allin.core.errors import CompactionNotOwn, HumanOnly, InvalidArguments, SyspromptLocked
 from allin.core.ids import MainId, SessionId
 from allin.core.origin import HUMAN, Origin
 from allin.core.settings import (
@@ -179,7 +179,10 @@ class SettingsCommands:
             raise InvalidArguments(usage=SESSION_USAGE)
         session = self._sessions.load_owned(target.session_id, self._main_id)
         if target.compact:
-            self._turns.compact(session, target.rest)
+            sender = origin.sender
+            if sender is not None and sender != session.id:
+                raise CompactionNotOwn(session_id=session.id, sender=sender)
+            self._turns.compact(session, target.rest, origin)
             return True
         if target.workspace:
             self._point_workspace(session.id, target.rest)
