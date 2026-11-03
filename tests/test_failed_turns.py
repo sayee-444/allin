@@ -11,6 +11,7 @@ from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import InputRestore
 from allin.main.chat_rebuild import FAILED_BEFORE, rebuild_chat, returned_prompts
 from allin.main.events import (
+    DraftReceived,
     InputReceived,
     MainCommandEntered,
     ToolsEnded,
@@ -20,7 +21,14 @@ from allin.main.events import (
 )
 from allin.main.log import LogEntry
 from tests.llm_fakes import DroppedStream, FakeLlm, answer, full_reply
-from tests.test_dispatcher import SETTINGS, MainHarness, restored, server_ready
+from tests.test_dispatcher import (
+    SETTINGS,
+    FakeWindowLink,
+    MainHarness,
+    restored,
+    server_ready,
+    together,
+)
 from tests.test_write_during_turn import CALLED, RETURNED
 
 
@@ -32,6 +40,11 @@ def main(tmp_path: Path) -> MainHarness:
 def failing_twice() -> FakeLlm:
     """A Server that falls twice in the same Step: its Turn fails (ADR-0023)."""
     return FakeLlm(DroppedStream([answer("half")]), DroppedStream([answer("half")]))
+
+
+def restores(window: FakeWindowLink) -> list[str]:
+    """Each text an InputRestore put in the Window's input, as many times as it came."""
+    return [message.text for message in window.sent if isinstance(message, InputRestore)]
 
 
 def entry(event: str, **fields: object) -> LogEntry:
@@ -118,7 +131,8 @@ def turn_finished() -> LogEntry:
         ([failed("a1", origin=SENT)], []),
         ([failed("a1", origin=["human"])], ["a1"]),
         ([failed("a1", origin=["not a link"])], []),  # unreadable: never taken for a human's
-        ([failed("a1"), failed("a2", origin=SENT)], []),
+        # A later failed Turn of another Origin leaves it in the input, behind its own (#182).
+        ([failed("a1"), failed("a2", origin=SENT)], ["a1"]),
         (
             [
                 failed("a1", origin=SENT),
@@ -168,6 +182,62 @@ def turn_finished() -> LogEntry:
         ([too_big("b1"), entry("prompt_started", text="b2"), turn_finished()], ["b1"]),
         ([too_big("b1"), entry("prompt_started", text="b2"), failed("b2")], ["b2", "b1"]),
         ([too_big("b1"), entry("rewound", turn=0)], ["b1"]),  # it was in no Conversation
+        # What a failed Turn gave back: only a human's later Prompt says the human is past it,
+        # never another Origin's, or a Turn ending (#182).
+        ([failed("a1"), entry("prompt", text="b1", origin=SENT), turn_finished()], ["a1"]),
+        (
+            [
+                failed("a1", joined=["j1"]),
+                entry("prompts_dropped", reason=FAILED_BEFORE, texts=["a2"]),
+                entry("prompt", text="b1", origin=SENT),
+                entry("turn_cancelled", error="x", reasoning="", answer="", prompt="b1"),
+            ],
+            ["a1", "j1", "a2"],
+        ),
+        ([failed("a1"), entry("rewound", turn=0)], ["a1"]),  # it was in no Conversation
+        (
+            [failed("a1"), entry("turn_failed", error="main stopped", reasoning="", answer="")],
+            ["a1"],
+        ),
+        (
+            [failed("a1"), entry("prompt", text="b1", origin=SENT), entry("prompt", text="a2")],
+            [],
+        ),
+        (
+            [
+                failed("a1"),
+                entry("prompt", text="b1", origin=SENT),
+                entry("prompt", text="a2", origin=["human"]),
+            ],
+            [],
+        ),
+        (  # each failed Turn's goes ahead of the one before it, its queue's after its own
+            [
+                failed("a1", joined=["j1"]),
+                failed("b1", origin=SENT, joined=["j2"]),
+                entry(
+                    "prompts_dropped",
+                    reason=FAILED_BEFORE,
+                    texts=["b2", "a3"],
+                    origins=[SENT, ["human"]],
+                ),
+            ],
+            ["j2", "a3", "a1", "j1"],
+        ),
+        (
+            [
+                too_big("b1"),
+                entry("prompt_started", text="b2"),
+                failed("b2"),
+                entry("prompt", text="c1", origin=SENT),
+                too_big("c1", origin=SENT),
+            ],
+            ["b2", "b1"],
+        ),
+        (  # what did not fit after it goes ahead of it, as with the Window open
+            [failed("a1"), entry("prompt_started", text="a2"), too_big("a2")],
+            ["a2", "a1"],
+        ),
         (  # each one given back with the Window open goes ahead of those before it
             [too_big("b1"), entry("prompt_started", text="b2"), too_big("b2")],
             ["b2", "b1"],
@@ -189,6 +259,32 @@ def test_with_its_window_closed_a_failed_turns_text_goes_back_to_the_input_on_op
     [window] = main.windows(session.id)
     assert restored(window) == ["hola"]
     assert any(e.event == "prompt_returned" for e in main.session_log(session))
+
+
+def test_a_prompt_of_another_origin_after_a_failed_turn_leaves_it_to_come_back_on_open(
+    main: MainHarness,
+):
+    a, sender = main.create_session(), main.create_session()
+    main.server_up = False  # both wait, so a2 is queued behind a1
+    main.llm = FakeLlm(
+        DroppedStream([answer("half")]), DroppedStream([answer("half")]), full_reply("", "ok")
+    )
+    main.run(
+        MainCommandEntered(f"/send {a.id} a1 @top_k=5"),
+        MainCommandEntered(f"/send {a.id} a2"),
+        server_ready(main.server),
+        server_ready(main.server),
+        settle=True,
+    )
+    main.run(  # its Turn runs and ends, with the Window still closed (#182)
+        MainCommandEntered(f"/send {a.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        server_ready(main.server),
+        settle=True,
+    )
+    assert [e.event for e in main.session_log(a)][-1] == "turn_finished"
+    main.run(MainCommandEntered(f"/open {a.id}"), settle=True)
+    # As with its Window open: test_a_failed_turn_gives_back_what_was_typed_with_its_window_open.
+    assert restored(main.windows(a.id)[0]) == ["a1 @top_k=5", "a2"]
 
 
 def test_given_back_once_it_does_not_come_back_on_the_next_open(main: MainHarness):
@@ -374,7 +470,8 @@ def test_a_failed_turn_gives_back_only_the_human_prompts_with_its_window_open(ma
     [dropped] = [e for e in log if e.event == "prompts_dropped"]
     assert dropped.fields["origins"] == [["human"], sent.labels]
     main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
-    assert restored(main.windows(a.id)[1]) == [], "its Draft keeps it, not the Log again"
+    # From the Draft Main keeps for it (#176), and not a second time from the Log.
+    assert restores(main.windows(a.id)[1]) == ["a2 @top_k=3"]
 
 
 def test_a_failed_turn_gives_back_only_the_human_prompts_as_its_window_opens(main: MainHarness):
@@ -449,4 +546,26 @@ def test_with_its_window_open_a_failed_turns_joined_texts_go_back_once(main: Mai
     )
     assert restored(main.windows(a.id)[0]) == ["duerme", "y luego esto", "y aquello"]
     main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
-    assert restored(main.windows(a.id)[1]) == [], "its Draft keeps them, not the Log again"
+    # From the Draft Main keeps for it (#176), and not a second time from the Log.
+    assert sorted(restores(main.windows(a.id)[1])) == ["duerme", "y aquello", "y luego esto"]
+    assert restored(main.windows(a.id)[1]) == ["duerme", "y luego esto", "y aquello"]
+
+
+def test_a_turn_that_fails_as_main_stops_leaves_what_it_gives_back_in_the_draft(
+    main: MainHarness,
+):
+    a = main.create_session()
+    main.hold_turns = True
+    failed = TurnEnded(a.id, error=TurnCrashed(reason="boom"))
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1 @top_k=5"),
+        InputReceived(a.id, "a2"),  # queued: it fails with it
+        DraftReceived(a.id, ("typing",)),
+        together(main, MainCommandEntered("/exit"), failed),  # before Main handles either
+        settle=True,
+    )
+    # Its Window can no longer send its Draft back, so Main keeps it itself (#176).
+    assert main.state.load().drafts == {a.id: ["a1 @top_k=5", "a2", "typing"]}
+    main.run(MainCommandEntered(f"/open {a.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(a.id)[-1]) == ["a1 @top_k=5", "a2", "typing"]

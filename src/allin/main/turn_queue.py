@@ -51,7 +51,7 @@ from allin.core.origin import HUMAN, Origin, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
-from allin.ipc.messages import ChatAppend, InputRestore, TurnState
+from allin.ipc.messages import ChatAppend, TurnState
 from allin.main.admission import Waiting, admit, server_waiting
 from allin.main.attachments import AttachmentReader
 from allin.main.boxes import MainBoxes
@@ -652,8 +652,7 @@ class TurnQueue:
     def _cancel(self, session_id: SessionId, reason: str, by_human: bool) -> None:
         self._falls.pop(session_id, None)
         dropped = self._drop_queued(session_id, reason, by_human)
-        typed = [prompt.as_typed for prompt in dropped if prompt.kind == "prompt"]
-        for text in reversed(typed):  # each one put back goes ahead of the one after it
+        for text in reversed(_back_to_input(dropped)):  # each one goes ahead of the one after it
             self._windows.put_back(session_id, text)
         running = self._running.get(session_id)
         if running is not None and (not by_human or running.prompt.origin.is_human):
@@ -881,11 +880,21 @@ class TurnQueue:
         self._sysprompts = sysprompts
         self._compactions.use_sysprompts(sysprompts)
 
+    def keep_interjected(self) -> None:
+        """On shutdown, before MainState is saved last: the Textos intercalados of each running
+        Turn go to its Draft, behind which the next start puts its Prompt back (#176)."""
+        for running in self._running.values():
+            if _compacting(running):
+                continue
+            for text in reversed(_interjected(running)):
+                self._windows.put_back(running.session.id, text)
+
     def cancel_running(self) -> None:
         """On shutdown: cancel every running Turn.
 
         The Turns are ended here, as cancelled, since no event is handled after this. Their
-        Prompts and the queue stay in the saved MainState, for the next start to give back.
+        Prompts and the queue stay in the saved MainState, and their Textos intercalados in its
+        Drafts (``keep_interjected``), for the next start to give back.
         """
         for running in self._running.values():
             running.cancellation.cancel(SHUTTING_DOWN)
@@ -921,13 +930,9 @@ class TurnQueue:
         return [*running, *self._prompts.all()]
 
     def running_prompts(self) -> list[Prompt]:
-        """The Prompts of the running Turns that a restart should give back."""
-        # A Turn cancelled because its Window closed must not come back as a draft.
-        return [
-            running.prompt
-            for running in self._running.values()
-            if running.cancellation.reason is None and not _compacting(running)
-        ]
+        """The Prompts of the running Turns that a restart should give back: a cancelled one
+        too until its executor says it ended, since only then is it put back (#176)."""
+        return [running.prompt for running in self._running.values() if not _compacting(running)]
 
     def _start_turns(self) -> None:
         """Hand Turns to executors while there is room (ADR-0004, ADR-0022).
@@ -1837,9 +1842,7 @@ class TurnQueue:
             return
         # What it streamed is in no Conversation, so the Log keeps it for the rebuilt Chat.
         streamed = running.streamed
-        # Its Textos intercalados, in no Conversation either (ADR-0024).
-        steps = [*streamed.steps, *filter(None, [running.tools_step])]
-        joined = interjected_in(steps)
+        joined = _interjected(running)  # in no Conversation either (ADR-0024)
         fields: dict[str, JsonValue] = {
             "error": str(error),
             "reasoning": streamed.reasoning,
@@ -1859,7 +1862,11 @@ class TurnQueue:
         if not self._stopping:  # else MainState keeps it running, for the next start to tell
             self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
         if cancelled:  # back to its Draft, as what still waited in the queue (ADR-0024)
-            for text in reversed([*self._cancelled_prompt(running), *joined]):
+            # A human's Prompt as typed, ahead of its Textos intercalados (#156); not as Main
+            # stops, since MainState keeps it running and them in the Draft already (#176).
+            stopped = _reason(error) == SHUTTING_DOWN
+            back = [] if stopped else [*_typed_by_human([running.prompt]), *joined]
+            for text in reversed(back):
                 self._windows.put_back(session_id, text)
         else:  # its Prompt is in no Conversation, so the user may send it again
             # The Session's queued Prompts leave with it: without it in the Conversation they
@@ -1872,13 +1879,6 @@ class TurnQueue:
             self._give_back(
                 session_id, [*_typed_by_human([running.prompt]), *joined, *_typed_by_human(behind)]
             )
-
-    def _cancelled_prompt(self, running: _RunningTurn) -> list[str]:
-        """What of a cancelled Turn's Prompt goes back to its Draft, ahead of its Textos
-        intercalados (#156): a human's, as typed. With Main stopping, MainState keeps it
-        running, and the next start puts it back."""
-        prompt = running.prompt
-        return [prompt.as_typed] if prompt.origin.is_human and not self._stopping else []
 
     def _drop_queued(
         self, session_id: SessionId, reason: str, by_human: bool = False
@@ -1912,11 +1912,12 @@ class TurnQueue:
 
     def _give_back(self, session_id: SessionId, texts: list[str]) -> None:
         """Texts back to the Window's input, the first one shown first; with its Window closed
-        they come back when it opens (``returned_prompts``)."""
+        they come back when it opens (``returned_prompts``). Its Draft holds them too, until
+        the Window sends its own: as Main stops it no longer can, and they are saved (#176)."""
         if not texts or not self._windows.is_open(session_id):
             return
         for text in reversed(texts):  # each one shown pushes the one before it back
-            self._windows.send(session_id, InputRestore(text=text))
+            self._windows.put_back(session_id, text)
         self._reporter.log_session(session_id, "prompt_returned", texts=list[JsonValue](texts))
 
     def _untold(self, running: _RunningTurn) -> None:
@@ -1943,6 +1944,23 @@ class TurnQueue:
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
+
+
+def _interjected(running: _RunningTurn) -> list[str]:
+    """The Textos intercalados of a running Turn, those of the Step whose tools run too."""
+    return interjected_in([*running.streamed.steps, *filter(None, [running.tools_step])])
+
+
+def _back_to_input(prompts: Iterable[Prompt]) -> list[str]:
+    """What of queued ``prompts`` goes back to an input, in order: a human's Prompt as it was
+    typed, and the Textos intercalados of a Turn suspended or yielded to compact, which are a
+    human's whatever its Origin (#176); never a Prompt of another Origin."""
+    return [
+        text
+        for prompt in prompts
+        if prompt.kind == "prompt"
+        for text in [*_typed_by_human([prompt]), *interjected_in(prompt.steps)]
+    ]
 
 
 def _typed_by_human(prompts: Iterable[Prompt]) -> list[str]:
