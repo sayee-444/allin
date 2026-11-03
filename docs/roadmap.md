@@ -8,260 +8,112 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #197 Una Continuación cuya medida se pierde, `/profile switch` con un Turno entre Pasos y el aviso de límite de contexto tras compactar (2026-11-03).
-  - #197: una Continuación cuya medida no llega porque su Servidor cae o se reinicia mientras se mide ya no se da por medida con su estimación (lo que la hacía fallar con `prompt_too_big` al volver el Servidor): espera al Servidor y se mide otra vez cuando vuelve; un Servidor listo que no sabe medir sigue reservando el pool entero (#188). Mientras `/profile switch` sin `--now` espera, los Turnos en curso siguen hasta acabar: el que está entre Pasos (sus tools, o una Confirmación respondida) recupera su slot y se mide si hace falta, y conserva su sitio en la Wait list; ningún Prompt nuevo empieza. El aviso de «context limit lowered» pesa lo que el Servidor midió de una Conversación compactada (`OpenWindows.saved_context`), como ya hacía el cambio de Enlace, y no nombra una que no pudo medirse; lo mismo el Aviso de Contexto, que tras compactar pesaba como «antes» el Contexto de antes de compactar y no volvía a salir al cruzar otra vez el umbral.
-  - **Probado a mano** con el Swift IQ3_XXS, `nap` de #174, una function `informe` y el proxy de #190 con dos modos más (retener y cortar la medida): en `med197`, la medida de la Continuación (estimada en 44 566, más que el pool de 32 000) se perdió con el Servidor en «loading»; al volver se midió otra vez (19 178) y el Turno terminó. Después, compactada de 11 228 a 262: con el slot bajado a 5000 no salió aviso, y con 200 salió «over the limit: med197 (262)». En `cambio197`, `/profile switch tesis` con `nap` corriendo esperó al Turno, que tomó su slot de nuevo y terminó, y el cambio se hizo.
-  - Decidido según ADR-0023: la Continuación cuya medida se pierde no se suspende (`turn_suspended`) porque no tiene slot ni Paso a medias; espera al Servidor como cualquier Continuación, que es lo que pide el criterio («como en cualquier caída»).
-  - Decidido según ADR-0010 y ADR-0024: mientras el cambio de Perfil espera, el Turno entre Pasos toma en su Paso siguiente los Textos intercalados de su Ventana, como siempre, porque sigue en curso; no van con la cola del Perfil que se deja.
-  - Métricas: 1914 tests, cobertura 85 %, mutación 94 %, 41 escapes.
-- #196 Una sola salida para un Turno, que devuelve lo del humano, olvida sus caídas y cierra lo que abrió, y #195 (2026-11-03), en paralelo.
-  - #196: todo camino por el que un Prompt sale de la cola (su Turno falla o se cancela, sale de la cola suspendido o sin empezar, no cabe al volver el Servidor, se toma con ↑, se lo lleva el Perfil que se deja o Main se para) pasa por una sola salida, `TurnQueue._leave`, con lo que sale (`turn_exit.Leaving`) y cómo (`failed`, `cancelled` o `kept`): lo tecleado por un humano vuelve una vez y en orden (al Borrador si se canceló, como Turno fallido si falló), la cola de un Turno que falla cae con él (#16), su cuenta de caídas se olvida, lo que abrió se cancela y quien lo envió se entera. Un Turno cancelado para siempre (cerrar la Ventana, `/close`, Shift+Enter, un Encargo, `/profile switch --now`) ya no se suspende ni vuelve a correr si su caída o el reinicio llegan antes que la cancelación: acaba cancelado, o guardado cortado con Shift+Enter (ADR-0013, ADR-0024). Un Turno suspendido o cedido que ya no cabe al volver devuelve sus Textos intercalados y se lleva su cola; uno suspendido que sale de la cola por un Encargo o al cerrar la Ventana devuelve los Textos intercalados y cancela sus Suscripciones. Los Textos intercalados de los Turnos en curso van en el Estado de Main (`interjected`), así que vuelven también tras un `kill -9`. Con la Ventana cerrada, lo que un Rewind o una cancelación ponen en el Borrador queda delante de lo de un Turno fallido, como con ella abierta. ↑ solo toma un Prompt humano, y quien esperaba su respuesta se entera. Un Prompt humano que no puede empezar por otra razón que no caber (un Enlace sin Ajustes de Servidor) también vuelve al input (`prompt_not_started`).
-  - **Probado a mano** con el Swift IQ3_XXS, `nap` de #174 y el proxy de #190 (sus modos «hold» y «fall»): en `siesta196`, con un Texto intercalado ya dentro del Turno y su Paso siguiente retenido, `kill -9` de Main dejó en `state.json` el Prompt en `running` y el texto en `interjected`; al arrancar, la Ventana volvió con el Prompt y «+2 waiting» (el texto y lo que estaba sin enviar). En `cierre196`, con el Paso retenido, se cerró la Ventana y luego el proxy cortó ese Paso (la caída llega tras la cancelación): `turn_cancelled`, ningún `turn_suspended` ni otro `turn_started` al volver el Servidor, y el Prompt en el input al reabrir. Los demás caminos, solo tests (`tests/test_turn_exit.py`, 20 de ellos en rojo con el código de `main`).
-  - Métricas: 1904 tests (con #195 fusionado), cobertura 85 %, mutación 94 %, 41 escapes.
-- #195 El valor de un `@secret` que manda un `@send`, un `/send` o un Encargo no llega al Log, al Chat ni al Borrador (2026-11-03), en paralelo con #196.
-  - #195: un solo recorte donde se escribe el Log, en vez de uno por comando: el Reporter corta los campos `command` y `runs` tres palabras después de su primer `@secret` o `/secret` (también dentro de unas comillas, como en el JSON de un Encargo), así que ninguna línea de comando lo guarda entero, la escriba quien la escriba; el Chat de Main y el error de la Ventana usan el mismo recorte. `@send <sid> @secret …` (con `--reply-to=` o anidado en otro `@send`) se rechaza con `secret_in_main_chat_only` antes de correr, en la Ventana y en el Chat de Main, y no vuelve a la entrada ni al Borrador; lo mismo un Encargo o un Lote cuya tarea manda un `@secret`. Un `/send` que no encaja (salto de línea tras el `<sid>`, sin `<sid>`) se guarda recortado. El error de un JSON de Encargo con un tipo equivocado ya no repite lo tecleado. Un Prompt que solo nombra `@secret` sigue yendo entero. ADR-0026 lo anota.
-  - **Probado a mano** sin Servidor: en la Ventana de `caja`, `@send otra @secret set bot token xoxb-…` y un `@errand` en JSON con esa tarea dieron el error recortado y la entrada quedó vacía; en el Chat de Main, `@send otra @secret …`, `/send @secret …` y `/errand caja --to=otra @secret …` salieron recortados; con la misma línea sin Enter en la entrada, `state.json` siguió con `"drafts": {}` y, tras `/exit`, un grep del valor en la carpeta de datos no dio nada. El salto de línea tras el `<sid>`, solo tests.
-  - Métricas: 1881 tests, cobertura 85 %, mutación 94 %, 41 escapes.
-- #190 Un Turno suspendido que sale de la cola ya no deja viva su cuenta de caídas (2026-11-03).
-  - #190: la cuenta de caídas de un Turno suspendido se olvida cuando sale de la cola por cualquier camino: un Encargo que ya no espera su parte o una Suscripción cancelada (`cancel_prompt`, `cancel_woken`), un Turno que al volver el Servidor ya no cabe en su slot (`_drop_prompt`, `prompt_too_big`) y la cola que se lleva el Perfil que se deja (`take_queue`), como ya hacía cerrar la Ventana (#181). El siguiente Turno de la Sesión tiene sus dos intentos (ADR-0023) y su Prompt ya no entra como continuación. El Turno que el Perfil se lleva vuelve con sus dos intentos, como tras reiniciar Main; el de una Sesión que comparten los dos Perfiles sigue con su cuenta.
-  - **Probado a mano** con el Swift IQ3_XXS y el proxy de #176, que ahora también puede decir en `/props` un slot más pequeño: en `uno190`, el Turno de un Encargo cayó y `/unsubscribe` lo sacó de la cola; en `dos190`, un Turno caído volvió con un slot de 60 tokens y salió con «prompt_too_big: need=96, limit=60»; en `lider190`, un Turno caído se quedó en el Perfil `default` al pasar a `tesis`. En los tres, el Prompt siguiente de la Sesión cayó una vez y quedó suspendido, no fallido, y luego terminó.
-  - Métricas: 1859 tests, cobertura 85 %, mutación 94 %, 41 escapes.
-- #185 Quien envió un Prompt se entera si su Turno falla o se cancela cuando Main ya se para (2026-11-03), en paralelo con #188.
-  - #185: el Turno de un Prompt con respuesta pendiente (`--reply-to`, `@send`, un Encargo) que falla o se cancela y cuyo fin Main maneja detrás de `/exit` o de una señal ya avisa a quien espera, como si llegara antes: su Suscripción pasa de `open` a `pending` en el Estado de Main con «did not answer: its Turn failed/cancelled: …», y la siguiente arrancada lo despierta. Lo que ese Turno abrió y no quedó en ninguna Conversación se cancela, igual que antes de `/exit`. El Turno que `cancel_running` corta al pararse Main sigue en los Turnos en curso y se avisa una sola vez al arrancar, como perdido (`lost`).
-  - **Probado a mano** con el Swift IQ3_XXS, el proxy de #176 con un modo «crash» (HTTP 400 al Paso retenido: falla, no cae) y un módulo de Notice, `freno`, que retiene el Dispatcher al acabar un Paso de `freno185`, para que `/exit` y el fin del Turno se amontonen en el inbox: la carrera que #176 no pudo reproducir. Con el Paso de `trabaja185` retenido y el Dispatcher frenado, `/exit` y luego el 400; el Log de Main dejó `/exit` y detrás `turn_failed`, `remite185` tuvo su `subscription_event` y `state.json` quedó con `open` vacío y el aviso en `pending`; al arrancar, `remite185` despertó con «Session trabaja185 did not answer: its Turn failed: …». Con `/exit` a mitad de un Turno retenido, ningún aviso al pararse y uno solo al arrancar, «Main stopped during its Turn». Con señal y con un Turno cancelado, solo tests.
-  - Métricas: 1855 tests (con #188 fusionado), cobertura 85 %, mutación 94 %, 41 escapes.
-- #188 Una Continuación que se estima mayor que el pool ya no espera sitio para siempre (2026-11-03), en paralelo con #181.
-  - #188: con `--kv-unified`, una Continuación cuya estimación (lo que añaden sus tools, un carácter por token) pasa del pool mide su input en el Servidor antes de esperar sitio, como un Prompt, y reserva lo medido más los esquemas de sus tools y su Tope de salida. Si cabe, empieza su Paso; si ni así cabe en el pool vacío, el Turno falla con `prompt_too_big` y su Prompt vuelve al input. Si el Servidor no sabe medirla, reserva el pool entero y entra cuando no queda otro Paso en curso. La que ya cabe en la estimación no se mide. ADR-0004 lo anota.
-  - **Probado a mano** con el Swift IQ3_XXS (`-c 32000 --kv-unified -np 2`) y dos functions de informe largo, en Sesiones nuevas que no pueden ceder para compactar: en `y188`, `informe` (38 754 caracteres) dio una estimación de 47 418 y una medida de 19 433, y el Paso siguiente empezó y respondió (su `usage`: 11 233 de entrada); en `z188`, `enorme` (155 762 caracteres) midió 52 441 y el Turno falló al momento con «prompt_too_big: need=52441, limit=32000», con su Prompt de vuelta en el input.
-  - Métricas: 1850 tests (con #181 fusionado), cobertura 85 %, mutación 94 %, 41 escapes.
-- #181 Cerrar la Ventana de un Turno de otro Origen no le da un intento más tras caer el Servidor (2026-11-03), en paralelo con #177.
-  - #181: cerrar la Ventana ya no borra la cuenta de caídas de un Turno que no es de un humano y sigue (la Ventana era una mirilla, ADR-0013): si su Paso ya cayó una vez, falla a la segunda caída, como dice ADR-0023, tanto si se cierra mientras el Turno espera al Servidor, suspendido, como mientras repite su Paso. La cuenta solo se olvida con el Turno: el suspendido que sale de la cola, o el que corre y se cancela, al acabar. El Turno humano que se cancela al cerrar la Ventana la olvida como antes.
-  - **Probado a mano** con el Swift IQ3_XXS, `tell` y `nap` de #174 y el proxy de #176, que corta los Pasos del Prompt que `lider181` manda a `caida181`: el Turno de `caida181` cayó, se cerró su Ventana (no salió nada de la cola) y, al volver el Servidor, cayó otra vez y falló, con dos caídas en `falls.log` y no tres. En la misma Sesión, un Prompt humano cayó, se cerró la Ventana (salió de la cola) y, reenviado, su primera caída lo dejó suspendido, no fallido; luego terminó.
-  - Salió #190: `cancel_prompt` (un Encargo, una Suscripción) saca de la cola un Turno suspendido sin olvidar su cuenta, y el siguiente Turno de la Sesión falla a su primera caída.
-  - Métricas: 1842 tests (con #177 fusionado), cobertura 85 %, mutación 94 %, 41 escapes.
-- #177 El Contexto tras compactar ya no vuelve con un Rewind, un Turno que cedió ni `/session id` (2026-11-03), en paralelo con #182 y #181.
-  - #177: un Rewind que recorta Turnos de una Conversación compactada (resumida o podada) la deja con `compacted_since_turn`, así que el borde y la fila del Organizador dicen «?» y no el Contexto de antes de compactar, también tras reiniciar Main. Los Pasos que un Turno terminó antes de la Compactación a la que cedió no cuentan como Contexto (`Prompt.context_from`), ni los Pasos de resumen de la Compactación: la fila, la Ventana reabierta y la de otro límite del Servidor muestran lo medido, también si una caída suspende el Turno o un reinicio de Main repite la Compactación. `/session id` lleva lo medido a la Sesión renombrada, y una medida que llega después del renombre se reconoce por su ticket. ADR-0017 lo anota.
-  - **Probado a mano** con el Swift IQ3_XXS y una function `informe` que devuelve un informe largo: en `r177`, compactada (borde 252), `/session id r177 n177` abrió la Ventana con 252; un Turno más y `/rewind n177` dejaron el borde en «?» y la fila sin Contexto, no en los ~8600 de antes. En `w177` (`compact.threshold=0.6`), el Turno que llamó a `informe` cedió, compactó (144) y, mientras corría su Paso siguiente, la fila siguió en 144 y no volvió a 5872. Reabrir la Ventana durante ese Paso, solo tests (el Paso acaba antes de poder capturarlo).
-  - Métricas: 1838 tests (con #182 fusionado), cobertura 85 %, mutación 94 %, 41 escapes.
-- #182 Al reabrir la Ventana vuelve lo de un Turno fallido aunque después llegara un Prompt de otro Origen (2026-11-03), en paralelo con #177.
-  - #182: con la Ventana cerrada, lo que un Turno fallido devuelve al input (su Prompt humano, sus Textos intercalados y los Prompts humanos de su cola) vuelve al reabrirla aunque después llegara un Prompt de otra Sesión o de una Suscripción, terminara su Turno (o fallara, o se cancelara) o hubiera un Rewind; solo lo borra un Prompt humano posterior o que ya se devolviera, como al que no cupo (#174). Si fallaron varios Turnos, vuelve lo de todos, lo último delante, en el orden en que lo habría dejado la Ventana abierta (`returned_prompts`).
-  - **Probado a mano** con el Swift IQ3_XXS, `tell` de #171 y el proxy de #176: en `caja182`, con la Ventana cerrada, «Cuenta hasta tres. @top_k=5» falló con «Y luego hasta cuatro.» en cola, y luego `lider182` le mandó un Prompt cuyo Turno terminó; al reabrir, el input trajo el Prompt fallido con su `@top_k=5` y «+1 waiting» (con el código de `main`, nada). En `otra182`, un Prompt humano posterior desde Main lo borró, como antes.
-  - Métricas: 1825 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- #176 Lo que vuelve al Borrador al cancelarse o fallar un Turno, también con `/exit` y con un Turno suspendido, y #179 (2026-11-03), en paralelo.
-  - #176: un Turno humano cancelado (cerrar la Ventana, `/close`, `/profile switch --now`) sigue en los Turnos en curso del Estado de Main hasta que su executor dice que acabó, así que si Main se para antes (`/exit`, señal o `kill`) la siguiente arrancada devuelve su Prompt al Borrador, tal como se tecleó y una vez; si su fin llega tras `/exit`, va al Borrador antes del último guardado. `/close` (desde el Chat de Main o el de una fproc) solo devuelve los Prompts humanos de la cola. Con `/exit` o una señal a mitad de un Turno, sus Textos intercalados quedan en el Borrador y su Prompt vuelve delante al arrancar. Al cerrar la Ventana con un Turno suspendido o cedido para compactar vuelven su Prompt humano y sus Textos intercalados. Lo que se devuelve con la Ventana abierta queda también en el Borrador que guarda Main, y no se pierde si Main se cierra antes de que la Ventana mande el suyo.
-  - **Probado a mano** con el Swift IQ3_XXS, `tell` y `nap` de #174, y el proxy de #174 con un «hold» que deja un Paso en su petición HTTP: en `caja176`, con el Turno retenido, cerrar la Ventana y `/exit` dejaron el Prompt en los Turnos en curso de `state.json`, y al arrancar volvió con su `@top_k=5` y «+2 waiting»; en `siesta176`, `/exit` con un Texto intercalado ya dentro del Turno lo dejó en el Borrador, tras el Prompt al arrancar; en `pausa176`, cerrar la Ventana con el Turno suspendido devolvió el Prompt y el Texto intercalado; en `cola176`, `/close` desde Main devolvió los dos Prompts humanos y no el de `lider176`. El de un Turno que falla detrás de `/exit`, solo tests (la carrera no se reproduce a mano).
-  - Métricas: 1813 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- #179 Un `@new` de la Iniciativa con tarea no deja una Sesión huérfana cuando el Subperfil está en su tope (2026-11-03), en paralelo con #176.
-  - #179: el `@new` que pide una fproc desde un Molde con tarea comprueba el tope de su Subperfil (`turns`) antes de crear nada, junto a lo que pide `/send`: si no cabe, la fproc oye `subprofile_busy` y no queda ninguna Sesión que no conozca; si cabe, la Sesión nace y su tarea entra como antes. Una Sesión del Subperfil sin Turno en marcha ni en cola no ocupa sitio. Un `@new` sin tarea no pide Turno y sigue sin contar para el tope, que cuenta Turnos y no Sesiones (ADR-0026).
-  - **Probado a mano** con el Swift IQ3_XXS y una fproc `bot` que lee un buzón: con el Turno largo de `recdad` en marcha, `@new tasked` dio `subprofile_busy` y el Subperfil siguió con una sola Sesión; al acabar ese Turno, `@new tasked` creó `nnttf6`, cuya tarea corrió con la marca de Iniciativa.
-  - Métricas: 1801 tests (con #174 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
-- #174 Al reabrir la Ventana vuelven también los Textos intercalados de un Turno fallido y el Prompt humano que no cupo, y #178 (2026-11-03), en paralelo.
-  - #174: con la Ventana cerrada, al reabrirla vuelven los Textos intercalados de un Turno fallido (`joined` de `turn_failed`), tras su Prompt si es humano y delante de los Prompts humanos de la cola, como con ella abierta. El Prompt que no cabe ni en el slot vacío deja `prompt_too_big` en el Log, con lo tecleado (`typed`) y su Origen; al reabrir la Ventana vuelve el humano, tal como se tecleó y una sola vez, y el de otro Origen no. Lo borra un Prompt humano posterior, no uno de otra Sesión.
-  - **Probado a mano** con el Swift IQ3_XXS, la function `tell` de #171, una tool `nap` que espera y el proxy de #171, que corta solo el Paso con el Texto intercalado: en `cerrada174`, durante un Turno de `lider174`, el humano escribió «Ademas di un color en una palabra.», cerró la Ventana (el Turno siguió) y mandó desde Main otro Prompt, que quedó en cola; al fallar el Turno y reabrir la Ventana, el input trajo el Texto intercalado con «+1 waiting» (el de la cola, con su `@top_k=5`), y al reabrirla otra vez, lo mismo desde el Borrador. En `grande174`, con la Ventana cerrada, «Di hola. @top_k=5» no cupo, luego tampoco uno de `lider174`, y al reabrir volvió solo el humano, con su `@top_k=5`.
-  - Métricas: 1799 tests (con #178 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
-- #178 El valor de un `@secret` escrito en el Chat de Main no llega al Borrador ni al Log (2026-11-03), en paralelo con #174.
-  - #178: `/send <sid> @secret …` desde el Chat de Main se rechaza con `secret_in_main_chat_only` y el uso de `/secret` (antes, `session_command_in_prompt`), y la línea no vuelve a la entrada de la Ventana ni al Borrador que se guarda en `state.json`. El Log y el Chat de Main guardan solo `/send <sid> @secret` y sus tres palabras siguientes con «…», también con `--reply-to=<sid>`. `@secret …` tecleado en el Chat de Main ya no es un comando desconocido: se rechaza igual y guarda solo sus cuatro primeras palabras. Otro `@…` enviado con `/send` sigue volviendo a la entrada.
-  - **Probado a mano** sin Servidor: con la Ventana de `caja` cerrada y luego abierta, `/send caja @secret set bot token <valor>` dio el error con el uso de `/secret` en el Chat de Main y en la Ventana, cuya entrada quedó vacía, también al reabrirla; `@secret set bot token <valor>` en el Chat de Main, lo mismo. `state.json` siguió con `"drafts": {}` y ningún archivo de la carpeta de datos tenía el valor, tampoco tras `/exit`.
-  - Métricas: 1776 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- #171 Solo vuelve al input el Prompt humano de un Turno fallido, y el que no cabe vuelve como se tecleó, y #169 (2026-11-03), en paralelo.
-  - #171: al fallar un Turno, su Prompt y los que caen con él de la cola vuelven al input solo si su Origen es humano, con la Ventana abierta y al reabrirla; los de otra Sesión o de una Suscripción ya fallan hacia quien los envió. Sus Textos intercalados, que son del humano, vuelven siempre. El Log dice el Origen en `turn_failed` (`origin`) y en `prompts_dropped` (`origins`); un Log de antes no lo dice y se lee como antes. El Prompt humano que no cabe ni en el slot vacío vuelve tal como se tecleó (con sus `@clave=valor`), y el de otro Origen no vuelve.
-  - **Probado a mano** con el Swift IQ3_XXS, la function `tell` de #156 y el proxy de #166, que ahora solo corta los Pasos de los Prompts que mandó `lider171`: en `abierta171` (Ventana abierta) y en `cerrada171` (al reabrirla), de dos Prompts de `lider171` y uno humano en cola, solo volvió el humano, con su `@top_k=5` o su `@temperature=0.3`; en `grande171`, con un Output cap mayor que el slot, el humano volvió con su `@top_k=5` y el de `lider171` no entró en el input.
-  - Métricas: 1770 tests (con #169 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
-- #169 Tras compactar, el Organizador muestra el Contexto nuevo (2026-11-03), en paralelo con #166 y #171.
-  - #169: la fila de una Sesión en el Organizador muestra el mismo Contexto que el borde de su Ventana (`OpenWindows.saved_context`): tras guardarse una Compactación deja el de antes, pasa a ninguno y luego al que mide el Servidor, y se actualiza al llegar la medida aunque no cambie ningún archivo. Sin medida en este Main (no supo medir, o tras reiniciar) queda sin Contexto hasta el Turno siguiente. La caché de filas guarda la Conversación solo cuando lleva `compacted_since_turn`, no la de cada Sesión del Perfil.
-  - **Probado a mano** con el Swift IQ3_XXS y el proxy de #157: en `fila169`, de «context 7930» a «context 235» al compactar, igual que el borde y sin Turno nuevo; de «context 3199» a ninguno cuando el Servidor no supo medir, también tras reiniciar Main; y el Turno siguiente, «context 396» en la fila y en el borde.
-  - Métricas: 1759 tests (con #166 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
-- #166 El Prompt de un Turno fallido vuelve al input tal como se tecleó (2026-11-03), en paralelo con #169.
-  - #166: al fallar un Turno, su Prompt y los que esperaban en cola y caen con él vuelven al input con sus Command prompts (como `@top_k=5`), con la Ventana abierta y al reabrirla, como ya volvían el cancelado (#156) y el que sale de la cola con ↑. El Log sigue guardando el texto que leyó el LLM; lo tecleado va aparte, en `typed` de `turn_failed` y de `prompts_dropped`.
-  - **Probado a mano** con el Swift IQ3_XXS y un proxy delante que corta cada Paso y, a demanda, hace esperar la cola: en `abierta166`, con la Ventana abierta, y en `cerrada166`, al reabrirla, los dos Prompts volvieron con su `@top_k=5` y su `@temperature=0.3`; reenviado con Enter, el primero llevó otra vez su `top_k`.
-  - Métricas: 1753 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- #157 Tras compactar, el borde muestra el Contexto nuevo (2026-11-03), en paralelo con #158.
-  - #157: en cuanto se guarda una Compactación, resumida o solo podada, el borde deja el Contexto de antes: pasa a «?» y luego al que mide el Servidor de la Conversación compactada tal como la lee su LLM, con su plantilla y su tokenizador. Si no sabe medir, se queda en «?» (y el Log dice `context_unmeasured`) hasta el Turno siguiente. La Ventana reabierta muestra lo medido; tras reiniciar Main, «?», porque la Conversación guardada lo marca (`compacted_since_turn`) hasta su Turno siguiente. Un cambio de Enlace mide contra el nuevo límite lo medido, no el Contexto de antes.
-  - **Probado a mano** con el Swift IQ3_XXS y un proxy delante que, a demanda, no deja medir lo compactado: en `borde157`, de «context 18914» a «context 153» al compactar (lo mismo que mide aparte la Conversación guardada), también al reabrir la Ventana; y de «context 2972» a «context ? / 32k» cuando el Servidor no supo medir, también tras reiniciar Main.
-  - Métricas: 1750 tests (con #158 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
-- #158 Un Supervisor que propone un Kit avisa si su modelo no está (2026-11-03), en paralelo con #156.
-  - #158: el Supervisor mira si existe el archivo de su modelo antes de lanzar `llama` (uno relativo parte de su `cwd` o, si no lo tiene, de la carpeta desde la que corre). Si no está, no lanza nada y queda `failed` con `model_missing`; unos Ajustes pendientes con un modelo que no está vuelven a los últimos que arrancaron. El Aviso de Main («Supervisor <nombre> has no model») nombra el archivo y `/server set <nombre> model=<path>`, y lo mismo dicen la espera de sus Sesiones y un cambio de Enlace que falla. El recuadro de `/kit load` busca el modelo sugerido junto a los modelos de los Supervisores de la carpeta de datos: si está, el Supervisor creado lo nombra con su ruta; si no, el recuadro lo dice con la misma orden.
-  - **Probado a mano** sin Servidor (el criterio es justo que no se lance): un Kit con dos Supervisores, uno con el Swift IQ2_XXS (junto al IQ3_XXS de `base`) y otro con un modelo que no existe. El primero se creó con la ruta del modelo; el segundo, al enlazarle una Sesión, dio el Aviso y nunca escribió `server.log`.
-  - Métricas: 1741 tests (con #156 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
-- #156 El Prompt humano de un Turno cancelado al cerrar la Ventana vuelve al Borrador (2026-11-03), y en paralelo #159.
-  - #156: al cancelarse un Turno de Origen humano (cerrar la Ventana, `/close`, `/profile switch --now`), su Prompt vuelve al Borrador tal como se tecleó, en un bloque propio, delante de sus Textos intercalados y de lo que esperaba en cola. El cambio de Perfil ya no lo devuelve por su cuenta: lo ponía detrás de los Textos intercalados y devolvía también los Prompts de otras Sesiones. Tras una caída de Main, solo vuelven al Borrador los Prompts humanos que corrían, también tal como se teclearon.
-  - **Probado a mano** con el Swift IQ3_XXS: en `caja156`, con un Turno largo, uno en cola y un texto sin enviar, cerrar la Ventana dejó los tres bloques en ese orden («+2 waiting»), también al reabrirla y tras reiniciar Main; un Turno que mandó `lider156` con la function `tell` siguió hasta el final al cerrar la Ventana, y su Prompt no entró en el Borrador.
-  - Métricas: 1733 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- #159 Quitar las duplicaciones que dejó #123 (2026-11-03), y en paralelo #155.
-  - #159: la Iniciativa de una fproc corre por el mismo camino que los Command sessions de una Sesión, con sus mismos `SessionCommandType` (su campo `initiative` dice qué es cada uno pedido por su cuenta; `@close` lleva el `<sid>`, porque la fproc no tiene Ventana); desaparece la tabla `_INITIATIVE`. `/new` crea en el Perfil y en un Subperfil con una sola secuencia (`_born`), `load_package_mold` usa `load_mold`, y `actors` es la única regla de quién actúa en una cadena de Origen. Sin cambio de comportamiento: la suite pasó sin tocar sus tests (1716). Al fusionar #155, el error de un `@secret …` que pide una fproc por su cuenta guarda solo sus primeras palabras, como el de una Sesión.
-  - **Probado a mano** sin Servidor: `/new` y `/new --mold=… --bg` en un Main de la rama; la Sesión del Molde nació con sus Command sessions.
-  - Métricas: 1728 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- #155 `@secret` tecleado en una Ventana no deja su valor en el Log (2026-11-03).
-  - #155: `@secret …` ya no es un Command session desconocido: tecleado en una Ventana, pedido por una herramienta o declarado por un módulo de `comsession/`, se rechaza con `secret_in_main_chat_only` y el uso de `/secret`. El Log, el Chat de Main y el error de la Ventana guardan solo sus cuatro primeras palabras y «…»; la línea no vuelve a la entrada, y un bloque `@secret …` no entra en el Borrador que el Estado de Main guarda en disco.
-  - **Probado a mano** sin Servidor: en la Ventana de `caja`, «@secret set bot token <valor>» dejado sin Enter no llegó a `state.json`; con Enter dio el error con el uso de `/secret`, la entrada quedó vacía y ningún archivo de la carpeta de datos tenía el valor, tampoco tras `/exit`.
-  - Métricas: 1716 tests, cobertura 85 %, mutación 93 %, 41 escapes. Antes: #154 La Ventana rotula cada Prompt por su Origen.
-- #153 La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026 (2026-11-03).
-  - El LLM lee el Prompt de un Externo con la cabecera del proceso (`[from attached process bot]`); su identidad queda en el Turno guardado y en `turn_started`. El Prompt recuerda que lo trajo la Iniciativa (`initiative`, también en el Estado de Main y en `turn_started`), y solo ese va detrás de los humanos y de las Sesiones en la Lista de espera (la clase pasa de `fproc` a `initiative`), con la Compactación que lo precede y con la tarea del Molde de un `@new` por su cuenta. El que manda un método durante una llamada va por orden de llegada, aunque su cadena sea la misma.
-  - **Probado a mano** con el Swift IQ3_XXS y una fproc `bot` que lee un buzón: el LLM de la Sesión de Juan no supo quién le escribía; con un Turno largo en marcha, el Prompt de la Iniciativa esperó detrás de uno humano posterior y el de `@call bot tell` no; y la marca siguió en la cola del Perfil tras `/profile switch` ida y vuelta.
-  - Métricas: 1716 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- **Siguiente:** «Pre-RAG · Pendientes de F2» queda sin issues abiertos (#195 a #197 salieron de la segunda revisión de lo fusionado en Pre-RAG; #176 a #179, de la primera). Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
-- **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
-  - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
-  - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
-  - ¿Que `/detach` sea solo de un humano?
-  - ¿Que el `--file` relativo de un humano parta del directorio desde el que lanzó Main?
-
-  Sobre #114:
-  - ¿Le vale que un método llamado con `/call` desde el Chat de Main no pueda ejecutar Command sessions, porque ahí no hay Sesión en la que correr?
-  - ¿Que con un `@call` tecleado por un humano, los Command sessions del método no los limite la lista de la Sesión (como cuando él teclea `@…`), sino el Alcance de la fproc y la Confirmación?
-  - ¿Que `@call` no venga en la lista por defecto, como `@attach`?
-  - ¿Que un `@call` que ejecuta una tool reciba solo `ok`, y no lo que devolvió el método?
-
-  Sobre #115:
-  - ¿Le vale que solo se comprueben las escrituras que hace el LLM con sus tools? Las de `/call` y `@call` no se comprueban, tampoco cuando el `@call` lo lanza una fsource de una Sesión. El issue decía «un `@writes` de una Sesión».
-  - ¿Que una Sesión que nunca leyó vea rechazado su primer `@writes`, aunque nada haya cambiado?
-  - ¿Que una llamada cancelada que el método no deja también acabe matando el proceso, pasados su timeout y `attached.release`?
-  - ¿Que `@concurrent()` con paréntesis sea «sin tope», y que `@concurrent` a secas dé error?
-  - Mientras se crea la clase, adherir bloquea a Main hasta 20 s. Lo perdido aún no avisa a las Sesiones afectadas: llega con el Informe de recuperación.
-
-  Sobre #116:
-  - ¿Le vale que los eventos se agrupen en el tick (hasta un segundo de espera), y no al momento?
-  - ¿Que `@subscribe` y `@unsubscribe` vengan en la lista por defecto? Solo despiertan a la propia Sesión y su cadena tiene tope.
-  - ¿Que todas las respuestas de una Sesión a otra, y todos sus temporizadores, cuenten como la misma Suscripción para el tope de la cadena?
-  - ¿Que un humano escriba `--reply-to=<sid>` justo tras el `<sid>` de `/send`, como primera palabra?
-  - ¿Que un método solo pueda anunciar durante una llamada, y no desde un hilo propio (un bot que vigila)? Hoy da error fuera de una llamada.
-  - ¿Que la Suscripción no tenga Exención propia, sino la de la Sesión a la que despierta?
-  - ¿Que `subscription.repeats` sea 5 por defecto?
-  - ¿Que solo una respuesta pendiente retenga la del Prompt, y no un temporizador abierto? El issue decía «si un Turno deja abierta una Suscripción».
-  - Restablecer y `/reset --all` serán eventos cuando existan.
-
-  Sobre #117:
-  - ¿Le vale que `@errand` y `@batch` vengan en la lista por defecto, como `@subscribe`? El árbol y el tope de la cadena los acotan.
-  - ¿Que el plazo de un Lote sea por tarea (cada una tiene el suyo, y esperar trabajadora libre también lo gasta) y no uno para todo el Lote?
-  - ¿Que una tarea que falla salga otra vez en el tick siguiente (hasta un segundo después), y no al momento?
-  - ¿Que el Informe de recuperación, por ahora, solo traiga los Encargos? Lo demás que nombra el GLOSSARY (Procesos adheridos perdidos, Turnos cortados) llegará con sus issues.
-  - ¿Que «tener sitio» en el Lote signifique un slot del Servidor que no ocupa ya esta Main? Otros clientes del mismo Servidor no se ven.
-  - ¿Que las tareas de un Lote se escriban como lista JSON o una por línea, y las de un Encargo con tarea propia por trabajadora como objeto JSON (`{"obra1": "…"}`)?
-  - ¿Que una trabajadora cuyo Turno cortó un apagado limpio (`/exit`) cuente como sin respuesta en el siguiente arranque, igual que si Main muriera?
-
-  Sobre #118:
-  - ¿Le vale que el Command session se llame `@status` (un humano: `/status <sid>`), y que venga en la lista por defecto porque solo lee?
-  - ¿Que muestre las Suscripciones y Encargos de todas las Sesiones del Perfil activo, y no solo los de la Sesión que pregunta?
-  - ¿Que Servidores y Supervisores, que son de la máquina, salgan igual desde cualquier Perfil?
-  - Un Supervisor dormido sale sin capacidad: sus slots solo se saben cuando su Servidor está listo.
-
-  Sobre #119:
-  - ¿Le vale que la poda no reescriba nada (las salidas siguen enteras en la Conversación y la Ventana; solo cambia lo que lee el LLM), y que pode solo salidas de más de 400 caracteres?
-  - ¿Que la línea podada estime los tokens por caracteres (~4 por token), sin preguntar al Servidor?
-  - ¿Que el Turno ceda según la medida de admisión, que cuenta en caracteres y sobra? Cede más de lo necesario: a veces sale el aviso y la medida exacta ve que cabe, y sigue sin compactar.
-  - ¿Que `@compact` venga en la lista por defecto? Solo toca la propia Conversación, y un Rewind la devuelve.
-  - ¿Que la Notificación de estado vivo no se deje cuando la Sesión no tiene nada abierto? El issue decía «Main añade una».
-  - ¿Que traiga solo los Procesos adheridos cuyos métodos tiene la Sesión, y no todos los de Main?
-
-  Sobre #120:
-  - ¿Le vale que las líneas al LLM vayan en inglés, como las demás Notificaciones de Main?
-  - ¿Que la línea de Contexto se deje al guardarse el Turno, y no si el Turno falla o se cancela?
-  - ¿Que el corte por Shift+Enter siga con su fuente `interrupted`, aparte de `cut`?
-
-  Sobre #121:
-  - ¿Le vale que solo entre texto llano, y que lo que lleva Command prompts o `-y` espere su propio Turno, con lo escrito después detrás, para no cambiar el orden?
-  - ¿Que lo que no cabe en lo que le queda al slot (contado a un token por carácter) espere su Turno en vez de entrar?
-  - ¿Que lo escrito mientras el Prompt anterior aún esperaba slot cuente como el siguiente Prompt y no entre en su Turno?
-  - ¿Que, al cortar con Shift+Enter unas tools que seguían corriendo, el LLM lea en cada llamada que se cortó y que pudo hacer parte de su trabajo?
-  - Al cancelarse un Turno (cerrar la Ventana), lo intercalado vuelve al Borrador, detrás del Prompt de ese Turno si su Origen es humano (#156).
-
-  Sobre #156:
-  - ¿Le vale que, si Main se cierra (`/exit`) con un Turno humano en marcha, su Prompt no vuelva al Borrador al momento sino al arrancar de nuevo, como ya hacía tras una caída?
-  - ¿Que un Prompt cancelado vuelva como se tecleó (con sus `@clave=valor`), y no con el texto que leyó el LLM? Desde #166 también el de un Turno que falla.
-
-  Sobre #166:
-  - El GLOSARIO dice que el Prompt de un Turno que falla vuelve al input solo si su Origen es humano, pero hoy vuelve sea cual sea; y el que no cabe en el slot vuelve con el texto que leyó el LLM. No entraba en #166: es #171 (hecho).
-
-  Sobre #171:
-  - ¿Le vale que, si falla un Turno de otra Sesión, los Textos intercalados que el humano escribió durante él sí vuelvan al input? Son suyos (ADR-0024), aunque el Prompt no lo sea.
-  - Al reabrir la Ventana no vuelven los Textos intercalados de un Turno fallido, y el Prompt humano que no cabe se pierde si se envió con la Ventana cerrada: es #174 (hecho).
-
-  Sobre #174:
-  - ¿Le vale que el Prompt humano que no cupo, con la Ventana cerrada, deje de volver al reabrirla solo si después el humano manda otro Prompt (o ya se le devolvió), y no si llega uno de otra Sesión o termina otro Turno? Con la Ventana abierta se queda en el input pase lo que pase; desde #182, lo de un Turno fallido sigue la misma regla.
-  - Si al reabrir vuelven a la vez lo de un Turno fallido y uno o más Prompts que no cupieron, el input los muestra en el orden en que los habría dejado con la Ventana abierta: lo último devuelto, primero. ¿Le vale?
-
-  Sobre #122:
-  - ¿Le vale que `@open` sea también un Command session? El issue nombraba `@bg`, `@close` y `@windows`, pero la fsource lo necesita para traer una Sesión.
-  - ¿Que `@windows`, `@open` y `@bg` vengan en la lista por defecto? Las Sesiones de antes no los tienen: se les dan con `/func add <sid> @windows @open @bg`.
-  - ¿Que `@close` cierre solo la Ventana en que se teclea? Las demás se cierran con `/close <sid>` en el Chat de Main.
-  - ¿Que la marca de «pide atención» sea un Aviso, que se descarta como los demás y se pierde al reiniciar Main, como ellos?
-  - ¿Que la lista que pide una tool no se escriba en el Chat de Main? La ve la Ventana de la Sesión, como salida de la tool; lo que teclea un humano sí sale.
-  - ¿Que, con una cadena de varias Sesiones, cada una tenga que ser la destino o su creadora para que `@bg` la mande a segundo plano?
-  - Un LLM aún no tiene cómo crear Sesiones, salvo con un módulo de `comsession/` que escriba un humano; las Sesiones que crea una fproc llegan con #123.
-
-  Sobre #154:
-  - ¿Le vale que el rótulo de un Prompt que trae una fproc sea solo `process:<nombre>`, sin la identidad del Externo? Esa identidad queda en el Turno y en el Log, y con #153 ya no va en la cabecera del texto, así que en la Ventana no se ve quién escribió.
-
-  Sobre #155:
-  - ¿Le vale que `@secret` se rechace siempre, también si lo pide una herramienta o si un módulo de `comsession/` declara uno con ese nombre?
-  - ¿Que tras el error la línea no vuelva a la entrada, como sí vuelve la de otro `@…` que falla, y que un bloque `@secret …` no se guarde en el Borrador?
-  - Mientras la Ventana sigue abierta, ↑ aún trae la línea entera, igual que el Chat de Main con `/secret`: está solo en la memoria de ese proceso y no se escribe en disco. ¿Le vale así?
-  - `/send <sid> @secret …` escrito en el Chat de Main se rechazaba (`session_command_in_prompt`), pero el Log guardaba la línea entera, como todo `/send`: desde #178 se recorta (ver abajo).
-
-  Sobre #153:
-  - ¿Le vale que la tarea del Molde de una Sesión que la fproc crea por su cuenta (`@new` de la Iniciativa) también vaya detrás, como un Prompt de la Iniciativa, y la de un `@new` que pide un método durante una llamada vaya por orden de llegada?
-  - La clase de espera se llama ahora `initiative` en `servers/<puerto>.waits.json`, que comparten los Mains de un Servidor. Un Main de antes de #153 que use el mismo Servidor a la vez leería esa lista como vacía hasta reiniciarse. ¿Le vale, o prefiere conservar el nombre `fproc`?
-
-  Sobre #159:
-  - ¿Le vale que `SessionCommandType`, que también importan los módulos de `comsession/`, lleve el campo `initiative`, aunque solo lo pongan los de Main? Así la Iniciativa usa los mismos tipos, en vez de una tabla aparte.
-
-  Sobre #157:
-  - ¿Le vale que el Contexto tras compactar sea la Conversación como la lee el LLM, sin los esquemas de sus tools ni sus imágenes (que van por su nombre, como en las medidas de la propia Compactación)? El Turno siguiente, que sí los cuenta, puede mostrar algo más.
-  - ¿Que, tras reiniciar Main, el borde de una Conversación compactada sin Turno nuevo diga «?» en vez de volver a medirla? Lo medido vive solo en la memoria de Main.
-  - ¿Que tras un Rewind a una Conversación compactada sin Turno nuevo el borde también diga «?»? El último Turno que queda se midió con la Conversación de antes de compactar.
-  - El Organizador sigue mostrando el Contexto de antes hasta el Turno siguiente: es #169, ya hecho.
-
-  Sobre #169:
-  - Con el Contexto desconocido, la fila del Organizador no lo muestra (como antes con una Sesión sin Turnos), mientras el borde dice «context ? / 32k». ¿Le vale, o prefiere «?» también en la fila?
-  - Cuando una Compactación resume todos los Turnos, una fila sin título deja de mostrar el inicio del primer Prompt (solo su id), porque lo toma del primer Turno que queda. ¿Le vale, o prefiere que lo busque en el archivo de lo resumido?
-
-  Sobre #158:
-  - ADR-0014 dice que, sin su modelo, el Supervisor «sigue dormido con un Aviso». Queda `failed` (`model_missing`), no dormido: uno dormido se despierta con el trabajo y volvería a fallar en bucle; fallido, lo intenta el siguiente Prompt, y eso no cuesta nada porque no lanza `llama`. ¿Le vale?
-  - «Los Supervisores de la máquina» son los de `servers/` de la carpeta de datos; no se mira otra carpeta de datos de la misma máquina. ¿Le vale?
-  - Si el modelo no está, el Supervisor creado guarda solo el nombre del archivo, que `llama` busca en la carpeta desde la que se lanzó el Main que lo despierta. ¿Le vale, o prefiere que el recuadro pida la ruta en ese momento?
-
-  Sobre #178:
-  - ¿Le vale que `/send <sid> @secret …` desde el Chat de Main se rechace con `secret_in_main_chat_only` y el uso de `/secret`, como en la Ventana, y que el Log lo recorte? Era la pregunta de #155: el issue pedía que el grep del valor en la carpeta de datos no diera nada, y el Log de Main está en ella.
-  - El recorte del Log vale para todo `/send` cuyo texto empieza por `@secret`, también el de una Sesión, aunque ese texto sí llega a la otra Sesión como Prompt (Main nunca lee el texto de una Sesión). ¿Le vale así?
-
-  Sobre #176:
-  - Un `kill` de Main a mitad de un Turno devuelve su Prompt al arrancar, pero no sus Textos intercalados: el criterio pedía `/exit` y señal, que los guardan en el Borrador antes de salir. Cubrir también el `kill` pediría guardar los Pasos del Turno en curso en el Estado de Main en cada cambio. ¿Vale así?
-  - Un Turno interrumpido con Shift+Enter cuyo fin no llega antes de que Main se pare ya no se pierde: al arrancar, su Prompt vuelve al Borrador como el de cualquier Turno en curso, y no se guarda cortado. ¿Vale?
-  - Al cerrar la Ventana con un Turno suspendido, su Prompt y sus Textos intercalados vuelven al input, pero el Chat reconstruido solo muestra el Prompt y «dropped», sin los Pasos ni los Textos intercalados, que el de un Turno fallido sí muestra. ¿Que los muestre igual?
-
-  Sobre #182:
-  - Un Rewind ya no borra lo de un Turno fallido que espera a reabrir la Ventana: el Turno fallido no estaba en ninguna Conversación, como el Prompt que no cupo (#174), y con la Ventana abierta se queda en el input. ¿Le vale?
-  - Si con la Ventana cerrada se hace Rewind tras un Turno fallido, al reabrirla lo del Turno fallido va delante de los Prompts deshechos, porque estos van al Borrador y lo del Log siempre vuelve delante del Borrador (#15); con la Ventana abierta irían detrás. ¿Le vale así?
-
-  Sobre #177:
-  - Tras un Rewind en una Conversación compactada alguna vez, el borde dice «?» hasta el Turno siguiente aunque el Turno en que queda corriera después de compactar (y su Contexto fuera bueno): la Conversación no guarda en qué Turno se compactó por última vez (la poda no archiva). Precisarlo pediría guardar ese número en la Conversación. ¿Le vale el «?», que es lo que dice ADR-0017?
-
-  Sobre #188:
-  - Una Continuación que el Servidor no sabe medir reserva el pool entero, en vez de entrar «solo por slots» como un Prompt sin medir (ADR-0004): su estimación ya pasaba del pool, y reservar poco dejaría que otro Paso lo llenara a mitad. ¿Le vale?
-  - Solo se mide la Continuación cuya estimación pasa del pool; la que cabe sigue estimada un carácter por token, y puede esperar más de lo necesario mientras otros Pasos reservan sitio. ¿Medir siempre cada Paso siguiente (una petición más al Servidor por Paso)?
-  - El Turno que no cabe falla con el mismo error que un Prompt que no cabe, `prompt_too_big`, aunque lo que no cabe es su Paso siguiente. ¿Le vale, o prefiere un error propio?
-
-  Sobre #190:
-  - El Turno suspendido que se lleva el Perfil que se deja olvida su cuenta, y al volver a ese Perfil tiene otra vez dos intentos, como el que guarda el Estado de Main al pararse. Guardarla con él haría falta solo si un Paso que tumba al Servidor pudiera volver a tumbarlo en cada cambio de Perfil. ¿Le vale así?
-  - Al salir de la cola por `cancel_prompt`, `_drop_prompt` o `take_queue`, un Turno suspendido aún deja otras dos cosas que `_cancel` sí limpia: las Notificaciones que contó (el siguiente Turno de la Sesión las cuenta como suyas y no ve hasta el otro las que llegaron después; no se pierde ninguna) y, si había cedido para compactar, su marca de Turno en curso hasta que esa Compactación acaba. ¿Lo limpiamos igual que `_cancel`, en un issue aparte? Hecho en #196: la salida única lo limpia por cualquier camino menos `take_queue`, cuyo Turno sigue en la cola del otro Perfil.
-
-  Sobre #195:
-  - Cualquier Log corta una línea de comando tres palabras después de su primer `@secret` o `/secret`, también la de un `/send` cuyo Prompt solo lo nombra (`/send caja ¿qué hace @secret set bot token y para qué?`): el Prompt va entero y su evento `prompt` lo guarda entero; solo se corta la línea del comando. ¿Le vale?
-  - Un Encargo o un Lote cuya tarea manda un `@secret` se rechaza venga de quien venga, también de un LLM, que nunca conoce un Secreto: esa tarea nunca sirve de nada. ¿Le vale, o solo el de un humano, como `/send`?
-  - No vuelve a la entrada ni se guarda en el Borrador un Command session que nombra `@secret` donde el Log lo cortaría, aunque solo lo nombre (`@send otra ¿qué hace @secret set bot token?`); un Prompt normal que lo nombra se queda. Y la Ventana que manda como Prompt una línea que empieza por `/send <sid> @secret …` también la rechaza. ¿Le vale?
-
-  Sobre #196:
-  - Un Prompt humano que no puede empezar por otra razón que no caber (un Enlace cuyo Supervisor no tiene Ajustes, un adjunto que ya no está) ahora vuelve al input como el que no cabe (`prompt_not_started`), en vez de perderse: la regla de la salida única. ¿Le vale?
-  - Un Prompt que no llegó a empezar y no cabe no se lleva su cola, como antes: solo la arrastra un Turno que corrió Pasos (#16). Los de detrás se escribieron con él delante, y ahora corren sin él en la Conversación. ¿Que caiga la cola también entonces?
-  - ↑ en la Ventana ya solo toma el último Prompt en cola que tecleó un humano; uno de otra Sesión o de una Suscripción se queda en la cola (antes volvía al input, con su cabecera, y su remitente nunca se enteraba). ¿Le vale?
-  - `/profile switch --now` cancela también el Turno que un `/server restart --now` ya había parado, que acaba cancelado y con su Prompt en el Borrador en vez de suspenderse y viajar en la cola del Perfil. ¿Le vale?
-  - Tras un `kill -9`, el Chat reconstruido del Turno perdido no muestra sus Textos intercalados (sí vuelven al Borrador): el `turn_failed` que escribe al arrancar `close_left_open` no los lleva. ¿Lo añadimos?
-
-  Sobre la revisión de Pre-RAG (2026-11-03):
-  - ¿Un Supervisor cuyo `extra` lleva `-hf`/`--model-url` debería poder arrancar aunque el archivo de `model` aún no exista? (#158)
-  - Al reabrir la Ventana, un Prompt posterior de otro Origen hace que no vuelva el Prompt humano fallido: ¿que solo cuenten como posteriores los Prompts humanos? (#171) Decidido que sí, como #174 hizo con el que no cupo: es #182.
-  - Un Prompt de la Iniciativa que estaba en cola en un Estado de Main guardado antes de #153 se lee sin su clase y adelanta a los humanos, una sola vez al actualizar: ¿vale así? (#153)
+- **Último hecho:** los pendientes de Pre-RAG, de #153 a #197 (fusionados hasta el PR #200, 2026-11-03): la Iniciativa y el Externo (#153, #154, #159, #179), los Secretos fuera del Log y del Borrador (#155, #178, #195), lo que vuelve al input o al Borrador (#156, #166, #171, #174, #176, #182, #196), el Contexto tras compactar (#157, #169, #177, #197), el Supervisor sin modelo (#158) y las caídas y la cola (#181, #185, #188, #190, #197). Métricas al cerrar #197: 1914 tests, cobertura 85 %, mutación 94 %, 41 escapes. Qué cambió en cada uno, cómo se probó a mano y sus métricas está en el comentario de cierre de su issue. Después, las preguntas abiertas de #104 a #197 pasaron a decisiones según los ADR (abajo), y lo que el código no cumplía, a #201–#206.
+- **Siguiente:** #201 a #206, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
+
+### Preguntas que sí necesitan al usuario
+
+- #109: lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) sale en el Chat de Main, donde sale todo Command main. Ningún ADR lo fija para todos: ADR-0021 solo dice de `@call` que su resultado sale en la Ventana donde se tecleó. La alternativa es que todo `@…` tecleado muestre su salida en su Ventana, como `@call`.
+
+### Decisiones tomadas según los ADR
+
+Lo que el código hace y se apega a la letra de los ADR y del GLOSSARY. Lo que no se apegaba va a su issue.
+
+**Piezas, Cuarentena y Encierro**
+- #104 — Decidido según ADR-0013 (enmienda #104, «Lo que instala AllIn»): Main aprueba solo los Sysprompts idénticos byte a byte a los instalados; los que tocó el usuario esperan a `/piece approve`.
+- #106 — Decidido según ADR-0005 (enmienda #106) y el GLOSSARY (fsource, fagent): las fsources viven en `functions/` y las fagents en `agents/` del Perfil.
+- #106 — Decidido según ADR-0005 (enmienda #106) y ADR-0016: en un kernel que no encierra del todo, una pieza que no escribió el usuario no se describe ni se ofrece, y si el LLM la llama recibe un error que lo dice.
+- #114 — Decidido según ADR-0016 (enmienda #101) y ADR-0005 (enmienda #99 y #100): `/dev/shm` se declara en `@reach` y no va en el mínimo, y `HOME` es la Carpeta de trabajo; un `@reach` en un método hace fallar la descripción (ADR-0021, enmienda #114).
+- #112 — Decidido según ADR-0013 (texto y enmienda #112) y el GLOSSARY (Crear): en modo normal, el «sí» al recuadro de una pieza creada por una Sesión es Confirmación y Aprobación a la vez y la deja aprobada; con `--devastation`, queda en cuarentena.
+- #158 — Decidido según ADR-0014 y ADR-0022: un Supervisor sin su modelo no lanza nada, su trabajo espera y sale un Aviso, como el que no cabe en VRAM; que su estado se llame `failed` (`model_missing`) y no «dormido» es interno, y así no despierta en bucle.
+- #158 — Decidido según ADR-0008: «los Supervisores de la máquina» son los de `servers/` de la carpeta de datos.
+- #158 — Decidido según ADR-0014 y ADR-0008: si el modelo no está, el Supervisor creado guarda solo el nombre del archivo, y su ruta la fija un humano con `/server set <nombre> model=<path>`, como dice el Aviso.
+- Revisión de Pre-RAG (#158) — Decidido según ADR-0008 y ADR-0014: el modelo de un Supervisor es el archivo de `model` (`-m`), que nombra un humano; un `-hf` o `--model-url` en `extra` no lo sustituye, así que sin ese archivo no arranca.
+
+**Confirmación, Origen y Otorgar**
+- #107 — Decidido según ADR-0009 (enmienda #107) y el GLOSSARY (Confirmación): `-y` para las tools va en `/send -y` desde el Chat de Main; en la Ventana aún no hay forma, como anota el ADR.
+- #107 — Decidido según ADR-0009 (enmienda #107, «Cuándo»): todas las Confirmaciones de un Paso se preguntan antes de que corra ninguna tool.
+- #110 — Decidido según ADR-0013 (enmienda #110) y el GLOSSARY (Command prompt): la forma estructurada de `/send` es solo de las Sesiones, y un humano sigue escribiendo `@./ruta` y `@clave=valor`; un «no» a un archivo de fuera es dato para el LLM, y si lo vuelve a pedir, vuelve a preguntar a un humano.
+- #111 — Decidido según ADR-0025 (enmienda #111): `/grant` lo escribe también un humano y pide Confirmación con quién la pide; dar la fsource que declara Otorgar da ya `@grant`.
+- #108 — Decidido según ADR-0025 (enmienda #108): `@send` y `@server` son de Main, siempre están y van en la lista por defecto.
+- #108 — Va a #202: si se cancela el Turno de una tool que espera la Confirmación de su Command session, el recuadro sigue y el comando corre con un «sí»; lo que abre un Turno cancelado se cancela (ADR-0011, enmienda #116; ADR-0012, enmienda #115).
+
+**Command sessions y la lista por defecto**
+- #112 — Decidido según ADR-0013 (enmienda #112) y el GLOSSARY (Crear): `@create` no viene en la lista por defecto; se da con `-cs=create` o con Otorgar.
+- #112 — Decidido según ADR-0011 (enmienda #112): una Sesión que crea desde un Molde con tarea necesita `@send` en toda su cadena.
+- #122 — Decidido según ADR-0020 y el GLOSSARY (Command session): `@open` es un Command session, porque la fsource `windows` trae Sesiones a la vista.
+- #122 — Decidido según ADR-0020 y ADR-0025: `@windows`, `@open` y `@bg` van en la lista por defecto, porque la fsource `windows` se hereda; a las Sesiones de antes se les dan con `/func add <sid> @windows @open @bg`.
+- #122 — Decidido según ADR-0020 («nunca cierra una Ventana»): `@close` no va en la lista por defecto y, tecleado, cierra solo la Ventana en que se teclea; las demás, `/close <sid>` en el Chat de Main.
+- #122 — Decidido según ADR-0025 (canal de vuelta): la lista que pide una tool le vuelve por el canal y la ve la Ventana como salida de la tool; no se escribe en el Chat de Main.
+- #122 — Decidido según ADR-0025 y ADR-0026: un LLM crea Sesiones con `@new`, que no viene en la lista por defecto, y una fproc con su Iniciativa (#123).
+- #159 — Decidido según ADR-0026 (la Iniciativa usa los Command sessions de su Alcance): `SessionCommandType` lleva el campo `initiative`, y no hay tabla aparte.
+
+**Procesos adheridos y fprocs**
+- #113 — Decidido según ADR-0012 (enmienda #113): los pids van en `state/attached.json`, uno por carpeta de datos; `@attach` no viene en la lista por defecto; `/detach` es solo de un humano.
+- #113 — Decidido según el GLOSSARY (Referencia a archivo): una ruta relativa de una Sesión parte de su Carpeta de trabajo, y la de un humano (`--file`, como `@./ruta`), del directorio desde el que lanzó Main.
+- #114 — Decidido según ADR-0021 (enmienda #114): un método llamado con `/call` desde el Chat de Main no ejecuta Command sessions (`command_session_without_session`); con `@call` tecleado por un humano los limitan el Alcance de la fproc y la Confirmación, no la lista; `@call` no viene en la lista por defecto; un `@call` que ejecuta una tool recibe solo `ok`.
+- #115 — Decidido según ADR-0012 (enmienda #115): solo se comprueban las escrituras del LLM; una Sesión que nunca leyó ve rechazado su primer `@writes`; la llamada cancelada que el método no deja muere pasados su timeout y `attached.release`; `@concurrent()` es sin tope.
+- #115 — Decidido según ADR-0012 (enmienda #113): adherir bloquea a Main hasta que la clase está hecha, con un tope de 20 s.
+- #115 y #117 — Va a #203: el Informe de recuperación solo trae los Encargos, y los Procesos adheridos perdidos y los Turnos cortados no avisan a las Sesiones afectadas, como pide el GLOSSARY.
+- #116 — Va a #201: un método solo puede anunciar durante una llamada, y ADR-0021 dice que entre llamadas lo que pasa se avisa como evento.
+- #153 — Decidido según ADR-0026 y el GLOSSARY (Admisión): la tarea del Molde de un `@new` de la Iniciativa va detrás, como un Prompt de la Iniciativa, y la de un `@new` que pide un método durante una llamada, por orden de llegada.
+- #153 — Decidido según ADR-0026 y el GLOSSARY (Admisión): la clase de espera se llama `initiative` en `servers/<puerto>.waits.json`; un Main de antes de #153 que comparta el Servidor la lee vacía hasta reiniciarse, una sola vez.
+- Revisión de Pre-RAG (#153) — Decidido según ADR-0026: un Prompt de la Iniciativa en cola en un Estado de Main de antes de #153 se lee sin su clase y adelanta a los humanos una sola vez, al actualizar; no hace falta migrarlo.
+- #154 — Decidido según el GLOSSARY (Origen, Externo): el rótulo de un Prompt que trae una fproc es `process:<nombre>`; la identidad del Externo queda solo en el Turno y en el Log.
+
+**Suscripción, Encargo, Lote y Consultar**
+- #116 — Decidido según ADR-0011 (enmienda #116): los eventos se agrupan en el tick; `@subscribe` y `@unsubscribe` van en la lista por defecto; las respuestas y los temporizadores de una Sesión a otra cuentan como la misma Suscripción; un humano escribe `--reply-to=<sid>` como primera palabra tras el `<sid>` de `/send`; `subscription.repeats` es 5.
+- #116 — Decidido según ADR-0011 (enmienda #116) y ADR-0013 (enmienda #105): la Suscripción no tiene Exención propia, sino la de la Sesión a la que despierta.
+- #116 — Decidido según ADR-0011 (enmienda #116) y el GLOSSARY (Prompt): solo una respuesta pendiente (un Encargo, un `--reply-to`) retiene la del Prompt, no un temporizador.
+- #116 — Decidido según ADR-0011 y ADR-0015: Restablecer y `/reset --all` serán eventos cuando existan, en «Después».
+- #117 — Decidido según ADR-0011 (enmienda #117): `@errand` y `@batch` van en la lista por defecto; el plazo es de cada tarea; una tarea que falla sale en el tick siguiente; «tener sitio» es un slot que no ocupa esta Main; las tareas van como lista JSON, una por línea u objeto JSON; una trabajadora cortada por `/exit` cuenta como sin respuesta.
+- #118 — Decidido según ADR-0011 (enmienda #118) y el GLOSSARY (Consultar): `@status` (un humano, `/status <sid>`) va en la lista por defecto porque solo lee; muestra las Sesiones del Perfil activo; Servidores y Supervisores son de la máquina; uno dormido sale sin capacidad.
+
+**Compactación y Contexto**
+- #119 — Decidido según ADR-0017 (nota #119): la poda no reescribe nada y solo poda salidas de más de 400 caracteres, con los tokens estimados por los caracteres; el Turno cede según la medida de admisión; `@compact` va en la lista por defecto; la Notificación de estado vivo no se deja si no hay nada abierto, y trae solo los Procesos adheridos cuyos métodos tiene la Sesión.
+- #120 — Decidido según ADR-0004 (nota #120): las líneas al LLM van en inglés; la de Contexto se deja al guardarse el Turno, no si falla o se cancela; el corte por Shift+Enter conserva su fuente `interrupted`.
+- #157 — Decidido según ADR-0017 (nota #157): el Contexto tras compactar es la Conversación como la lee el LLM, sin esquemas de tools ni imágenes; tras reiniciar Main, o tras un Rewind en una Conversación compactada, el borde dice «?».
+- #157 — Resuelto en #169: el Organizador ya muestra el Contexto nuevo.
+- #169 — Decidido según ADR-0020 y ADR-0017: con el Contexto desconocido, la fila del Organizador no lo muestra, como la de una Sesión sin Turnos; y una fila sin título, tras resumirse todos los Turnos, muestra solo su id, porque lo resumido está archivado y la fila lee la Conversación.
+- #177 — Decidido según ADR-0017 (nota #157): tras un Rewind en una Conversación compactada alguna vez, el borde dice «?» hasta el Turno siguiente.
+- #188 — Decidido según ADR-0004 (nota #188): una Continuación que el Servidor no sabe medir reserva el pool entero; solo se mide la que pasa del pool; la que no cabe falla con `prompt_too_big`.
+- #197 — Decidido según ADR-0023: la Continuación cuya medida se pierde no se suspende (`turn_suspended`) porque no tiene slot ni Paso a medias; espera al Servidor como cualquier Continuación.
+- #197 — Decidido según ADR-0010 y ADR-0024: mientras el cambio de Perfil espera, el Turno entre Pasos toma en su Paso siguiente los Textos intercalados de su Ventana, porque sigue en curso.
+
+**Escribir durante un Turno y lo que vuelve al input**
+- #121 — Decidido según ADR-0024 (cómo quedó en F2) y el GLOSSARY (Texto intercalado): solo entra texto llano, y lo que lleva Command prompts o `-y` espera su Turno con lo de detrás; lo que no cabe en lo que le queda al slot espera; lo escrito antes de que el Turno empezara es el Prompt siguiente; al cortar con Shift+Enter unas tools que corrían, cada llamada lee que se cortó y que pudo hacer parte de su trabajo; al cancelarse, lo intercalado vuelve al Borrador tras el Prompt humano (#156).
+- #156 — Decidido según el GLOSSARY (Estado de Main, Texto intercalado): con `/exit` a mitad de un Turno humano, su Prompt vuelve al arrancar, porque queda en los Turnos en curso del Estado de Main.
+- #156 y #166 — Decidido según el GLOSSARY (Borrador, Rewind: «para reeditarlo»): un Prompt cancelado o fallido vuelve como se tecleó, con sus `@clave=valor`.
+- #166 — Resuelto en #171: solo vuelve al input el Prompt humano, y el que no cabe vuelve como se tecleó.
+- #171 — Decidido según el GLOSSARY (Texto intercalado) y ADR-0024: los Textos intercalados de un Turno fallido de otra Sesión vuelven al input, porque son del humano.
+- #171 — Resuelto en #174: al reabrir vuelven los Textos intercalados del Turno fallido y el Prompt humano que no cupo.
+- #174 — Decidido según ADR-0013 (solo el Origen humano vuelve al input): lo que vuelve al reabrir solo lo borra un Prompt humano posterior o que ya se devolviera, no uno de otra Sesión; vale también para un Turno fallido (#182).
+- #174 — Decidido según el GLOSSARY (Borrador): si vuelven a la vez lo de un Turno fallido y Prompts que no cupieron, lo último devuelto va delante.
+- #176 — Resuelto en #196: tras un `kill` de Main, los Textos intercalados del Turno en curso también vuelven (`interjected` en el Estado de Main).
+- #176 — Decidido según el GLOSSARY (Estado de Main): un Turno interrumpido con Shift+Enter cuyo fin no llega antes de que Main se pare vuelve al Borrador al arrancar, como cualquier Turno en curso, sin guardarse cortado.
+- #176 y #196 — Va a #204: el Chat reconstruido no muestra los Textos intercalados ni los Pasos de un Turno suspendido que se cancela al cerrar la Ventana, ni los de un Turno perdido con un `kill -9` (ADR-0024: «en vivo y al reconstruirse»).
+- #182 — Decidido según el GLOSSARY (Rewind): un Rewind no borra lo de un Turno fallido que espera a reabrir la Ventana, porque no está en ninguna Conversación.
+- Revisión de Pre-RAG (#171) — Resuelto en #182: al reabrir, solo cuentan como posteriores los Prompts humanos.
+- #182 — Va a #205: con la Ventana cerrada, un Turno fallido y luego un Rewind vuelven en el orden contrario al de la Ventana abierta (GLOSSARY, Borrador).
+- #196 — Decidido según el GLOSSARY (Prompt): un Prompt humano que no puede empezar por otra razón que no caber vuelve al input (`prompt_not_started`).
+- #196 — Decidido según ADR-0024 y ADR-0013: ↑ solo toma un Prompt humano; uno de otra Sesión o de una Suscripción se queda en la cola.
+- #196 — Decidido según el GLOSSARY (Turno suspendido): `/profile switch --now` cancela también el Turno que un `/server restart --now` ya había parado, que acaba cancelado y con su Prompt en el Borrador.
+- #196 — Va a #206: un Prompt que no llega a empezar y no cabe no se lleva su cola, y #16 hace caer la cola de un Prompt que falla.
+
+**Secretos**
+- #155 — Decidido según ADR-0026 (#124, #155): `@secret` se rechaza siempre, también si lo pide una herramienta o lo declara un módulo de `comsession/`; tras el error la línea no vuelve a la entrada ni entra en el Borrador.
+- #155 — Decidido según ADR-0026: ↑ en la Ventana abierta trae la línea entera, porque está solo en la memoria de ese proceso y nunca llega al Log, la Conversación ni el disco.
+- #155 — Resuelto en #178: `/send <sid> @secret …` desde el Chat de Main se rechaza y se recorta en el Log.
+- #178 — Decidido según ADR-0026 (#178, #195): `/send <sid> @secret …` se rechaza con `secret_in_main_chat_only` y el uso de `/secret`, y el recorte del Log vale para todo `/send`, también el de una Sesión.
+- #195 — Decidido según ADR-0026 (#195): cualquier Log corta una línea de comando tres palabras después de su primer `@secret` o `/secret`, aunque solo lo nombre; un Encargo o un Lote cuya tarea manda un `@secret` se rechaza venga de quien venga; un Command session que lo nombra donde el Log lo cortaría no vuelve a la entrada ni al Borrador.
+
+**Caídas y Supervisor**
+- #190 — Decidido según ADR-0023: la cuenta de caídas es de un Main vivo, y el Turno suspendido que se lleva el Perfil que se deja vuelve con dos intentos, como tras reiniciar Main.
+- #190 — Resuelto en #196: la salida única limpia las Notificaciones contadas y la marca de Turno en curso por cualquier camino menos `take_queue`, cuyo Turno sigue en la cola del otro Perfil.
+
+### Decisiones anteriores
+
 - **Respuestas sobre #123 y #124 (2026-11-03):** ante cada pregunta, lo que más se apega a los ADR y a la lógica del proyecto.
   - Quedan como estaban, de #123:
     - sin `@subprofile` no hay Iniciativa;
@@ -402,6 +254,12 @@ Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelve
 21. ✅ #195 `@send <sid> @secret` tecleado en una Ventana, y un `/send` que no encaja, no dejan el valor en el Log (de #155 y #178)
 22. ✅ #196 Una sola salida para un Turno, que devuelve lo del humano, olvida sus caídas y cierra lo que abrió (de #156, #166, #171, #174, #176, #181, #182, #185 y #190)
 23. ✅ #197 Una Continuación cuya medida se pierde, `/profile switch` con un Turno entre Pasos y el aviso de límite de contexto tras compactar
+24. #201 Un Proceso adherido anuncia eventos también entre llamadas, como dice ADR-0021 (de #116)
+25. #202 La Confirmación de un Command session que pidió una tool se retira si su Turno se cancela (de #108)
+26. #203 El Informe de recuperación trae los Turnos, Ventanas y Procesos adheridos que quedaron a medias, y avisa a cada Sesión afectada (de #115 y #117)
+27. #204 El Chat reconstruido muestra los Textos intercalados de un Turno perdido con un `kill -9` o cancelado mientras estaba suspendido (de #176 y #196)
+28. #205 Al reabrir la Ventana, lo de un Turno fallido y lo que devolvió un Rewind salen en el orden de la Ventana abierta (de #182)
+29. #206 Un Prompt que no cabe o no puede empezar se lleva su cola, como un Turno fallido (de #16 y #196)
 
 ## RAG · Memoria de consulta
 
