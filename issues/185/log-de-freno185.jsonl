@@ -1,0 +1,16 @@
+{"ts": "2026-11-03T11:22:46.859058-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:22:46.864094-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:22:46.950245-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:23:04.285462-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:23:09.313015-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:23:09.410733-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:23:39.357532-06:00", "event": "prompt", "text": "Di hola en una palabra.", "prompt_id": "eqc6dn", "origin": ["human"]}
+{"ts": "2026-11-03T11:23:39.361396-06:00", "event": "turn_started", "need": 8084}
+{"ts": "2026-11-03T11:24:00.634267-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T11:24:00.699175-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:09.282605-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:24:09.380438-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:24:38.855735-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:52.430261-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:24:52.543474-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:25:15.180892-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}

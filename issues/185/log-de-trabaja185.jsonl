@@ -1,0 +1,20 @@
+{"ts": "2026-11-03T11:22:46.229088-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:22:46.233548-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:22:46.318684-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:23:04.285251-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:23:09.309052-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:23:09.397882-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:23:22.250047-06:00", "event": "prompt", "text": "Di trabajo185 en una palabra.", "owed": ["szec41r"], "prompt_id": "16sd24", "origin": ["human"]}
+{"ts": "2026-11-03T11:23:22.253485-06:00", "event": "turn_started", "need": 8086}
+{"ts": "2026-11-03T11:24:00.634916-06:00", "event": "turn_failed", "error": "llm_request_failed: reason=\"Error code: 400 - {'error': {'code': 400, 'message': 'refused by fallproxy (#185)', 'type': 'invalid_request_error'}}\"", "reasoning": "", "answer": "", "joined": [], "origin": ["human"], "prompt": "Di trabajo185 en una palabra."}
+{"ts": "2026-11-03T11:24:00.635100-06:00", "event": "prompt_returned", "texts": ["Di trabajo185 en una palabra."]}
+{"ts": "2026-11-03T11:24:00.699062-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:09.278586-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:24:09.366044-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:24:33.666894-06:00", "event": "prompt", "text": "Di trabajo185 otra vez en una palabra.", "owed": ["s6h6wtg"], "prompt_id": "x0srtn", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:33.670614-06:00", "event": "turn_started", "need": 8088}
+{"ts": "2026-11-03T11:24:38.808330-06:00", "event": "turn_cancelled", "error": "turn_cancelled: reason='main is shutting down'", "reasoning": "", "answer": "", "joined": [], "origin": ["human"], "prompt": "Di trabajo185 otra vez en una palabra."}
+{"ts": "2026-11-03T11:24:38.840290-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:52.426434-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:24:52.529044-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:25:15.180807-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}

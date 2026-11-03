@@ -1,0 +1,23 @@
+{"ts": "2026-11-03T11:22:45.541845-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:22:45.546945-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:22:45.634008-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:23:04.253679-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:23:09.304266-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:23:09.398191-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:23:22.249926-06:00", "event": "subscribed", "subscription": "szec41r", "watching": "reply:trabaja185", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:00.635051-06:00", "event": "subscription_event", "subscription": "szec41r", "text": "Session trabaja185 did not answer: its Turn failed: llm_request_failed: reason=\"Error code: 400 - {'error': {'code': 400, 'message': 'refused by fallproxy (#185)', 'type': 'invalid_request_error'}}\""}
+{"ts": "2026-11-03T11:24:00.698918-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:09.273789-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:24:09.364888-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:24:10.269168-06:00", "event": "prompt", "text": "[from Subscription remite185.reply.trabaja185]\nreply:trabaja185 (szec41r): Session trabaja185 did not answer: its Turn failed: llm_request_failed: reason=\"Error code: 400 - {'error': {'code': 400, 'message': 'refused by fallproxy (#185)', 'type': 'invalid_request_error'}}\"", "woke_by": ["szec41r"], "prompt_id": "sxw0b0", "origin": ["human", "session:trabaja185", "subscription:remite185.reply.trabaja185"]}
+{"ts": "2026-11-03T11:24:10.273490-06:00", "event": "turn_started", "need": 8170}
+{"ts": "2026-11-03T11:24:18.242586-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T11:24:33.666774-06:00", "event": "subscribed", "subscription": "s6h6wtg", "watching": "reply:trabaja185", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:38.840104-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:52.417773-06:00", "event": "subscription_event", "subscription": "s6h6wtg", "text": "Session trabaja185 did not answer: Main stopped during its Turn"}
+{"ts": "2026-11-03T11:24:52.422181-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:24:52.519063-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:24:53.416640-06:00", "event": "prompt", "text": "[from Subscription remite185.reply.trabaja185]\nreply:trabaja185 (s6h6wtg): Session trabaja185 did not answer: Main stopped during its Turn", "woke_by": ["s6h6wtg"], "prompt_id": "lesyd8", "origin": ["human", "session:trabaja185", "subscription:remite185.reply.trabaja185"]}
+{"ts": "2026-11-03T11:24:53.422688-06:00", "event": "turn_started", "need": 9226}
+{"ts": "2026-11-03T11:25:00.454332-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-03T11:25:15.180677-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}

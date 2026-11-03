@@ -1,0 +1,20 @@
+"""A Notice module for #185's manual test: as a Step of Session freno185 ends, it holds Main's
+Dispatcher while <scratch>/gate exists (at most 60 s), so events pile up in Main's inbox in the
+order they come, as when they arrive before Main handles any. It never tells anything."""
+
+import time
+from pathlib import Path
+
+from allin.notices import NoticeEvent, notice
+
+GATE = Path(__file__).resolve().parents[2] / "gate"
+
+
+@notice("freno", title="Freno", text="never shown")
+def freno(event: NoticeEvent, params: dict[str, object]) -> None:
+    if event.session_id != "freno185":
+        return None
+    deadline = time.monotonic() + 60
+    while GATE.exists() and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return None

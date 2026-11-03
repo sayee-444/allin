@@ -1,0 +1,65 @@
+# #185 — Quien envió un Prompt se entera si su Turno falla o se cancela cuando Main ya se para (2026-11-03)
+
+Código: rama fix/185-remitente-sabe-fallo-tras-exit, commit 1367f5b.
+Servidor (Swift IQ3_XXS con -c 32000, para dejar sitio a la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/176 más «crash», 19932 → 9932): mientras existe <scratch>/hold, un POST cuyo
+cuerpo contiene lo escrito en él espera sin respuesta; mientras existe <scratch>/crash, el POST que contiene lo escrito
+en él recibe HTTP 400 (el Paso falla con llm_request_failed: no es una caída, así que el Turno falla, no se suspende).
+Notice freno.py.txt en <data-dir>/notices/ (un módulo de Notice es parte de Main, ADR-0016): al acabar un Paso de la
+Sesión freno185, retiene el Dispatcher mientras existe <scratch>/gate (60 s como mucho). Así los eventos se amontonan
+en el inbox en el orden en que llegan, como cuando llegan antes de que Main maneje ninguno: la carrera de #176, que
+allí no se reproducía a mano, aquí sí.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m185, en el xterm allin-main-185, con
+/set base_url=http://127.0.0.1:19932/v1. /new --id=remite185; /new --id=trabaja185; /new --id=freno185.
+Los Prompts se mandan desde el Chat de Main con /send … --reply-to=remite185: la Suscripción OnReply es de remite185.
+
+## Criterios
+
+1. El remitente de un Prompt de otro Origen cuyo Turno falla y cuyo fin Main maneja tras /exit sabe que no tuvo
+   respuesta, igual que si el fin llegara antes
+   - hold = «trabajo185». En Main: /send trabaja185 --reply-to=remite185 Di trabajo185 en una palabra.
+     Su Paso queda retenido. state.json: running [«Di trabajo185 en una palabra.»],
+     subscriptions.open [szec41r (reply:trabaja185, de remite185)].
+   - touch gate; en Main: /send freno185 Di hola en una palabra. Su Paso acaba y el Notice retiene el Dispatcher.
+   - Mientras está retenido: /exit en Main (al inbox); luego crash = «trabajo185» y rm hold: el POST retenido recibe
+     400 (falls.log: «crash /v1/responses») y el TurnEnded fallido de trabaja185 entra al inbox detrás de /exit.
+   - rm gate. Log de Main (log-de-main185.jsonl), en este orden:
+       11:24:00.634317 turn_finished sid=freno185
+       11:24:00.634795 command /exit
+       11:24:00.634940 turn_failed sid=trabaja185 (llm_request_failed … refused by fallproxy (#185))
+       11:24:00.699244 main_stopped
+     Log de remite185: 11:24:00.635051 subscription_event szec41r
+       «Session trabaja185 did not answer: its Turn failed: llm_request_failed: reason="Error code: 400 …"»
+     state.json al pararse:
+       running []   queue []
+       subscriptions.open []
+       subscriptions.pending [szec41r: «Session trabaja185 did not answer: its Turn failed: llm_request_failed: …»]
+     (antes de #185: open seguía con szec41r y pending vacío, para siempre; lo reproduce el test de abajo, rojo sin el
+     arreglo.) El texto es el mismo que cuando el fallo llega antes de /exit
+     (test_a_prompt_that_fails_or_leaves_the_queue_still_wakes_who_waits).
+   - Se arranca Main de nuevo: remite185 despierta (Log, 11:24:10) con el Prompt
+       «[from Subscription remite185.reply.trabaja185]
+        reply:trabaja185 (szec41r): Session trabaja185 did not answer: its Turn failed: llm_request_failed: …»
+     origin ["human","session:trabaja185","subscription:remite185.reply.trabaja185"]; su Turno acaba (turn_finished).
+   - Con una señal en vez de /exit y con un Turno cancelado (no fallido): solo tests (los cuatro casos de abajo).
+2. Un Turno que cancel_running termina al pararse Main sigue avisándose en la siguiente arrancada, una sola vez
+   - hold = «trabajo185». En Main: /send trabaja185 --reply-to=remite185 Di trabajo185 otra vez en una palabra.
+     (retenido); /exit en Main. Log de trabaja185: turn_cancelled (main is shutting down). Log de remite185: ningún
+     subscription_event. state.json: running [«Di trabajo185 otra vez en una palabra.»], subscriptions.open
+     [s6h6wtg], pending [].
+   - rm hold; se arranca Main de nuevo. Log de remite185: un único subscription_event s6h6wtg
+     «Session trabaja185 did not answer: Main stopped during its Turn» (lost) y el Prompt que lo despierta con ese
+     texto; ningún «its Turn cancelled».
+3. Tests, uno por escenario — ver abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+Logs completos: log-de-main185.jsonl (sin los eventos raw), log-de-remite185.jsonl, log-de-trabaja185.jsonl,
+log-de-freno185.jsonl.
+
+## Tests de #185
+tests/test_subscriptions.py::test_a_turn_that_ends_behind_the_stop_still_tells_who_waits_it_had_no_answer
+  (4 casos: fallido o cancelado, y /exit o señal; rojos antes del arreglo) PASSED
+tests/test_subscriptions.py::test_a_turn_cut_as_main_stops_is_told_once_on_the_next_start_as_lost PASSED
+  (rojo si se avisa también el TurnCancelled(SHUTTING_DOWN) de cancel_running: dos subscription_event)
+Suite completa: 1847 pasan; basedpyright y ruff limpios.

@@ -1,0 +1,82 @@
+{"ts": "2026-11-03T11:22:17.469119-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-03T11:22:17.470247-06:00", "event": "queue_paused", "server": "9931", "state": "None"}
+{"ts": "2026-11-03T11:22:17.473975-06:00", "event": "queue_paused", "server": "9931", "state": "ServerDown"}
+{"ts": "2026-11-03T11:22:44.885943-06:00", "event": "settings_restart_needed"}
+{"ts": "2026-11-03T11:22:44.886061-06:00", "event": "command", "command": "/set base_url=http://127.0.0.1:19932/v1", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:22:45.541887-06:00", "event": "session_created", "sid": "remite185", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:22:45.547003-06:00", "event": "window_opened", "sid": "remite185"}
+{"ts": "2026-11-03T11:22:45.547198-06:00", "event": "command", "command": "/new --id=remite185", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:22:45.634052-06:00", "event": "window_connected", "sid": "remite185"}
+{"ts": "2026-11-03T11:22:46.229138-06:00", "event": "session_created", "sid": "trabaja185", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:22:46.233594-06:00", "event": "window_opened", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:22:46.233772-06:00", "event": "command", "command": "/new --id=trabaja185", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:22:46.318729-06:00", "event": "window_connected", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:22:46.859109-06:00", "event": "session_created", "sid": "freno185", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:22:46.864154-06:00", "event": "window_opened", "sid": "freno185"}
+{"ts": "2026-11-03T11:22:46.864318-06:00", "event": "command", "command": "/new --id=freno185", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:22:46.950321-06:00", "event": "window_connected", "sid": "freno185"}
+{"ts": "2026-11-03T11:23:04.221623-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:23:04.253763-06:00", "event": "window_closed", "sid": "remite185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:23:04.285333-06:00", "event": "window_closed", "sid": "trabaja185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:23:04.285484-06:00", "event": "window_closed", "sid": "freno185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:23:04.285543-06:00", "event": "main_stopped", "main_id": "root"}
+{"ts": "2026-11-03T11:23:09.299042-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-03T11:23:09.300087-06:00", "event": "queue_paused", "server": "19932", "state": "None"}
+{"ts": "2026-11-03T11:23:09.304298-06:00", "event": "window_opened", "sid": "remite185"}
+{"ts": "2026-11-03T11:23:09.309117-06:00", "event": "window_opened", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:23:09.313053-06:00", "event": "window_opened", "sid": "freno185"}
+{"ts": "2026-11-03T11:23:09.313306-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 32000, "model_path": "Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T11:23:09.313462-06:00", "event": "queue_resumed", "server": "19932"}
+{"ts": "2026-11-03T11:23:09.397921-06:00", "event": "window_connected", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:23:09.398213-06:00", "event": "window_connected", "sid": "remite185"}
+{"ts": "2026-11-03T11:23:09.410762-06:00", "event": "window_connected", "sid": "freno185"}
+{"ts": "2026-11-03T11:23:22.249994-06:00", "event": "subscribed", "sid": "remite185", "subscription": "szec41r", "watching": "reply:trabaja185", "origin": ["human"]}
+{"ts": "2026-11-03T11:23:22.250608-06:00", "event": "command", "sid": "trabaja185", "command": "/send trabaja185 --reply-to=remite185 Di trabajo185 en una palabra.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:23:22.253509-06:00", "event": "turn_started", "sid": "trabaja185", "need": 8086}
+{"ts": "2026-11-03T11:23:39.358201-06:00", "event": "command", "sid": "freno185", "command": "/send freno185 Di hola en una palabra.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:23:39.361422-06:00", "event": "turn_started", "sid": "freno185", "need": 8084}
+{"ts": "2026-11-03T11:24:00.634317-06:00", "event": "turn_finished", "sid": "freno185", "turn": 0}
+{"ts": "2026-11-03T11:24:00.634795-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:00.634940-06:00", "event": "turn_failed", "sid": "trabaja185", "error": "llm_request_failed: reason=\"Error code: 400 - {'error': {'code': 400, 'message': 'refused by fallproxy (#185)', 'type': 'invalid_request_error'}}\"", "reasoning": "", "answer": "", "joined": [], "origin": ["human"], "prompt": "Di trabajo185 en una palabra."}
+{"ts": "2026-11-03T11:24:00.698965-06:00", "event": "window_closed", "sid": "remite185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:00.699083-06:00", "event": "window_closed", "sid": "trabaja185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:00.699192-06:00", "event": "window_closed", "sid": "freno185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:00.699244-06:00", "event": "main_stopped", "main_id": "root"}
+{"ts": "2026-11-03T11:24:09.268586-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-03T11:24:09.269615-06:00", "event": "queue_paused", "server": "19932", "state": "None"}
+{"ts": "2026-11-03T11:24:09.273834-06:00", "event": "window_opened", "sid": "remite185"}
+{"ts": "2026-11-03T11:24:09.278623-06:00", "event": "window_opened", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:24:09.282640-06:00", "event": "window_opened", "sid": "freno185"}
+{"ts": "2026-11-03T11:24:09.283020-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 32000, "model_path": "Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T11:24:09.283186-06:00", "event": "queue_resumed", "server": "19932"}
+{"ts": "2026-11-03T11:24:09.364934-06:00", "event": "window_connected", "sid": "remite185"}
+{"ts": "2026-11-03T11:24:09.366067-06:00", "event": "window_connected", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:24:09.380461-06:00", "event": "window_connected", "sid": "freno185"}
+{"ts": "2026-11-03T11:24:10.273527-06:00", "event": "turn_started", "sid": "remite185", "need": 8170}
+{"ts": "2026-11-03T11:24:18.242613-06:00", "event": "turn_finished", "sid": "remite185", "turn": 0}
+{"ts": "2026-11-03T11:24:33.666838-06:00", "event": "subscribed", "sid": "remite185", "subscription": "s6h6wtg", "watching": "reply:trabaja185", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:33.667525-06:00", "event": "command", "sid": "trabaja185", "command": "/send trabaja185 --reply-to=remite185 Di trabajo185 otra vez en una palabra.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:33.670644-06:00", "event": "turn_started", "sid": "trabaja185", "need": 8088}
+{"ts": "2026-11-03T11:24:38.807807-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:24:38.808371-06:00", "event": "turn_cancelled", "sid": "trabaja185", "error": "turn_cancelled: reason='main is shutting down'", "reasoning": "", "answer": "", "joined": [], "origin": ["human"], "prompt": "Di trabajo185 otra vez en una palabra."}
+{"ts": "2026-11-03T11:24:38.840184-06:00", "event": "window_closed", "sid": "remite185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:38.840334-06:00", "event": "window_closed", "sid": "trabaja185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:38.855829-06:00", "event": "window_closed", "sid": "freno185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:24:38.855926-06:00", "event": "main_stopped", "main_id": "root"}
+{"ts": "2026-11-03T11:24:52.416123-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-03T11:24:52.417171-06:00", "event": "queue_paused", "server": "19932", "state": "None"}
+{"ts": "2026-11-03T11:24:52.422221-06:00", "event": "window_opened", "sid": "remite185"}
+{"ts": "2026-11-03T11:24:52.426466-06:00", "event": "window_opened", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:24:52.430289-06:00", "event": "window_opened", "sid": "freno185"}
+{"ts": "2026-11-03T11:24:52.430600-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 32000, "model_path": "Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T11:24:52.430782-06:00", "event": "queue_resumed", "server": "19932"}
+{"ts": "2026-11-03T11:24:52.519126-06:00", "event": "window_connected", "sid": "remite185"}
+{"ts": "2026-11-03T11:24:52.529079-06:00", "event": "window_connected", "sid": "trabaja185"}
+{"ts": "2026-11-03T11:24:52.543500-06:00", "event": "window_connected", "sid": "freno185"}
+{"ts": "2026-11-03T11:24:53.422715-06:00", "event": "turn_started", "sid": "remite185", "need": 9226}
+{"ts": "2026-11-03T11:25:00.454363-06:00", "event": "turn_finished", "sid": "remite185", "turn": 1}
+{"ts": "2026-11-03T11:25:15.116730-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T11:25:15.180718-06:00", "event": "window_closed", "sid": "remite185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:25:15.180826-06:00", "event": "window_closed", "sid": "trabaja185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:25:15.180906-06:00", "event": "window_closed", "sid": "freno185", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T11:25:15.180955-06:00", "event": "main_stopped", "main_id": "root"}
