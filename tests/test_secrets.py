@@ -24,7 +24,11 @@ from allin.main.events import (
     SessionCommandAsked,
     SessionCommandResult,
 )
+from allin.main.log import Log
+from allin.main.prompt_commands import kept_of_command
 from allin.main.quarantine import PieceRef, Quarantine
+from allin.main.reporting import Reporter
+from allin.main.sessions import Session
 from allin.ui.boxes import Box
 from allin.ui.screen import ShowBox
 from tests.test_attached import from_session
@@ -363,6 +367,206 @@ def test_another_unknown_command_in_mains_chat_is_still_kept_whole(main: MainHar
     )
 
 
+# Sent as @send <sid> @secret, or in a /send that does not fit, and what any Log keeps (#195)
+
+
+def window_errors(main: MainHarness, session: Session) -> list[str]:
+    [window] = main.windows(session.id)
+    return [m.text for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
+
+
+@pytest.mark.parametrize(
+    "send",
+    [
+        "@send {b} @secret set bot token {value}",
+        "@send {b} --reply-to={a} @secret set bot token {value}",
+        "@send {b} @send {a} @secret set bot token {value}",
+    ],
+)
+def test_sent_as_at_send_at_secret_from_a_window_it_runs_nothing_and_keeps_four_words(
+    main: MainHarness, tmp_path: Path, send: str
+):
+    a, b = main.create_session(), main.create_session()
+    typed = send.format(a=a.id, b=b.id, value=VALUE)
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, typed),
+        MainCommandEntered("/exit"),  # Main keeps its Drafts on disk
+        settle=True,
+    )
+    [error] = window_errors(main, a)
+    kept = typed.removesuffix(f" {VALUE}") + " …"
+    assert error.startswith(f"{kept}: secret_in_main_chat_only")
+    assert "/secret set <instance> <name>" in error
+    [window] = main.windows(a.id)
+    assert not any(isinstance(message, InputRestore) for message in window.sent)
+    assert main.state.load().drafts == {}
+    assert not any(entry.event == "prompt" for entry in main.session_log(b))  # nothing ran
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_typed_as_at_send_at_secret_in_mains_chat_it_shows_the_usage_and_keeps_four_words(
+    main: MainHarness, tmp_path: Path
+):
+    b = main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"@send {b.id} @secret set bot token {VALUE}"),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    [refused] = [line for line in chat if "secret_in_main_chat_only" in line]
+    assert refused.startswith(f"@send {b.id} @secret set bot token …: error")
+    assert f"@send {b.id} @secret set bot token …" in logged_commands(main)
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_sent_with_send_as_at_send_at_secret_it_reaches_no_draft(main: MainHarness, tmp_path: Path):
+    a, b = main.create_session(), main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"/send {a.id} @send {b.id} @secret set bot token {VALUE}"),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert any("secret_in_main_chat_only" in line for line in chat)
+    assert main.state.load().drafts == {}
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_a_draft_that_is_at_send_at_secret_is_not_kept(main: MainHarness, tmp_path: Path):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        DraftReceived(a.id, ("hola", f"@send {b.id} @secret set bot token {VALUE}")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert main.state.load().drafts == {a.id: ["hola"]}
+    assert files_with(tmp_path, VALUE) == []
+
+
+@pytest.mark.parametrize(
+    ("sent", "kept"),
+    [
+        ("/send {sid}\n@secret set bot token {value}", "/send {sid} @secret set bot token …"),
+        ("/send @secret set bot token {value}", "/send @secret set bot token …"),
+        ("/send -y {sid}\t@secret set bot token {value}", "/send {sid} @secret set bot token …"),
+    ],
+)
+def test_a_send_with_at_secret_that_does_not_fit_is_kept_cut_too(
+    main: MainHarness, tmp_path: Path, sent: str, kept: str
+):
+    session = main.create_session()
+    chat = main.run(
+        MainCommandEntered(sent.format(sid=session.id, value=VALUE)),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert kept.format(sid=session.id) in logged_commands(main)
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+@pytest.mark.parametrize(
+    ("typed", "kept"),
+    [
+        (
+            "@errand --to={b} @secret set bot token {value}",
+            "@errand --to={b} @secret set bot token …",
+        ),
+        (
+            '@errand {{"{b}": "@secret set bot token {value}"}}',
+            '@errand {{"{b}": "@secret set bot token …',
+        ),
+        (
+            '@batch --to={b} ["hola", "@send {a} @secret set bot token {value}"]',
+            '@batch --to={b} ["hola", "@send {a} @secret set bot token …',
+        ),
+    ],
+)
+def test_an_errand_from_a_window_with_an_at_secret_task_sends_nothing(
+    main: MainHarness, tmp_path: Path, typed: str, kept: str
+):
+    a, b = main.create_session(), main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, typed.format(a=a.id, b=b.id, value=VALUE)),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    [error] = window_errors(main, a)
+    assert error.startswith(f"{kept.format(a=a.id, b=b.id)}: secret_in_main_chat_only")
+    [window] = main.windows(a.id)
+    assert not any(isinstance(message, InputRestore) for message in window.sent)
+    assert not any(entry.event == "prompt" for entry in main.session_log(b))
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_an_errand_from_mains_chat_with_an_at_secret_task_sends_nothing(
+    main: MainHarness, tmp_path: Path
+):
+    a, b = main.create_session(), main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"/errand {a.id} --to={b.id} @secret set bot token {VALUE}"),
+        MainCommandEntered(f"/send {a.id} @errand --to={b.id} @secret set bot token {VALUE}"),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert len([line for line in chat if "secret_in_main_chat_only" in line]) == 2
+    assert not any(entry.event == "prompt" for entry in main.session_log(b))
+    assert main.state.load().drafts == {}
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_a_draft_with_any_command_session_that_names_at_secret_is_not_kept(
+    main: MainHarness, tmp_path: Path
+):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        DraftReceived(
+            a.id,
+            (
+                "what does @secret set bot token do, and why?",
+                f'@errand {{"{b.id}": "@secret set bot token {VALUE}"}}',
+            ),
+        ),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert main.state.load().drafts == {a.id: ["what does @secret set bot token do, and why?"]}
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_a_prompt_that_only_names_at_secret_still_goes(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, f"@send {b.id} what does @secret do?"),
+        MainCommandEntered(f"/send {b.id} and @secret set, what is it for?"),
+        settle=True,
+    )
+    assert window_errors(main, a) == []
+    prompts = [e.fields["text"] for e in main.session_log(b) if e.event == "prompt"]
+    assert prompts == ["what does @secret do?", "and @secret set, what is it for?"]
+
+
+@pytest.mark.parametrize("field", ["command", "runs"])
+def test_any_log_keeps_a_command_line_cut_at_its_at_secret(main: MainHarness, field: str):
+    session = main.create_session()
+    reporter = Reporter(lambda _: None, Log(main.main_log_path), main.sessions)
+    line = f"/whatever {session.id} --x @secret set bot token {VALUE}"
+    reporter.log_main("anything", **{field: line})
+    reporter.log_session(session.id, "anything", **{field: line})
+    kept = f"/whatever {session.id} --x @secret set bot token …"
+    assert main.main_log()[-1].fields[field] == kept
+    assert main.session_log(session)[-1].fields[field] == kept
+
+
 def test_it_goes_to_the_profile_it_was_asked_in_though_main_switched_meanwhile(
     main: MainHarness,
 ):
@@ -523,3 +727,35 @@ def test_started_again_because_its_reach_changed_it_gets_them_again(keeper: Main
     restarted = [e.fields["restarted"] for e in keeper.main_log() if e.event == "attached"]
     assert restarted == [False, True]
     assert seen == [FINGERPRINT]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "/send ab12 read ~/notes/secret and @./secret.txt, then tell me what you find there",
+        "/send ab12 @secretary set bot token for the next meeting tomorrow",
+        "/send ab12 my-@secret is no word of its own, nor is @secret_x here",
+        "@secret set bot token",
+    ],
+)
+def test_a_line_that_names_no_at_secret_word_or_no_more_than_four_is_kept_whole(line: str):
+    assert kept_of_command(line) == line
+
+
+def test_an_errand_whose_json_is_wrong_says_why_without_what_was_typed(
+    main: MainHarness, tmp_path: Path
+):
+    a, b = main.create_session(), main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, f'@errand {{"{b.id}": ["@secret set bot token {VALUE}"]}}'),
+        MainCommandEntered(f'/batch {a.id} --to={b.id} [["@secret set bot token {VALUE}"]]'),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    [error] = window_errors(main, a)
+    assert "errand_invalid" in error
+    assert "a valid string" in error
+    assert len([line for line in chat if "errand_invalid" in line]) == 2
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
