@@ -25,12 +25,17 @@ FAILED_BEFORE = "the turn before failed"
 
 
 def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
-    """What goes back to a Window's input as it opens: the Prompt of the Session's last failed
-    Turn and those dropped with it, in the order they were sent (#15), as they were typed
-    (#166), and only a human's: the others failed towards whoever sent them (#171). Nothing
-    once a later Prompt was sent, a later Turn ended, or they were given back to an open Window
-    already."""
+    """What goes back to a Window's input as it opens, in the order it would have with the
+    Window open, as it was typed (#166), and only a human's: the others failed towards whoever
+    sent them (#171).
+
+    The Prompt of the Session's last failed Turn, its Textos intercalados and the Prompts
+    dropped with it, in the order they were sent (#15, #174): nothing once a later Prompt was
+    sent or a later Turn ended. Ahead of them, a human's Prompts that did not fit even in the
+    empty slot, the last one first (#174): nothing once the human sent a later one. None of
+    them once given back to an open Window already."""
     texts: list[str] = []
+    unfit: list[str] = []
     failed = False  # the last Turn failed, and nothing since says its Prompts are told
     for entry in log:
         fields = entry.fields
@@ -40,6 +45,9 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
                 failed = isinstance(prompt, str)
                 human = _by_human(fields.get("origin"))
                 texts = [prompt] if isinstance(prompt, str) and human else []
+                if failed:  # its Textos intercalados are a human's, whatever its Origin
+                    joined: list[object] = fields.get("joined", [])
+                    texts += [text for text in joined if isinstance(text, str)]
             case "prompts_dropped" if failed and fields.get("reason") == FAILED_BEFORE:
                 dropped: list[object] = fields.get("typed") or fields.get("texts", [])
                 kinds: list[object] = fields.get("kinds", ["prompt"] * len(dropped))
@@ -50,11 +58,21 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
                     # never a queued Compaction
                     if isinstance(text, str) and kind == "prompt" and _by_human(origin)
                 ]
-            case "prompt" | "prompt_returned" | "turn_finished" | "turn_cancelled" | "rewound":
+            case "prompt_too_big":
+                typed = fields.get("typed")
+                if isinstance(typed, str) and _by_human(fields.get("origin")):
+                    unfit.insert(0, typed)
+            case "prompt":
+                texts, failed = [], False
+                if _by_human(fields.get("origin")):  # another's says nothing of the human's
+                    unfit = []
+            case "prompt_returned":
+                texts, unfit, failed = [], [], False
+            case "turn_finished" | "turn_cancelled" | "rewound":
                 texts, failed = [], False
             case _:
                 pass
-    return texts
+    return [*texts, *unfit]
 
 
 def prompt_history(log: Iterable[LogEntry]) -> list[str]:
