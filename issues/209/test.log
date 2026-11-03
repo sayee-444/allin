@@ -24,14 +24,14 @@ Valor de prueba tecleado: xoxb-209-valor-de-prueba (inventado).
    - <data-dir>/profiles/default/state.json: "drafts": {}
    - grep -rl xoxb-209 <data-dir>: nada.
 5. Se borró y se tecleó con Enter el @ escapado como en JSON (04-caja-escapado.png, cuarta línea de error):
-   @errand {"otra209": "@secret set bot token xoxb-209-valor-de-prueba"}
+   @errand {"otra209": "\u0040secret set bot token xoxb-209-valor-de-prueba"}
    -> «[error] @errand {"otra209": "@secret set bot token …: secret_in_main_chat_only…», y no volvió a la entrada.
    Después, la misma línea quedó en la entrada sin Enter (Borrador): state.json "drafts": {}; grep -rl: nada.
    (03-caja-borrador.png es el Borrador del paso 4.)
 6. /exit en Main (guarda el Estado de Main por última vez y cierra la Ventana).
    - state.json: "drafts": {}; grep -rl xoxb-209 <data-dir>: nada.
 7. Log de Main y de las Sesiones (05-logs.jsonl): cada línea de comando con @secret acaba en «@secret set bot token …»,
-   también la del @ (que el Log guarda ya leída: «"@secret set bot token …»); otra209 no tiene ningún evento prompt.
+   también la del \u0040 (que el Log guarda ya leída: «"@secret set bot token …»); otra209 no tiene ningún evento prompt.
 
 ## Criterios
 1. Ninguna de las formas deja el valor en la entrada, el Borrador, state.json, el Log, el Chat ni la Conversación:
@@ -44,7 +44,7 @@ Valor de prueba tecleado: xoxb-209-valor-de-prueba (inventado).
    - opción entre comillas desde una Ventana: test_sent_as_at_send_with_a_quoted_option_from_a_window_it_runs_nothing
    - opción entre comillas pedida por una herramienta: test_asked_as_at_send_with_an_option_by_a_tool_it_is_refused[2]
    - texto entre comillas: test_sent_as_at_secret_in_quotes_it_sends_nothing[Ventana, Chat de Main]
-   - escapes de JSON en la tarea de un Encargo (@, \n, \t,  ):
+   - escapes de JSON en la tarea de un Encargo (\u0040, \n, \t, \u0020):
      test_an_errand_whose_json_escapes_its_at_secret_task_sends_nothing_and_keeps_four_words[4]
 2. Un solo reconocedor (read_secret en prompt_commands.py) que usan el recorte del Log (Reporter), el rechazo
    (MainCommands.run, SessionCommands.run y run_initiative, _errand) y la vuelta a la entrada (OpenWindows.put_back y
