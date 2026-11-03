@@ -19,7 +19,7 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
     - una Ventana podía cancelar el recuadro: ahora un recuadro solo lo contesta el Chat de Main o la Ventana de su Sesión;
     - el archivo no se validaba al leerlo.
   - Métricas: 1700 tests, cobertura 85 %, mutación 93 %, 41 escapes. Antes: #123 Iniciativa de una fproc, Externos y Subperfil.
-- **Siguiente:** F2 está completa y no queda ningún issue `ready-for-agent`. Lo siguiente es la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
+- **Siguiente:** #153, primero de «Pre-RAG · Pendientes de F2» (#153–#159): lo que quedó de F2, con dos decisiones de #123 ceñidas a ADR-0026 y los pendientes menores. Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -83,7 +83,7 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Que lo que no cabe en lo que le queda al slot (contado a un token por carácter) espere su Turno en vez de entrar?
   - ¿Que lo escrito mientras el Prompt anterior aún esperaba slot cuente como el siguiente Prompt y no entre en su Turno?
   - ¿Que, al cortar con Shift+Enter unas tools que seguían corriendo, el LLM lea en cada llamada que se cortó y que pudo hacer parte de su trabajo?
-  - Al cancelarse un Turno (cerrar la Ventana), lo intercalado vuelve al Borrador, aunque el Prompt de ese Turno todavía no vuelve (pendiente menor ya anotado).
+  - Al cancelarse un Turno (cerrar la Ventana), lo intercalado vuelve al Borrador, aunque el Prompt de ese Turno todavía no vuelve (#156).
 
   Sobre #122:
   - ¿Le vale que `@open` sea también un Command session? El issue nombraba `@bg`, `@close` y `@windows`, pero la fsource lo necesita para traer una Sesión.
@@ -93,27 +93,25 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Que la lista que pide una tool no se escriba en el Chat de Main? La ve la Ventana de la Sesión, como salida de la tool; lo que teclea un humano sí sale.
   - ¿Que, con una cadena de varias Sesiones, cada una tenga que ser la destino o su creadora para que `@bg` la mande a segundo plano?
   - Un LLM aún no tiene cómo crear Sesiones, salvo con un módulo de `comsession/` que escriba un humano; las Sesiones que crea una fproc llegan con #123.
-
-  Sobre #123:
-  - ¿Le vale que la identidad del Externo vaya también en la cabecera que lee el LLM? El issue decía «solo se anota para el Log y la memoria». Sin ella, el LLM de un bot no sabe con quién habla.
-  - ¿Que una fproc sin `@subprofile` no tenga ninguna iniciativa, ni siquiera `@send` a las Sesiones del Perfil? El issue solo prohibía crear Sesiones sin Subperfil.
-  - ¿Que la clase de Admisión «fproc» valga para todo Prompt cuyo último actor es un proceso (también dentro de una llamada), y vaya detrás de los de Sesiones, no solo de los humanos?
-  - ¿Que el tope `turns` sea 1 por defecto (uno de los dos slots)?
-  - ¿Que «no sale del Subperfil» quiera decir una tool que solo toca `work`, sin red, display ni commands, y nunca un método de fproc?
-  - ¿Que las Sesiones del Subperfil no puedan crear Sesiones, adherir procesos ni usar `/status`, `/errand` o `/batch`?
-  - ¿Que `/subprofile` sea solo humano, y que el Subperfil quede ligado a su fproc (otra adherida con el mismo nombre recibe `subprofile_of_another`)?
-  - ¿Que `@new` sea un Command session que la fproc declara por nombre en `@reach(commands=…)`?
-  - Ningún comando borra Sesiones: hoy solo un humano, a mano. Las Sesiones de una fproc que se va quedan en su Subperfil, congeladas.
-
-  Sobre #124:
-  - ¿Le vale que el valor se pida en un recuadro del Chat de Main, con un punto por carácter, y que Enter con el recuadro vacío lo cancele? Esc no sirve: el lector de teclas descarta un ESC suelto.
-  - ¿Que un Secreto puesto o quitado con el proceso en marcha llegue solo en la siguiente adhesión, no en caliente?
-  - ¿Que el valor sea una sola línea de hasta 8192 caracteres, sin caracteres de control (un pegado pierde sus saltos de línea)?
-  - ¿Que se guarde en claro, con permisos 600, y no cifrado? Main no tiene dónde guardar una clave que no esté en el mismo disco.
-  - ¿Que la fproc lo reciba en claro con `self.secret(...)`, y que no pasárselo al LLM dependa de su código aprobado?
-  - ¿Que haya también `/secret list <instancia>`, y que se pueda poner un Secreto antes de adherir la instancia por primera vez?
-  - Cambio general: un recuadro ya solo lo contesta el Chat de Main o la Ventana de su propia Sesión.
-- **Queda pendiente, menor:** no hay `@secret`: si alguien teclea en una Ventana `@secret set … <valor>`, el Log lo guarda entero, como cualquier `@…` desconocido; en la Ventana, el Prompt que trae una fproc o una Sesión sale con el nombre del humano como etiqueta (`[sayee]`), aunque la cabecera diga de quién viene; quedan dos duplicaciones de #123 (la iniciativa frente a los Command sessions de Sesión, y `@new` de la fproc frente a `/new`); tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
+- **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
+- **Respuestas sobre #123 y #124 (2026-11-03):** ante cada pregunta, lo que más se apega a los ADR y a la lógica del proyecto.
+  - Quedan como estaban, de #123:
+    - sin `@subprofile` no hay Iniciativa;
+    - `turns` es 1 por defecto;
+    - «no sale del Subperfil» es una tool que solo toca su Carpeta de trabajo, sin red, pantalla ni Command sessions, y nunca un método de fproc;
+    - las Sesiones del Subperfil no crean Sesiones, no adhieren procesos ni usan `/status`, `/errand` o `/batch`;
+    - `/subprofile` es solo humano, y el Subperfil queda ligado a su fproc;
+    - `@new` se declara por nombre en el Alcance;
+    - ningún comando borra Sesiones.
+  - Queda todo #124 como estaba:
+    - el valor se pide en un recuadro con puntos, y Enter vacío cancela;
+    - un cambio llega en la siguiente adhesión;
+    - el valor es una línea de hasta 8192 caracteres, en claro, con permisos 600;
+    - la fproc lo lee en claro;
+    - hay `/secret list <instancia>`, y se puede poner antes de adherir;
+    - un recuadro solo lo contesta el Chat de Main o la Ventana de su Sesión.
+  - Cambian dos decisiones, que se apartaban de ADR-0026 (#153): la identidad del Externo ya no va en la cabecera que lee el LLM, solo en el Log y en el Turno guardado; y solo el Prompt de la Iniciativa va detrás en la Admisión, no el que manda un método durante una llamada.
+  - Los pendientes menores pasan a issues, para resolverlos cuanto antes (#154–#159).
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
 - **Decidido en el grilling del aislamiento:** cada proceso de tool y de Proceso adherido se encierra con Landlock y seccomp según su Alcance (`@reach`), con Carpeta de trabajo por Sesión y la carpeta de datos siempre fuera; llega al comienzo de F2 y F4 desaparece (ADR-0016).
@@ -208,6 +206,18 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 24. ✅ #122 La fsource `windows`
 25. ✅ #123 Iniciativa de una fproc, Externos y Subperfil
 26. ✅ #124 Secretos
+
+## Pre-RAG · Pendientes de F2
+
+Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelven a ceñirse a ADR-0026 y los pendientes menores.
+
+1. #153 La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026
+2. #154 La Ventana rotula cada Prompt por su Origen
+3. #155 `@secret` tecleado en una Ventana no deja su valor en el Log
+4. #156 El Prompt humano de un Turno cancelado al cerrar la Ventana vuelve al Borrador
+5. #157 Tras compactar, el borde muestra el Contexto nuevo
+6. #158 Un Supervisor que propone un Kit avisa si su modelo no está
+7. #159 Quitar las duplicaciones que dejó #123 (tras #153)
 
 ## RAG · Memoria de consulta
 
