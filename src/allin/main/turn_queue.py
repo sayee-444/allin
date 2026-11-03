@@ -1321,7 +1321,7 @@ class TurnQueue:
         the queue with the Steps it ended, whose tools do not run again, and its next Step
         measures the compacted Conversation first (ADR-0017, ADR-0023)."""
         session_id = running.session.id
-        shown = "compacting before its next Step"
+        shown = "its next Step may not fit: measured again first, it compacts if it must"
         self._reporter.record(session_id, "turn_yielded", shown, steps=len(running.streamed.steps))
         self._windows.send(session_id, ChatAppend(role="info", label="context", text=shown))
         steps = tuple(running.streamed.steps)
