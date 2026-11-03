@@ -26,11 +26,13 @@ Su Subperfil tiene un tope de 2 Turnos a la vez, uno para la Charla y otro para 
 
 ## La Charla
 
-Cada encuentro es una Sesión de su Subperfil, la Charla. Empieza cuando alguien toma la palabra y termina cuando el Personaje se va del lugar o tras una pausa sin que nadie hable (un Ajuste, 30 minutos por defecto). La continuidad entre Charlas viene de su memoria, con las Pistas y sus Relaciones: si el usuario le habla a las 10:00 y vuelve a las 11:00, son dos Charlas, y en la segunda una Pista le recuerda la primera. Se descartó una Sesión eterna, que perdería detalle en cada Compactación (ADR-0017).
+Cada encuentro es una Sesión de su Subperfil, la Charla. Empieza cuando alguien toma la palabra. Termina cuando el Personaje la da por terminada, por ejemplo porque el usuario se despidió, cuando se va del lugar o tras una pausa sin que nadie más hable (un Ajuste, 30 minutos por defecto). La cierra con un método de su fproc, y su Reposo empieza enseguida. La pausa cuenta desde lo último que dijo otra persona, así que sus propios mensajes no la alargan. La continuidad entre Charlas viene de su memoria, con las Pistas y sus Relaciones: si el usuario le habla a las 10:00 y vuelve a las 11:00, son dos Charlas, y en la segunda una Pista le recuerda la primera. Se descartó una Sesión eterna, que perdería detalle en cada Compactación (ADR-0017).
 
 Su Ventana es la de la Charla en curso. Las Sesiones de su Subperfil nacen en segundo plano (ADR-0026): el usuario abre la Charla en curso desde el Organizador y escribe con Origen humano, así que su teclado conserva la autoridad. Su fproc abre y cierra las Charlas con su Iniciativa. Cuando la pausa cierra una, deja abierta la siguiente; si nadie ha escrito en ella cuando termina su reflexión, la cambia por una con el Autorretrato nuevo. Para eso Main le avisa a su fproc cuando termina cada Turno de las Sesiones de su Subperfil, también los que escribe el usuario: hoy las Suscripciones solo despiertan Sesiones. Se descartó que el usuario le escribiera a su fproc como un Externo, porque perdería la autoridad del teclado en su Ventana.
 
 Puede escribirle primero al usuario. Al terminar un Reposo, si concluyó algo que quiere contarle, le escribe en la Charla que dejó lista. Si escribe o no lo decide el Personaje, con un tope que es un Ajuste de su fproc: una vez por Reposo, por defecto. Su fproc muestra entonces un Aviso «te escribió», sin el texto, que sale en el Chat de Main si su Ventana está cerrada. No lo interrumpe: que le hable en el momento, sin que le hablen, queda para el tramo de la voz.
+
+En una Charla abierta siente los silencios. Cuando el usuario lleva un rato sin escribir, su fproc se lo dice («lleva 5 minutos sin escribir»). El Personaje decide si le vuelve a escribir o lo deja tranquilo, porque piensa que está concentrado o que se fue. Los momentos son Ajustes de su fproc, a los 5 y a los 15 minutos por defecto. En su Ventana, el usuario ve ese aviso con el rótulo de su fproc, porque es lo que el Personaje percibe.
 
 Cada Charla es también la unidad que el usuario marca, o no, para entrenar al modelo de voz. La marca o la desmarca un comando de Main, solo de un humano. Se exporta como JSONL, una Charla por línea, en mensajes `system`, `user` y `assistant`, que leen Unsloth y LLaMA-Factory. Cada una va con su Sysprompt, su Autorretrato y sus líneas de voz interior, tal como las vio el 9B, para que aprenda a hablar con ellos delante. Una Charla con una Confidencia nunca se exporta (ADR-0029).
 
@@ -39,6 +41,17 @@ Está en un solo lugar a la vez. De otro lugar solo le llega una línea, sin el 
 Su voz interior va dentro de la propia Charla. Cuando lo interrumpen, su fproc corta lo que estaba diciendo y le pasa lo que oye. El Personaje anota en una línea, sin decirla, si cede, insiste o retoma después. Se descartó una Sesión aparte que pensara en paralelo, por lo medido en «La GPU».
 
 Esa línea va marcada al principio de su respuesta, como «(pienso: cedo; lo del viaje lo retomo después)», y sale en la misma generación. Se descartó una tool `pensar`, que costaría una vuelta más por cada pensamiento, y en AllIn cada llamada lanza un proceso (ADR-0005). También se descartó el razonamiento propio del modelo, que piensa demasiado antes de hablar. El formato vive en su Sysprompt y en su fproc, no en Main. En su Ventana el usuario la ve; en Discord y en la voz, su fproc la quita.
+
+## Tomar la palabra en la voz
+
+En la voz, el código detecta los momentos y el Personaje decide qué hace en cada uno. El código detecta el fin de cada frase, que alguien empieza a hablar mientras él habla y los silencios. Al final de cada frase que oye, el Personaje decide si cede, espera, dice «ajá» o interrumpe. Así puede cortar a alguien cuando algo le molesta o le importa. Cada decisión es un Turno corto del 9B, y seguir en el mismo slot cuesta 0,07 s.
+
+De pipecat y LiveKit se toman tres cosas:
+- para cortarlo hacen falta unas palabras, así que un «ajá» o una tos no lo cortan;
+- si lo cortó un ruido sin palabras, sigue donde iba;
+- su TTS genera por frases, para saber qué alcanzó a decir antes del corte.
+
+Los umbrales y un tope de interrupciones son Ajustes de su fproc. La latencia, los grupos y a quién le habla quedan para el grilling del tramo de la voz.
 
 ## La voz del usuario no da autoridad
 
