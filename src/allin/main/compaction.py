@@ -109,6 +109,7 @@ def compacted(conversation: Conversation, summary: str, replaced: int) -> Conver
             "summarized": conversation.summarized + replaced,
             "turns": conversation.turns[replaced:],
             "pruned": max(0, conversation.pruned - replaced),
+            "compacted_since_turn": True,
             # With every Turn replaced, the next Prompt still tells how the last one was cut.
             "summarized_cut": last_cut(conversation)
             if replaced >= len(conversation.turns)

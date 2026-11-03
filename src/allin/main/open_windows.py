@@ -1,7 +1,7 @@
 """The Windows Main has open, what it sends them and the Draft each one last sent."""
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from pydantic import BaseModel, JsonValue
@@ -66,6 +66,15 @@ class Streamed:
     steps: list[Step] = field(default_factory=list[Step])  # ended so far
 
 
+@dataclass(frozen=True)
+class _Compacted:
+    """The Conversation a Compactación saved and its Context, as the Server measured it;
+    ``None`` until it does, or if it cannot (#157)."""
+
+    conversation: Conversation
+    context: int | None = None
+
+
 class OpenWindows:
     def __init__(
         self,
@@ -98,6 +107,9 @@ class OpenWindows:
         self._uses = 0
         self._maximum = WINDOWS_MAX_DEFAULT
         self._asking: Callable[[SessionId], bool] = lambda _: False
+        # What each Session's last Compactación left, until a Turn's Step shows another
+        # Context: what its border shows, rather than the Context of before (#157).
+        self._compacted: dict[SessionId, _Compacted] = {}
 
     def use_themes(self, themes: ThemeKeeper) -> None:
         """What resolves each Window's Theme (#47); without it, Windows show the built-in."""
@@ -229,9 +241,58 @@ class OpenWindows:
         self.send(session.id, _delta(session, kind, text))
 
     def show_context(self, session: Session, steps: list[Step]) -> None:
-        """Show the Window the Context ``steps`` leave and how fast the last one generated."""
+        """Show the Window the Context a Turn's ``steps`` leave and how fast the last one
+        generated; what a Compactación measured before them no longer holds."""
+        self._compacted.pop(session.id, None)
+        self._send_usage(session, context_tokens(steps), steps)
+
+    def show_saved(self, session: Session, conversation: Conversation) -> None:
+        """Show the Window the Context its saved ``conversation`` leaves (``saved_context``)."""
+        compacted = self._compacted.get(session.id)
+        if compacted is not None and compacted.conversation != conversation:
+            # It changed since, by a Rewind say: a measure still to come no longer holds.
+            del self._compacted[session.id]
+        context = self.saved_context(session.id, conversation)
+        self._send_usage(session, context, _last_turn_steps(conversation))
+
+    def saved_context(self, session_id: SessionId, conversation: Conversation) -> int | None:
+        """The Context its saved ``conversation`` leaves: what the Server measured of it, if
+        a Compactación saved it after its last Turn; unknown if it could not, or if this Main
+        did not see it measured; else its last Turn's."""
+        compacted = self._compacted.get(session_id)
+        if compacted is not None and compacted.conversation == conversation:
+            return compacted.context
+        if conversation.compacted_since_turn:
+            return None
+        return context_tokens(_last_turn_steps(conversation))
+
+    def compacted(self, session: Session, conversation: Conversation) -> None:
+        """A Compactación saved ``conversation``: its Context is unknown until the Server
+        measures it, never the one before (#157)."""
+        self._compacted[session.id] = _Compacted(conversation)
+        self._send_usage(session, None, _last_turn_steps(conversation))
+
+    def compacted_measured(self, session: Session, context: int | None) -> None:
+        """What the Server measured of the Conversation the last Compactación saved; nothing
+        if a Turn's Step showed another Context since. ``None``: it could not measure."""
+        compacted = self._compacted.get(session.id)
+        if compacted is None:
+            return
+        self._compacted[session.id] = replace(compacted, context=context)
+        self._send_usage(session, context, _last_turn_steps(compacted.conversation))
+
+    def _show_current(
+        self, session: Session, streamed: Streamed | None, conversation: Conversation
+    ) -> None:
+        """The running Turn's Context, if a Step of it ended; else the saved one's."""
+        if streamed is not None and streamed.steps:
+            self.show_context(session, streamed.steps)
+        else:
+            self.show_saved(session, conversation)
+
+    def _send_usage(self, session: Session, context: int | None, steps: list[Step]) -> None:
         usage = ContextUsage(
-            context=context_tokens(steps),
+            context=context,
             limit=self.context_limit(session),
             tokens_per_second=tokens_per_second(steps),
         )
@@ -256,7 +317,7 @@ class OpenWindows:
                 self.show_error(error, session_id)
                 continue
             conversation = conversation or Conversation(sysprompt="")
-            self.show_context(session, _last_steps(streamed.get(session_id), conversation))
+            self._show_current(session, streamed.get(session_id), conversation)
 
     def set_in_course(self, server: ServerKey, sessions: frozenset[SessionId]) -> None:
         """The Sessions whose Steps are in course on ``server``'s shared pool, whatever Main
@@ -405,7 +466,7 @@ class OpenWindows:
         history = prompt_history(log)
         if history:  # what Up brings back to its input (#22)
             self.send(session.id, PromptHistory(prompts=history))
-        self.show_context(session, _last_steps(streamed, conversation))
+        self._show_current(session, streamed, conversation)
         if streamed is not None:  # what the running Turn has streamed so far; it goes on
             if streamed.reasoning:
                 self.send(session.id, _delta(session, "reasoning", streamed.reasoning))
@@ -413,10 +474,8 @@ class OpenWindows:
                 self.send(session.id, _delta(session, "answer", streamed.answer))
 
 
-def _last_steps(streamed: Streamed | None, conversation: Conversation) -> list[Step]:
-    """The Steps whose Context the Window shows: the running Turn's, else the last Turn's."""
-    if streamed is not None and streamed.steps:
-        return streamed.steps
+def _last_turn_steps(conversation: Conversation) -> list[Step]:
+    """The Steps of its last Turn, whose Context it holds unless a Compactación followed."""
     return conversation.turns[-1].steps if conversation.turns else []
 
 

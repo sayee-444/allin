@@ -125,5 +125,7 @@ def test_compacting_replaces_the_first_turns_by_the_summary_and_counts_them():
         sysprompt="s", summary="old", summarized=2, turns=[turn("a"), turn("b"), turn("c")]
     )
     assert compacted(conversation, "new", replaced=2) == Conversation(
-        sysprompt="s", summary="new", summarized=4, turns=[turn("c")]
+        sysprompt="s", summary="new", summarized=4, turns=[turn("c")], compacted_since_turn=True
     )
+    # Its next Turn's Steps tell its Context again (#157).
+    assert not compacted(conversation, "new", 2).with_turn(turn("d")).compacted_since_turn

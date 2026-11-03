@@ -11,6 +11,7 @@ from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
 from allin.core.errors import TurnYielded
 from allin.core.ids import CommandName, PieceId
+from allin.ipc.messages import ContextUsage
 from allin.main.compaction import CLOSING
 from allin.main.conversation import Conversation, Step, Turn, summary_item
 from allin.main.descriptions import Descriptions
@@ -216,6 +217,26 @@ def test_a_turn_whose_tools_fill_its_slot_compacts_between_its_steps_and_goes_on
     assert first[1] == {"role": "user", "content": "p0"}  # before it compacted
     assert events(main, session).count("tools_called") == 1
     assert "turn_yielded" in events(main, session)
+
+
+def test_a_turn_that_yields_to_compact_shows_the_compacted_context_until_its_next_step(
+    tooled_main: MainHarness,
+):
+    main = tooled_main
+    session = main.sessions.save_functions(main.create_session(), (PieceId("function:voice"),))
+    seed(main, session, [talked(n) for n in range(3)])
+    main.llm = FakeLlm(
+        tool_call("shout", json.dumps({"text": LONG})), reply("We talked."), reply("done")
+    )
+    main.run(
+        MainCommandEntered(f"/open {session.id}"), InputReceived(session.id, "lee"), settle=True
+    )
+    assert "turn_yielded" in events(main, session)
+    [window] = main.windows(session.id)
+    borders = [m.context for m in window.sent if isinstance(m, ContextUsage)]
+    # Its Sysprompt, the summary of p0 (5 + 2) and p1 and p2 literal, not its own Turn yet
+    # (#157); then its second Step's own.
+    assert borders[-3:] == [None, 6 + 7 + 200, 101]
 
 
 def test_a_turn_whose_saved_turns_fit_in_keep_does_not_stop_for_nothing(

@@ -125,6 +125,9 @@ class Compactions:
         self._tried: set[SessionId] = set()
         # What the Prompt an automatic Compaction makes room for needs, by its Session.
         self._wanted: dict[SessionId, int] = {}
+        # The measure of what each Session's last Compaction saved, for its border (#157):
+        # its ticket and the Session.
+        self._contexts: dict[SessionId, tuple[int, Session]] = {}
         # Hears each Compactación done: the Session, how many first Prompts the summary has
         # and who asked it, for its Suscripciones (#116).
         self.on_compacted: Compacted = _heard_by_nobody
@@ -154,6 +157,22 @@ class Compactions:
         """Whether its next summary Step goes on after one already done: a Continuation."""
         work = self._works.get(session_id)
         return work is not None and work.done > 0
+
+    def context_measured(self, session_id: SessionId, ticket: int, tokens: int | None) -> bool:
+        """Whether ``ticket`` measured the Conversation the Session's last Compaction saved;
+        if so, its Window's border shows it."""
+        asked = self._contexts.get(session_id)
+        if asked is None or asked[0] != ticket:
+            return False
+        del self._contexts[session_id]
+        session = asked[1]
+        if tokens is None:
+            shown = (
+                "the Server could not measure the compacted Conversation: its Context is unknown"
+            )
+            self._reporter.log_session(session_id, "context_unmeasured", text=shown)
+        self._windows.compacted_measured(session, tokens)
+        return True
 
     def owns(self, session_id: SessionId, ticket: int) -> bool:
         work = self._works.get(session_id)
@@ -350,6 +369,7 @@ class Compactions:
         )
         for entry in compacted_entries(after.summarized, work.summary):
             self._windows.send(session_id, entry)
+        self._show_context(work, after)
         self._done(work, work.summarize, "summarized")
 
     def _prune(self, work: _Work, count: int, saved: int) -> None:
@@ -358,7 +378,8 @@ class Compactions:
         session_id = work.session.id
         self._settle(work)
         conversation = work.conversation
-        after = conversation.model_copy(update={"pruned": max(conversation.pruned, count)})
+        pruned = max(conversation.pruned, count)
+        after = conversation.model_copy(update={"pruned": pruned, "compacted_since_turn": True})
         self._sessions.save_conversation(work.session, after)
         first, last = _numbers(conversation, count)
         shown = (
@@ -367,6 +388,7 @@ class Compactions:
         )
         self._reporter.record(session_id, "pruned", shown, first=first, last=last, saved=saved)
         self._windows.send(session_id, ChatAppend(role="info", label="context", text=shown))
+        self._show_context(work, after)
         self._done(work, count, "pruned")
 
     def _settle(self, work: _Work) -> None:
@@ -379,6 +401,15 @@ class Compactions:
         self._wanted.pop(session_id, None)
         if work.entry.kind == "auto_compact":
             self._tried.add(session_id)
+
+    def _show_context(self, work: _Work, after: Conversation) -> None:
+        """Its Window's border leaves the Context of before at once, and shows ``after``'s
+        as the Server measures it, the way the Admission measures (#157)."""
+        session = work.session
+        self._windows.compacted(session, after)
+        ticket = next(self._tickets)
+        self._contexts[session.id] = (ticket, session)
+        self._measure(work.server, session.id, ticket, after.read_items())
 
     def _done(self, work: _Work, count: int, kind: CompactionKind) -> None:
         conversation = work.conversation

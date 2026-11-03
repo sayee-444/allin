@@ -512,7 +512,9 @@ class TurnQueue:
         self, server: ServerKey, session_id: SessionId, ticket: int, tokens: int | None
     ) -> None:
         """The Server measured the input of a Session's next Prompt, or something its
-        Compaction asked."""
+        Compaction asked, or what one saved."""
+        if self._compactions.context_measured(session_id, ticket, tokens):
+            return
         if self._compactions.owns(session_id, ticket):
             self._compaction_measured(session_id, ticket, tokens)
             return
@@ -1522,11 +1524,10 @@ class TurnQueue:
         saved = self._sessions.save_settings(session, settings)
         shown = f"Enlace changed to {link.describe()}"
         self._tell_session(saved.id, "link_changed", shown, server=link.key)
-        conversation = self._sessions.load_conversation(saved)
-        steps = conversation.turns[-1].steps if conversation and conversation.turns else []
-        self._windows.show_context(saved, steps)
+        conversation = self._sessions.load_conversation(saved) or Conversation(sysprompt="")
+        self._windows.show_saved(saved, conversation)
         state = self._states.get(link.key)
-        context = context_tokens(steps)
+        context = self._windows.saved_context(saved.id, conversation)
         if isinstance(state, ServerReady) and context is not None:
             limit = state.props.slot_context
             if context > limit:
