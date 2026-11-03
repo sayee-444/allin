@@ -319,6 +319,43 @@ def run(call):
     assert [problem.code for problem in loaded.problems] == ["session_command_failed"]
 
 
+def test_a_module_that_declares_secret_never_runs_it(main: MainHarness, tmp_path: Path):
+    # A Secreto is given in Main's Chat alone (#155): no module makes @secret a Command session.
+    folder = tmp_path / "comsession"
+    folder.mkdir()
+    (folder / "secret.py").write_text("""
+from allin.session_commands import session_command
+
+
+@session_command("secret", usage="@secret", summary="test")
+def run(call):
+    return "/help"
+""")
+    loaded = load_session_command_types(folder)
+    assert "secret" in loaded.types
+    a = main.create_session()
+    ran: list[str] = []
+
+    def run_main(text: str, origin: Origin, done: Callable[[CommandOutcome], None]) -> bool:
+        ran.append(text)
+        done("ok")
+        return True
+
+    reporter, notifications = notifications_of(main)
+    commands = SessionCommands(
+        loaded, main.sessions, main.sessions.load, run_main, reporter, notifications
+    )
+    answers: list[SessionCommandResult] = []
+
+    def heard(result: SessionCommandResult) -> bool:
+        answers.append(result)
+        return True
+
+    commands.run(a.id, "@secret set bot token xoxb-1", HUMAN, heard)
+    [refused] = answers
+    assert ran == [] and str(refused.error).startswith("secret_in_main_chat_only")
+
+
 @pytest.mark.parametrize(
     ("state", "answered"),
     [

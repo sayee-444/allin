@@ -21,12 +21,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
 from allin.core.errors import ParamOverrideInvalid, SessionCommandInPrompt
+from allin.core.ids import CommandName
 from allin.core.settings import Sampling
 
 _OVERRIDE = re.compile(r"@([a-z_]+)=(\S*)")
 _REFERENCE = re.compile(r"@((?:/|~|\./)\S*)")
 _COMMAND_SESSION = re.compile(r"\s*@([a-z][a-z0-9_]*)(?:\s|$)")
 _SPACE = re.compile(r"(\s+)")
+# Never a Command session: ``/secret`` is Main's Chat's alone (#155).
+_SECRET = CommandName("secret")
 # One option of ``/send``'s structured form, with the one space after it; ``--`` alone ends them.
 _SEND_OPTION = re.compile(r'\s*--(?:(?P<key>[a-z_-]+)=(?P<value>"(?:[^"\\]|\\.)*"|\S+))?(?:\s|$)')
 # Sent as arguments of the SDK, as the Session's Sampling settings are.
@@ -96,6 +99,12 @@ def session_command_name(text: str) -> str | None:
     """The name of the Command session ``text`` is, if it starts with one (``@word``)."""
     command = _COMMAND_SESSION.match(text)
     return command.group(1) if command is not None else None
+
+
+def is_secret_command(text: str) -> bool:
+    """Whether ``text`` is ``@secret …``, which may hold a Secreto's value typed by mistake:
+    no Log, Chat or Draft keeps more than its first four words (#155)."""
+    return session_command_name(text) == _SECRET
 
 
 def parse_prompt(text: str) -> ParsedPrompt:

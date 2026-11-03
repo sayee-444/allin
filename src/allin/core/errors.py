@@ -435,6 +435,13 @@ class SecretInvalid(AllInError):
     code: ClassVar[str] = "secret_invalid"
 
 
+class SecretInMainChatOnly(AllInError):
+    """A Secreto is given with ``/secret`` in Main's Chat alone, never as ``@secret`` in a
+    Window or by a tool; ``usage`` shows it (#155, ADR-0026)."""
+
+    code: ClassVar[str] = "secret_in_main_chat_only"
+
+
 class InitiativeRefused(AllInError):
     """Between calls an fproc runs only the Command sessions that act on its own Sessions:
     ``@new``, ``@send``, ``@open`` and ``@close`` (ADR-0026)."""
