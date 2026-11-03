@@ -240,8 +240,10 @@ def test_a_turn_cut_as_it_stops_to_compact_is_cut_and_does_not_come_back(main: M
     main.threaded_turns, main.hold_turns = False, True
     main.run(
         InputReceived(session.id, "lee"),
-        ToolsStarted(session.id, ("shout",)),
-        ToolsEnded(session.id, 600),  # its next Step would pass the threshold: it stops
+        ToolsStarted(session.id, ("shout",), Step(output=[])),
+        ToolsEnded(
+            session.id, Step(output=[]), 600
+        ),  # its next Step would pass the threshold: it stops
         InputReceived(session.id, "", interrupt=True),  # and is cut before it did
         TurnEnded(session.id, error=TurnYielded()),
         settle=True,

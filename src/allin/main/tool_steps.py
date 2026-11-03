@@ -187,7 +187,7 @@ class SessionTools:
         announces to ``announced``; ``prompt_id``: the Turn's Prompt, which the tool may ask
         for. Raises ``ToolCancelled`` if ``stop`` took it down."""
         self._prompt_id, self._announced = prompt_id, announced
-        return _call_output(call, self._output(call, stop, ask_main))
+        return call_output(call, self._output(call, stop, ask_main))
 
     def _output(self, call: Item, stop: Callable[[], bool], ask_main: AskMain) -> str:
         name: object = call.get("name")
@@ -241,7 +241,8 @@ class SessionTools:
 _ARGUMENTS = TypeAdapter(dict[str, JsonValue])
 
 
-def _call_output(call: Item, output: str) -> Item:
+def call_output(call: Item, output: str) -> Item:
+    """``output`` as what gave back the ``function_call`` ``call``."""
     call_id: object = call.get("call_id")
     return {"type": "function_call_output", "call_id": call_id, "output": output}
 
@@ -315,10 +316,10 @@ class ToolGate:
         for call, may_run in zip(calls, allowed, strict=True):
             turn.cancellation.check()
             if self._tools is None:  # a Turn without tools: the LLM called one it does not have
-                results.append(_call_output(call, _no_tool(_name(call))))
+                results.append(call_output(call, _no_tool(_name(call))))
                 continue
             if not may_run:
-                results.append(_call_output(call, REFUSED))
+                results.append(call_output(call, REFUSED))
                 continue
             try:
                 results.append(
@@ -337,7 +338,7 @@ class ToolGate:
                 raise
         done = step.model_copy(update={"results": results})
         grows = step.generated + sum(len(_output_text(result)) for result in results)
-        turn.emit(ToolsEnded(turn.session_id, grows, tuple(done.failures())))
+        turn.emit(ToolsEnded(turn.session_id, done, grows))
         while True:
             turn.cancellation.check()
             try:

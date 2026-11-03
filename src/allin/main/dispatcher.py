@@ -522,7 +522,7 @@ class Dispatcher:
                     queued = self._turns.queued_count(session_id)
                     self._commands.run(f"/send {session_id} {text}")
                     if self._turns.queued_count(session_id) > queued:
-                        self._turns.typed_in_window(session_id)  # it may join its Turn
+                        self._turns.mark_typed_in_window(session_id)  # it may join its Turn
                         if interrupt:
                             self._turns.jump(session_id)
                 self._turns.send_turn_state(session_id)
@@ -576,8 +576,8 @@ class Dispatcher:
                 self._turns.confirmation_requested(session_id, title, text)
             case ToolsStarted(session_id, names, step):
                 self._turns.tools_started(session_id, names, step)
-            case ToolsEnded(session_id, grows, failed):
-                self._turns.tools_ended(session_id, grows, failed)
+            case ToolsEnded(session_id, step, grows):
+                self._turns.tools_ended(session_id, step, grows)
             case SessionCommandAsked(session_id, text, origin, answer):
                 self._session_commands.run(session_id, text, origin, answer)
             case BoxAnswered(box_id, answer):

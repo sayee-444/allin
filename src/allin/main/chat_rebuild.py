@@ -100,6 +100,7 @@ def rebuild_chat(
                 chat.append(dropped_entry(len(fields["texts"]), fields["reason"]))
             case "turn_failed" | "turn_cancelled":
                 chat += _output(fields["reasoning"], fields["answer"], settings)
+                chat += [_prompt(text, settings) for text in fields.get("joined", [])]
                 chat.append(error_entry(fields["error"]))
             case "error":
                 chat.append(error_entry(fields["error"]))

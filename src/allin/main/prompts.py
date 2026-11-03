@@ -46,8 +46,8 @@ class Prompt:
     owed: tuple[SubscriptionId, ...] = ()
     # A Suscripción's Prompt: those that woke its Session with it, a Continuation (#116).
     woke_by: tuple[SubscriptionId, ...] = ()
-    # Typed in its Session's Window, not sent with ``/send``: queued so, it may enter the
-    # Session's running Turn before its next Step instead (ADR-0024).
+    # Typed in its Session's Window while a Turn of the Session was under way, and queued: it
+    # may enter that Turn as a Texto intercalado instead of waiting for its own (ADR-0024).
     in_window: bool = False
 
     @property
@@ -137,13 +137,21 @@ class PromptQueue:
         self._prompts.remove(typed[-1])
         return typed[-1]
 
-    def typed_in_window(self, session_id: SessionId) -> None:
+    def mark_typed_in_window(self, session_id: SessionId) -> None:
         """The Session's last Prompt was typed in its Window: marked so if it waits behind a
         Turn, the only time it matters (ADR-0024)."""
         mine = self.of(session_id)
         if mine and mine[-1].queued:
             index = self._prompts.index(mine[-1])
             self._prompts[index] = replace(mine[-1], in_window=True)
+
+    def turn_started(self, session_id: SessionId) -> None:
+        """A new Turn of the Session started: what it has waiting was typed before it, so it
+        waits for its own Turn instead of entering this one."""
+        self._prompts = [
+            replace(prompt, in_window=False) if prompt.session_id == session_id else prompt
+            for prompt in self._prompts
+        ]
 
     def take_joining(self, session_id: SessionId, room: int) -> list[Prompt]:
         """Take out, in order, the Session's queued Prompts that may enter its running Turn

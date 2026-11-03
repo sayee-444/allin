@@ -94,14 +94,14 @@ def test_only_plain_text_typed_in_the_window_and_queued_may_join(change: dict[st
     assert not replace(TYPED, **change).may_join
 
 
-def test_typed_in_window_marks_only_the_sessions_last_prompt_if_it_is_queued():
+def test_mark_typed_in_window_marks_only_the_sessions_last_prompt_if_it_is_queued():
     queue = PromptQueue()
     queue.push(Prompt(A, "a1", queued=True))
     queue.push(Prompt(A, "a2", queued=True))
     queue.push(Prompt(B, "b1"))
-    queue.typed_in_window(A)
-    queue.typed_in_window(B)  # it waits for no Turn: nothing to join
-    queue.typed_in_window(SessionId("cccccc"))  # none queued: nothing
+    queue.mark_typed_in_window(A)
+    queue.mark_typed_in_window(B)  # it waits for no Turn: nothing to join
+    queue.mark_typed_in_window(SessionId("cccccc"))  # none queued: nothing
     assert [p.in_window for p in queue.all()] == [False, True, False]
 
 
@@ -132,3 +132,11 @@ def test_take_joining_stops_at_a_compaction():
     queue.push(Prompt(A, "", "compact"))
     queue.push(replace(TYPED, text="1"))
     assert queue.take_joining(A, room=100) == []
+
+
+def test_a_new_turn_leaves_what_its_session_has_waiting_to_wait_for_its_own():
+    queue = PromptQueue()
+    queue.push(replace(TYPED, text="1"))
+    queue.push(replace(TYPED, session_id=B, text="otra"))
+    queue.turn_started(A)
+    assert [p.in_window for p in queue.all()] == [False, True]

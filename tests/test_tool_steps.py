@@ -250,10 +250,10 @@ def test_the_step_after_its_tools_goes_on_before_the_new_prompts_of_its_main(mai
     main.threaded_turns, main.hold_turns = False, True
     main.run(
         InputReceived(a.id, "hi"),
-        ToolsStarted(a.id, ("nap",)),  # A's slot is free while its tool runs
+        ToolsStarted(a.id, ("nap",), Step(output=[])),  # A's slot is free while its tool runs
         InputReceived(b.id, "hi"),
         InputReceived(c.id, "hi"),  # waits: B holds the only slot
-        ToolsEnded(a.id, 10),  # A waits too, but ahead of C
+        ToolsEnded(a.id, Step(output=[]), 10),  # A waits too, but ahead of C
         TurnEnded(b.id, steps=[]),  # B's slot goes to A, not to C
         settle=True,
     )
@@ -268,9 +268,9 @@ def test_a_turn_cancelled_while_it_waits_for_a_slot_after_its_tools_is_not_taken
     main.threaded_turns, main.hold_turns = False, True
     main.run(
         InputReceived(a.id, "hi"),
-        ToolsStarted(a.id, ("nap",)),
+        ToolsStarted(a.id, ("nap",), Step(output=[])),
         InputReceived(b.id, "hi"),  # B takes the only slot
-        ToolsEnded(a.id, 10),
+        ToolsEnded(a.id, Step(output=[]), 10),
         InputReceived(a.id, "", interrupt=True),  # A is cut while it waits
         TurnEnded(b.id, steps=[]),
         settle=True,
