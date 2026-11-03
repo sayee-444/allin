@@ -9,12 +9,14 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
 - **Último hecho:** los pendientes de Pre-RAG, de #153 a #197 (fusionados hasta el PR #200, 2026-11-03): la Iniciativa y el Externo (#153, #154, #159, #179), los Secretos fuera del Log y del Borrador (#155, #178, #195), lo que vuelve al input o al Borrador (#156, #166, #171, #174, #176, #182, #196), el Contexto tras compactar (#157, #169, #177, #197), el Supervisor sin modelo (#158) y las caídas y la cola (#181, #185, #188, #190, #197). Métricas al cerrar #197: 1914 tests, cobertura 85 %, mutación 94 %, 41 escapes. Qué cambió en cada uno, cómo se probó a mano y sus métricas está en el comentario de cierre de su issue. Después, las preguntas abiertas de #104 a #197 pasaron a decisiones según los ADR (abajo), y lo que el código no cumplía, a #201–#206. Luego, #209 (2026-11-03): una sola lectura del `@secret` de una línea (`read_secret`) para el recorte del Log, el rechazo y la vuelta a la entrada, que no engañan opciones (también entre comillas), tabs, saltos de línea ni escapes de JSON, y que vale también para la Iniciativa; lo que encontró fuera de sus formas, a #210. Métricas al cerrar #209: 1951 tests, cobertura 85 %, mutación 94 %, 41 escapes. Y #208 (2026-11-03), en paralelo: Shift+Enter con el Turno suspendido, o cedido para compactar, lo guarda cortado con los Pasos que terminó y lo escrito va detrás, sin heredar su cuenta de caídas; los caminos que salían de la cola sin la salida única (la Compactación que falla al medirse o se guarda, la automática que no puede empezar, que ya deja seguir a su Prompt, y el Prompt cuya Conversación no se lee al arrancar) pasan por `_leave`, que tiene el final `saved`; y una Continuación que reserva el pool entero porque su Servidor, aún listo, no la midió se mide otra vez si el Servidor cambia; lo que encontró fuera, a #212. Métricas al cerrar #208 (con #209 fusionado): 1963 tests, cobertura 86 %, mutación 94 %, 41 escapes.
-- **Siguiente:** #201 a #206, #210 y #212, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
+- **Siguiente:** #201 a #206, #210, #212 y #214, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
 
 ### Preguntas que sí necesitan al usuario
 
-- #109: lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) sale en el Chat de Main, donde sale todo Command main. Ningún ADR lo fija para todos: ADR-0021 solo dice de `@call` que su resultado sale en la Ventana donde se tecleó. La alternativa es que todo `@…` tecleado muestre su salida en su Ventana, como `@call`.
+Ninguna abierta.
+
+- #109 — Respondida por el usuario (2026-11-03): todo `@…` tecleado en una Ventana muestra su salida en esa Ventana, como `@call` (ADR-0021, enmienda del 2026-11-03). Va a #214.
 
 ### Decisiones tomadas según los ADR
 
@@ -271,6 +273,7 @@ Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelve
 31. #210 `/secret set … <valor>` tecleado como Prompt en una Ventana, o mandado con `/send`, llega al LLM y al Log (de #209)
 32. ✅ #208 Los caminos que quedaron fuera de la salida única del Turno: Shift+Enter con el Turno suspendido, Compactación y arranque (de #196 y #197)
 33. #212 El Paso de resumen de la Compactación de un Turno suspendido tiene sus dos intentos (de #208)
+34. #214 La salida de todo `@…` tecleado en una Ventana sale en esa Ventana (respuesta del usuario a #109)
 
 ## RAG · Memoria de consulta
 
