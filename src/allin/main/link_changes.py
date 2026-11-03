@@ -8,7 +8,7 @@ stays where it was and Main says why.
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from allin.core.ids import SessionId
+from allin.core.ids import SessionId, SupervisorName
 from allin.main.events import (
     ServerAsleep,
     ServerDown,
@@ -74,6 +74,8 @@ def failure_text(change: LinkChange, state: ServerState | None, before: Link | N
                 f"{server} does not fit in VRAM and no Supervisor is active, so something"
                 " outside AllIn holds the GPU; lower its Settings with /server set"
             )
+        case ServerFailed(failure="model_missing", reason=model):
+            why = f"{server} has no model: {missing_model(change.to.supervisor, model)}"
         case ServerFailed(failure=failure, reason=reason):
             why = f"{server} failed ({failure}): {reason}"
         case ServerAsleep(slept_by_human=True):
@@ -84,3 +86,8 @@ def failure_text(change: LinkChange, state: ServerState | None, before: Link | N
         case _:
             why = f"{server} fell asleep before it was ready"
     return f"Enlace not changed: {why}; {stays}"
+
+
+def missing_model(name: SupervisorName | None, model: str) -> str:
+    """The model file a Supervisor did not find, and the command that gives it one (#158)."""
+    return f"{model} is not there; give it one with /server set {name} model=<path>"

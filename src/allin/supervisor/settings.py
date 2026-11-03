@@ -108,6 +108,11 @@ class ServerSettings(BaseModel, frozen=True):
             args.append("--kv-unified" if unified else "--no-kv-unified")
         return [*args, "--port", str(self.port), *self.extra]
 
+    def model_file(self, start: Path) -> Path:
+        """The file llama loads as the model: a relative one starts from ``cwd`` or, when the
+        Settings name none, from ``start``, the folder the Server runs in."""
+        return Path(self.cwd or start) / self.model
+
     def base_url(self) -> str:
         """Where Main sends the Steps of the Sessions linked to it."""
         return f"http://127.0.0.1:{self.port}/v1"

@@ -106,6 +106,13 @@ def test_each_failure_says_why_and_that_the_enlace_stays():
     )
 
 
+def test_a_missing_model_is_named_with_the_command_that_gives_one():
+    assert told(ServerFailed("model_missing", "/models/m.gguf")) == (
+        "Enlace not changed: Supervisor cpu has no model: /models/m.gguf is not there; give it"
+        " one with /server set cpu model=<path>; the Enlace stays on Supervisor gpu"
+    )
+
+
 def test_several_supervisors_holding_the_gpu_are_each_named():
     holders = (SupervisorName("gpu"), SupervisorName("rag"))
     text = told(ServerFailed("vram", "out of memory", holders))

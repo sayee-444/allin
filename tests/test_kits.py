@@ -250,6 +250,11 @@ def test_a_kits_server_creates_an_asleep_supervisor_once_accepted(
     def accept() -> None:  # as a human answers the box, while Main runs
         [box] = [u for u in main.main_screen if isinstance(u, ShowBox)]
         assert box.box.title == "Kit Supervisor"
+        assert box.box.text == (  # /models/ holds no model: old.toml's is not there either
+            "Create Supervisor gpu from kit tutor, asleep? Its model m.gguf is not next to the"
+            " model of any Supervisor on this machine; give it one with"
+            " /server set gpu model=<path>"
+        )
         assert not (main.slot_locks_dir / "gpu.toml").exists()
         inbox = main.servers.inbox
         assert inbox is not None
@@ -262,6 +267,61 @@ def test_a_kits_server_creates_an_asleep_supervisor_once_accepted(
     assert (
         MainSettingsFiles(main.profiles.find("otro").settings).load().current.session.server is None
     )
+
+
+def test_a_kits_model_next_to_a_supervisors_is_named_by_its_path(main: MainHarness, tmp_path: Path):
+    kit = tmp_path / "tutor"
+    export(main, kit, "server:gpu")
+    models, elsewhere = tmp_path / "models", tmp_path / "elsewhere"
+    for folder in (models, elsewhere):
+        folder.mkdir()
+    (models / "m.gguf").touch()
+    (main.slot_locks_dir / "gpu.toml").unlink()
+    for name, model in (("a", elsewhere / "x.gguf"), ("b", models / "other.gguf")):
+        (main.slot_locks_dir / f"{name}.toml").write_text(f'model = "{model}"\nport = 9101\n')
+    (main.slot_locks_dir / "broken.toml").write_text("model = ")  # skipped, as unreadable
+    other(main)
+    main.run(command("/profile switch otro"))
+
+    def accept() -> None:
+        [box] = [u for u in main.main_screen if isinstance(u, ShowBox)]
+        assert box.box.text == (
+            f"Create Supervisor gpu from kit tutor with model {models / 'm.gguf'}, asleep?"
+        )
+        inbox = main.servers.inbox
+        assert inbox is not None
+        inbox.put(BoxAnswered(box.box.box_id, True))
+
+    main.run(command(f"/kit load {kit}"), accept, settle=True)
+    created = (main.slot_locks_dir / "gpu.toml").read_text()
+    assert f'model = "{models / "m.gguf"}"' in created
+    [told] = [e.fields for e in main.main_log() if e.event == "kit_server_created"]
+    assert told["model"] == str(models / "m.gguf")
+
+
+def test_a_kits_model_is_looked_for_in_a_supervisors_settings_folder(
+    main: MainHarness, tmp_path: Path
+):
+    kit = tmp_path / "tutor"
+    export(main, kit, "server:gpu")
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "m.gguf").touch()
+    toml = f'model = "x.gguf"\ncwd = "{models}"\nport = 9101\n'
+    (main.slot_locks_dir / "gpu.toml").write_text(toml)
+    (main.slot_locks_dir / "gpu.toml").rename(main.slot_locks_dir / "old.toml")
+    other(main)
+    main.run(command("/profile switch otro"))
+
+    def accept() -> None:
+        [box] = [u for u in main.main_screen if isinstance(u, ShowBox)]
+        assert f"with model {models / 'm.gguf'}" in box.box.text
+        inbox = main.servers.inbox
+        assert inbox is not None
+        inbox.put(BoxAnswered(box.box.box_id, True))
+
+    main.run(command(f"/kit load {kit}"), accept, settle=True)
+    assert f'model = "{models / "m.gguf"}"' in (main.slot_locks_dir / "gpu.toml").read_text()
 
 
 def test_a_kits_server_never_changes_one_of_the_same_name(main: MainHarness, tmp_path: Path):
