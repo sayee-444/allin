@@ -12,4 +12,25 @@ Lo que alguien le cuenta al Personaje pidiéndole que no lo repita no puede qued
 
 El Log nunca se apaga, y el usuario cura las Charlas para entrenar, así que él ve las Confidencias en los datos. El Personaje no se las cuenta en la conversación. El aviso a quien hable con el Personaje, sobre lo que hace y lo que guarda, lo escribe y lo publica el usuario, bajo su responsabilidad.
 
-Queda para su grilling cómo se marca una Confidencia, cómo sabe Main quién está en cada Charla y qué pasa con las Confidencias al entrenar.
+## Cómo se marca
+
+Solo el Personaje entiende un «no se lo digas a nadie», así que la marca con una tool en el momento. Si no la marca, queda como Privado.
+
+Su Reposo nunca recibe una Confidencia. Si el 27B la viera, podría escribir «perdió su trabajo» en la Relación con Marx, y esa frase saldría en un grupo. Lo confidencial no puede depender de que el 27B no lo repita. El Personaje la recuerda solo a solas con quien se la confió, por el RAG.
+
+## Quién está presente
+
+Lo dice el código de su fproc, nunca el LLM:
+- en un mensaje directo, la otra persona;
+- en un canal de texto, todos los que pueden leerlo, así que nunca está a solas;
+- en un canal de voz, los conectados;
+- en su Ventana, el usuario;
+- por el micrófono, el usuario y cualquier otra voz que haya oído en esa Charla.
+
+Si alguien llega a una Charla que contiene una Confidencia, esa Charla se cierra y empieza otra: la Confidencia ya está en su contexto y no se puede sacar de ahí.
+
+Riesgo aceptado: alguien callado en el cuarto del usuario no cuenta como presente. Solo afecta a las Confidencias del propio usuario, porque las de otros nunca salen con él.
+
+## El entrenamiento
+
+Una Charla con una Confidencia nunca se exporta para entrenar, aunque el usuario la marque. Un LoRA puede memorizar, y ningún filtro llega a los pesos, así que lo impide el código.

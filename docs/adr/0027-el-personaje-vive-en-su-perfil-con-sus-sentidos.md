@@ -18,13 +18,19 @@ Mientras el Personaje está encendido, el usuario puede trabajar con agentes en 
 
 Se descartó que su casa fuera el Perfil de trabajo del usuario, con un interruptor que lo soltara: su respaldo arrastraría ese trabajo, y en cualquier otro Perfil estaría apagado igual. ADR-0026 descartó un Perfil aparte para un bot de Discord porque se pararía al cambiar de Perfil. Para el Personaje eso es justo lo que se busca: es su interruptor.
 
+Al entrar a su Perfil se adhiere su fproc y despiertan sus Supervisores: el 9B y el 27B en IQ3_XXS. Si no caben, Main antes drena y duerme los demás, como el Q6: no les deja empezar Pasos nuevos y los duerme cuando acaban los que están en curso. Al salir, drena y duerme los suyos. Lo declara un Ajuste del Perfil que el usuario pone solo en el de ella, así que su Perfil de trabajo no duerme ni despierta nada: el Q6 despierta solo con su primer Prompt (enmienda de ADR-0022). Si su fproc se cae, Main sigue sin relanzarla.
+
+Su Subperfil tiene un tope de 2 Turnos a la vez, uno para la Charla y otro para su Reposo; el de ADR-0026 es 1 por defecto.
+
 Faltan dos cosas que hoy no existen:
-- un Ajuste que adhiera su fproc al arrancar su Perfil (si se cae, Main sigue sin relanzarla);
-- que `/profile export` copie también la Carpeta de trabajo de los Procesos adheridos, donde vive lo suyo.
+- ese Ajuste del Perfil;
+- que `/profile export` copie también los Subperfiles y las Carpetas de trabajo, donde vive lo suyo (#217).
 
 ## La Charla
 
-Cada encuentro es una Sesión de su Subperfil, la Charla. Empieza cuando alguien toma la palabra y termina cuando el Personaje se va del lugar o tras 30 minutos sin que nadie hable. La continuidad entre Charlas viene de su memoria, con las Pistas y sus Relaciones: si el usuario le habla a las 10:00 y vuelve a las 11:00, son dos Charlas, y en la segunda una Pista le recuerda la primera. Se descartó una Sesión eterna, que perdería detalle en cada Compactación (ADR-0017). Cada Charla es también la unidad que el usuario marca, o no, para entrenar al modelo de voz.
+Cada encuentro es una Sesión de su Subperfil, la Charla. Empieza cuando alguien toma la palabra y termina cuando el Personaje se va del lugar o tras una pausa sin que nadie hable (un Ajuste, 30 minutos por defecto). La continuidad entre Charlas viene de su memoria, con las Pistas y sus Relaciones: si el usuario le habla a las 10:00 y vuelve a las 11:00, son dos Charlas, y en la segunda una Pista le recuerda la primera. Se descartó una Sesión eterna, que perdería detalle en cada Compactación (ADR-0017).
+
+Cada Charla es también la unidad que el usuario marca, o no, para entrenar al modelo de voz. La marca o la desmarca un comando de Main, solo de un humano. Se exporta como JSONL, una Charla por línea, en mensajes `system`, `user` y `assistant`, que leen Unsloth y LLaMA-Factory. Cada una va con su Sysprompt, su Autorretrato y sus líneas de voz interior, tal como las vio el 9B, para que aprenda a hablar con ellos delante. Una Charla con una Confidencia nunca se exporta (ADR-0029).
 
 Está en un solo lugar a la vez. De otro lugar solo le llega una línea, sin el texto («Marx te escribió por mensaje directo»), y el Personaje decide si va. Lo que escribe un Externo no entra en su contexto hasta que el Personaje lo elige.
 
@@ -47,6 +53,12 @@ Medido el 2026-11-03 con `llama` b10909 en la RTX 5090. El modelo de voz es el Q
 
 Solo se entrena el modelo de voz, nunca el de razonamiento, con un LoRA sobre esos mismos pesos: DavidAU publica los safetensors. Cambiar de modelo base obliga a entrenar de nuevo.
 
+## Lo menos posible fijo en el código
+
+El usuario pidió que el código fije lo menos posible y que sea el Personaje, el LLM o el conjunto de modelos que forma AllIn en modo diálogo, quien le dé forma. Main pone primitivas genéricas, como el Ajuste de los Supervisores del Perfil o la exportación de Charlas. Lo propio del Personaje vive en su fproc y en sus piezas: su Sysprompt, sus Moldes y sus functions.
+
+Lo que hace lo decide el LLM: si cede la palabra, qué concluye en su Reposo y qué marca como Confidencia. Los números son Ajustes con un valor por defecto, como la pausa que cierra una Charla o el largo del Autorretrato. Solo queda fijo en el código lo que protege: el Origen, el filtro de las Confidencias y el Encierro.
+
 ## El orden
 
 1. El Personaje con el usuario, por texto: su Ventana, su memoria, su Reposo y la curación de Charlas.
@@ -54,4 +66,4 @@ Solo se entrena el modelo de voz, nunca el de razonamiento, con un LoRA sobre es
 3. La voz.
 4. La vista.
 
-Antes de todo eso hace falta la fase del RAG, que es su memoria.
+Cada tramo es un milestone. Van después de la fase del RAG, que es su memoria, y antes de F3, que no necesita.
