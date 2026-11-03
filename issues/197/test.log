@@ -1,0 +1,72 @@
+# #197 — Una Continuación cuya medida se pierde, /profile switch con un Turno entre Pasos y el aviso de límite tras compactar (2026-11-03)
+
+Código: rama fix/197-medida-switch-y-aviso, commit b748e57.
+Servidor (Swift IQ3_XXS con -c 32000, como en #188 y #190):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/190, 19932 → 9932) con dos modos más para #197: mientras existe <scratch>/ctl/mhold,
+una petición de medida (/apply-template, /tokenize) espera sin respuesta; mientras existe <scratch>/ctl/mfall, se corta.
+Siguen «down» (/health 503) y «small» (/props dice como n_ctx el número escrito en él).
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m197 (PYTHONPATH=src), en el xterm allin-main-197, con
+/set base_url=http://127.0.0.1:19932/v1 (y reiniciado). Pool compartido de 32000 tokens, Tope de salida 8000.
+Functions en <data-dir>/profiles/default/functions/: reporter/informe.py (informe.py.txt, 500 líneas, 36 071 caracteres) y
+napper/nap.py (el de issues/176). /piece approve --all; /profile new tesis.
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Si el Servidor cae o se reinicia mientras se mide una Continuación, el Turno no falla como prompt_too_big
+   - /new --id=med197; touch mhold mfall. En med197: «Llama a la funcion informe con tema "faros" y luego dime en una frase de que trata.»
+     turn_started need 8495; tools_returned grows 36071: estimado 8495 + 36071 = 44 566, más que el pool (32 000), así que
+     Main pide la medida, que el proxy retiene.
+   - touch down: Main ve el Servidor en ServerLoading (queue_paused). La medida retenida no llega: el medidor se rinde a los
+     30 s y responde sin medida, con el Servidor aún sin estar listo. Log: input_unmeasured «the Server could not measure the
+     input: measured again once it is back». El borde dice «Server loading» (01-med197-espera-al-servidor.png).
+     Con el código de main, aquí la Continuación habría quedado «medida» con su estimación y, al volver el Servidor, habría
+     fallado con «prompt_too_big: need=44566, limit=32000» (lo que reprodujo la revisión; los tests de abajo fallan así con
+     el código de antes).
+   - rm mfall down: el Servidor vuelve (server_ready 32000), Main la mide otra vez: continuation_measured need 19178; cabe, su
+     Paso siguiente corre y el Turno termina (turn_finished), «context 11129 / 32k» (02-med197-medida-otra-vez-y-terminado.png).
+   - La Continuación no tiene slot ni Paso a medias (ADR-0023), así que no se suspende: espera al Servidor como cualquier
+     Continuación y se vuelve a medir.
+
+2. /profile switch sin --now no espera para siempre a un Turno que está entre Pasos
+   - /new --id=cambio197. En cambio197: «Llama a la tool nap con seconds=20 y luego di listo.»; con nap corriendo (el Turno ya
+     devolvió su slot), /profile switch tesis en el Chat de Main: «profile switch to tesis: waiting for 1 turn to end»
+     (07-main-cambio-espera.png, 08-cambio197-entre-pasos.png).
+   - nap acaba (tools_returned): el Paso siguiente toma slot, el Turno termina (turn_finished, 0,5 s después) y el cambio se
+     hace: «window closed: profile switched» en las dos Sesiones y «profile tesis active» (09-main-turno-termina-y-cambia.png).
+     Con el código de main, el Turno se quedaba esperando slot y el cambio, sin fin (lo reprodujo la revisión).
+   - Log de cambio197 (log-de-cambio197.jsonl): prompt, turn_started, tools_called, tools_returned, turn_finished,
+     window_closed (profile switched). Main: profile_switch_waiting 13:22:15, profile_switched 13:22:35.
+
+3. El aviso de «context limit lowered» pesa lo medido tras compactar
+   - En med197 dos Turnos cortos más; borde «context 11228 / 32k» (03-med197-antes-de-compactar.png).
+     /session compact med197: «Prompts 1-1 summarized, 10758 → 147 tokens»; borde «context 262» (04-med197-compactada.png).
+   - touch down; echo 5000 > small; rm down: «the Server ready: … 5000 tokens of context per slot» y ningún aviso: lo medido
+     (262) cabe. Con el código de main habría nombrado «over the limit: med197 (11228)», el Contexto de antes de compactar
+     (05-main-limite-5000-sin-aviso.png).
+   - echo 200 > small: «the Server: context limit lowered to 200 tokens | over the limit: med197 (262)», con lo medido
+     (06-main-limite-200-aviso-con-lo-medido.png).
+   - log-de-main-servidor-y-cambio.jsonl: los server_ready con 32000, 5000, 200 y 32000.
+
+4. Tests: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se pararon el proxy y el Servidor.
+
+## Tests de #197 (con el código de main fallan los diez)
+tests/test_continuation_measure.py
+  test_a_continuation_whose_server_is_gone_as_it_is_measured_is_measured_again_once_back[falls] PASSED
+  test_a_continuation_whose_server_is_gone_as_it_is_measured_is_measured_again_once_back[restarts] PASSED
+  test_a_continuation_estimated_past_the_pool_is_measured_while_a_profile_switch_waits PASSED
+tests/test_profile_switch.py
+  test_without_now_a_turn_between_its_steps_takes_its_slot_back_and_ends_before_the_switch PASSED
+  test_a_turn_between_its_steps_keeps_its_place_in_the_wait_list_while_the_switch_waits PASSED
+  test_a_confirmation_answered_while_the_switch_waits_lets_its_turn_go_on PASSED
+tests/test_compaction_border.py
+  test_a_lowered_slot_limit_names_a_compacted_session_by_what_was_measured PASSED (límite 205: nombra 214)
+  test_a_lowered_slot_limit_never_weighs_the_context_of_before_compacting PASSED (límite 150: 214, no 199)
+  test_a_lowered_slot_limit_does_not_name_a_compacted_session_it_could_not_measure PASSED
+  test_the_context_notice_shows_again_once_a_compacted_session_crosses_it_again PASSED
+    (el mismo defecto en el Aviso de Contexto: el primer Paso tras compactar pesaba como «antes» el Contexto de antes de
+    compactar, así que el Aviso no volvía a salir al cruzar otra vez el umbral)
+Suite completa: 1914 pasan; basedpyright y ruff (src, tests) limpios.

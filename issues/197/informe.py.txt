@@ -1,0 +1,8 @@
+"""A function for #197's manual test (as #188's): a long report, some 38 000 characters, so
+Main estimates the next Step past a 32 000 pool though its input measures much less."""
+
+
+def informe(tema: str) -> str:
+    """Write a long numbered report on ``tema``."""
+    line = "Linea {n:03d} del informe sobre {tema}: datos, fechas y nombres de ejemplo."
+    return "\n".join(line.format(n=n, tema=tema) for n in range(500))

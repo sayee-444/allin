@@ -1,0 +1,22 @@
+{"ts": "2026-11-03T13:18:25.162263-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T13:18:25.167114-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T13:18:25.257068-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T13:18:33.669317-06:00", "event": "prompt", "text": "Llama a la funcion informe con tema \"faros\" y luego dime en una frase de que trata.", "prompt_id": "x68pgr", "origin": ["human"]}
+{"ts": "2026-11-03T13:19:03.694657-06:00", "event": "input_unmeasured", "text": "the Server could not measure the input: admitted by its slots only"}
+{"ts": "2026-11-03T13:19:03.695853-06:00", "event": "turn_started", "need": 8495}
+{"ts": "2026-11-03T13:19:04.491144-06:00", "event": "tools_called", "tools": ["informe"]}
+{"ts": "2026-11-03T13:19:04.520040-06:00", "event": "tools_returned", "grows": 36071}
+{"ts": "2026-11-03T13:19:34.550789-06:00", "event": "input_unmeasured", "text": "the Server could not measure the input: measured again once it is back"}
+{"ts": "2026-11-03T13:19:47.976864-06:00", "event": "continuation_measured", "need": 19178}
+{"ts": "2026-11-03T13:19:52.345597-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T13:20:09.168501-06:00", "event": "prompt", "text": "Di hola en una palabra.", "prompt_id": "93o19w", "origin": ["human"]}
+{"ts": "2026-11-03T13:20:09.179781-06:00", "event": "turn_started", "need": 19295}
+{"ts": "2026-11-03T13:20:09.737721-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-03T13:20:10.524590-06:00", "event": "prompt", "text": "Di adios en una palabra.", "prompt_id": "qr0afi", "origin": ["human"]}
+{"ts": "2026-11-03T13:20:10.535773-06:00", "event": "turn_started", "need": 19342}
+{"ts": "2026-11-03T13:20:11.161762-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-03T13:20:18.690139-06:00", "event": "compaction_asked", "instructions": ""}
+{"ts": "2026-11-03T13:20:18.690586-06:00", "event": "compaction_started", "kind": "compact"}
+{"ts": "2026-11-03T13:20:18.710436-06:00", "event": "compaction_step_started", "need": 8455}
+{"ts": "2026-11-03T13:20:21.469962-06:00", "event": "compacted", "summarized": 1, "summary": "sayee pidió llamar a la función `informe` con tema \"faros\" y recibir una frase de resumen. Se llamó `informe(tema=\"faros\")`; el resultado (~9k tokens, archivado) fue un listado numerado de 500 líneas con datos, fechas y nombres de ejemplo sobre faros. Se entregó la frase de resumen. Sin tareas abiertas.", "archive": "compacted/1.json", "replaced": 10758, "tokens": 147}
+{"ts": "2026-11-03T13:22:35.225767-06:00", "event": "window_closed", "returncode": null, "reason": "profile switched"}

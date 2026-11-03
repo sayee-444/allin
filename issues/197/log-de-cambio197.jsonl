@@ -1,0 +1,9 @@
+{"ts": "2026-11-03T13:22:02.966205-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T13:22:02.971938-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T13:22:03.063978-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T13:22:13.791039-06:00", "event": "prompt", "text": "Llama a la tool nap con seconds=20 y luego di listo.", "prompt_id": "5r5hxg", "origin": ["human"]}
+{"ts": "2026-11-03T13:22:13.795135-06:00", "event": "turn_started", "need": 8586}
+{"ts": "2026-11-03T13:22:14.680421-06:00", "event": "tools_called", "tools": ["nap"]}
+{"ts": "2026-11-03T13:22:34.707394-06:00", "event": "tools_returned", "grows": 86}
+{"ts": "2026-11-03T13:22:35.161763-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T13:22:35.257430-06:00", "event": "window_closed", "returncode": null, "reason": "profile switched"}

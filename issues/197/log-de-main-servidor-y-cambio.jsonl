@@ -1,0 +1,15 @@
+{"ts": "2026-11-03T13:17:17.110299-06:00", "event": "queue_paused", "server": "9931", "state": "None"}
+{"ts": "2026-11-03T13:17:17.113923-06:00", "event": "queue_paused", "server": "9931", "state": "ServerDown"}
+{"ts": "2026-11-03T13:18:09.780543-06:00", "event": "queue_paused", "server": "19932", "state": "None"}
+{"ts": "2026-11-03T13:18:09.785835-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 32000, "model_path": "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T13:18:09.785902-06:00", "event": "queue_resumed", "server": "19932"}
+{"ts": "2026-11-03T13:19:10.934100-06:00", "event": "queue_paused", "server": "19932", "state": "ServerLoading"}
+{"ts": "2026-11-03T13:19:47.968185-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 32000, "model_path": "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T13:19:47.968490-06:00", "event": "queue_resumed", "server": "19932"}
+{"ts": "2026-11-03T13:20:42.262144-06:00", "event": "queue_paused", "server": "19932", "state": "ServerLoading"}
+{"ts": "2026-11-03T13:20:47.268483-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 5000, "model_path": "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T13:20:47.268674-06:00", "event": "queue_resumed", "server": "19932"}
+{"ts": "2026-11-03T13:21:13.345814-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 200, "model_path": "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T13:21:29.393106-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 32000, "model_path": "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", "vision": true, "server": "19932", "capacity": 2, "parallel": null}
+{"ts": "2026-11-03T13:22:15.554573-06:00", "event": "profile_switch_waiting", "profile": "tesis", "turns": 1}
+{"ts": "2026-11-03T13:22:35.258166-06:00", "event": "profile_switched", "profile": "tesis"}
