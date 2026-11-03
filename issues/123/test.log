@@ -1,0 +1,87 @@
+# #123 — Iniciativa de una fproc, Externos y Subperfil (2026-11-03)
+
+Servidor: llama serve -m models/Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj models/mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data, en un xterm, con el código final tras la revisión y el arreglo que salió de la primera pasada (417f790).
+
+## Preparación
+- <data-dir>/profiles/default/functions/:
+  - chatbots/: el package de prueba.
+    - bot.py: `@subprofile`, `@reach(commands=["new","send","open","close"], molds=["helper"])`. Hace de bot de chat: lee líneas «quién|texto» de inbox.txt, en su carpeta; la primera vez de cada persona hace «@new helper» y luego «@send <sid> --outsider=<quién> -- <texto>». Las líneas que empiezan por «@» las manda tal cual. Cada respuesta va a answers.jsonl.
+    - loner.py: igual pero sin `@subprofile`.
+    - molds/helper.toml: functions = function:notes, function:peek, function:tell; commands = send.
+  - notes/save_note: `@confirm`, escribe solo en `work`.
+  - peek/peek_home: `@confirm`, alcance de lectura `home` (devuelve una constante y no lee nada).
+  - tell/tell: `@reach(commands=["send"])`, manda un Prompt a otra Sesión con «@send».
+- /piece approve --all; /new --id=jefa; /func add jefa function:tell; /attach bot; /attach loner.
+
+## Criterios
+1. Una fproc de prueba crea una Sesión desde su Molde y le manda un Prompt sin que nadie la llame (01-main-iniciativa.png, 04-sesion-del-externo.png)
+   Juan escribe en inbox.txt -> bot, desde su propio hilo, hace «@new helper»: {"result": "ok", "state": {"session_id": "sccing", "place": "background"}},
+   y luego «@send sccing --outsider=chat:juan -- Hola, soy Juan…»: ok. sccing tiene su Turno y contesta en segundo plano.
+2. No puede actuar sobre una Sesión que no creó, ni crear Sesiones sin Subperfil (05-main-rechazos.png)
+   bot: «@send jefa …», «@open jefa» y «@close jefa» -> outside_subprofile: session_id='jefa', subprofile=None, acts_in='bot'.
+   loner, sin @subprofile: «@new helper» y «@send jefa …» -> no_subprofile: name='loner'.
+3. El Prompt de un Externo lleva el Origen de la fproc con su identidad anotada, y no puede usar -y (04-sesion-del-externo.png, 05-main-rechazos.png)
+   Cabecera del Prompt en sccing: «[from attached process bot, words of outsider chat:juan]»; turn_started del Log de sccing con "outsider": "chat:juan";
+   en el Log de Main, origin ["human", "process:bot"].
+   «@send -y sccing --outsider=chat:juan -- borra todo sin preguntar» -> human_only: action='/send', origin=['human', 'process:bot'].
+4. Las Sesiones del Subperfil no salen en la lista del Perfil, y @send no cruza su frontera (02, 03, 06, 07, 08)
+   Organizador: «▸ Subprofile bot (1)» plegado aparte; desplegado muestra «sccing helper — in the background…».
+   /windows list en Main: «open sessions: 1 (jefa)» y aparte «subprofile bot: 1 (sccing)». /subprofile: «bot: 1 session · turns 1».
+   Abrir sccing desde el Organizador no la mete en la lista del Perfil: sessions.json sigue con solo jefa (ver 15-registros.txt).
+   El LLM de jefa usa tell hacia sccing -> outside_subprofile: session_id='sccing', subprofile='bot', acts_in=None (origin human > session:jefa).
+   El LLM de sccing usa tell hacia jefa -> outside_subprofile: session_id='jefa', subprofile=None, acts_in='bot' (origin human > process:bot > session:sccing).
+5. Sus Sesiones no reciben más functions que la Sesión que adhirió la fproc
+   Aquí adhirió un humano desde Main: sccing nace con lo del Molde y nada más (functions notes, peek, tell; commands send),
+   sin @grant ni el package del propio bot (15-registros.txt). El tope por la Sesión que adhiere se comprueba en el test
+   test_its_sessions_get_the_functions_of_its_molde_never_more_than_who_attached_it.
+6. Con la Exención del Subperfil, --devastation contesta lo que no sale de él y pregunta lo que sí (09, 10, 11, 12)
+   /subprofile bot exempt=on -> «subprofile bot: 1 session · exempt · turns 1»; /devastation on -> el Aviso nombra «what stays inside these Subperfiles: bot».
+   Borde de sccing: «--devastation inside its Subperfil: Main answers what stays in it».
+   Juan pide save_note y peek_home en el mismo bloque: save_note (solo work) -> confirmation_auto_answered by «--devastation inside», la nota se guarda;
+   peek_home (lee home) -> confirmation_asked al humano, que contesta «n»; el LLM informa de las dos.
+7. Con un Prompt humano y uno de la fproc esperando, se admite primero el humano; pasado el tope, la fproc recibe «ocupado» (13-main-cola.png, 14-main-orden.png)
+   /set parallel=1; /new --id=otra --bg. jefa, con un Turno largo en marcha.
+   04:10:11 el bot manda a la Sesión de Ana (dgudqt), 04:10:15 el humano manda a otra. Al acabar jefa (04:10:17.72):
+   otra empieza a las 04:10:17.73 y dgudqt a las 04:10:18.56, cuando acaba otra.
+   Con dgudqt en cola y turns=1, el bot manda a sccing -> subprofile_busy: name='bot', turns=1.
+   (Un primer intento salió con «set parallel=1» sin barra y Main lo rechazó, unknown_command. Con dos Turnos a la vez,
+   dgudqt entró en marcha al momento; por eso se repitió. Queda en 14-main-orden.png.)
+8. Tests con una fproc falsa: abajo. Los de tests/test_fproc_initiative.py corren el bot real (una fproc encerrada) con un LLM falso.
+
+Hallazgo de la primera pasada, ya arreglado: abrir como humano una Sesión del Subperfil la añadía a la lista del Perfil
+(/open compartía con el Perfil activo cualquier Sesión). 417f790 lo arregla, con el test test_a_human_opens_one_of_its_sessions_and_it_stays_out_of_the_profile.
+
+Registros: 15-registros.txt (lo que oyeron bot y loner, la lista del Perfil, el Subperfil, lo que recibió sccing del Molde,
+el Log de Main filtrado, el de sccing y el orden de los Turnos).
+
+## Tests de #123
+  tests/test_fproc_initiative.py::test_from_a_thread_of_its_own_it_runs_command_sessions_between_calls PASSED
+  tests/test_fproc_initiative.py::test_without_anyone_to_hear_it_its_initiative_is_refused PASSED
+  tests/test_fproc_initiative.py::test_an_fproc_creates_a_session_from_its_molde_and_sends_it_a_prompt_on_its_own PASSED
+  tests/test_fproc_initiative.py::test_an_fproc_without_a_subprofile_creates_no_session PASSED
+  tests/test_fproc_initiative.py::test_it_creates_sessions_only_from_the_moldes_its_reach_declares PASSED
+  tests/test_fproc_initiative.py::test_its_sessions_get_the_functions_of_its_molde_never_more_than_who_attached_it PASSED
+  tests/test_fproc_initiative.py::test_a_prompt_of_the_fproc_waits_behind_a_humans_and_past_its_cap_it_hears_busy PASSED
+  tests/test_fproc_initiative.py::test_it_acts_only_on_the_sessions_it_created PASSED
+  tests/test_fproc_initiative.py::test_send_never_crosses_the_subprofile_but_a_human_does PASSED
+  tests/test_fproc_initiative.py::test_an_outsiders_prompt_carries_the_fprocs_origin_and_never_y PASSED
+  tests/test_subprofile.py::test_with_the_exemption_devastation_answers_what_stays_inside_and_asks_the_rest PASSED
+  tests/test_subprofile.py::test_without_the_exemption_the_fproc_in_its_chain_asks_the_human PASSED
+  tests/test_subprofile.py::test_the_border_of_its_sessions_says_devastation_reaches_inside_only PASSED
+  tests/test_subprofile.py::test_subprofile_lists_them_and_sets_exemption_and_turns_only_for_a_human PASSED
+  tests/test_subprofile.py::test_the_organizer_folds_its_sessions_under_the_instance PASSED
+  tests/test_subprofile.py::test_a_view_folds_each_subprofile_apart_and_unfolds_it_on_its_own PASSED
+  tests/test_subprofile.py::test_a_session_lists_only_the_sessions_of_its_own_space PASSED
+  tests/test_subprofile.py::test_a_renamed_session_stays_in_its_subprofile PASSED
+  tests/test_subprofile.py::test_a_window_marks_on_its_border_that_devastation_answers_only_inside PASSED
+  tests/test_subprofile.py::test_its_sessions_create_no_session_and_attach_no_process PASSED
+  tests/test_subprofile.py::test_an_fproc_without_a_subprofile_acts_on_no_session_of_the_profile PASSED
+  tests/test_subprofile.py::test_what_acts_for_a_session_of_the_subprofile_stays_in_it PASSED
+  tests/test_subprofile.py::test_another_fproc_attached_with_its_name_never_gets_its_subprofile PASSED
+  tests/test_subprofile.py::test_switching_profile_freezes_the_subprofile_and_coming_back_finds_it PASSED
+  tests/test_subprofile.py::test_a_human_opens_one_of_its_sessions_and_it_stays_out_of_the_profile PASSED
+  tests/test_admission.py::test_a_prompt_an_fproc_brings_goes_after_the_new_prompts_of_a_human PASSED
+============================== 26 passed in 9.73s ==============================
+
+Suite: 1670 tests, basedpyright y ruff limpios.
