@@ -29,14 +29,15 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
     Window open, as it was typed (#166), and only a human's: the others failed towards whoever
     sent them (#171).
 
-    The Prompt of the Session's last failed Turn, its Textos intercalados and the Prompts
-    dropped with it, in the order they were sent (#15, #174): nothing once a later Prompt was
-    sent or a later Turn ended. Ahead of them, a human's Prompts that did not fit even in the
-    empty slot, the last one first (#174): nothing once the human sent a later one. None of
-    them once given back to an open Window already."""
-    texts: list[str] = []
-    unfit: list[str] = []
-    failed = False  # the last Turn failed, and nothing since says its Prompts are told
+    What each failed Turn gave back, its Prompt, its Textos intercalados and the Prompts
+    dropped with it, in the order they were sent (#15, #174); and a human's Prompts that did
+    not fit even in the empty slot (#174). Each one goes ahead of those given back before it,
+    as with the Window open, and stays until the human sends a later Prompt, whatever comes
+    from another Origin or ends meanwhile (#182). None of them once given back to an open
+    Window already."""
+    returned: list[str] = []  # what an open Window's input would hold, front first
+    latest = 0  # how many at its front the last failed Turn gave back: its queue's go next
+    failed = False  # the last event was a failed Turn, whose queued Prompts may follow
     for entry in log:
         fields = entry.fields
         match entry.event:
@@ -44,35 +45,36 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
                 prompt = fields.get("typed") or fields.get("prompt")
                 failed = isinstance(prompt, str)
                 human = _by_human(fields.get("origin"))
-                texts = [prompt] if isinstance(prompt, str) and human else []
+                given = [prompt] if isinstance(prompt, str) and human else []
                 if failed:  # its Textos intercalados are a human's, whatever its Origin
                     joined: list[object] = fields.get("joined", [])
-                    texts += [text for text in joined if isinstance(text, str)]
+                    given += [text for text in joined if isinstance(text, str)]
+                returned, latest = [*given, *returned], len(given)
             case "prompts_dropped" if failed and fields.get("reason") == FAILED_BEFORE:
                 dropped: list[object] = fields.get("typed") or fields.get("texts", [])
                 kinds: list[object] = fields.get("kinds", ["prompt"] * len(dropped))
                 origins: list[object] = fields.get("origins", [None] * len(dropped))
-                texts += [
+                given = [
                     text
                     for text, kind, origin in zip(dropped, kinds, origins, strict=False)
                     # never a queued Compaction
                     if isinstance(text, str) and kind == "prompt" and _by_human(origin)
                 ]
+                returned[latest:latest] = given
+                latest += len(given)
             case "prompt_too_big":
                 typed = fields.get("typed")
                 if isinstance(typed, str) and _by_human(fields.get("origin")):
-                    unfit.insert(0, typed)
-            case "prompt":
-                texts, failed = [], False
-                if _by_human(fields.get("origin")):  # another's says nothing of the human's
-                    unfit = []
+                    returned.insert(0, typed)
+            case "prompt" if _by_human(fields.get("origin")):  # another's says nothing of it
+                returned, failed = [], False
             case "prompt_returned":
-                texts, unfit, failed = [], [], False
-            case "turn_finished" | "turn_cancelled" | "rewound":
-                texts, failed = [], False
+                returned, failed = [], False
+            case "prompt" | "turn_finished" | "turn_cancelled" | "rewound":
+                failed = False
             case _:
                 pass
-    return [*texts, *unfit]
+    return returned
 
 
 def prompt_history(log: Iterable[LogEntry]) -> list[str]:
