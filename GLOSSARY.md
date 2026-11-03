@@ -282,7 +282,7 @@ Function tool escrita por el usuario o por el LLM; se pasa explícitamente en `/
 _Avoid_: agent, function agent, agente
 
 **fproc**:
-Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. Sus métodos los llaman el LLM y también un humano, con `/call`; los marcados con `@human` solo los llama un humano y nunca llegan al LLM. Mientras atiende una llamada, un método puede ejecutar Command sessions, como una fsource. El nombre viene de *function process*. Su comportamiento lo definen sus métodos, no los Ajustes.
+Clase cuyos métodos públicos se exponen como Function tools para controlar un Proceso adherido, que el usuario también puede manipular directamente. Sus métodos los llaman el LLM y también un humano, con `/call`; los marcados con `@human` solo los llama un humano y nunca llegan al LLM. En `tools=[...]` cada método se llama `<nombre>_<método>`, con el nombre del Proceso adherido. Mientras atiende una llamada, un método puede ejecutar Command sessions, como una fsource. El nombre viene de *function process*. Su comportamiento lo definen sus métodos, no los Ajustes.
 _Avoid_: fscreen, function screen, screen
 
 **Proceso adherido** (`AttachedProcess`):
