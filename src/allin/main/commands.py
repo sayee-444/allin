@@ -40,7 +40,7 @@ from allin.main.creations import USAGE as CREATE_USAGE
 from allin.main.creations import PieceCreator
 from allin.main.devastation import Devastation
 from allin.main.errands import BATCH_USAGE, ERRAND_USAGE, parse_errand
-from allin.main.events import CommandOutcome, OnOutcome
+from allin.main.events import CommandOutcome, OnOutcome, Queried
 from allin.main.func_commands import GRANT_USAGE, FuncCommands
 from allin.main.func_commands import USAGE as FUNC_USAGE
 from allin.main.func_commands import only_human as func_only_human
@@ -74,6 +74,9 @@ from allin.main.settings_commands import (
     SettingsCommands,
     parse_session_command,
 )
+from allin.main.status import PARTS_SHOWN as STATUS_PARTS
+from allin.main.status import USAGE as STATUS_USAGE
+from allin.main.status import Sources, parse_part, read
 from allin.main.subscriptions import (
     SUBSCRIBE_USAGE,
     UNSUBSCRIBE_USAGE,
@@ -182,6 +185,12 @@ class MainCommands:
         self._sysprompts = sysprompts
         self._profiles = profiles
         self._subscriptions = subscriptions
+        self._status_sources = Sources(
+            queue=turns.snapshot,
+            subscriptions=subscriptions.views,
+            attached=attached.views,
+            supervisors=server.supervisors,
+        )
         self._sends = SessionSends(sessions, turns, boxes, profiles.in_active, subscriptions)
         self._organizer: Organizer | None = None
         self._organizer_rows: Callable[[], list[OrganizerRow]] = list
@@ -282,6 +291,18 @@ class MainCommands:
                 usage_text=SUBSCRIBE_USAGE,
                 optional=("event",),
                 takes_origin=True,
+            ),
+            "/status": CommandSpec(
+                ("sid",),
+                self._status,
+                "show what a Session has within reach, read only: Consultar",
+                args={
+                    "sid": "the Session that asks: a Session's LLM, its own",
+                    "part": f"one of {STATUS_PARTS}; every part if left out",
+                },
+                usage_text=STATUS_USAGE,
+                optional=("part",),
+                takes_answer=True,
             ),
             "/unsubscribe": CommandSpec(
                 ("sid", "subscription"),
@@ -641,7 +662,13 @@ class MainCommands:
     def _report(
         self, session_id: str | None, text: str, outcome: CommandOutcome, origin: Origin
     ) -> None:
-        result = outcome if isinstance(outcome, str) else f"error {outcome}"
+        match outcome:
+            case str():
+                result = outcome
+            case Queried():
+                result = "ok"
+            case AllInError():
+                result = f"error {outcome}"
         self._log_command(session_id, "command", text, result, origin)
 
     def _log_command(
@@ -939,6 +966,15 @@ class MainCommands:
             self._reporter.show(subscriber, "\n".join(lines))
             return True
         self._subscriptions.subscribe(subscriber, parse_watch(event), origin)
+        return True
+
+    def _status(self, session_id: str, part: str | None = None, *, answer: OnOutcome) -> bool:
+        """``/status``: Consultar (#118), read only, of the active Profile; Main's Chat shows
+        it and a tool that asked gets it."""
+        asker = self._active_session(session_id)
+        report = read(self._status_sources, parse_part(part), self._profiles.in_active)
+        self._reporter.show(asker, "\n".join(report.lines()))
+        answer(Queried(report.as_json()))
         return True
 
     def _errand(self, session_id: str, text: str, *, batch: bool, origin: Origin) -> bool:

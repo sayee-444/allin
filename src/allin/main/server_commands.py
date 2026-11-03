@@ -31,6 +31,7 @@ from allin.main.links import LinkResolver
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
+from allin.main.status import SupervisorView
 from allin.main.turn_queue import Servers, TurnQueue
 from allin.supervisor.lock import supervisor_active
 from allin.supervisor.ports import listening_pid, port_free
@@ -261,6 +262,14 @@ class ServerCommands:
     def _names(self) -> list[SupervisorName]:
         names = (parse_supervisor_name(path.stem) for path in sorted(self._dir.glob("*.toml")))
         return [name for name in names if name is not None]
+
+    def supervisors(self) -> list[SupervisorView]:
+        """Consultar's (#118): each Supervisor, how it is, and which is the default Enlace's."""
+        default = self._default_server()
+        return [
+            SupervisorView(name=name, status=self._status(name), default=name == default)
+            for name in self._names()
+        ]
 
     def _list(self) -> None:
         names = self._names()

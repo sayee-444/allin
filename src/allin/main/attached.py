@@ -67,6 +67,7 @@ from allin.main.profiles import Profile
 from allin.main.quarantine import OfferedFunction, Quarantine
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
+from allin.main.status import AttachedView
 
 ATTACH_USAGE = "/attach [<fproc> [name] [--to=<sid,…>] [--file=<path>]]"
 DETACH_USAGE = "/detach <name>"
@@ -300,6 +301,13 @@ class AttachedProcesses:
         return AttachedFproc(
             instance.asked.name, instance.offered, instance.process, instance.revisions
         )
+
+    def views(self) -> list[AttachedView]:
+        """Consultar's (#118): each Proceso adherido and the methods it offers."""
+        return [
+            AttachedView(name=f.name, methods=tuple(m.name for m in f.methods))
+            for f in self.fprocs()
+        ]
 
     def fprocs(self) -> list[AttachedFproc]:
         """Every Proceso adherido of the active Profile, attached or crashed."""

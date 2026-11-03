@@ -87,6 +87,7 @@ from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import ServerProps, capacity
+from allin.main.status import InActive, QueuedSession, QueueView, ServerStateName, WatchedServer
 from allin.main.sysprompt import render_sysprompt
 from allin.main.tool_steps import SessionTools, ToolGate
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
@@ -1547,6 +1548,35 @@ class TurnQueue:
         link = self._watched_link_of(session_id)
         return link is not None and self._ready(link.key)
 
+    def snapshot(self, in_active: InActive) -> QueueView:
+        """Consultar's view (#118): who of the active Profile runs or waits, and the Servers
+        the Enlaces watch, with the slots its Turns take; another Profile's do not show."""
+        sessions = [
+            QueuedSession(
+                session=session_id,
+                running=session_id in self._running,
+                queued=len(self._prompts.of(session_id)),
+            )
+            for session_id in dict.fromkeys([*self._running, *self._prompts.session_ids()])
+            if in_active(session_id)
+        ]
+        servers: list[WatchedServer] = []
+        for key, link in self._watched.items():
+            state = self._states.get(key)
+            ready = state if isinstance(state, ServerReady) else None
+            busy = [s for s, turn in self._running.items() if turn.link.key == key]
+            servers.append(
+                WatchedServer(
+                    key=key,
+                    server=link.describe(),
+                    state=_state_name(state),
+                    slots=ready.props.total_slots if ready else None,
+                    busy=sum(1 for session_id in busy if in_active(session_id)),
+                    model=Path(ready.props.model_path).name if ready else None,
+                )
+            )
+        return QueueView(sessions=tuple(sessions), servers=tuple(servers))
+
     def room_for(self, session_id: SessionId) -> bool:
         """Whether the Session's Server is ready with a slot that none of this Main's
         Sessions takes, running or waiting for one: a Lote gives it a task only then (#117)."""
@@ -1749,3 +1779,20 @@ def _compacting(running: _RunningTurn) -> bool:
 def _reason(error: AllInError) -> JsonValue:
     """Why a cancelled Turn was cancelled; ``None`` for any other error."""
     return error.fields.get("reason") if isinstance(error, TurnCancelled) else None
+
+
+def _state_name(state: ServerState | None) -> ServerStateName:
+    """As Consultar names it; one not heard from yet is down."""
+    match state:
+        case ServerReady():
+            return "ready"
+        case ServerLoading():
+            return "loading"
+        case ServerAsleep():
+            return "asleep"
+        case ServerFailed():
+            return "failed"
+        case ServerRestarting():
+            return "restarting"
+        case ServerDown() | None:
+            return "down"
