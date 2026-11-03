@@ -249,7 +249,7 @@ Command session que da Command sessions y functions a cualquier Sesión del Perf
 _Avoid_: function session
 
 **Notificación** (`Notification`):
-Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan (dar y quitar la misma function); una que ya contó un Turno en curso no se cancela, porque el LLM ya la leyó. Salen del pendiente cuando se guarda el Turno que las contó; si ese Turno falla, las cuenta el siguiente. Además entran en el Log y el Chat de su Sesión.
+Línea que Main deja pendiente, por un comando, una fsource o un evento suyo (el avance de un Encargo, el Informe de recuperación, un ciclo de Suscripciones cortado, que su respuesta anterior se cortó, cuánto Contexto le queda al salir el Aviso de Contexto), para entrar en la Conversación al inicio del siguiente Prompt, bajo la cabecera `[LOGS @COMMANDS]`, como mensaje `user` y nunca `developer`: lo que cuenta de otras Sesiones es dato (ADR-0013). Las Notificaciones de acciones que se anulan entre sí antes de enviarse se cancelan (dar y quitar la misma function); una que ya contó un Turno en curso no se cancela, porque el LLM ya la leyó. Salen del pendiente cuando se guarda el Turno que las contó; si ese Turno falla, las cuenta el siguiente. Además entran en el Log y el Chat de su Sesión.
 _Avoid_: log (una Notificación se deriva del Log, pero no es el Log)
 
 **Conversation logs**:

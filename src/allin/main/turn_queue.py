@@ -66,6 +66,8 @@ from allin.main.chat_rebuild import (
 )
 from allin.main.compaction import summary_text, wants_compaction
 from allin.main.compactions import Compacted, CompactionDone, Compactions
+from allin.main.context_notice import CONTEXT as CONTEXT_NOTICE
+from allin.main.context_notice import context_left
 from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
@@ -82,7 +84,7 @@ from allin.main.executors import SHUTTING_DOWN, TurnJob
 from allin.main.link_changes import LinkChange, failure_text, judge
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
-from allin.main.notifications import NOTHING_TOLD, Notifications, Told
+from allin.main.notifications import CONTEXT_LEFT, NOTHING_TOLD, Notifications, Told
 from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
@@ -219,6 +221,9 @@ class _RunningTurn:
     need: int  # what its Step reserves of the pool: measured input plus Output cap
     context_before: int | None  # its Session's Context when it started
     grown: int = 0  # what its tools added to ``need`` since it started
+    # Whether the Context Notice showed after one of its Steps, and the last Step's figures.
+    context_noticed: bool = False
+    notice_event: NoticeEvent | None = None
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
     interrupted: bool = False
@@ -366,6 +371,8 @@ class TurnQueue:
         self._answers = answers
 
         def heard(done: CompactionDone) -> None:
+            # The Context dropped: how much was left no longer holds (#120).
+            self._notifications.withdraw(done.session_id, CONTEXT_LEFT)
             if self._yielded.pop(done.session_id, None) is not None:
                 # Its Turn goes on reading the new summary, so it reads what is pending now
                 # too, the live state among it: its next Step's input changed anyway.
@@ -576,6 +583,7 @@ class TurnQueue:
         else:
             self._falls.pop(session_id, None)
             if turn is not None:
+                self._tell_context_left(running)
                 self._turn_finished(running, turn, steps)
                 self._answers.answered(running.prompt, turn, summary_text(steps))
         self.send_turn_state(session_id)
@@ -1519,9 +1527,24 @@ class TurnQueue:
             fields = {"kind": kind, "title": title, "text": text}
             self._reporter.record(session_id, "notice", f"notice: {title}", **fields)
             self._boxes.notify(session_id, title, text, kind)
+            if kind == CONTEXT_NOTICE.name:  # once it ends, its LLM is told what is left
+                running.context_noticed = True
+
+        running.notice_event = event
 
         for failure in self._notices.happened(event, running.session.settings, notify):
             self._reporter.error(failure, session_id)
+
+    def _tell_context_left(self, running: _RunningTurn) -> None:
+        """The Context Notice showed in the saved Turn: its LLM, which cannot see its tokens,
+        is told how much is left as the Turn ended, instead of what an older line said
+        (#120)."""
+        left = context_left(running.notice_event) if running.notice_event else None
+        if not running.context_noticed or left is None:
+            return
+        session_id = running.session.id
+        self._notifications.withdraw(session_id, CONTEXT_LEFT)
+        self._notifications.leave(session_id, CONTEXT_LEFT, left)
 
     def _others_reserved(self, running: _RunningTurn) -> int:
         """What the Steps in course of the other Sessions on its Server reserve."""

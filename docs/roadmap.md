@@ -8,15 +8,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #119 Compactación en F2 (2026-11-02).
-  - **La poda.** Antes de resumir, las salidas de tools de más de 400 caracteres de los Turnos que no quedan literales se leen como una línea (`[tool output omitted: ~N tokens; archived]`), sin LLM. Siguen enteras en la Conversación, para la Ventana y un Rewind. Si con eso la automática baja del umbral, no resume.
-  - **Entre Pasos.** Si, al volver sus tools, el Paso siguiente pasaría del umbral y hay Turnos guardados más allá de `compact.keep`, el Turno cede: vuelve a la cola con sus Pasos y, si la medida exacta lo pide, se compacta lo guardado antes de seguir.
-  - **`@compact [instrucciones]`** (lista por defecto) compacta la propia Sesión; otra da `compaction_not_own`. El evento `compact:<sid>` dice también lo podado, y tras compactar llega una Notificación con lo que la Sesión tiene abierto.
-  - **Probado a mano** con `llama serve` (Q6, 16k, un slot): `lectora` cedió tras leer el capítulo 3, la automática podó los Prompts 1–2 (7 695 tokens) sin resumir, y el Turno siguió con el capítulo 4 leyendo el estado vivo. `@compact` desde la Ventana y desde la tool `compactar` resumieron conservando la fruta de cada capítulo, y `vigia` despertó con cada Compactación.
-  - **La prueba con el Servidor encontró** que un Turno que sigue desde sus Pasos no se podía medir: la plantilla de llama rechazaba sus llamadas a tools. Ahora la medida las manda como `tool_calls` y mensajes `tool` (arregla también los Turnos suspendidos de ADR-0023).
-  - **La revisión encontró**, ya arreglado: un corte que llegaba mientras el Turno cedía se perdía; el Turno que cedió no leía el estado vivo; cedía aunque no hubiera nada que compactar; la poda sola se perdía si la Compactación volvía a empezar.
-  - Métricas: 1582 tests, cobertura 84 %, mutación 93 %, 40 escapes. Antes: #118 Consultar.
-- **Siguiente:** #120 Notificaciones de Turno cortado y de Contexto restante.
+- **Último hecho:** #120 Notificaciones de Turno cortado y de Contexto restante (2026-11-03).
+  - **Turno cortado.** El Prompt que sigue a un Turno cortado por su Tope de salida o por el slot abre con «Your last answer was cut: …» y las cifras de su último Paso (fuente `cut`). Si una Compactación reemplaza el Turno cortado, la Conversación guarda el corte y la línea sale igual.
+  - **Contexto restante.** Si en un Turno sale el Aviso de Contexto, al guardarse Main deja «Your Context is at P% of L tokens: about N tokens are left.» (fuente `context`). Reemplaza a la pendiente, y una Compactación o un Rewind la retiran.
+  - **Probado a mano** con `llama serve` (Q6, 8k): el LLM copió las dos líneas literalmente, y con `@conversation_logs off cut` / `off context` dijo que no había ninguna.
+  - **La revisión encontró**, ya arreglado: tras llenar el slot, la Compactación podía tragarse la línea de corte; la de Contexto quedaba con cifras viejas tras más Pasos, una Compactación o un Rewind.
+  - Métricas: 1591 tests, cobertura 85 %, mutación 93 %, 40 escapes. Antes: #119 Compactación en F2.
+- **Siguiente:** #121 Lo escrito durante un Turno entra antes del siguiente Paso.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -69,6 +67,11 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Que `@compact` venga en la lista por defecto? Solo toca la propia Conversación, y un Rewind la devuelve.
   - ¿Que la Notificación de estado vivo no se deje cuando la Sesión no tiene nada abierto? El issue decía «Main añade una».
   - ¿Que traiga solo los Procesos adheridos cuyos métodos tiene la Sesión, y no todos los de Main?
+
+  Sobre #120:
+  - ¿Le vale que las líneas al LLM vayan en inglés, como las demás Notificaciones de Main?
+  - ¿Que la línea de Contexto se deje al guardarse el Turno, y no si el Turno falla o se cancela?
+  - ¿Que el corte por Shift+Enter siga con su fuente `interrupted`, aparte de `cut`?
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -159,7 +162,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 19. ✅ #117 Encargo y Lote
 20. ✅ #118 Consultar
 21. ✅ #119 Compactación en F2
-22. #120 Notificaciones de Turno cortado y de Contexto restante
+22. ✅ #120 Notificaciones de Turno cortado y de Contexto restante
 23. #121 Lo escrito durante un Turno entra antes del siguiente Paso
 24. #122 La fsource `windows`
 25. #123 Iniciativa de una fproc, Externos y Subperfil

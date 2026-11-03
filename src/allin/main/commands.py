@@ -50,8 +50,8 @@ from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
 from allin.main.method_calls import CALL_USAGE, MethodCalls
+from allin.main.notifications import CONTEXT_LEFT, Notifications
 from allin.main.notifications import USAGE as CONVERSATION_LOGS_USAGE
-from allin.main.notifications import Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.organizer import Organizer
 from allin.main.piece_commands import USAGE as PIECE_USAGE
@@ -172,6 +172,7 @@ class MainCommands:
         subscriptions: Subscriptions,
     ) -> None:
         self._functions = functions
+        self._notifications = notifications
         self._methods = methods
         self._creator = creator
         self._boxes = boxes
@@ -932,6 +933,8 @@ class MainCommands:
             return True
         result = rewind(conversation, self._sessions.load_archived(session), n)
         self._sessions.save_conversation(session, result.conversation)
+        # Its Context is another now: how much was left no longer holds (#120).
+        self._notifications.withdraw(session.id, CONTEXT_LEFT)
         self._methods.rewound(session, result.conversation.next_turn)
         self._subscriptions.rewound(session.id, result.turn, result.undone, HUMAN)
         undone = len(result.undone)
