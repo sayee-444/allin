@@ -1,0 +1,19 @@
+{"ts": "2026-11-03T07:54:34.323934-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T07:54:49.762499-06:00", "event": "prompt", "text": "Describe en unas 200 palabras como funciona un faro maritimo.", "prompt_id": "5dxjaa", "origin": ["human"]}
+{"ts": "2026-11-03T07:55:35.042071-06:00", "event": "turn_finished", "turn": 0, "cut": "output_cap"}
+{"ts": "2026-11-03T07:55:42.648049-06:00", "event": "prompt", "text": "hora en unas 200 palabras, como funciona un molino de viento.", "prompt_id": "zgl4zm", "origin": ["human"]}
+{"ts": "2026-11-03T07:56:33.453399-06:00", "event": "turn_finished", "turn": 1, "cut": "output_cap"}
+{"ts": "2026-11-03T07:56:42.401162-06:00", "event": "prompt", "text": " por ultimo, en unas 200 palabras, como funciona una esclusa de canal.", "prompt_id": "s2d9jq", "origin": ["human"]}
+{"ts": "2026-11-03T07:56:59.258801-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-03T07:57:09.169891-06:00", "event": "compaction_asked", "instructions": ""}
+{"ts": "2026-11-03T07:57:19.683708-06:00", "event": "compacted", "summarized": 3, "summary": "sayee pidió tres descripciones en español de unas 200 palabras: cómo funciona un faro marítimo, un molino de viento y una esclusa de canal. AllIn respondió cada…", "archive": "compacted/1.json", "replaced": 18964, "tokens": 130}
+{"ts": "2026-11-03T07:57:46.557854-06:00", "event": "window_background"}
+{"ts": "2026-11-03T07:57:47.013766-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T07:58:21.550462-06:00", "event": "prompt", "text": "Resume en una frase cual de los tres te parece mas ingenioso.", "prompt_id": "9m9eda", "origin": ["human"]}
+{"ts": "2026-11-03T07:58:22.991572-06:00", "event": "turn_finished", "turn": 3}
+{"ts": "2026-11-03T07:58:35.239362-06:00", "event": "prompt", "text": "Ahora en unas 200 palabras, como funciona un reloj de pendulo.", "prompt_id": "9q5tel", "origin": ["human"]}
+{"ts": "2026-11-03T07:58:50.320351-06:00", "event": "turn_finished", "turn": 4}
+{"ts": "2026-11-03T07:58:58.751226-06:00", "event": "compaction_asked", "instructions": ""}
+{"ts": "2026-11-03T07:59:02.076073-06:00", "event": "compacted", "summarized": 5, "summary": "sayee pidió descripciones en español de unas 200 palabras sobre un faro marítimo, un molino de viento y una esclusa de canal; AllIn las entregó. Luego pidió res…", "archive": "compacted/2.json", "replaced": 3035, "tokens": 174}
+{"ts": "2026-11-03T07:59:02.076805-06:00", "event": "context_unmeasured", "text": "the Server could not measure the compacted Conversation: its Context is unknown"}
+{"ts": "2026-11-03T07:59:19.834662-06:00", "event": "window_opened"}

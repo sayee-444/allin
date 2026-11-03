@@ -1,0 +1,46 @@
+# #157 — Tras compactar, el borde muestra el Contexto nuevo (2026-11-03)
+
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, proxy.py (en esta carpeta como proxy.py.txt) en el puerto 19157: pasa todo a 9932, salvo que, mientras exista el archivo
+`fail` a su lado, responde 500 a /apply-template de una Conversación compactada (su segundo mensaje es el resumen
+y no es la petición de un Paso de resumen). Así el Servidor «no sabe medir» lo que guarda una Compactación.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m157, en un xterm, con el código del commit c618773.
+Ajustes: /set base_url=http://127.0.0.1:19157/v1, /exit y otra vez Main.
+/new --id=borde157; /session set borde157 compact.keep=0.02 (640 tokens, para que haya Turnos que resumir).
+
+## Criterios
+1. Al guardarse una Compactación, el borde pasa al Contexto de la Conversación compactada sin esperar al Turno siguiente
+   - Tres Prompts de unas 200 palabras (faro, molino, esclusa). El borde: «context 18914 / 32k» (01-borde-antes-de-compactar.png).
+   - /session compact borde157 desde el Chat de Main: «compacted — Prompts 1–3 summarized» y el borde pasa a
+     «context 153 / 32k · ? tok/s» sin ningún Turno nuevo (02-borde-tras-compactar.png). El «?» de tok/s: no queda
+     Turno literal cuya velocidad mostrar.
+   - Medida aparte de la Conversación guardada, directa al Servidor en 9932 con measure_input(read_items()):
+       summarized=3 turns=0 pruned=0 compacted_since_turn=True
+       measured=153
+     El mismo número que el borde: plantilla y tokenizador del Servidor, como la Admisión.
+   - /bg borde157 y /open borde157: la Ventana reabierta sigue en «context 153» (03-reabierta.png).
+   - El Turno siguiente («Resume en una frase…») muestra su propio Contexto: «context 267 / 32k · 137.9 tok/s»
+     (04-turno-siguiente.png).
+2. Si el Servidor no sabe medir, el borde no deja el Contexto de antes
+   - Otro Prompt de 200 palabras (reloj de péndulo): «context 2972 / 32k» (05-antes-sin-medir.png).
+   - touch fail; /session compact borde157. El proxy rechaza una sola petición (proxy.log: «refused /apply-template
+     (2 messages)»), la medida del Sysprompt más el resumen nuevo; la Compactación se guarda («Prompts 1–5 summarized»)
+     y el Log dice context_unmeasured. El borde: «context ? / 32k», no 2972 (06-sin-medir-desconocido.png).
+   - rm fail; /exit y otra vez Main: la Ventana que reabre Main sigue en «context ? / 32k» (07-tras-reiniciar-main.png),
+     porque la Conversación guardada lleva compacted_since_turn y no vuelve al Contexto de su último Turno.
+   - 08-log-de-borde157.jsonl: los eventos del Log de borde157 de la prueba (textos largos recortados).
+3. Tests: abajo.
+
+## Tests de #157
+tests/test_compaction_border.py::test_once_a_compaction_is_saved_the_border_shows_the_compacted_context PASSED
+tests/test_compaction_border.py::test_a_server_that_cannot_measure_leaves_the_border_unknown_not_as_before PASSED
+tests/test_compaction_border.py::test_a_window_opened_again_after_compacting_shows_the_compacted_context PASSED
+tests/test_compaction_border.py::test_after_a_restart_the_border_of_a_compacted_conversation_is_unknown_not_as_before PASSED
+tests/test_compaction_border.py::test_the_next_turn_shows_its_own_context_again PASSED
+tests/test_compaction_border.py::test_a_rewind_after_compacting_does_not_show_what_the_compaction_measured PASSED
+tests/test_compaction_border.py::test_moving_a_compacted_session_to_a_smaller_slot_weighs_what_was_measured PASSED
+tests/test_compaction_border.py::test_pruning_alone_shows_the_context_its_llm_reads_pruned PASSED
+tests/test_compaction_f2.py::test_a_turn_that_yields_to_compact_shows_the_compacted_context_until_its_next_step PASSED
+tests/test_compaction.py::test_compacting_replaces_the_first_turns_by_the_summary_and_counts_them PASSED
+Suite completa: 1742 passed; basedpyright 0 errores; ruff limpio.
