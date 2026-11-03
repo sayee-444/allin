@@ -47,7 +47,7 @@ from allin.core.ids import (
     SupervisorName,
     new_prompt_id,
 )
-from allin.core.origin import HUMAN, Origin, from_session
+from allin.core.origin import HUMAN, Origin, acting_process, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -1016,6 +1016,8 @@ class TurnQueue:
             or bool(prompt.woke_by)  # a Suscripción's: its Session goes on (ADR-0004)
         )
         kind: WaitClass = "continuation" if repeats else "prompt"
+        if kind == "prompt" and acting_process(prompt.origin) is not None:
+            kind = "fproc"  # behind the humans' and the Sessions' (ADR-0026)
         since = self._since.setdefault(session_id, self._wall())
         waiter = self._waiter(session_id, kind, since, need)
         return _Candidate(waiter, link, prompt=prompt, session=session)

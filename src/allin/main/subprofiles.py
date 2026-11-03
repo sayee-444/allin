@@ -44,17 +44,6 @@ class Space:
 PROFILE = Space()
 
 
-def acting_process(origin: Origin) -> AttachedName | None:
-    """The Proceso adherido that acts last in ``origin``'s chain, if it is one and not a
-    Session: what it creates goes in its Subperfil (ADR-0026)."""
-    for link in reversed(origin.chain):
-        if link.kind == "session":
-            return None
-        if link.kind == "process":
-            return AttachedName(link.id)
-    return None
-
-
 class Subprofiles:
     """The Subperfiles of the active Profile; only Main's dispatcher changes them."""
 

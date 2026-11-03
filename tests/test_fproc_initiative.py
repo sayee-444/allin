@@ -15,12 +15,13 @@ from pydantic import JsonValue
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import AttachedProcess, FprocStart, ToolLauncher
 from allin.core.ids import AttachedName, CommandName, FprocName, PieceId
+from allin.core.origin import HUMAN, Link, Origin
 from allin.main.descriptions import Descriptions
-from allin.main.events import MainCommandEntered
+from allin.main.events import InputReceived, MainCommandEntered
 from allin.main.quarantine import PieceRef, Quarantine
 from tests.llm_fakes import FakeLlm, full_reply
 from tests.test_attached import from_session
-from tests.test_dispatcher import TURNS_ENDED, DrainingInbox, MainHarness
+from tests.test_dispatcher import TURNS_ENDED, DrainingInbox, MainHarness, ended, turn_lines
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
 
@@ -250,11 +251,15 @@ def hearing(main: MainHarness, count: int, name: str = "guide") -> Callable[[], 
     return step
 
 
-def act(main: MainHarness, text: str, name: str = "guide") -> Callable[[], None]:
-    """A step: the fproc asks for ``text`` on its own, as when someone writes in its channel."""
+def act(
+    main: MainHarness, text: str | Callable[[], str], name: str = "guide"
+) -> Callable[[], None]:
+    """A step: the fproc asks for ``text`` on its own, as when someone writes in its channel;
+    ``text`` may be known only once the run is under way."""
 
     def step() -> None:
-        main.dispatcher.attached.attached_fproc(name).process.call("act", {"text": text}, 10)
+        asked = text if isinstance(text, str) else text()
+        main.dispatcher.attached.attached_fproc(name).process.call("act", {"text": asked}, 10)
 
     return step
 
@@ -346,3 +351,159 @@ def test_its_sessions_get_the_functions_of_its_molde_never_more_than_who_attache
         PieceId("function:beta"),
     ), "never Otorgar, even if its Molde names it"
     assert main.sessions.load(by_human).commands == (CommandName("send"),)
+
+
+def enter(
+    main: MainHarness, text: Callable[[], str], origin: Callable[[], Origin] = lambda: HUMAN
+) -> Callable[[], None]:
+    """A step: the Command main ``text`` gives comes in with the Origin ``origin`` gives, both
+    known only once the run is under way."""
+
+    def step() -> None:
+        inbox = main.servers.inbox
+        assert inbox is not None
+        inbox.put(MainCommandEntered(text(), origin()))
+
+    return step
+
+
+def heard_state(heard: list[JsonValue], index: int) -> str:
+    """The id of the Session the ``index``-th answer it heard created."""
+    made = heard[index]
+    assert isinstance(made, dict)
+    state = made["state"]
+    assert isinstance(state, dict)
+    return str(state["session_id"])
+
+
+def test_a_prompt_of_the_fproc_waits_behind_a_humans_and_past_its_cap_it_hears_busy(
+    main: MainHarness,
+):
+    x, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    heard: list[JsonValue] = []
+    chat = main.run(
+        InputReceived(x.id, "x1"),
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        InputReceived(b.id, "b1"),
+        ended(x),
+        act(main, "@new helper"),
+        hearing(main, 3),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        act(main, lambda: f"@send {heard_state(heard, 2)} otra persona"),
+        hearing(main, 4),
+        TURNS_ENDED,
+        act(main, lambda: f"@send {heard_state(heard, 0)} --outsider=chat:juan -- sigo"),
+        hearing(main, 5),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)[3:]),
+        settle=True,
+    )
+    first = heard_state(heard, 0)
+    started = [line for line in turn_lines(chat) if line.endswith("turn started")]
+    assert started == [f"[{x.id}] turn started", f"[{b.id}] turn started"], "the human first"
+    assert "subprofile_busy" in str(heard[3]), "one Session of its Subperfil at a time"
+    assert heard[4] == {"result": "ok"}, "the one that already counts may get more"
+    assert first in subprofile_sessions(main)
+
+
+def test_it_acts_only_on_the_sessions_it_created(main: MainHarness):
+    a = main.create_session()
+    heard: list[JsonValue] = []
+    main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        act(main, f"@send {a.id} hola"),
+        hearing(main, 3),
+        act(main, f"@open {a.id}"),
+        hearing(main, 4),
+        act(main, f"@close {a.id}"),
+        hearing(main, 5),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        act(main, lambda: f"@close {heard_state(heard, 0)}"),
+        hearing(main, 6),
+        TURNS_ENDED,
+        act(main, lambda: f"@open {heard_state(heard, 0)}"),
+        hearing(main, 7),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)[5:]),
+        settle=True,
+    )
+    for refused in heard[2:5]:
+        assert "outside_subprofile" in str(refused), refused
+    sid = heard_state(heard, 0)
+    assert heard[5] == {"result": "ok"}, "it closes its own"
+    assert heard[6] == {"result": "ok", "state": {"place": "background", "attention": False}}
+    assert main.windows(sid) == [], "it opens its own only in the background"
+    assert main.windows(a.id) == []
+
+
+def test_send_never_crosses_the_subprofile_but_a_human_does(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "uno"), full_reply("", "dos"))
+    a = main.create_session()
+    a = main.sessions.save_commands(a, (CommandName("send"),))
+    heard: list[JsonValue] = []
+    sid: list[str] = []
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        lambda: sid.append(heard_state(heard, 0)),
+        enter(main, lambda: f"/send {sid[0]} desde el Perfil", lambda: from_session(a)),
+        enter(
+            main,
+            lambda: f"/send {a.id} desde el Subperfil",
+            lambda: Origin(chain=(*HUMAN.chain, Link("process", "guide"), Link("session", sid[0]))),
+        ),
+        enter(main, lambda: f"/send {sid[0]} soy el humano"),
+        TURNS_ENDED,
+        settle=True,
+    )
+    crossed = [line for line in chat if "outside_subprofile" in line]
+    assert len(crossed) == 2, "\n".join(chat[-12:])
+    mine = main.sessions.load_conversation(a)
+    assert mine is None or not mine.turns, "nothing came in from the Subperfil"
+    assert sid[0] not in main.profiles.sessions(main.profile)
+    conversation = main.sessions.load_conversation(main.sessions.load(sid[0]))
+    assert conversation is not None
+    assert [turn.origin.labels for turn in conversation.turns] == [
+        ["human", "process:guide"],
+        ["human"],
+    ], "only a human crosses"
+
+
+def test_an_outsiders_prompt_carries_the_fprocs_origin_and_never_y(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "hola, Juan"))
+    a = main.create_session()
+    a = main.sessions.save_commands(a, (CommandName("send"),))
+    heard: list[JsonValue] = []
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        act(main, lambda: f"@send -y {heard_state(heard, 0)} hazlo sin preguntar"),
+        hearing(main, 3),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)[2:]),
+        MainCommandEntered(f"/send {a.id} --outsider=chat:ana -- soy Ana", from_session(a)),
+        settle=True,
+    )
+    sid = heard_state(heard, 0)
+    session = main.sessions.load(sid)
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None
+    [turn] = conversation.turns
+    assert turn.origin.labels == ["human", "process:guide"]
+    assert turn.outsider == "chat:juan"
+    assert turn.prompt.startswith("[from attached process guide, words of outsider chat:juan]")
+    [started] = [e.fields for e in main.session_log(session) if e.event == "turn_started"]
+    assert started["outsider"] == "chat:juan"
+    assert "human_only" in str(heard[2]), "never -y"
+    assert any("outsider_not_from_process" in line for line in chat)

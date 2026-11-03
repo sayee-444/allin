@@ -33,7 +33,7 @@ from allin.core.ids import (
     new_prompt_id,
     parse_subscription_id,
 )
-from allin.core.origin import HUMAN, Origin
+from allin.core.origin import HUMAN, Origin, acting_process
 from allin.core.settings import SessionSettings
 from allin.decorators import has_subprofile
 from allin.ipc.messages import OrganizerRow, Place
@@ -83,7 +83,7 @@ from allin.main.settings_commands import (
 from allin.main.status import PARTS_SHOWN as STATUS_PARTS
 from allin.main.status import USAGE as STATUS_USAGE
 from allin.main.status import Sources, parse_part, read
-from allin.main.subprofiles import Subprofiles, acting_process
+from allin.main.subprofiles import Subprofiles
 from allin.main.subscriptions import (
     SUBSCRIBE_USAGE,
     UNSUBSCRIBE_USAGE,
@@ -933,6 +933,12 @@ class MainCommands:
         session = self._sessions.load_owned(session_id, self._main_id)
         background = option == _BG_OPTION
         self._check_in_reach(session, origin)
+        if not origin.is_human and self._subprofiles.holding(session.id) is not None:
+            # A Subperfil's Sessions get a Window only from a human (ADR-0026).
+            if self._windows.is_open(session.id):
+                answer(Queried({"place": "view", "attention": False}))
+                return True
+            background = True
         if background and self._windows.is_open(session.id):
             self._check_may_background(session, origin)
         if self._windows.is_open(session.id) and not background:

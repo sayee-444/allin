@@ -23,18 +23,19 @@ from allin.core.errors import (
     FileReferenceInvalid,
     InvalidArguments,
     OutsiderNotFromProcess,
+    SubprofileBusy,
     SubscriptionInvalid,
     SubscriptionNotOwn,
 )
-from allin.core.ids import SessionId, SubscriptionId, new_prompt_id
-from allin.core.origin import Origin
+from allin.core.ids import AttachedName, SessionId, SubscriptionId, new_prompt_id
+from allin.core.origin import Origin, acting_process
 from allin.main.attachments import copy_in, source_of
 from allin.main.boxes import MainBoxes
 from allin.main.events import OnOutcome
 from allin.main.prompt_commands import SendOptions
 from allin.main.prompts import Prompt, origin_header
 from allin.main.sessions import Session, SessionStore
-from allin.main.subprofiles import Subprofiles, acting_process
+from allin.main.subprofiles import Subprofiles
 from allin.main.subscriptions import Subscriptions
 from allin.main.turn_queue import TurnQueue
 
@@ -64,7 +65,9 @@ class SessionSends:
     ) -> None:
         """Queue the Prompt for ``target``; ``answer`` hears how it went, maybe only once a
         human answered the Approval of a file from outside."""
-        self._check_profile(target, origin)
+        space = self._subprofiles.check_reach(origin, target.id)
+        if space.subprofile is not None and not origin.is_human:
+            self._check_room(space.subprofile, target.id)
         if options.outsider is not None:
             _check_outsider(options.outsider, origin)
         subscriber = (
@@ -82,7 +85,7 @@ class SessionSends:
             try:
                 if not yes:
                     raise AttachmentNotApproved(paths=list[JsonValue](map(str, outside)))
-                self._check_profile(target, origin)  # the human may have switched meanwhile
+                self._subprofiles.check_reach(origin, target.id)  # one may have switched
                 self._push(target, options, origin, files, subscriber)
             except AllInError as error:
                 answer(error)
@@ -96,10 +99,18 @@ class SessionSends:
         )
         self._boxes.confirm(None, "Approve files", f"{text}\nCopy them?", on_approval)
 
-    def _check_profile(self, target: Session, origin: Origin) -> None:
-        """Both ends are in one space, the active Profile or one Subperfil: ``/send`` never
-        crosses either boundary, which only a human does (ADR-0010, ADR-0026)."""
-        self._subprofiles.check_reach(origin, target.id)
+    def _check_room(self, name: AttachedName, target: SessionId) -> None:
+        """No more of a Subperfil's Sessions than its ``turns`` have a Turn running or queued
+        at once; one that already has gets more (ADR-0026)."""
+
+        def taken(session_id: SessionId) -> bool:
+            return self._turns.busy(session_id) or self._turns.queued_count(session_id) > 0
+
+        if taken(target):
+            return
+        record = self._subprofiles.record(name)
+        if sum(1 for sid in record.sessions if taken(sid)) >= record.turns:
+            raise SubprofileBusy(name=name, turns=record.turns)
 
     def _push(
         self,
