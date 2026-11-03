@@ -422,6 +422,19 @@ class SubprofileNotFound(AllInError):
     code: ClassVar[str] = "subprofile_not_found"
 
 
+class SecretNotFound(AllInError):
+    """The instance has no Secreto of that name in the active Profile."""
+
+    code: ClassVar[str] = "secret_not_found"
+
+
+class SecretInvalid(AllInError):
+    """A Secreto's value is empty, too long or has control characters; ``reason`` says which,
+    never the value."""
+
+    code: ClassVar[str] = "secret_invalid"
+
+
 class InitiativeRefused(AllInError):
     """Between calls an fproc runs only the Command sessions that act on its own Sessions:
     ``@new``, ``@send``, ``@open`` and ``@close`` (ADR-0026)."""

@@ -610,7 +610,8 @@ class ChatScreen:
         if box is None:
             return
         width = min(area.width, _BOX_MAX_WIDTH)
-        rows = box_rows(Box(box.box_id, box.kind, box.title, visible(box.text)), width - 4)
+        shown = Box(box.box_id, box.kind, box.title, visible(box.text))
+        rows = box_rows(shown, width - 4, hidden=self._boxes_shown.typed_count)
         height = min(area.height, len(rows) + 2)
         if width < _BOX_MIN_WIDTH or height < _BOX_MIN_HEIGHT:
             return

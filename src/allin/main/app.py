@@ -156,7 +156,9 @@ def _run(
     try:
         screen.run(
             lambda text: inbox.put(MainCommandEntered(text)),
-            on_box_closed=lambda closed: inbox.put(BoxAnswered(closed.box_id, closed.answer)),
+            on_box_closed=lambda closed: inbox.put(
+                BoxAnswered(closed.box_id, closed.answer, closed.value)
+            ),
         )
     except KeyboardInterrupt:
         pass

@@ -69,7 +69,7 @@ class _WindowListener:
             case WindowUsedMessage():
                 self._inbox.put(WindowUsed(self._session_id))
             case BoxAnswer(box_id=box_id, answer=answer):
-                self._inbox.put(BoxAnswered(box_id, answer))
+                self._inbox.put(BoxAnswered(box_id, answer, window=self._session_id))
 
     def on_error(self, error: AllInError) -> None:
         self._inbox.put(ErrorOccurred(error, self._session_id))

@@ -350,7 +350,7 @@ Lo que un humano da, a propósito, a todo lo que amplía un Encierro: cada versi
 _Avoid_: Confirmación, permiso
 
 **Secreto** (`secret`):
-Valor con nombre que solo da un humano, como el token de un bot, y que Main entrega a un Proceso adherido al lanzarlo. Se guarda una vez y vale en cada adhesión hasta que un humano lo quita. Nunca lo ven el LLM, la Conversación, el Log, el RAG ni los Ajustes, y nunca viaja en Moldes, Kits ni copias de un Perfil.
+Valor con nombre que solo da un humano, como el token de un bot, y que Main entrega a un Proceso adherido al lanzarlo, por su canal y nunca por su entorno. Se guarda una vez en el Perfil, a nombre de la instancia, y vale en cada adhesión hasta que un humano lo quita. `/secret set <instancia> <nombre>` pide el valor en un recuadro del Chat de Main que solo muestra puntos; `/secret` lista los nombres, nunca el valor, y `/secret remove` lo quita. La fproc lo lee con `self.secret("<nombre>")`. Nunca lo ven el LLM, la Conversación, el Log, el RAG ni los Ajustes, y nunca viaja en Moldes, Kits ni copias de un Perfil (ADR-0026).
 _Avoid_: token, credencial, contraseña
 
 **Cuarentena** (`quarantine`):
