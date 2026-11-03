@@ -116,7 +116,7 @@ Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde q
 _Avoid_: topología, red, estructura (como nombre del concepto)
 
 **Informe de recuperación** (`RecoveryReport`):
-Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio: lo que quedó a medias (Turnos, Ventanas, Procesos adheridos, Encargos). Queda en el Log, se muestra al usuario como Aviso y llega a cada Sesión afectada como Notificación; dice qué quedó a medias, no por qué murió Main.
+Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio o cortó Turnos: lo que quedó a medias (Turnos, Ventanas, Procesos adheridos, Encargos). Queda en el Log, se muestra al usuario como Aviso y llega a cada Sesión afectada como Notificación; dice qué quedó a medias, no por qué murió Main.
 _Avoid_: crash report, volcado
 
 **Ajustes** (`Settings`):
