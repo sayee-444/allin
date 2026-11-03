@@ -1,0 +1,70 @@
+# #121 — Lo escrito durante un Turno entra antes del siguiente Paso (2026-11-03)
+
+Servidor: llama serve -m models/Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj models/mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ctk q8_0 -ctv q8_0 -c 32000 -ngl all -fa on --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+
+## 1. La plantilla acepta un mensaje del usuario tras la salida de una tool
+$ python probe.py   (probe.py, junto a este archivo)
+== /apply-template: how the template renders tool output then user ==
+<|im_start|>system
+Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>
+<|im_start|>user
+Duerme 5 segundos con la tool nap y luego dime 'hecho'.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+<tool_call>
+<function=nap>
+<parameter=seconds>
+5
+</parameter>
+</function>
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+"rested"
+</tool_response><|im_end|>
+<|im_start|>user
+Mientras dormías cambié de idea: responde solo con la palabra MANZANA.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+== /v1/responses with function_call_output then a user message ==
+HTTP 200
+answer: MANZANA
+
+## 2. Prueba a mano con Main (xterm, --data-dir <scratch>/data2), con el código final tras la revisión
+- function:reloj con la tool dormir(segundos) en el Perfil default; /piece approve --all; /new -> Sesión rylu7s.
+- Prompt «Usa la tool dormir con segundos=20 y luego dime cuanto durmio.»; con la tool corriendo, en la misma Ventana:
+  «Cambio de idea. No llames mas tools y responde solo con la palabra MANZANA».
+  -> sale como [queued] (01), entra tras la tool (prompt_joined) y el LLM responde MANZANA en el mismo Turno (02).
+  El Turno 0 guardado lleva el texto en interjected de su Paso 1, origin ['human'] (05-registros.txt).
+- Prompt «Usa la tool dormir con segundos=90 …» y Shift+Enter con la tool corriendo:
+  Shift+Enter a las 01:31:59.45, turn_finished cut=interrupted a las 01:31:59.59 (03).
+  Procesos bajo Main: 2 antes, 4 con la tool corriendo, 2 tras Shift+Enter (el proceso de la tool y su vigilante murieron).
+- La Ventana muestra «dormir failed: error: the human interrupted…», y el Turno cortado guarda su function_call con la salida «error: the human interrupted the Turn …»; preguntado después,
+  el LLM explica que la llamada se cortó antes de leer su salida (04).
+- Origen: con Origen humano, sin cambios (05). Que un texto humano no vuelve humano un Turno de otro Origen lo prueba
+  test_a_human_text_that_enters_a_turn_of_another_origin_leaves_its_origin.
+
+## 3. Tests
+tests/test_tool_steps.py (tools reales encerradas, LLM falso):
+  test_text_sent_while_its_tool_runs_enters_the_turn_before_its_next_step
+  test_a_human_text_that_enters_a_turn_of_another_origin_leaves_its_origin
+  test_only_plain_text_typed_in_its_window_enters_and_the_rest_waits_its_own_turn
+  test_text_typed_after_one_that_cannot_enter_waits_behind_it
+  test_shift_enter_during_a_tool_keeps_its_call_as_cancelled_for_the_llm
+  test_texts_that_entered_a_turn_that_fails_go_back_to_the_input
+  test_rewind_gives_back_the_texts_that_entered_the_turn
+  test_text_sent_while_its_server_is_down_after_its_tools_enters_when_it_goes_on
+tests/test_prompt_queue.py: may_join, typed_in_window, take_joining.
+tests/test_write_during_turn.py (Turno retenido, eventos a mano):
+  test_shift_enter_after_a_text_entered_keeps_it_and_the_real_outputs
+  test_shift_enter_while_its_tools_run_marks_each_call_cut
+  test_closing_the_window_gives_back_the_texts_that_entered_its_turn
+  test_a_rebuilt_chat_shows_the_texts_that_entered_a_turn_that_failed
+  test_text_sent_before_its_sessions_turn_started_waits_for_its_own
+
+Suite completa: 1619 passed; ruff y basedpyright limpios.

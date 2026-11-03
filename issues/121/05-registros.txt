@@ -1,0 +1,42 @@
+# Prueba a mano de #121 con llama serve (Qwen3.8-27B Q6_K, -c 32000 -np 2 --kv-unified), Sesion rylu7s, fsource function:reloj (dormir)
+
+## Log de la Sesion (sin los eventos de la Ventana)
+{"ts": "2026-11-03T01:31:19.118841-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T01:31:31.868816-06:00", "event": "prompt", "text": "Usa la tool dormir con segundos=20 y luego dime cuanto durmio.", "prompt_id": "bnatse", "origin": ["human"]}
+{"ts": "2026-11-03T01:31:31.873644-06:00", "event": "turn_started", "need": 8359}
+{"ts": "2026-11-03T01:31:32.825868-06:00", "event": "tools_called", "tools": ["dormir"]}
+{"ts": "2026-11-03T01:31:36.190748-06:00", "event": "prompt", "text": "Cambio de idea. No llames mas tools y responde solo con la palabra MANZANA", "prompt_id": "x29e5d", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T01:31:52.850948-06:00", "event": "tools_returned", "grows": 68}
+{"ts": "2026-11-03T01:31:52.852342-06:00", "event": "prompt_joined", "text": "Cambio de idea. No llames mas tools y responde solo con la palabra MANZANA", "prompt_id": "x29e5d"}
+{"ts": "2026-11-03T01:31:53.324733-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T01:31:56.374966-06:00", "event": "prompt", "text": "Usa la tool dormir con segundos=90 y luego dime cuanto durmio.", "prompt_id": "os1se8", "origin": ["human"]}
+{"ts": "2026-11-03T01:31:56.380550-06:00", "event": "turn_started", "need": 8516}
+{"ts": "2026-11-03T01:31:57.069638-06:00", "event": "tools_called", "tools": ["dormir"]}
+{"ts": "2026-11-03T01:31:59.583823-06:00", "event": "tool_failed", "tool": "dormir", "error": "error: the human interrupted the Turn (Shift+Enter) before this call's output was read: it was stopped, and may have done part or all of its work"}
+{"ts": "2026-11-03T01:31:59.585205-06:00", "event": "turn_finished", "turn": 1, "cut": "interrupted"}
+{"ts": "2026-11-03T01:32:03.658723-06:00", "event": "prompt", "text": "Sin usar tools. Que paso con la ultima llamada a dormir que hiciste", "prompt_id": "29it3j", "origin": ["human"]}
+{"ts": "2026-11-03T01:32:03.665171-06:00", "event": "turn_started", "need": 8664}
+{"ts": "2026-11-03T01:32:05.701808-06:00", "event": "turn_finished", "turn": 2}
+
+## conversation.json: los Turnos guardados (Pasos resumidos)
+
+Turno 0: origin=['human'] cut=None
+  prompt: 'Usa la tool dormir con segundos=20 y luego dime cuanto durmio.'
+  Paso 1
+    function_call dormir {"segundos":20}
+    function_call_output: "dormi 20 s"
+    interjected (Texto intercalado, tras las salidas): 'Cambio de idea. No llames mas tools y responde solo con la palabra MANZANA'
+  Paso 2
+    message: MANZANA
+
+Turno 1: origin=['human'] cut=interrupted
+  prompt: 'Usa la tool dormir con segundos=90 y luego dime cuanto durmio.'
+  Paso 1
+    function_call dormir {"segundos":90}
+    function_call_output: error: the human interrupted the Turn (Shift+Enter) before this call's output was read: it was stopped, and may have done part or all of its work
+
+Turno 2: origin=['human'] cut=None
+  prompt: 'Sin usar tools. Que paso con la ultima llamada a dormir que hiciste'
+  notifications: ['The human interrupted your last answer; it is kept as far as it got.']
+  Paso 1
+    message: La última llamada a `dormir` con `segundos=90` fue **interrompida por ti** (con Shift+Enter) antes de que pudiera leerse su resultado. Según el mensaje de error, la llamada se detuvo y es posible que el sueño haya ejecutado solo parte de su tiempo o la totalidad, pero yo no llegué a recibir el resultado ("dormí X s"). En resumen: no sé exactamente cuánto durmió porque la interrupción ocurrió antes de que la respuesta llegara a mí.
