@@ -983,7 +983,8 @@ class MainCommands:
             self._check_may_background(session, origin)
         if self._windows.is_open(session.id) and not background:
             raise WindowAlreadyOpen(session_id=session.id)
-        self._profiles.opened(session.id)  # opening another Profile's Session shares it
+        if self._subprofiles.holding(session.id) is None:  # a Subperfil's stays in it
+            self._profiles.opened(session.id)  # opening another Profile's Session shares it
         in_view = self._place(session, background, origin)
         attention = not in_view and not background  # it did not fit: only another Origin's
         if in_view:

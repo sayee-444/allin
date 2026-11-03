@@ -406,3 +406,17 @@ def test_switching_profile_freezes_the_subprofile_and_coming_back_finds_it(main:
     )
     first = chat.index("subprofiles: 0")
     assert chat[chat.index("subprofiles: 1", first) + 1] == "  guide: 1 session · turns 1"
+
+
+def test_a_human_opens_one_of_its_sessions_and_it_stays_out_of_the_profile(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "hola"))
+    main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        enter(main, lambda: f"/open {subprofile_sessions(main)[0]}"),
+        settle=True,
+    )
+    [sid] = subprofile_sessions(main)
+    assert len(main.windows(sid)) == 1
+    assert sid not in main.profiles.sessions(main.profile)
