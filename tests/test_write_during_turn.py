@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from allin.core.errors import TurnCancelled
+from allin.core.errors import TurnCancelled, TurnCrashed
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.conversation import NOTIFICATIONS_HEADER, Step
 from allin.main.cut_turns import INTERRUPTED_LINE
@@ -12,11 +12,13 @@ from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     QueuedWithdrawn,
+    ToolsEnded,
+    ToolsStarted,
     TurnEnded,
     TurnOutput,
     WindowClosed,
 )
-from allin.main.turn_queue import INTERRUPTED
+from allin.main.turn_queue import CUT_CALL, INTERRUPTED
 from tests.test_dispatcher import MainHarness, ended
 
 
@@ -196,3 +198,100 @@ def test_closing_the_window_gives_the_queued_prompts_back_as_draft_blocks(main: 
         settle=True,
     )
     assert main.state.load().drafts == {session.id: ["a2", "a3 @top_k=5"]}
+
+
+# While its tools run (#121): what enters the Turn, and what a cut or a closed Window does
+# with it. The Turn's executor is held, so the events of its thread are given by hand.
+
+CALLED = Step(
+    output=[{"type": "function_call", "call_id": "call_1", "name": "nap", "arguments": "{}"}]
+)
+RETURNED = CALLED.model_copy(
+    update={"results": [{"type": "function_call_output", "call_id": "call_1", "output": '"ok"'}]}
+)
+
+
+def test_shift_enter_after_a_text_entered_keeps_it_and_the_real_outputs(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "y luego esto"),
+        ToolsEnded(session.id, RETURNED, 10),  # it holds a slot at once: the text enters
+        InputReceived(session.id, "", interrupt=True),  # before its executor said the Step ended
+        TurnEnded(session.id, error=TurnCancelled(reason=INTERRUPTED)),
+        settle=True,
+    )
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None
+    [step] = conversation.turns[0].steps
+    assert step.results == RETURNED.results  # what it gave back, not that it was cut
+    assert step.interjected == ["y luego esto"]
+
+
+def test_shift_enter_while_its_tools_run_marks_each_call_cut(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "", interrupt=True),
+        TurnEnded(session.id, error=TurnCancelled(reason=INTERRUPTED)),
+        settle=True,
+    )
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None
+    [step] = conversation.turns[0].steps
+    assert [result["output"] for result in step.results] == [CUT_CALL]
+
+
+def test_closing_the_window_gives_back_the_texts_that_entered_its_turn(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "y luego esto"),
+        ToolsEnded(session.id, RETURNED, 10),
+        InputReceived(session.id, "y aquello"),  # still queued
+        WindowClosed(session.id, returncode=0),
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert main.state.load().drafts == {session.id: ["y luego esto", "y aquello"]}
+    cancelled = [e.fields for e in main.session_log(session) if e.event == "turn_cancelled"]
+    assert cancelled[0]["joined"] == ["y luego esto"]
+
+
+def test_a_rebuilt_chat_shows_the_texts_that_entered_a_turn_that_failed(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "y luego esto"),
+        ToolsEnded(session.id, RETURNED, 10),
+        TurnEnded(session.id, error=TurnCrashed(reason="boom")),
+        WindowClosed(session.id, returncode=0),
+        MainCommandEntered(f"/open {session.id}"),
+        settle=True,
+    )
+    reopened = main.windows(session.id)[-1]
+    users = [m.text for m in reopened.sent if isinstance(m, ChatAppend) and m.role == "user"]
+    assert users == ["duerme", "y luego esto"]
+
+
+def test_text_sent_before_its_sessions_turn_started_waits_for_its_own(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        InputReceived(b.id, "b"),  # B holds the only slot
+        InputReceived(a.id, "a1"),  # waits for a slot, no Turn yet
+        InputReceived(a.id, "a2"),  # queued behind a1, before a1's Turn started
+        ended(b),
+        ToolsStarted(a.id, ("nap",), CALLED),
+        ToolsEnded(a.id, RETURNED, 10),
+        settle=True,
+    )
+    assert [e for e in main.session_log(a) if e.event == "prompt_joined"] == []

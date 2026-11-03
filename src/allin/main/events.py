@@ -273,6 +273,7 @@ class ToolsStarted:
 
     session_id: SessionId
     names: tuple[str, ...]
+    step: Step  # the Step that called them, which an interrupted Turn keeps (ADR-0024)
 
 
 @dataclass(frozen=True)
@@ -323,14 +324,13 @@ class SessionCommandAsked:
 
 @dataclass(frozen=True)
 class ToolsEnded:
-    """A running Turn's tools gave back what they said: its next Step, a Continuation, waits
-    for a slot. It reads ``grows`` more tokens at most than the Step before: what that one
-    generated, and what the tools gave back, a character each. ``failed``: each tool that gave
-    back an error, with it."""
+    """A running Turn's tools gave back what they said, in ``step``'s results: its next Step,
+    a Continuation, waits for a slot. It reads ``grows`` more tokens at most than the Step
+    before: what that one generated, and what the tools gave back, a character each."""
 
     session_id: SessionId
+    step: Step
     grows: int
-    failed: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

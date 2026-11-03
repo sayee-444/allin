@@ -164,6 +164,10 @@ _Avoid_: request, petición (para el ciclo completo)
 **Turno suspendido** (`suspended turn`):
 Turno que espera porque una caída o un reinicio de su Servidor le dejó un Paso a medias: conserva su Conversación hasta antes de ese Paso y lo repite, como Continuación, cuando el Servidor vuelve a estar listo. Si el mismo Paso queda a medias en dos caídas seguidas, el Turno falla. No es un Turno cortado, que se guarda con lo que generó.
 
+**Texto intercalado** (`interjected`):
+Texto llano que el humano envía desde la Ventana de una Sesión mientras corre un Turno de esa Sesión y que entra en ese Turno: lo lee el siguiente Paso, después de las salidas de las tools, como un mensaje del usuario. No es un Prompt nuevo ni cambia el Origen del Turno. Lo que lleva Command prompts o `-y`, lo que no cabe en el slot, lo que llega por `/send` y lo escrito antes de que el Turno empezara esperan su propio Turno. Se guarda en el Paso tras cuyas tools entró; si el Turno falla o se cancela, vuelve al input (ADR-0024).
+_Avoid_: interrupción (es Shift+Enter), mensaje en cola (es lo que aún espera)
+
 **Turno cortado** (`cut turn`):
 Turno cuyo último Paso terminó porque llegó a su Tope de salida o al límite del slot, o porque un humano lo interrumpió, no porque el LLM acabara. Se guarda con lo generado, marcado, y se lo dicen al humano un Aviso y al LLM una Notificación; no es un Turno fallido (ADR-0004).
 _Avoid_: truncado (es lo que hace `--context-shift`), incompleto

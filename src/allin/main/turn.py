@@ -43,7 +43,10 @@ class Tools(Protocol):
 
     @property
     def schemas(self) -> list[Item]: ...
-    def run(self, step: Step) -> list[Item]: ...
+    def run(self, step: Step) -> Step:
+        """``step`` with what its tools gave back, and what the human sent meanwhile."""
+        ...
+
     @property
     def yielded(self) -> bool:
         """Whether Main stopped the Turn after its tools, to compact before its next Step."""
@@ -173,7 +176,8 @@ def run_turn(
     or is still loading its model.
 
     ``on_raw`` gets every stream event as JSON, ``on_output`` only the text it streams and
-    ``on_step`` each Step as soon as it ends, with what its tools gave back.
+    ``on_step`` each Step as soon as it ends, with what its tools gave back and what the human
+    sent meanwhile, which the next Step reads after them (ADR-0024).
     """
     steps = list(request.done)
     schemas = tools.schemas if tools is not None else []
@@ -181,9 +185,8 @@ def run_turn(
     step_request = replace(request, params=params)
     while True:
         step = _run_step(llm, step_request, on_output, cancellation, on_raw)
-        if step.calls:
-            results = tools.run(step) if tools is not None else []
-            step = step.model_copy(update={"results": results})
+        if step.calls and tools is not None:
+            step = tools.run(step)
         on_step(step)
         steps.append(step)
         if not step.calls or tools is None:

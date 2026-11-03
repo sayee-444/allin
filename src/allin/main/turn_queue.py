@@ -68,7 +68,14 @@ from allin.main.compaction import summary_text, wants_compaction
 from allin.main.compactions import Compacted, CompactionDone, Compactions
 from allin.main.context_notice import CONTEXT as CONTEXT_NOTICE
 from allin.main.context_notice import context_left
-from allin.main.conversation import Conversation, Item, Step, Turn
+from allin.main.conversation import (
+    TOOL_ERROR,
+    Conversation,
+    Item,
+    Step,
+    Turn,
+    interjected_in,
+)
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
 from allin.main.events import (
@@ -92,7 +99,7 @@ from allin.main.sessions import Session, SessionStore
 from allin.main.slots import ServerProps, capacity
 from allin.main.status import InActive, QueuedSession, QueueView, ServerStateName, WatchedServer
 from allin.main.sysprompt import render_sysprompt
-from allin.main.tool_steps import SessionTools, ToolGate
+from allin.main.tool_steps import SessionTools, ToolGate, call_output
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
 from allin.main.usage import context_tokens
 from allin.notices import NoticeEvent
@@ -150,6 +157,11 @@ _RESUMED_TEXT = "queue resumed: {server} is ready"
 RESTARTING = "the Server restarts now"
 STALLED = "the Step made no progress"
 INTERRUPTED = "interrupted with Shift+Enter"
+# What the LLM reads as the output of a call whose Turn a human interrupted (ADR-0024).
+CUT_CALL = (
+    f"{TOOL_ERROR}the human interrupted the Turn (Shift+Enter) before this call's output was "
+    "read: it was stopped, and may have done part or all of its work"
+)
 _SUSPENDED_TEXT = (
     "turn suspended: {why}; what its Step gave is dropped and the Step runs again once the"
     " Server is back"
@@ -227,6 +239,9 @@ class _RunningTurn:
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
     interrupted: bool = False
+    # The Step whose tools run, then with what they gave back and the Textos intercalados
+    # that entered after them, until its executor says that Step ended (ADR-0024).
+    tools_step: Step | None = None
     notifications: list[str] = field(default_factory=list)  # told the LLM ahead of its Prompt
     told: Told = NOTHING_TOLD  # the pending Notificaciones among them (#109)
     # Where its current Step's text starts in ``streamed``: (reasoning, answer).
@@ -527,6 +542,7 @@ class TurnQueue:
         if running is None:
             return
         running.streamed.steps.append(step)
+        running.tools_step = None
         self._falls.pop(session_id, None)  # a fall from now on leaves another Step half-done
         running.step_from = (len(running.streamed.reasoning), len(running.streamed.answer))
         running.cut = cut_reason(step, running.output_cap, running.slot_context)
@@ -553,6 +569,9 @@ class TurnQueue:
         turn: int | None = None  # where it was saved, unless it was a summary Step
         if running.interrupted and isinstance(error, TurnCancelled):
             steps, error, running.cut = _interrupted_steps(running), None, "interrupted"
+            if running.tools_step is not None and not running.tools_step.results:
+                # Its tools were cut: shown as its rebuilt Chat shows them.
+                self._show_failed_tools(session_id, tuple(steps[-1].failures()))
         try:
             if error is not None or steps is None:
                 raise error or TurnCrashed(reason="no steps")
@@ -640,6 +659,11 @@ class TurnQueue:
     def queued_count(self, session_id: SessionId) -> int:
         return len(self._prompts.of(session_id))
 
+    def mark_typed_in_window(self, session_id: SessionId) -> None:
+        """The Session's last queued Prompt was typed in its Window: if it may, it enters the
+        Session's Turn under way before its next Step (ADR-0024)."""
+        self._prompts.mark_typed_in_window(session_id)
+
     def jump(self, session_id: SessionId) -> None:
         """The Session's last queued Prompt runs before the others it has waiting."""
         self._prompts.jump_last(session_id)
@@ -697,41 +721,46 @@ class TurnQueue:
             return "--devastation"
         return None
 
-    def tools_started(self, session_id: SessionId, names: tuple[str, ...]) -> None:
-        """A running Turn's Step called tools: they run without its slot, so Prompts that wait
-        can use it (ADR-0004)."""
+    def tools_started(self, session_id: SessionId, names: tuple[str, ...], step: Step) -> None:
+        """A running Turn's ``step`` called tools: they run without its slot, so Prompts that
+        wait can use it (ADR-0004)."""
         running = self._running.get(session_id)
         if running is None or running.cancellation.reason is not None:
             return
+        running.tools_step = step
         self._release(running)
         entry = tools_entry(names)
         self._reporter.record(session_id, "tools_called", entry.text, tools=list[JsonValue](names))
         self._windows.send(session_id, entry)
         self._start_turns()
 
-    def tools_ended(
-        self, session_id: SessionId, grows: int, failed: tuple[tuple[str, str], ...]
-    ) -> None:
-        """Its tools gave back what they said: its next Step needs ``grows`` more of the pool
-        at most, and waits for a slot as a Continuation. A tool that failed is shown, and its
-        LLM reads why."""
+    def tools_ended(self, session_id: SessionId, step: Step, grows: int) -> None:
+        """Its tools gave back what they said, in ``step``: its next Step needs ``grows`` more
+        of the pool at most, and waits for a slot as a Continuation. A tool that failed is
+        shown, and its LLM reads why."""
         running = self._running.get(session_id)
         if running is None or running.cancellation.reason is not None:
             return
+        running.tools_step = step
         running.need += grows
         running.grown += grows
-        running.resume = running.job.tools.resume
+        running.resume = functools.partial(self._next_step, running)
         running.ready_at = self._wall()
         self._reporter.log_session(session_id, "tools_returned", grows=grows)
-        for name, error in failed:
-            entry = tool_failed_entry(name, error)
-            self._reporter.record(session_id, "tool_failed", entry.text, tool=name, error=error)
-            self._windows.send(session_id, entry)
+        self._show_failed_tools(session_id, tuple(step.failures()))
         if self._compacts_between_steps(running):
             self._yielded[session_id] = running.prompt.prompt_id
             running.resume = None  # it ends instead; its Steps go on once it compacted
             running.job.tools.yield_turn()
         self._start_turns()
+
+    def _show_failed_tools(
+        self, session_id: SessionId, failed: tuple[tuple[str, str], ...]
+    ) -> None:
+        for name, error in failed:
+            entry = tool_failed_entry(name, error)
+            self._reporter.record(session_id, "tool_failed", entry.text, tool=name, error=error)
+            self._windows.send(session_id, entry)
 
     def _compacts_between_steps(self, running: _RunningTurn) -> bool:
         """Whether the Turn's next Step may pass ``compact.threshold`` of its slot, and its
@@ -1192,6 +1221,13 @@ class TurnQueue:
             self._reporter.log_session(session.id, "prompt_started", text=prompt.text)
             self._show_prompt(session, prompt)
             self.send_turn_state(session.id)  # it no longer waits below the Chat
+        if not prompt.steps:  # a new Turn: what waits was typed before it
+            self._prompts.turn_started(session.id)
+        joined: list[str] = []
+        if not compacting and prompt.steps and prompt.steps[-1].calls:
+            joined = self._join(session, slot_context - need)
+            prompt = _with_interjected(prompt, joined)
+            need += _chars(joined)
         request = TurnRequest(
             model=session.settings.model,
             input=self._compactions.request(session.id)
@@ -1221,6 +1257,7 @@ class TurnQueue:
             slot_context=slot_context,
             output_cap=cap,
             need=need,
+            grown=_chars(joined),
             context_before=context_tokens(conversation.turns[-1].steps)
             if conversation.turns
             else None,
@@ -1560,11 +1597,38 @@ class TurnQueue:
 
     def _resume_turn(self, running: _RunningTurn, slot: SlotLock) -> None:
         resume, running.resume, running.slot = running.resume, None, slot
-        self._reserve(running)
         running.progress_at = self._clock()
         running.sent = False  # a new Step reads its input first
         assert resume is not None
-        resume()
+        resume()  # what the human sent may enter first, and count in what it reserves
+        self._reserve(running)
+
+    def _next_step(self, running: _RunningTurn) -> None:
+        """Its tools answered and it holds a slot: its next Step starts, reading first what the
+        human sent from its Window meanwhile (ADR-0024)."""
+        joined = self._join(running.session, running.slot_context - running.need)
+        if running.tools_step is not None:  # kept here too, should a cut land before it ends
+            running.tools_step = running.tools_step.interjecting(joined)
+        running.need += _chars(joined)
+        running.grown += _chars(joined)
+        running.job.tools.resume(joined)
+
+    def _join(self, session: Session, room: int) -> list[str]:
+        """Take the Session's queued Prompts that may enter its running Turn before its next
+        Step (``Prompt.may_join``), as many as fit in ``room``; its Chat shows them now."""
+        joined = self._prompts.take_joining(session.id, room)
+        if not joined:
+            return []
+        self._measures.pop(session.id, None)  # its next Prompt is another one, if any
+        if not self._prompts.has(session.id):
+            self._since.pop(session.id, None)
+        for prompt in joined:
+            self._reporter.log_session(
+                session.id, "prompt_joined", text=prompt.text, prompt_id=prompt.prompt_id
+            )
+            self._show_prompt(session, prompt)
+        self.send_turn_state(session.id)  # they no longer wait below the Chat
+        return [prompt.text for prompt in joined]
 
     def _withdraw(self, running: _RunningTurn) -> None:
         """Its Confirmation is no longer valid: nobody answers it."""
@@ -1731,7 +1795,15 @@ class TurnQueue:
             return
         # What it streamed is in no Conversation, so the Log keeps it for the rebuilt Chat.
         streamed = running.streamed
-        fields = {"error": str(error), "reasoning": streamed.reasoning, "answer": streamed.answer}
+        # Its Textos intercalados, in no Conversation either (ADR-0024).
+        steps = [*streamed.steps, *filter(None, [running.tools_step])]
+        joined = interjected_in(steps)
+        fields: dict[str, JsonValue] = {
+            "error": str(error),
+            "reasoning": streamed.reasoning,
+            "answer": streamed.answer,
+            "joined": list[JsonValue](joined),
+        }
         cancelled = isinstance(error, TurnCancelled)
         ending = "cancelled" if cancelled else "failed"
         prompt = running.prompt.text
@@ -1741,14 +1813,17 @@ class TurnQueue:
         self._windows.send(session_id, error_entry(str(error)))
         if not self._stopping:  # else MainState keeps it running, for the next start to tell
             self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
-        if not cancelled:  # its Prompt is in no Conversation, so the user may send it again
+        if cancelled:  # back to its Draft, as what still waited in the queue (ADR-0024)
+            for text in reversed(joined):
+                self._windows.put_back(session_id, text)
+        else:  # its Prompt is in no Conversation, so the user may send it again
             # The Session's queued Prompts leave with it: without it in the Conversation they
             # would run out of the order they were written in (#16).
             behind = self._drop_queued(session_id, FAILED_BEFORE)
             if behind:
                 self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
             typed = [queued.text for queued in behind if queued.kind == "prompt"]
-            self._give_back(session_id, [prompt, *typed])
+            self._give_back(session_id, [prompt, *joined, *typed])
 
     def _drop_queued(
         self, session_id: SessionId, reason: str, by_human: bool = False
@@ -1818,7 +1893,16 @@ def _not_human(prompt: Prompt) -> bool:
 
 def _interrupted_steps(running: _RunningTurn) -> list[Step]:
     """An interrupted Turn's Steps: those that ended, then what its last one streamed, as the
-    items a Step gives, its message marked ``incomplete``."""
+    items a Step gives, its message marked ``incomplete``. A Step whose tools were cut is kept
+    whole, with what its tools gave back if they ended, else each call with an error as its
+    output, so its LLM knows what it had set going."""
+    step = running.tools_step
+    if step is not None:
+        if not step.results:
+            step = step.model_copy(
+                update={"results": [call_output(c, CUT_CALL) for c in step.calls]}
+            )
+        return [*running.streamed.steps, step]
     reasoning_from, answer_from = running.step_from
     reasoning = running.streamed.reasoning[reasoning_from:]
     answer = running.streamed.answer[answer_from:]
@@ -1833,6 +1917,18 @@ def _interrupted_steps(running: _RunningTurn) -> list[Step]:
         message: Item = {"type": "message", "role": "assistant", "status": "incomplete"}
         output.append({"id": "msg_interrupted", **message, "content": [text]})
     return [*running.streamed.steps, Step(output=output)]
+
+
+def _chars(texts: list[str]) -> int:
+    """What ``texts`` add to a Step's input, a character each, as tools' outputs count."""
+    return sum(len(text) for text in texts)
+
+
+def _with_interjected(prompt: Prompt, texts: list[str]) -> Prompt:
+    """A suspended Prompt whose Turn goes on after its tools, with ``texts`` entered after
+    them."""
+    *before, last = prompt.steps
+    return replace(prompt, steps=(*before, last.interjecting(texts)))
 
 
 def _sampling(prompt: Prompt, session: Session) -> Sampling:

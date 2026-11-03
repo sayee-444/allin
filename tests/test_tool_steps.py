@@ -14,18 +14,25 @@ import pytest
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
 from allin.core.errors import TurnCancelled
-from allin.ipc.messages import ChatAppend
+from allin.ipc.messages import ChatAppend, InputRestore
 from allin.main.chat_rebuild import rebuild_chat
 from allin.main.conversation import Item, Step, Turn
 from allin.main.descriptions import Descriptions
-from allin.main.events import InputReceived, MainCommandEntered, ToolsEnded, ToolsStarted, TurnEnded
+from allin.main.events import (
+    InputReceived,
+    MainCommandEntered,
+    MainEvent,
+    ToolsEnded,
+    ToolsStarted,
+    TurnEnded,
+)
 from allin.main.executors import TurnJob
 from allin.main.quarantine import PieceKind, PieceRef, Quarantine
 from allin.main.sessions import Session
 from allin.main.turn import Cancellation
-from tests.llm_fakes import DroppedStream, FakeLlm, full_reply, reasoning, tool_call
+from tests.llm_fakes import DroppedStream, FakeLlm, failed, full_reply, reasoning, tool_call
 from tests.origins import A_SESSION
-from tests.test_dispatcher import TURNS_ENDED, MainHarness, server_ready
+from tests.test_dispatcher import TURNS_ENDED, Between, MainHarness, server_ready
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
 
@@ -243,10 +250,10 @@ def test_the_step_after_its_tools_goes_on_before_the_new_prompts_of_its_main(mai
     main.threaded_turns, main.hold_turns = False, True
     main.run(
         InputReceived(a.id, "hi"),
-        ToolsStarted(a.id, ("nap",)),  # A's slot is free while its tool runs
+        ToolsStarted(a.id, ("nap",), Step(output=[])),  # A's slot is free while its tool runs
         InputReceived(b.id, "hi"),
         InputReceived(c.id, "hi"),  # waits: B holds the only slot
-        ToolsEnded(a.id, 10),  # A waits too, but ahead of C
+        ToolsEnded(a.id, Step(output=[]), 10),  # A waits too, but ahead of C
         TurnEnded(b.id, steps=[]),  # B's slot goes to A, not to C
         settle=True,
     )
@@ -261,9 +268,9 @@ def test_a_turn_cancelled_while_it_waits_for_a_slot_after_its_tools_is_not_taken
     main.threaded_turns, main.hold_turns = False, True
     main.run(
         InputReceived(a.id, "hi"),
-        ToolsStarted(a.id, ("nap",)),
+        ToolsStarted(a.id, ("nap",), Step(output=[])),
         InputReceived(b.id, "hi"),  # B takes the only slot
-        ToolsEnded(a.id, 10),
+        ToolsEnded(a.id, Step(output=[]), 10),
         InputReceived(a.id, "", interrupt=True),  # A is cut while it waits
         TurnEnded(b.id, steps=[]),
         settle=True,
@@ -305,3 +312,182 @@ def test_a_tool_that_failed_shows_in_the_window_also_when_it_is_opened_again(mai
     shown = [m.text for m in rebuild_chat_of(main, session) if m.label == "tools"]
     assert shown[0] == "tools called: broken"
     assert shown[1].startswith("broken failed: error: ") and "it broke" in shown[1]
+
+
+# Writing during a Turn with tools (#121, ADR-0024): what the human sends from the Session's
+# Window while its tools run enters the same Turn, right before its next Step.
+
+
+def last_items(request: dict[str, Any], n: int) -> list[Item]:
+    items: list[Item] = request["input"]
+    return items[-n:]
+
+
+def user_lines(main: MainHarness, session: Session) -> list[str]:
+    [window] = main.windows(session.id)
+    return [m.text for m in window.sent if isinstance(m, ChatAppend) and m.role == "user"]
+
+
+def while_it_naps(*events: MainEvent) -> list[MainEvent | Between]:
+    """Events that arrive once its nap is running, half a second after the Prompt."""
+    return [lambda: time.sleep(0.5), *events]
+
+
+def test_text_sent_while_its_tool_runs_enters_the_turn_before_its_next_step(main: MainHarness):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(tool_call("nap", json.dumps({"seconds": 1.5})), full_reply("", "adiós"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        *while_it_naps(InputReceived(session.id, "y luego di adiós")),
+        settle=True,
+    )
+    assert len(main.llm.requests) == 2  # one Turn: the text was no Turn of its own
+    output, typed = last_items(main.llm.requests[1], 2)
+    assert output["type"] == "function_call_output"
+    assert typed == {"role": "user", "content": "y luego di adiós"}
+    conversation = main.sessions.load_conversation(main.sessions.load(session.id))
+    assert conversation is not None and len(conversation.turns) == 1
+    assert conversation.turns[0].steps[0].interjected == ["y luego di adiós"]
+    assert user_lines(main, session) == ["duerme", "y luego di adiós"]
+    rebuilt = [(m.label, m.text) for m in rebuild_chat_of(main, session) if m.role != "reasoning"]
+    assert rebuilt.index(("tools", "tools called: nap")) < rebuilt.index(
+        (session.settings.username, "y luego di adiós")
+    )
+    joined = [e.fields for e in main.session_log(session) if e.event == "prompt_joined"]
+    assert [f["text"] for f in joined] == ["y luego di adiós"]
+
+
+def test_a_human_text_that_enters_a_turn_of_another_origin_leaves_its_origin(
+    main: MainHarness,
+):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(tool_call("nap", json.dumps({"seconds": 1.5})), full_reply("", "vale"))
+    main.run(
+        MainCommandEntered(f"/send {session.id} duerme", origin=A_SESSION),
+        *while_it_naps(InputReceived(session.id, "date prisa")),
+        settle=True,
+    )
+    turn = last_turn(main, session)
+    assert not turn.origin.is_human
+    assert turn.steps[0].interjected == ["date prisa"]
+
+
+def test_only_plain_text_typed_in_its_window_enters_and_the_rest_waits_its_own_turn(
+    main: MainHarness,
+):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(
+        tool_call("nap", json.dumps({"seconds": 1.5})),
+        full_reply("", "uno"),
+        full_reply("", "dos"),
+        full_reply("", "tres"),
+    )
+    main.run(
+        InputReceived(session.id, "duerme"),
+        *while_it_naps(
+            MainCommandEntered(f"/send {session.id} desde Main"),  # not its Window
+            InputReceived(session.id, "@temperature=0.2 con ajustes"),  # for a whole Turn
+        ),
+        settle=True,
+    )
+    assert len(main.llm.requests) == 4
+    assert last_items(main.llm.requests[1], 1)[0]["type"] == "function_call_output"
+    assert [e.fields["text"] for e in main.session_log(session) if e.event == "prompt_joined"] == []
+
+
+def test_text_typed_after_one_that_cannot_enter_waits_behind_it(main: MainHarness):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(
+        tool_call("nap", json.dumps({"seconds": 1.5})),
+        full_reply("", "uno"),
+        full_reply("", "dos"),
+        full_reply("", "tres"),
+    )
+    main.run(
+        InputReceived(session.id, "duerme"),
+        *while_it_naps(
+            InputReceived(session.id, "@temperature=0.2 con ajustes"),
+            InputReceived(session.id, "y esto después"),
+        ),
+        settle=True,
+    )
+    prompts = [last_items(request, 1)[0].get("content") for request in main.llm.requests]
+    assert prompts[1:] == [None, "con ajustes", "y esto después"]  # None: a tool's output
+
+
+def test_shift_enter_during_a_tool_keeps_its_call_as_cancelled_for_the_llm(main: MainHarness):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(tool_call("nap", json.dumps({"seconds": 30})))
+    main.run(
+        InputReceived(session.id, "duerme"),
+        *while_it_naps(InputReceived(session.id, "", interrupt=True)),
+        settle=True,
+    )
+    [step] = last_turn(main, session).steps
+    assert [call["name"] for call in step.calls] == ["nap"]
+    [result] = step.results
+    assert result["call_id"] == "call_1"
+    assert result["output"].startswith("error: ") and "interrupted" in result["output"]
+    failed = [e.fields["tool"] for e in main.session_log(session) if e.event == "tool_failed"]
+    assert failed == ["nap"]  # shown now as its rebuilt Chat shows it
+
+
+def test_texts_that_entered_a_turn_that_fails_go_back_to_the_input(main: MainHarness):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(tool_call("nap", json.dumps({"seconds": 1.5})), [failed("boom")])
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        *while_it_naps(InputReceived(session.id, "y después")),
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    restored = [m.text for m in window.sent if isinstance(m, InputRestore)]
+    assert restored == ["y después", "duerme"]  # each one shown pushes the one before back
+
+
+def test_rewind_gives_back_the_texts_that_entered_the_turn(main: MainHarness):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(tool_call("nap", json.dumps({"seconds": 1.5})), full_reply("", "ya"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        *while_it_naps(InputReceived(session.id, "y después")),
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/rewind {session.id}"), settle=True)
+    window = main.windows(session.id)[-1]  # opened again with the Profile
+    restored = [m.text for m in window.sent if isinstance(m, InputRestore)]
+    assert restored == ["y después", "duerme"]
+
+
+def test_text_sent_while_its_server_is_down_after_its_tools_enters_when_it_goes_on(
+    main: MainHarness,
+):
+    install(main)
+    session = new_session(main)
+    main.llm = FakeLlm(
+        tool_call("shout", json.dumps({"text": "a"})),
+        DroppedStream([]),  # its second Step falls
+        full_reply("", "listo"),
+    )
+    main.run(
+        InputReceived(session.id, "grita"),
+        TURNS_ENDED,
+        InputReceived(session.id, "y en minúsculas"),  # its Turn is suspended now
+        server_ready(main.server),
+        settle=True,
+    )
+    assert len(main.llm.requests) == 3
+    output, typed = last_items(main.llm.requests[2], 2)
+    assert output["type"] == "function_call_output"
+    assert typed == {"role": "user", "content": "y en minúsculas"}
+    assert last_turn(main, session).steps[0].interjected == ["y en minúsculas"]

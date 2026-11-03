@@ -12,7 +12,7 @@ new Prompts, and the gate lets the Turn go on only when Main says it holds one.
 import json
 import queue
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -187,7 +187,7 @@ class SessionTools:
         announces to ``announced``; ``prompt_id``: the Turn's Prompt, which the tool may ask
         for. Raises ``ToolCancelled`` if ``stop`` took it down."""
         self._prompt_id, self._announced = prompt_id, announced
-        return _call_output(call, self._output(call, stop, ask_main))
+        return call_output(call, self._output(call, stop, ask_main))
 
     def _output(self, call: Item, stop: Callable[[], bool], ask_main: AskMain) -> str:
         name: object = call.get("name")
@@ -241,7 +241,8 @@ class SessionTools:
 _ARGUMENTS = TypeAdapter(dict[str, JsonValue])
 
 
-def _call_output(call: Item, output: str) -> Item:
+def call_output(call: Item, output: str) -> Item:
+    """``output`` as what gave back the ``function_call`` ``call``."""
     call_id: object = call.get("call_id")
     return {"type": "function_call_output", "call_id": call_id, "output": output}
 
@@ -278,7 +279,8 @@ class ToolGate:
         self._origin = origin
         self._prompt_id = prompt_id
         self._turn: _Turn | None = None
-        self._resumed: queue.Queue[None] = queue.Queue()
+        # Main's word that the Turn holds a slot again: what the human sent meanwhile.
+        self._resumed: queue.Queue[list[str]] = queue.Queue()
         self._yielded = False
 
     @property
@@ -297,26 +299,27 @@ class ToolGate:
         executor connects it."""
         self._turn = _Turn(session_id, cancellation, emit, confirmation)
 
-    def run(self, step: Step) -> list[Item]:
-        """From the Turn's thread: run the calls ``step`` made, in order, and give back their
-        outputs once the Turn holds a slot again. The ones marked ``@confirm`` ask first, all
-        before any runs, while the Turn still holds its slot; one a human says no to does not
-        run. Raises ``TurnCancelled`` if the Turn is cancelled meanwhile, which also takes down
-        the call that runs."""
+    def run(self, step: Step) -> Step:
+        """From the Turn's thread: run the calls ``step`` made, in order, and give it back
+        with their outputs once the Turn holds a slot again, and with what the human sent from
+        its Window meanwhile (ADR-0024). The ones marked ``@confirm`` ask first, all before any
+        runs, while the Turn still holds its slot; one a human says no to does not run. Raises
+        ``TurnCancelled`` if the Turn is cancelled meanwhile, which also takes down the call
+        that runs."""
         assert self._turn is not None, "run() before the executor connected the gate"
         turn = self._turn
         calls = step.calls
         allowed = [self._may_run(call, turn) for call in calls]
         names = tuple(_name(call) for call in calls)
-        turn.emit(ToolsStarted(turn.session_id, names))
+        turn.emit(ToolsStarted(turn.session_id, names, step))
         results: list[Item] = []
         for call, may_run in zip(calls, allowed, strict=True):
             turn.cancellation.check()
             if self._tools is None:  # a Turn without tools: the LLM called one it does not have
-                results.append(_call_output(call, _no_tool(_name(call))))
+                results.append(call_output(call, _no_tool(_name(call))))
                 continue
             if not may_run:
-                results.append(_call_output(call, REFUSED))
+                results.append(call_output(call, REFUSED))
                 continue
             try:
                 results.append(
@@ -335,24 +338,25 @@ class ToolGate:
                 raise
         done = step.model_copy(update={"results": results})
         grows = step.generated + sum(len(_output_text(result)) for result in results)
-        turn.emit(ToolsEnded(turn.session_id, grows, tuple(done.failures())))
+        turn.emit(ToolsEnded(turn.session_id, done, grows))
         while True:
             turn.cancellation.check()
             try:
-                self._resumed.get(timeout=_POLL)
+                interjected = self._resumed.get(timeout=_POLL)
             except queue.Empty:
                 continue
-            return results
+            return done.model_copy(update={"interjected": interjected})
 
-    def resume(self) -> None:
-        """From Main: the Turn holds a slot again, so its next Step may start."""
-        self._resumed.put(None)
+    def resume(self, interjected: Sequence[str] = ()) -> None:
+        """From Main: the Turn holds a slot again, so its next Step may start, reading
+        ``interjected`` after the tools' outputs: what the human sent meanwhile."""
+        self._resumed.put(list(interjected))
 
     def yield_turn(self) -> None:
         """From Main: the Turn stops after these tools, for its Session to compact first; it
         goes on from its Steps once that is done (ADR-0017)."""
         self._yielded = True
-        self._resumed.put(None)
+        self._resumed.put([])
 
     @property
     def yielded(self) -> bool:

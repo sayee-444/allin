@@ -236,6 +236,7 @@ def test_a_method_runs_neither_what_its_fproc_does_not_declare_nor_what_its_chai
     main.run(
         MainCommandEntered(f"/attach board --to={a.id}"),
         InputReceived(a.id, "dile hola"),
+        TURNS_ENDED,  # else it enters the running Turn after its tools (ADR-0024)
         InputReceived(a.id, "cuela"),
         settle=True,
     )
