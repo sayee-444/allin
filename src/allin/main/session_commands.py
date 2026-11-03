@@ -86,13 +86,44 @@ def _conversation_logs(call: SessionCommandCall) -> str:
 
 
 # Its Command prompts go in the structured form, ahead of the text, which Main never reads; a
-# relative path is from the sender's Carpeta de trabajo (#110).
-_SEND_USAGE = "@send <sid> [--attach=<path>]… [--<param>=<value>]… [--] <text>"
+# relative path is from the sender's Carpeta de trabajo (#110); ``--reply-to=me`` wakes the
+# sender with the answer (#116).
+_SEND_USAGE = "@send <sid> [--reply-to=me] [--attach=<path>]… [--<param>=<value>]… [--] <text>"
 SEND = SessionCommandType(
     "send",
     _SEND_USAGE,
-    "send a Prompt to a Session of this Profile, maybe with files and Turn parameters",
+    "send a Prompt to a Session of this Profile, maybe with files and Turn parameters;"
+    " with --reply-to=me its answer comes back to you as a Prompt",
     _send,
+)
+
+_SUBSCRIBE_USAGE = "@subscribe [process:<name>|timer:<seconds>|rewind:<sid>|compact:<sid>]"
+
+
+def _subscribe(call: SessionCommandCall) -> str:
+    """Always its own Session (ADR-0011); what it waits for is checked by the Command main."""
+    words = call.args.split()
+    if len(words) > 1:
+        raise ValueError(_SUBSCRIBE_USAGE)
+    return " ".join(["/subscribe", call.session_id, *words])
+
+
+def _unsubscribe(call: SessionCommandCall) -> str:
+    words = call.args.split()
+    if len(words) != 1:
+        msg = "@unsubscribe <subscription>"
+        raise ValueError(msg)
+    return f"/unsubscribe {call.session_id} {words[0]}"
+
+
+SUBSCRIBE = SessionCommandType(
+    "subscribe",
+    _SUBSCRIBE_USAGE,
+    "list your Suscripciones, or open one: the event wakes you with a Prompt once your Turn ended",
+    _subscribe,
+)
+UNSUBSCRIBE = SessionCommandType(
+    "unsubscribe", "@unsubscribe <subscription>", "close one of your Suscripciones", _unsubscribe
 )
 CONVERSATION_LOGS = SessionCommandType(
     "conversation_logs",
@@ -199,10 +230,23 @@ class LoadedSessionCommands:
 BUILT_IN = LoadedSessionCommands(
     {
         CommandName(kind.name): kind
-        for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT, ATTACH, CALL)
+        for kind in (
+            SEND,
+            SERVER,
+            CONVERSATION_LOGS,
+            SUBSCRIBE,
+            UNSUBSCRIBE,
+            CREATE,
+            GRANT,
+            ATTACH,
+            CALL,
+        )
     },
-    # @create, @attach and @call widen what Sessions do: given by name, never by default.
-    tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
+    # @create, @attach and @call widen what Sessions do: given by name, never by default; a
+    # Suscripción only wakes its own Session, with its chain capped (#116).
+    tuple(
+        CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS, SUBSCRIBE, UNSUBSCRIBE)
+    ),
 )
 
 

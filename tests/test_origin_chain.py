@@ -7,7 +7,7 @@ import pytest
 
 from allin.core.errors import TurnCancelled
 from allin.core.ids import BoxId
-from allin.core.origin import HUMAN, Origin, from_process, from_session
+from allin.core.origin import HUMAN, Origin, from_process, from_session, from_subscription
 from allin.main.conversation import Turn
 from allin.main.events import (
     BoxAnswered,
@@ -99,16 +99,23 @@ def test_closing_a_window_cancels_only_a_turn_a_human_asked_for(main: MainHarnes
 
 
 @pytest.mark.parametrize(
-    ("exempt", "through_process", "answered"),
-    [(True, False, True), (False, False, False), (True, True, False)],
+    ("exempt", "through", "answered"),
+    [
+        (True, None, True),
+        (False, None, False),
+        (True, "process", False),  # a Proceso adherido never has the Exemption
+        (True, "subscription", True),  # a Suscripción, as the Session it wakes (#116)
+    ],
 )
 def test_devastation_answers_only_a_chain_it_covers_whole(
-    main: MainHarness, exempt: bool, through_process: bool, answered: bool
+    main: MainHarness, exempt: bool, through: str | None, answered: bool
 ):
     a = main.create_session(exempt=exempt)
     origin: Origin = from_session(HUMAN, a.id)
-    if through_process:  # a Proceso adherido never has the Exemption
+    if through == "process":
         origin = from_session(from_process(origin, "rag"), a.id)
+    elif through == "subscription":
+        origin = from_session(from_subscription(origin, f"{a.id}.reply.{a.id}"), a.id)
     main.devastation = True
     chat = main.run(MainCommandEntered("/reset", origin=origin))
     assert any("answered by --devastation" in line for line in chat) == answered

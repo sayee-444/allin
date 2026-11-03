@@ -32,7 +32,7 @@ from allin.main.func_commands import ATTACHED
 from allin.main.notifications import FUNC, Notifications, told_line
 from allin.main.reporting import Reporter
 from allin.main.sessions import Change, HeldMethods, Session, SessionStore
-from allin.main.tool_steps import AttachedMethod, SessionTool
+from allin.main.tool_steps import AttachedMethod, CallFrame, SessionTool
 
 
 class AttachedMethods:
@@ -153,6 +153,7 @@ class AttachedMethods:
             timeout: float,
             stop: Callable[[], bool],
             on_command: OnCommand,
+            frame: CallFrame,
         ) -> ToolOutcome:
             revisions = attached.revisions
             outcome = attached.process.call(
@@ -163,6 +164,8 @@ class AttachedMethods:
                 stop,
                 lambda text: self._emit(MethodProgressed(caller.session_id, f"{called}: {text}")),
                 revisions.seen(caller.session_id),
+                on_announce=frame.on_announce,
+                prompt_id=frame.prompt_id,
             )
             revisions.saw(caller.session_id, caller.turn, outcome.revision)
             return outcome

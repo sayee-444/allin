@@ -25,12 +25,21 @@ type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | Non
 
 _lock = threading.Lock()  # one Command session at a time on the channel
 _pipes: tuple[int, int] | None = None  # (to the warden, from the warden), once connected
+_prompt_id = ""  # the Prompt whose Turn calls the function
 
 
-def connect(to_warden: int, from_warden: int) -> None:
+def connect(to_warden: int, from_warden: int, prompt_id: str = "") -> None:
     """Set by the warden in the runner before it imports the function."""
-    global _pipes  # noqa: PLW0603 - the runner's one channel, set once
+    global _pipes, _prompt_id  # noqa: PLW0603 - the runner's one channel, set once
     _pipes = (to_warden, from_warden)
+    _prompt_id = prompt_id
+
+
+def prompt_id() -> str:
+    """The id of the Prompt whose Turn called this tool, as a Rewind or Compactar event names
+    it (#116); a method of a Proceso adherido asks ``Fproc.prompt_id`` instead."""
+    attached = fproc_runtime.runtime()
+    return attached.prompt_id() if attached is not None else _prompt_id
 
 
 def command(text: str) -> _Json:

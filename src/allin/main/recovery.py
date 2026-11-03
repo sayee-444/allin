@@ -14,6 +14,7 @@ from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
 from allin.main.state import MainState, MainStateStore
+from allin.main.subscriptions import Subscriptions
 from allin.main.turn_queue import TurnQueue
 from allin.main.window_room import NO_LIMIT
 
@@ -35,8 +36,10 @@ class Recovery:
         main_id: MainId,
         state: MainStateStore,
         close_orphan_window: CloseOrphanWindow,
+        subscriptions: Subscriptions,
     ) -> None:
         self._reporter = reporter
+        self._subscriptions = subscriptions
         self._windows = windows
         self._turns = turns
         self._sessions = sessions
@@ -96,6 +99,9 @@ class Recovery:
             draft = drafts.get(prompt.session_id, [])
             drafts[prompt.session_id] = put_back(draft, prompt.text)
         self._windows.replace_drafts(drafts)
+        self._subscriptions.restore(saved.subscriptions)
+        for prompt in saved.running:  # put back to an input, it answers no one
+            self._subscriptions.not_answered(prompt, "Main stopped during its Turn", ran=False)
         self._turns.requeue(saved.queue)
         for session_id in saved.background:
             if not self._windows.is_open(session_id):
@@ -132,6 +138,7 @@ class Recovery:
             drafts=self._windows.drafts(),
             queue=queue,
             background=self._windows.background_ids(),
+            subscriptions=self._subscriptions.state(),
         )
         try:
             self._state.save(state)
@@ -146,6 +153,7 @@ class Recovery:
             queue=self._turns.queued(),
             running=self._turns.running_prompts(),
             background=self._windows.background_ids(),
+            subscriptions=self._subscriptions.state(),
         )
         if state == self._saved:
             return

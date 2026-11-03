@@ -86,6 +86,7 @@ class Turn(BaseModel, frozen=True):
     # changed it, and who sent it.
     typed: str = ""
     origin: Origin = HUMAN
+    prompt_id: str = ""  # its Prompt's, which its tools knew (#116)
 
     @property
     def as_typed(self) -> str:

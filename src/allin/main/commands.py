@@ -64,6 +64,7 @@ from allin.main.settings_commands import (
     SettingsCommands,
     parse_session_command,
 )
+from allin.main.subscriptions import SUBSCRIBE_USAGE, UNSUBSCRIBE_USAGE, Subscriptions
 from allin.main.sysprompt import render_sysprompt
 from allin.main.turn_queue import TurnQueue
 from allin.ui.organizer_view import windows_list
@@ -150,6 +151,7 @@ class MainCommands:
         attached: AttachedProcesses,
         methods: AttachedMethods,
         calls: MethodCalls,
+        subscriptions: Subscriptions,
     ) -> None:
         self._functions = functions
         self._methods = methods
@@ -164,7 +166,8 @@ class MainCommands:
         self._settings = settings
         self._sysprompts = sysprompts
         self._profiles = profiles
-        self._sends = SessionSends(sessions, turns, boxes, profiles.in_active)
+        self._subscriptions = subscriptions
+        self._sends = SessionSends(sessions, turns, boxes, profiles.in_active, subscriptions)
         self._organizer: Organizer | None = None
         self._organizer_rows: Callable[[], list[OrganizerRow]] = list
         # Command mains are registered once, when Main starts.
@@ -247,11 +250,34 @@ class MainCommands:
                     "text": "the Prompt, up to the end; a human's @key=value and @./file go in"
                     " it, a Session's --attach=<path> and --<param>=<value> ahead of it",
                 },
-                usage_text="/send [-y] <sid> <text>",
+                usage_text="/send [-y] <sid> [--reply-to=<sid>] <text>",
                 rest=True,
                 takes_origin=True,
                 takes_yes=True,
                 takes_answer=True,
+            ),
+            "/subscribe": CommandSpec(
+                ("sid",),
+                self._subscribe,
+                "list a Session's Suscripciones, or open one that wakes it with a Prompt",
+                args={
+                    "sid": "the Session it wakes: a Session's LLM, only its own",
+                    "event": "process:<name>, timer:<seconds>, rewind:<sid> or compact:<sid>",
+                },
+                usage_text=SUBSCRIBE_USAGE,
+                optional=("event",),
+                takes_origin=True,
+            ),
+            "/unsubscribe": CommandSpec(
+                ("sid", "subscription"),
+                self._unsubscribe,
+                "close one of a Session's Suscripciones",
+                args={
+                    "sid": "the Session it wakes",
+                    "subscription": "its id, as /subscribe lists it",
+                },
+                usage_text=UNSUBSCRIBE_USAGE,
+                takes_origin=True,
             ),
             "/raw": CommandSpec(
                 ("state",),
@@ -710,6 +736,7 @@ class MainCommands:
             self._windows.close(old, f"renamed to {renamed.id}")
         self._windows.rename(old, renamed.id)
         self._profiles.renamed(old, renamed.id)
+        self._subscriptions.renamed(old, renamed.id)
         shown = f"renamed from {old}; {old} still reaches it"
         self._reporter.record(renamed.id, "session_renamed", shown, old=old)
         if was_open:  # under its new id, which its title shows
@@ -784,14 +811,21 @@ class MainCommands:
                 raise InvalidArguments(usage=SEND_USAGE)
             self._sends.send(session, options, origin, answer)
             return True
+        reply_to, typed = _reply_to(text)
         try:
-            prompt = self._human_prompt(session.id, text)
+            prompt = self._human_prompt(session.id, typed)
         except AllInError as error:
             # It was not sent: its Window says why, and the text is the human's again.
             self._windows.send(session.id, error_entry(str(error)))
             self._windows.put_back(session.id, text)
             raise
-        self._turns.push(session, replace(prompt, answered_by="-y" if yes else None))
+        prompt = replace(prompt, answered_by="-y" if yes else None)
+        if reply_to is not None:  # its answer wakes that Session (#116)
+            prompt = replace(prompt, prompt_id=prompt.prompt_id or new_prompt_id())
+            subscriber = self._sessions.load_owned(reply_to, self._main_id).id
+            owed = self._subscriptions.reply_to(subscriber, session.id, prompt.prompt_id, origin)
+            prompt = replace(prompt, owed=(owed,))
+        self._turns.push(session, prompt)
         answer("ok")
         return True
 
@@ -833,6 +867,7 @@ class MainCommands:
         result = rewind(conversation, self._sessions.load_archived(session), n)
         self._sessions.save_conversation(session, result.conversation)
         self._methods.rewound(session, result.conversation.next_turn)
+        self._subscriptions.rewound(session.id, result.turn, result.undone, HUMAN)
         undone = len(result.undone)
         shown = f"rewound {undone} prompt(s)"
         if undone < n:
@@ -850,6 +885,21 @@ class MainCommands:
         self._windows.rebuild_chat(session)
         return True
 
+    def _subscribe(self, session_id: str, event: str | None = None, *, origin: Origin) -> bool:
+        session = self._sessions.load_owned(session_id, self._main_id)
+        if event is None:
+            listed = self._subscriptions.listed(session.id)
+            lines = [f"{s.id}  {s.event}" for s in listed] or ["no suscripciones"]
+            self._reporter.show(session.id, "\n".join(lines))
+            return True
+        self._subscriptions.subscribe(session.id, event, origin)
+        return True
+
+    def _unsubscribe(self, session_id: str, subscription: str, *, origin: Origin) -> bool:
+        session = self._sessions.load_owned(session_id, self._main_id)
+        self._subscriptions.unsubscribe(session.id, subscription, origin)
+        return True
+
     def _switch_devastation(self, state: str) -> bool:
         if state not in ("on", "off"):
             raise InvalidArguments(usage=self._commands["/devastation"].usage("/devastation"))
@@ -863,6 +913,17 @@ class MainCommands:
             session_id = self._sessions.load_owned(session_id, self._main_id).id
         self._reporter.show_raw(state == "on", session_id)
         return True
+
+
+_REPLY_TO = "--reply-to="  # a human's /send: first, the Session its answer wakes (#116)
+
+
+def _reply_to(text: str) -> tuple[str | None, str]:
+    """A human's ``/send <sid> --reply-to=<sid> <text>``: the Session, and the text."""
+    first, _, rest = text.partition(" ")
+    if not first.startswith(_REPLY_TO) or not rest.strip():
+        return None, text
+    return first.removeprefix(_REPLY_TO), rest
 
 
 # How a Session writes it: its Command prompts in the structured form, ahead of the text.

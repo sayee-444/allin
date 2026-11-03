@@ -7,7 +7,7 @@ from collections.abc import Callable, Container
 from dataclasses import dataclass, field
 from typing import Literal
 
-from allin.core.ids import SessionId
+from allin.core.ids import SessionId, SubscriptionId
 from allin.core.origin import HUMAN, LinkKind, Origin
 from allin.main.conversation import Attachment, Step
 from allin.main.prompt_commands import TurnOverrides
@@ -25,8 +25,8 @@ class Prompt:
     session_id: SessionId
     text: str
     kind: PromptKind = "prompt"
-    # A human's Command prompts (#14): what it attached and the parameters its Turn changes;
-    # the id names the attachments' folder, so only a Prompt with attachments has one.
+    # Its id, which its Turn and each of its tools know (#116), and which names its
+    # attachments' folder; the queue gives one to a Prompt that comes without it.
     prompt_id: str = ""
     attachments: tuple[Attachment, ...] = ()
     overrides: TurnOverrides = field(default_factory=TurnOverrides)
@@ -42,6 +42,10 @@ class Prompt:
     # (ADR-0023), with what it had when it started (ADR-0013).
     suspended: bool = False
     steps: tuple[Step, ...] = ()
+    # The Suscripciones waiting for its answer, its sender's ``--reply-to`` (#116).
+    owed: tuple[SubscriptionId, ...] = ()
+    # A Suscripción's Prompt: those that woke its Session with it, a Continuation (#116).
+    woke_by: tuple[SubscriptionId, ...] = ()
 
     @property
     def as_typed(self) -> str:

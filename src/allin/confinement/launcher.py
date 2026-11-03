@@ -33,6 +33,7 @@ from pydantic import JsonValue
 
 from allin.confinement import landlock
 from allin.confinement.messages import (
+    Announce,
     Attached,
     AttachFproc,
     CallMethod,
@@ -117,6 +118,7 @@ class ToolCall:
     arguments: dict[str, JsonValue]
     workspace: Path  # the Session's Carpeta de trabajo: its current folder
     reach: Reach = MINIMUM  # as its description read it (#102), never by importing it
+    prompt_id: str = ""  # the Prompt whose Turn calls it, which it may ask for (#116)
 
 
 @dataclass(frozen=True)
@@ -368,6 +370,7 @@ class ToolLauncher:
             net_layer=net_layer,
             ip=call.reach.network,
             unix=call.reach.display,
+            prompt_id=call.prompt_id,
         )
 
     def _launch(
@@ -508,7 +511,7 @@ class _Lines:
 
 
 def _outcome(message: ToMain | None, stdout: str, stderr: str) -> ToolOutcome:
-    if message is None or isinstance(message, RunCommand | Attached | Stale | Progress):
+    if message is None or isinstance(message, RunCommand | Attached | Stale | Progress | Announce):
         raise ToolDied(exit_code=None, stderr=stderr[-_STDERR_TOLD:])
     match message:
         case Returned(value=value):
@@ -572,6 +575,15 @@ class _Turns:
         return self._waiting[0] is ticket and (
             self._at_once is None or self._running < self._at_once
         )
+
+
+@dataclass(frozen=True)
+class _Hooks:
+    """Where what a call asks or tells goes while Main waits for its answer."""
+
+    on_command: OnCommand | None
+    on_progress: OnProgress | None
+    on_announce: OnProgress | None
 
 
 @dataclass
@@ -662,12 +674,16 @@ class AttachedProcess:
         stop: Callable[[], bool] = lambda: False,
         on_progress: OnProgress | None = None,
         seen: Revision | None = None,
+        *,
+        on_announce: OnProgress | None = None,
+        prompt_id: str = "",
     ) -> ToolOutcome:
         """Call a public method of its fproc and wait for its answer, once it is this call's
-        turn. Each Command session the method asks for goes to ``on_command``, and each line of
-        progress to ``on_progress``; the timeout counts from the last one, and not while Main
-        runs a Command session. ``seen``: the revision its Session saw last, which an
-        ``@writes`` method checks; ``None`` for a human's call, never checked.
+        turn. Each Command session the method asks for goes to ``on_command``, each line of
+        progress to ``on_progress`` and each thing it announces to ``on_announce``; the timeout
+        counts from the last progress, and not while Main runs a Command session. ``seen``: the
+        revision its Session saw last, which an ``@writes`` method checks; ``None`` for a
+        human's call, never checked. ``prompt_id``: the Prompt whose Turn calls it.
 
         Raises ``AttachedEnded`` if the process ended, before or during the call;
         ``AttachedChanged`` for an ``@writes`` its Session must read again before;
@@ -684,19 +700,28 @@ class AttachedProcess:
         if closed:
             raise AttachedEnded(exit_code=self.wait())
         try:
-            self.send(CallMethod(id=pending.id, method=method, arguments=arguments, seen=seen))
+            self.send(
+                CallMethod(
+                    id=pending.id,
+                    method=method,
+                    arguments=arguments,
+                    seen=seen,
+                    prompt_id=prompt_id,
+                )
+            )
         except OSError:
             pending.inbox.put(None)  # its reader ends it with the rest
-        return self._wait_answer(pending, timeout, on_command, stop, on_progress)
+        hooks = _Hooks(on_command, on_progress, on_announce)
+        return self._wait_answer(pending, timeout, stop, hooks)
 
     def _wait_answer(
         self,
         pending: _Pending,
         timeout: float,
-        on_command: OnCommand | None,
         stop: Callable[[], bool],
-        on_progress: OnProgress | None,
+        hooks: "_Hooks",
     ) -> ToolOutcome:
+        on_command, on_progress = hooks.on_command, hooks.on_progress
         deadline = time.monotonic() + timeout
         while True:
             if stop():
@@ -715,6 +740,9 @@ class AttachedProcess:
                     deadline = time.monotonic() + timeout
                     if on_progress is not None:
                         on_progress(text)
+                case Announce(text=text):
+                    if hooks.on_announce is not None:
+                        hooks.on_announce(text)
                 case RunCommand(text=text):
                     asked = time.monotonic()
                     try:
@@ -843,7 +871,7 @@ class AttachedProcess:
                 return
             case Returned(id=int() as call_id) | Raised(id=int() as call_id):
                 pass
-            case Stale(id=call_id) | Progress(id=call_id):
+            case Stale(id=call_id) | Progress(id=call_id) | Announce(id=call_id):
                 pass
             case RunCommand(id=int() as call_id):
                 pass

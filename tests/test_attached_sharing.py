@@ -15,7 +15,7 @@ from openai.types.responses import ResponseStreamEvent
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
 from allin.core.settings import ToolSettings
-from allin.main.events import InputReceived, MainCommandEntered
+from allin.main.events import InputReceived, MainCommandEntered, Tick
 from allin.main.sessions import Session
 from tests.llm_fakes import FakeLlm, full_reply, tool_call
 from tests.test_attached import approve, events, notices
@@ -58,6 +58,15 @@ class Text(Fproc):
     def stubborn(self) -> None:
         """Never ends."""
         time.sleep(600)
+
+    def tell(self, text: str) -> str:
+        """Announce something."""
+        self.announce(text)
+        return "told"
+
+    def whose(self) -> str:
+        """The Prompt whose Turn calls it."""
+        return self.prompt_id()
 '''
 
 
@@ -190,3 +199,40 @@ def test_a_call_that_does_not_end_after_its_timeout_kills_the_process_with_a_not
     [ended] = crashed(main)
     assert "stubborn" in str(ended["killed"])
     assert "text crashed" in notices(main)
+
+
+def test_what_a_method_announces_wakes_the_sessions_subscribed_to_its_process(
+    main: MainHarness,
+):
+    a, b = main.create_session(), main.create_session()
+    main.llm = FakeLlm(
+        tool_call("text_tell", json.dumps({"text": "hay novedades"})),
+        full_reply("", "dicho"),
+        full_reply("", "enterado"),
+    )
+    main.run(
+        MainCommandEntered(f"/attach text --to={a.id}"),
+        MainCommandEntered(f"/subscribe {b.id} process:text"),
+        InputReceived(a.id, "avisa"),
+        TURNS_ENDED,
+        Tick(),
+        TURNS_ENDED,
+        settle=True,
+    )
+    [wake] = [e.fields for e in main.session_log(b) if e.event == "prompt"]
+    assert "text announced: hay novedades" in str(wake["text"])
+    origin = wake["origin"]
+    assert isinstance(origin, list)
+    assert origin[:3] == ["human", f"session:{a.id}", "process:text"]
+
+
+def test_a_method_knows_the_id_of_the_prompt_whose_turn_calls_it(main: MainHarness):
+    a = main.create_session()
+    main.llm = FakeLlm(tool_call("text_whose", "{}"), full_reply("", "ya"))
+    main.run(
+        MainCommandEntered(f"/attach text --to={a.id}"),
+        InputReceived(a.id, "¿de quién?"),
+        settle=True,
+    )
+    [prompt] = [e.fields for e in main.session_log(a) if e.event == "prompt"]
+    assert last_output(main, 1) == prompt["prompt_id"]

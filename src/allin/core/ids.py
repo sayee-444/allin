@@ -33,6 +33,14 @@ def new_prompt_id() -> str:
     return "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH))
 
 
+# A Suscripción's id (#116): ``s`` and 6 characters of ``[a-z0-9]``.
+SubscriptionId = NewType("SubscriptionId", str)
+
+
+def new_subscription_id() -> SubscriptionId:
+    return SubscriptionId("s" + "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
+
+
 def parse_session_id(text: str) -> SessionId | None:
     """``text`` as a Session id if it has the shape of one, 4 to 12 characters of ``[a-z0-9]``
     (so it is safe as a folder name)."""

@@ -12,6 +12,7 @@ adherido) has no Carpeta de trabajo: every file it attaches is from outside.
 """
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -21,8 +22,9 @@ from allin.core.errors import (
     AttachmentNotApproved,
     FileReferenceInvalid,
     OutsideProfile,
+    SubscriptionNotOwn,
 )
-from allin.core.ids import SessionId, new_prompt_id
+from allin.core.ids import SessionId, SubscriptionId, new_prompt_id
 from allin.core.origin import Origin
 from allin.main.attachments import copy_in, source_of
 from allin.main.boxes import MainBoxes
@@ -30,7 +32,10 @@ from allin.main.events import OnOutcome
 from allin.main.prompt_commands import SendOptions
 from allin.main.prompts import Prompt, origin_header
 from allin.main.sessions import Session, SessionStore
+from allin.main.subscriptions import Subscriptions
 from allin.main.turn_queue import TurnQueue
+
+ME = "me"  # ``--reply-to=me``: the Session that sends, as its LLM writes it (#116)
 
 
 class SessionSends:
@@ -40,9 +45,11 @@ class SessionSends:
         turns: TurnQueue,
         boxes: MainBoxes,
         in_profile: Callable[[SessionId], bool],
+        subscriptions: Subscriptions,
     ) -> None:
         """``in_profile``: whether a Session is one of the active Profile's."""
         self._sessions = sessions
+        self._subscriptions = subscriptions
         self._turns = turns
         self._boxes = boxes
         self._in_profile = in_profile
@@ -53,6 +60,12 @@ class SessionSends:
         """Queue the Prompt for ``target``; ``answer`` hears how it went, maybe only once a
         human answered the Approval of a file from outside."""
         self._check_profile(target, origin)
+        if options.reply_to == ME:
+            options = replace(options, reply_to=origin.sender)
+            if options.reply_to is None:
+                raise SubscriptionNotOwn(session_id=ME, sender=str(origin))
+        if options.reply_to is not None:
+            self._check_reply_to(options.reply_to, origin)
         base = self._workspace_of(origin)
         files = [(path, _source(path, base)) for path in options.attach]
         outside = [s for _, s in files if base is None or not s.is_relative_to(base.resolve())]
@@ -94,8 +107,12 @@ class SessionSends:
         files: Sequence[tuple[str, Path]],
     ) -> None:
         """Copy the attachments, the very files resolved and shown, and queue the Prompt."""
-        prompt_id = new_prompt_id() if files else ""
+        prompt_id = new_prompt_id()
         attachments = copy_in(files, self._sessions.workspace(target.id), prompt_id)
+        owed: tuple[SubscriptionId, ...] = ()
+        if options.reply_to is not None:  # its answer wakes that Session (#116)
+            subscriber = SessionId(options.reply_to)
+            owed = (self._subscriptions.reply_to(subscriber, target.id, prompt_id, origin),)
         prompt = Prompt(
             target.id,
             f"{origin_header(origin)}\n{options.text}",  # data: never read for @… or /…
@@ -103,8 +120,19 @@ class SessionSends:
             prompt_id=prompt_id,
             attachments=tuple(attachments),
             overrides=options.overrides,
+            owed=owed,
         )
         self._turns.push(target, prompt)
+
+    def _check_reply_to(self, subscriber: str, origin: Origin) -> None:
+        """The Session a reply wakes: the sender's own, if a Session sends, and of the active
+        Profile."""
+        session = self._sessions.load(SessionId(subscriber))  # raises if there is none
+        sender = origin.sender
+        if sender is not None and sender != session.id:
+            raise SubscriptionNotOwn(session_id=session.id, sender=sender)
+        if not self._in_profile(session.id):
+            raise OutsideProfile(session_id=session.id)
 
     def _sending_session(self, origin: Origin) -> SessionId | None:
         """The Session that sends, if one of this store does."""

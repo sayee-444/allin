@@ -32,6 +32,7 @@ from allin.main.confirmation import ConfirmationGate
 from allin.main.conversation import TOOL_ERROR, Item, Step
 from allin.main.events import (
     MainEvent,
+    MethodAnnounced,
     SessionCommandAsked,
     SessionCommandResult,
     ToolsEnded,
@@ -49,11 +50,26 @@ REFUSED = "the user refused this call: it did not run"
 type Emit = Callable[[MainEvent], None]
 
 
-# Calls a Proceso adherido's method with its arguments, its timeout, what cancels the call
-# and where its Command sessions go.
+@dataclass(frozen=True)
+class CallFrame:
+    """What a method's call knows of the Turn it runs in (#116): its Prompt's id, and where
+    what the method announces goes."""
+
+    prompt_id: str
+    on_announce: Callable[[str], None]
+
+
+# Calls a Proceso adherido's method with its arguments, its timeout, what cancels the call,
+# where its Command sessions go and what it knows of its Turn.
 type MethodCall = Callable[
-    [dict[str, JsonValue], float, Callable[[], bool], OnCommand], ToolOutcome
+    [dict[str, JsonValue], float, Callable[[], bool], OnCommand, CallFrame], ToolOutcome
 ]
+# What a method of a Proceso adherido announced during a Turn: the process and the text.
+type Announced = Callable[[AttachedName, str], None]
+
+
+def _no_announce(process: AttachedName, text: str) -> None:
+    pass
 
 
 @dataclass(frozen=True)
@@ -145,6 +161,8 @@ class SessionTools:
         self._launcher = launcher
         self._workspace = workspace
         self._timeout = timeout
+        self._prompt_id = ""  # of the call that runs, as ``run`` was given it
+        self._announced: Announced = _no_announce
 
     @property
     def schemas(self) -> list[Item]:
@@ -155,11 +173,20 @@ class SessionTools:
         tool = self._tools.get(_name(call))
         return tool is not None and tool.confirm
 
-    def run(self, call: Item, stop: Callable[[], bool], ask_main: AskMain = _no_main) -> Item:
+    def run(
+        self,
+        call: Item,
+        stop: Callable[[], bool],
+        ask_main: AskMain = _no_main,
+        prompt_id: str = "",
+        announced: Announced = _no_announce,
+    ) -> Item:
         """What a ``function_call`` gave back, as its ``function_call_output``: its value as
         JSON, or ``error …`` with why it failed, which the LLM reads as data. Each Command
-        session it asks for that its function declares goes to ``ask_main``. Raises
-        ``ToolCancelled`` if ``stop`` took it down."""
+        session it asks for that its function declares goes to ``ask_main``, and what a method
+        announces to ``announced``; ``prompt_id``: the Turn's Prompt, which the tool may ask
+        for. Raises ``ToolCancelled`` if ``stop`` took it down."""
+        self._prompt_id, self._announced = prompt_id, announced
         return _call_output(call, self._output(call, stop, ask_main))
 
     def _output(self, call: Item, stop: Callable[[], bool], ask_main: AskMain) -> str:
@@ -192,13 +219,21 @@ class SessionTools:
         own, in the Session's Carpeta de trabajo. Raises ``AllInError``."""
         on_command: OnCommand = lambda text: _declared(tool, text, ask_main)
         if tool.method is not None:
-            return tool.method.call(arguments, self._timeout, stop, on_command)
+            process, announced = tool.method.process, self._announced
+            frame = CallFrame(self._prompt_id, lambda text: announced(process, text))
+            return tool.method.call(arguments, self._timeout, stop, on_command, frame)
         try:
             self._workspace.mkdir(parents=True, exist_ok=True)  # made when first needed
         except OSError as error:
             raise ToolNotStarted(cause=f"its Carpeta de trabajo cannot be made: {error}") from error
         call = ToolCall(
-            tool.package, tool.module, tool.name, arguments, self._workspace, tool.reach
+            tool.package,
+            tool.module,
+            tool.name,
+            arguments,
+            self._workspace,
+            tool.reach,
+            self._prompt_id,
         )
         return self._launcher.run(call, self._timeout, stop, on_command)
 
@@ -234,10 +269,12 @@ class _Turn:
 class ToolGate:
     """How a running Turn runs the tools a Step called and waits for a slot to go on."""
 
-    def __init__(self, tools: SessionTools | None, origin: Origin) -> None:
-        """``origin``: the chain its tools act with, the Turn's Prompt's and its Session."""
+    def __init__(self, tools: SessionTools | None, origin: Origin, prompt_id: str = "") -> None:
+        """``origin``: the chain its tools act with, the Turn's Prompt's and its Session;
+        ``prompt_id``: the Turn's Prompt's, which each tool may ask for (#116)."""
         self._tools = tools
         self._origin = origin
+        self._prompt_id = prompt_id
         self._turn: _Turn | None = None
         self._resumed: queue.Queue[None] = queue.Queue()
 
@@ -284,6 +321,10 @@ class ToolGate:
                         call,
                         lambda: turn.cancellation.reason is not None,
                         lambda text, process: self._ask_main(turn, text, process),
+                        self._prompt_id,
+                        lambda process, text: turn.emit(
+                            MethodAnnounced(process, text, from_process(self._origin, process))
+                        ),
                     )
                 )
             except ToolCancelled:

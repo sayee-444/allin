@@ -2,7 +2,7 @@ import contextlib
 import queue
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -1044,7 +1044,7 @@ def test_shutting_down_cancels_turns_and_saves_the_queue_before_closing_windows(
     ]
     [closed] = [entry for entry in main.session_log(b) if entry.event == "window_closed"]
     assert closed.fields["reason"] == "main is shutting down"
-    assert main.state.load() == MainState(
+    assert without_ids(main.state.load()) == MainState(
         windows={a.id: 1000, b.id: 1001},
         queue=[Prompt(a.id, "a2\nmore", queued=True)],
         running=[Prompt(a.id, "a1"), Prompt(b.id, "b1")],
@@ -1089,6 +1089,15 @@ def test_a_turn_that_ended_just_before_shutdown_is_saved_not_given_back(main: Ma
     assert not any(isinstance(message, InputRestore) for message in window.sent)
 
 
+def without_ids(state: MainState) -> MainState:
+    """``state`` without the ids the queue gave its Prompts (#116), which tests cannot know."""
+
+    def bare(prompts: list[Prompt]) -> list[Prompt]:
+        return [replace(prompt, prompt_id="") for prompt in prompts]
+
+    return state.model_copy(update={"queue": bare(state.queue), "running": bare(state.running)})
+
+
 def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
     session = main.create_session()
     sid = session.id
@@ -1101,7 +1110,7 @@ def test_every_change_to_mains_state_is_saved_as_it_happens(main: MainHarness):
         settle=True,
     )
     windows = {sid: 1000}  # its xterm's pid
-    assert main.state.saved == [
+    assert [without_ids(saved) for saved in main.state.saved] == [
         MainState(windows=windows),
         MainState(windows=windows, drafts={sid: ["hal"]}),
         MainState(windows=windows, queue=[Prompt(sid, "a1")]),  # while its input is measured

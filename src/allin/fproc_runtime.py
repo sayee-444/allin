@@ -38,6 +38,7 @@ _PROGRESS_MAX = 2000  # as Main reads it (``messages.PROGRESS_MAX``)
 @dataclass
 class _Call:
     id: int
+    prompt_id: str  # the Prompt whose Turn made it; none for a human's
     cancelled: threading.Event = field(default_factory=threading.Event)
     results: Queue[_Json] = field(default_factory=Queue[_Json])  # of its Command sessions
 
@@ -94,12 +95,23 @@ class _Runtime:
         call = getattr(self._local, "call", None)
         return isinstance(call, _Call) and call.cancelled.is_set()
 
+    def announce(self, text: str) -> None:
+        """Tell Main something happened, for the Sessions subscribed to this process. Raises
+        ``RuntimeError`` in a thread that serves no call."""
+        call = self._current()
+        self._send({"type": "announce", "id": call.id, "text": text[:_PROGRESS_MAX]})
+
+    def prompt_id(self) -> str:
+        call = getattr(self._local, "call", None)
+        return call.prompt_id if isinstance(call, _Call) else ""
+
     def changed(self) -> None:
         with self._revision_lock:
             self._revision += 1
 
     def _start(self, call_id: int, message: dict[str, _Json]) -> None:
-        call = _Call(call_id)
+        prompt_id = message.get("prompt_id")
+        call = _Call(call_id, prompt_id if isinstance(prompt_id, str) else "")
         with self._calls_lock:
             self._calls[call_id] = call
         threading.Thread(

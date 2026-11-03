@@ -251,6 +251,16 @@ class MethodProgressed:
 
 
 @dataclass(frozen=True)
+class MethodAnnounced:
+    """A Proceso adherido's method announced something (``Fproc.announce``): it wakes the
+    Sessions subscribed to the process, after ``origin``, the call's chain (#116)."""
+
+    process: AttachedName
+    text: str
+    origin: Origin
+
+
+@dataclass(frozen=True)
 class SlotFreed:
     """A slot lock another Main held is free, while Prompts here waited for one."""
 
@@ -357,6 +367,7 @@ type MainEvent = (
     | AttachedProcessEnded
     | MethodAnswered
     | MethodProgressed
+    | MethodAnnounced
     | ServerProgress
     | InputMeasured
     | Tick

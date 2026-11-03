@@ -36,8 +36,8 @@ from allin.core.errors import (
     TurnCancelled,
     TurnCrashed,
 )
-from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName
-from allin.core.origin import from_session
+from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName, new_prompt_id
+from allin.core.origin import Origin, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -54,7 +54,7 @@ from allin.main.chat_rebuild import (
     tool_failed_entry,
     tools_entry,
 )
-from allin.main.compaction import wants_compaction
+from allin.main.compaction import summary_text, wants_compaction
 from allin.main.compactions import Compactions
 from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
@@ -239,6 +239,27 @@ class _Candidate:
     session: Session | None = None
 
 
+class Answers(Protocol):
+    """Who hears that a Prompt's Turn answered it, or that it will not (#116)."""
+
+    def answered(self, prompt: Prompt, turn: int, answer: str) -> None:
+        """Its Turn was saved as ``turn``; ``answer``: what its last Step wrote."""
+        ...
+
+    def not_answered(self, prompt: Prompt, why: str, ran: bool) -> None:
+        """Its Turn failed or was cancelled (``ran``), or it left the queue before one
+        started."""
+        ...
+
+
+class _NoAnswers:
+    def answered(self, prompt: Prompt, turn: int, answer: str) -> None:
+        pass
+
+    def not_answered(self, prompt: Prompt, why: str, ran: bool) -> None:
+        pass
+
+
 class TurnQueue:
     def __init__(
         self,
@@ -303,6 +324,7 @@ class TurnQueue:
         self._paused = False  # nor while Main leaves its Profile (``/profile switch``)
         self._prompts = PromptQueue()
         self._running: dict[SessionId, _RunningTurn] = {}
+        self._answers: Answers = _NoAnswers()
         # Each Session's Enlace asked to change, until it does or fails (ADR-0022): its new
         # Prompts wait for it, so none starts on the old Server meanwhile.
         self._changes: dict[SessionId, LinkChange] = {}
@@ -318,16 +340,29 @@ class TurnQueue:
             self._conversation,
         )
 
+    def listen(self, answers: Answers, compacted: Callable[[SessionId, int, Origin], None]) -> None:
+        """Who hears each Prompt's answer, and each Compactación done, from now on: the
+        Suscripciones (#116)."""
+        self._answers = answers
+        self._compactions.on_compacted = compacted
+
     def push(self, session: Session, prompt: Prompt) -> None:
         """Queue a Prompt the user sent, show it in its Window and start it if there is room.
 
         One sent while its Session is busy waits as queued: its Chat shows it only once its
-        Turn starts (ADR-0024)."""
+        Turn starts (ADR-0024). A Suscripción's Prompt is a Continuation, so it goes first
+        (ADR-0004). Each Prompt gets its id here, unless it came with one."""
+        if not prompt.prompt_id:
+            prompt = replace(prompt, prompt_id=new_prompt_id())
         busy = self._busy(session.id)
         if busy:
             prompt = replace(prompt, queued=True)
-        self._prompts.push(prompt)
+        if prompt.woke_by:
+            self._prompts.push_front(prompt)
+        else:
+            self._prompts.push(prompt)
         fields = _commands(prompt)
+        fields["prompt_id"] = prompt.prompt_id
         if busy:
             fields["queued"] = True
         fields["origin"] = list[JsonValue](prompt.origin.labels)
@@ -505,6 +540,7 @@ class TurnQueue:
             self._falls.pop(session_id, None)
             if turn is not None:
                 self._turn_finished(running, turn, steps)
+                self._answers.answered(running.prompt, turn, summary_text(steps))
         self.send_turn_state(session_id)
         self._start_turns()
 
@@ -874,7 +910,11 @@ class TurnQueue:
             return self._prompt_candidate(entry, waiting)
         if need > slot_context:
             raise PromptTooBig(need=need, limit=slot_context)
-        repeats = session_id in self._falls or self._compactions.continuing(session_id)
+        repeats = (
+            session_id in self._falls
+            or self._compactions.continuing(session_id)
+            or bool(prompt.woke_by)  # a Suscripción's: its Session goes on (ADR-0004)
+        )
         kind: WaitClass = "continuation" if repeats else "prompt"
         since = self._since.setdefault(session_id, self._wall())
         waiter = self._waiter(session_id, kind, since, need)
@@ -956,6 +996,7 @@ class TurnQueue:
         self._since.pop(session_id, None)
         self._compactions.forget(session_id)
         self._windows.show_error(error, session_id)
+        self._answers.not_answered(prompt, f"it could not start: {error}", ran=False)
         if isinstance(error, PromptTooBig):
             self._windows.send(session_id, InputRestore(text=prompt.text))
             if not self._compacts_alone(session_id):
@@ -1094,7 +1135,7 @@ class TurnQueue:
         tools = None if compacting else self._tools_for(session)
         told = NOTHING_TOLD if compacting else self._notifications.tell(session.id)
         request = replace(request, done=list(prompt.steps))
-        gate = ToolGate(tools, from_session(prompt.origin, session.id))
+        gate = ToolGate(tools, from_session(prompt.origin, session.id), prompt.prompt_id)
         job = TurnJob(session.id, request, link.base_url, tools=gate)
         auto_confirm = self._auto_confirm(prompt, session)
         self._running[session.id] = _RunningTurn(
@@ -1432,6 +1473,14 @@ class TurnQueue:
             self._boxes.withdraw(running.asking)
             running.asking = None
 
+    def has_turn(self, session_id: SessionId) -> bool:
+        """Whether the Session has a Turn under way, maybe waiting for its Server again."""
+        return session_id in self._running
+
+    def waking(self, session_id: SessionId) -> bool:
+        """Whether a Suscripción's Prompt for the Session waits in the queue."""
+        return any(prompt.woke_by for prompt in self._prompts.of(session_id))
+
     def busy(self, session_id: SessionId) -> bool:
         """Whether the Session has a Turn, a queued Prompt or a Compaction under way."""
         return self._busy(session_id)
@@ -1496,6 +1545,7 @@ class TurnQueue:
             session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields, prompt=prompt
         )
         self._windows.send(session_id, error_entry(str(error)))
+        self._answers.not_answered(running.prompt, f"its Turn {ending}: {error}", ran=True)
         if not cancelled:  # its Prompt is in no Conversation, so the user may send it again
             # The Session's queued Prompts leave with it: without it in the Conversation they
             # would run out of the order they were written in (#16).
@@ -1518,6 +1568,9 @@ class TurnQueue:
             self._since.pop(session_id, None)
         if not left or any(prompt.kind != "prompt" for prompt in dropped):
             self._compactions.drop(session_id)  # one it was doing, or would have done
+        for prompt in dropped:
+            if prompt.kind == "prompt":
+                self._answers.not_answered(prompt, f"it left the queue: {reason}", ran=False)
         if dropped:
             shown = dropped_entry(len(dropped), reason).text
             texts: list[JsonValue] = [prompt.text for prompt in dropped]
@@ -1555,6 +1608,7 @@ class TurnQueue:
             notifications=running.notifications,
             typed=running.prompt.typed,
             origin=running.prompt.origin,
+            prompt_id=running.prompt.prompt_id,
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))
         return conversation.next_turn
@@ -1598,6 +1652,10 @@ def _commands(prompt: Prompt) -> dict[str, JsonValue]:
         fields["attachments"] = [attachment.path for attachment in prompt.attachments]
     if prompt.typed:
         fields["typed"] = prompt.typed
+    if prompt.owed:
+        fields["owed"] = list[JsonValue](prompt.owed)
+    if prompt.woke_by:
+        fields["woke_by"] = list[JsonValue](prompt.woke_by)
     return fields
 
 
