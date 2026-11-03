@@ -29,7 +29,7 @@ Lo dice el código de su fproc, nunca el LLM:
 - en su Ventana, el usuario;
 - por el micrófono, el usuario y cualquier otra voz que haya oído en esa Charla.
 
-Esas reglas son código de su fproc, nunca Ajustes que ella pueda cambiar.
+Esas reglas son código de su fproc, nunca Ajustes que el Personaje pueda cambiar.
 
 Si alguien llega a una Charla que contiene una Confidencia, esa Charla se cierra y empieza otra: la Confidencia ya está en su contexto y no se puede sacar de ahí.
 

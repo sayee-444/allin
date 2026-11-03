@@ -402,7 +402,7 @@ Alguien con memoria y carácter propios que vive en una instancia de fproc con S
 _Avoid_: bot, asistente, agente de voz
 
 **Charla** (`Talk`):
-Sesión del Subperfil del Personaje en la que conversa con una o más personas en un solo lugar, como su Ventana o un canal de Discord. Dura un encuentro: termina cuando el Personaje se va del lugar o tras una pausa larga.
+Sesión del Subperfil del Personaje en la que conversa con una o más personas en un solo lugar, como su Ventana o un canal de Discord. Dura un encuentro: termina cuando el Personaje la da por terminada, cuando se va del lugar o tras una pausa larga.
 _Avoid_: chat (el Chat es lo que dibuja una Ventana), conversación (la Conversación es lo que ve el LLM)
 
 **turno de palabra** (`floor`):
