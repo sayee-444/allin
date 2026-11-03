@@ -394,3 +394,49 @@ _Avoid_: chunk, resultado, recuerdo
 **Pista** (`Hint`):
 Notificación de una línea que Main añade antes de un Prompt cuando el RAG encontró algo muy relevante para él: fecha, fuente, inicio e id del fragmento, sin su contenido, que el LLM pide con `leer` si le sirve.
 _Avoid_: sugerencia, recuerdo
+
+## Personaje
+
+**Personaje** (`Persona`):
+Alguien con memoria y carácter propios que vive en una instancia de fproc con Subperfil, adherida en el Perfil que es su casa. Tiene una sola memoria y varios sentidos: oído, vista y texto. Fuera de su Perfil está apagado: no existe ni piensa.
+_Avoid_: bot, asistente, agente de voz
+
+**Charla** (`Talk`):
+Sesión del Subperfil del Personaje en la que conversa con una o más personas en un solo lugar, como su Ventana o un canal de Discord. Dura un encuentro: termina cuando el Personaje se va del lugar o tras una pausa larga.
+_Avoid_: chat (el Chat es lo que dibuja una Ventana), conversación (la Conversación es lo que ve el LLM)
+
+**turno de palabra** (`floor`):
+El derecho a hablar en una Charla: quién lo tiene, quién lo pide y quién lo cede.
+_Avoid_: turno, a secas (un Turno es la atención de un Prompt)
+
+**voz interior** (`inner_voice`):
+Lo que el Personaje piensa sin decirlo, dentro de su propia Charla, como cuando lo interrumpen y decide si cede, insiste o retoma después.
+_Avoid_: subagente, razonamiento
+
+**Reposo** (`Rest`):
+Estado del Personaje encendido y sin Charla, en el que reflexiona sobre sí mismo y sobre lo que vivió.
+_Avoid_: dormir, sueño, suspensión (un Supervisor dormido es otra cosa)
+
+**Núcleo** (`Core`):
+Lo que no cambia del Personaje: su carácter, sus límites y su manera de hablar. Lo escribe el usuario en su Sysprompt.
+_Avoid_: personalidad (abarca también el Autorretrato)
+
+**Autorretrato** (`SelfPortrait`):
+Lo que el Personaje concluye de sí mismo al reflexionar, con lo que lo sostiene de su Log. Le llega como dato al empezar cada Charla, nunca dentro del Sysprompt.
+_Avoid_: perfil, personalidad
+
+**Conocido** (`Acquaintance`):
+Persona a la que el Personaje reconoce, con sus Huellas, sus cuentas y su Relación con él. El usuario también es un Conocido, el único que se registra desde la consola; que lo reconozca no le da autoridad.
+_Avoid_: identidad (el Perfil ya es una identidad con nombre), usuario (es siempre el humano de AllIn), contacto
+
+**Huella** (`Print`):
+Lo que el Personaje guarda de la voz o de la cara de un Conocido para reconocerlo. No es la grabación ni la foto.
+_Avoid_: hash biométrico, embedding
+
+**Relación** (`Relationship`):
+Lo que el Personaje sabe y siente de un Conocido: su historia en común, la confianza y su ánimo hacia él, que cambian con el tiempo.
+_Avoid_: ficha (la Ficha es del RAG)
+
+**Confidencia** (`Confidence`):
+Lo que un Conocido le contó al Personaje pidiéndole que no lo repita. El Personaje solo la vuelve a ver a solas con quien se la confió; el usuario la ve en los datos, pero el Personaje no se la cuenta.
+_Avoid_: secreto (un Secreto lo da un humano y el LLM nunca lo ve)
