@@ -278,11 +278,15 @@ def test_a_function_runs_in_its_own_process_and_returns_its_result_from_the_work
 
 
 def test_it_cannot_read_or_write_outside_the_minimum_reach_nor_open_the_network(
-    launcher: ToolLauncher, package: Path, workspace: Path, data_dir: Path
+    launcher: ToolLauncher, package: Path, workspace: Path, data_dir: Path, tmp_path: Path
 ):
-    secrets = {"state": str(data_dir / "state" / "main.json"), "ssh": str(Path.home() / ".ssh")}
+    # A file of the user's outside every reach, made here so no machine needs one (~/.ssh).
+    private = tmp_path / "private" / "id_ed25519"
+    private.parent.mkdir()
+    private.write_text("secret")
+    secrets = {"state": str(data_dir / "state" / "main.json"), "private": str(private)}
     read = launcher.run(call(package, workspace, "attempt", paths=secrets), timeout=20)
-    assert read.value == {"state": "PermissionError", "ssh": "PermissionError"}
+    assert read.value == {"state": "PermissionError", "private": "PermissionError"}
     wrote = launcher.run(
         call(package, workspace, "write", path=str(data_dir / "sessions" / "x")), timeout=20
     )

@@ -3,6 +3,10 @@
 # so unstaged edits never make a commit fail or pass by accident.
 # Enable once per clone with: git config core.hooksPath .githooks
 set -e
+# A commit of docs alone changes nothing the checks read.
+if ! git diff --cached --name-only | grep -qE '\.py$|^pyproject\.toml$|^uv\.lock$'; then
+    exit 0
+fi
 root="$(git rev-parse --show-toplevel)"
 staged="$(mktemp -d)"
 trap 'rm -rf "$staged"' EXIT
