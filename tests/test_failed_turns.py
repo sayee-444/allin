@@ -1,18 +1,27 @@
 """What goes back to the input when a Turn fails: with its Window closed (#15), and with the
 Prompts its Session had queued behind it (#16)."""
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
-from allin.core.errors import TurnCancelled
+from allin.core.errors import TurnCancelled, TurnCrashed
 from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import InputRestore
 from allin.main.chat_rebuild import FAILED_BEFORE, rebuild_chat, returned_prompts
-from allin.main.events import InputReceived, MainCommandEntered, TurnEnded, WindowClosed
+from allin.main.events import (
+    InputReceived,
+    MainCommandEntered,
+    ToolsEnded,
+    ToolsStarted,
+    TurnEnded,
+    WindowClosed,
+)
 from allin.main.log import LogEntry
 from tests.llm_fakes import DroppedStream, FakeLlm, answer, full_reply
 from tests.test_dispatcher import SETTINGS, MainHarness, restored, server_ready
+from tests.test_write_during_turn import CALLED, RETURNED
 
 
 @pytest.fixture
@@ -36,6 +45,15 @@ def failed(prompt: str, **fields: object) -> LogEntry:
     return entry(
         "turn_failed", prompt=prompt, error="llm_unavailable", reasoning="", answer="", **fields
     )
+
+
+def too_big(typed: object, origin: Sequence[str] = ("human",)) -> LogEntry:
+    """A Prompt that did not fit even in the empty slot (#174)."""
+    return entry("prompt_too_big", typed=typed, origin=list(origin))
+
+
+def turn_finished() -> LogEntry:
+    return entry("turn_finished", turn=0, cut=None)
 
 
 @pytest.mark.parametrize(
@@ -121,6 +139,38 @@ def failed(prompt: str, **fields: object) -> LogEntry:
                 entry("prompt_returned", texts=["a2"]),
             ],
             [],
+        ),
+        # Its Textos intercalados, after its Prompt and ahead of the queue's (#174); a human's
+        # whatever the Turn's Origin.
+        ([failed("a1", joined=["j1", "j2"])], ["a1", "j1", "j2"]),
+        (
+            [
+                failed("a1", joined=["j1"]),
+                entry("prompts_dropped", reason=FAILED_BEFORE, texts=["a2"]),
+            ],
+            ["a1", "j1", "a2"],
+        ),
+        ([failed("a1", origin=SENT, joined=["j1"])], ["j1"]),
+        ([failed("a1", joined=["j1"]), entry("prompt_returned", texts=["a1", "j1"])], []),
+        ([failed("a1", joined=["j1"]), entry("prompt", text="a2")], []),
+        ([failed("a1", joined=["j1", 7])], ["a1", "j1"]),  # never what is not a text
+        # A human's Prompt that did not fit, as it was typed (#174); another Origin's never.
+        ([entry("prompt", text="b1"), too_big("b1 @top_k=5")], ["b1 @top_k=5"]),
+        ([too_big("b1", origin=SENT)], []),
+        ([too_big("b1", origin=["not a link"])], []),
+        ([too_big("b1"), entry("prompt_returned", texts=["b1"])], []),
+        ([too_big("b1"), entry("prompt", text="b2")], []),
+        ([too_big("b1"), entry("prompt", text="b2", origin=["human"])], []),
+        # Sent by another Session, it says nothing of what the human did with theirs.
+        ([too_big("b1"), entry("prompt", text="b2", origin=SENT)], ["b1"]),
+        ([too_big(7)], []),
+        # One queued behind it may still run and end: what did not fit stays (#174).
+        ([too_big("b1"), entry("prompt_started", text="b2"), turn_finished()], ["b1"]),
+        ([too_big("b1"), entry("prompt_started", text="b2"), failed("b2")], ["b2", "b1"]),
+        ([too_big("b1"), entry("rewound", turn=0)], ["b1"]),  # it was in no Conversation
+        (  # each one given back with the Window open goes ahead of those before it
+            [too_big("b1"), entry("prompt_started", text="b2"), too_big("b2")],
+            ["b2", "b1"],
         ),
     ],
 )
@@ -357,3 +407,46 @@ def test_a_failed_turn_of_another_origin_alone_gives_nothing_back(main: MainHarn
     assert all(e.event != "prompt_returned" for e in main.session_log(a))
     main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
     assert restored(main.windows(a.id)[1]) == []
+
+
+def test_with_its_window_closed_a_failed_turns_joined_texts_go_back_on_open_once(
+    main: MainHarness,
+):
+    a, sender = main.create_session(), main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered(f"/send {a.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        ToolsStarted(a.id, ("nap",), CALLED),
+        InputReceived(a.id, "y luego esto"),
+        ToolsEnded(a.id, RETURNED, 10),
+        WindowClosed(a.id, returncode=0),  # a Turn of another Origin goes on (ADR-0013)
+        MainCommandEntered(f"/send {a.id} otra @top_k=3"),  # queued behind it
+        TurnEnded(a.id, error=TurnCrashed(reason="boom")),
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {a.id}"), settle=True)
+    # After its Prompt, which is not a human's, and ahead of the queue's (#174).
+    assert restored(main.windows(a.id)[1]) == ["y luego esto", "otra @top_k=3"]
+    main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
+    again = ["y luego esto", "otra @top_k=3"]
+    assert restored(main.windows(a.id)[2]) == again, "as the Draft kept them, once"
+    assert sum(e.event == "prompt_returned" for e in main.session_log(a)) == 1
+
+
+def test_with_its_window_open_a_failed_turns_joined_texts_go_back_once(main: MainHarness):
+    a = main.create_session()
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "duerme"),
+        ToolsStarted(a.id, ("nap",), CALLED),
+        InputReceived(a.id, "y luego esto"),
+        ToolsEnded(a.id, RETURNED, 10),
+        InputReceived(a.id, "y aquello"),  # queued
+        TurnEnded(a.id, error=TurnCrashed(reason="boom")),
+        settle=True,
+    )
+    assert restored(main.windows(a.id)[0]) == ["duerme", "y luego esto", "y aquello"]
+    main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
+    assert restored(main.windows(a.id)[1]) == [], "its Draft keeps them, not the Log again"

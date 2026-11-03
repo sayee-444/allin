@@ -21,6 +21,7 @@ from allin.main.events import (
     ServerReady,
     SlotFreed,
     TurnEnded,
+    WindowClosed,
     WindowConnected,
 )
 from allin.main.sessions import Session
@@ -193,6 +194,48 @@ def test_a_prompt_of_another_origin_that_does_not_fit_never_goes_to_the_input(ma
     errors = [m.text for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
     assert errors == ["prompt_too_big: need=130000, limit=128000"]
     assert restored(window) == []  # it fails towards its sender, not into the human's input
+
+
+def test_a_human_prompt_that_did_not_fit_with_its_window_closed_goes_back_as_it_opens(
+    main: MainHarness,
+):
+    main.server = server(slots=2, context=128_000)
+    session = session_needing(main, 130_000)
+    main.hold_turns = True
+    main.run(MainCommandEntered(f"/send {session.id} too much @top_k=5"), settle=True)
+    [too_big] = [e for e in main.session_log(session) if e.event == "prompt_too_big"]
+    assert too_big.fields == {"typed": "too much @top_k=5", "origin": ["human"]}
+    main.run(*open_all(session), settle=True)
+    assert restored(main.windows(session.id)[0]) == ["too much @top_k=5"]  # as typed (#174)
+    main.run(WindowClosed(session.id, returncode=0), *open_all(session), settle=True)
+    again = restored(main.windows(session.id)[1])
+    assert again == ["too much @top_k=5"], "as the Draft kept it, once"
+    assert sum(e.event == "prompt_returned" for e in main.session_log(session)) == 1
+
+
+def test_a_prompt_that_did_not_fit_with_its_window_open_does_not_come_back_on_reopen(
+    main: MainHarness,
+):
+    main.server = server(slots=2, context=128_000)
+    session = session_needing(main, 130_000)
+    main.hold_turns = True
+    main.run(*open_all(session), InputReceived(session.id, "too much"), settle=True)
+    assert restored(main.windows(session.id)[0]) == ["too much"]
+    main.run(WindowClosed(session.id, returncode=0), *open_all(session), settle=True)
+    assert restored(main.windows(session.id)[1]) == []
+
+
+def test_a_prompt_of_another_origin_that_did_not_fit_never_goes_back_as_its_window_opens(
+    main: MainHarness,
+):
+    main.server = server(slots=2, context=128_000)
+    session, sender = session_needing(main, 130_000), main.create_session()
+    main.hold_turns = True
+    origin = from_session(HUMAN, sender.id)
+    main.run(MainCommandEntered(f"/send {session.id} too much", origin=origin), settle=True)
+    main.run(*open_all(session), settle=True)
+    assert restored(main.windows(session.id)[0]) == []
+    assert all(e.event != "prompt_returned" for e in main.session_log(session))
 
 
 def context_notices(main: MainHarness, session: Session) -> list[str]:
