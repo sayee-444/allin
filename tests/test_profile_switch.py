@@ -229,6 +229,26 @@ def test_with_now_a_running_turn_is_cancelled_and_its_prompt_goes_back_to_the_in
     assert restored(main.windows(a.id)[-1]) == ["a1", "typing"]
 
 
+def test_with_now_and_exit_before_the_turn_ends_its_prompt_comes_back_on_the_next_start(
+    main: MainHarness,
+):
+    a = main.create_session()
+    other_profile(main)
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1 @top_k=5"),
+        DraftReceived(a.id, ("typing",)),
+        switch("tesis", now=True),
+        MainCommandEntered("/exit"),  # while the switch waits for its executor (#176)
+        settle=True,
+    )
+    assert main.profiles.open(None).name == "default"
+    main.hold_turns = False
+    main.run(MainCommandEntered(f"/open {a.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(a.id)[-1]) == ["a1 @top_k=5", "typing"]
+
+
 def test_with_now_only_a_human_prompt_goes_back_and_as_it_was_typed(main: MainHarness):
     a, b, sender = main.create_session(), main.create_session(), main.create_session()
     for session in (b, sender):  # a Session sends only within its Profile

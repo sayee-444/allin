@@ -1,10 +1,12 @@
 """Writing during a Turn (#56, ADR-0024): Enter queues, Up withdraws, Shift+Enter interrupts."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from allin.core.errors import TurnCancelled, TurnCrashed
+from allin.core.errors import AllInError, LlmUnavailable, TurnCancelled, TurnCrashed, TurnYielded
+from allin.core.ids import SessionId
 from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.conversation import NOTIFICATIONS_HEADER, Step
@@ -13,7 +15,10 @@ from allin.main.events import (
     DraftReceived,
     InputReceived,
     MainCommandEntered,
+    MainEvent,
     QueuedWithdrawn,
+    Shutdown,
+    StepEnded,
     ToolsEnded,
     ToolsStarted,
     TurnEnded,
@@ -23,7 +28,7 @@ from allin.main.events import (
 from allin.main.prompts import Prompt
 from allin.main.state import MainState
 from allin.main.turn_queue import CUT_CALL, INTERRUPTED
-from tests.test_dispatcher import MainHarness, ended, restored
+from tests.test_dispatcher import MainHarness, ended, restored, together
 
 
 @pytest.fixture
@@ -263,6 +268,95 @@ def test_a_restart_gives_back_only_the_running_prompts_of_a_human(main: MainHarn
     assert restored(main.windows(session.id)[-1]) == ["typing"]
 
 
+# A cancelled human Turn whose end Main never handles, or handles once it stops (#176).
+
+
+def window_closed(session_id: SessionId) -> MainEvent:
+    return WindowClosed(session_id, returncode=0)
+
+
+def closed_from_main_chat(session_id: SessionId) -> MainEvent:
+    return MainCommandEntered(f"/close {session_id}")
+
+
+CANCELS = [
+    pytest.param(window_closed, id="window-closed"),
+    pytest.param(closed_from_main_chat, id="close"),
+]
+STOPS = [
+    pytest.param(MainCommandEntered("/exit"), id="exit"),
+    pytest.param(Shutdown(), id="signal"),
+]
+
+
+@pytest.mark.parametrize("stop", STOPS)
+@pytest.mark.parametrize("cancel", CANCELS)
+def test_a_cancelled_human_prompt_comes_back_once_when_main_stops_before_its_turn_ends(
+    main: MainHarness, cancel: Callable[[SessionId], MainEvent], stop: MainEvent
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1 @top_k=5"),
+        InputReceived(session.id, "a2"),
+        DraftReceived(session.id, ("typing",)),
+        cancel(session.id),
+        stop,  # its executor is still in its request
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(session.id)[-1]) == ["a1 @top_k=5", "a2", "typing"]
+
+
+def test_a_cancelled_human_prompt_still_running_is_kept_for_a_main_that_dies(main: MainHarness):
+    session = main.create_session()
+    saved: list[MainState] = []
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1 @top_k=5"),
+        WindowClosed(session.id, returncode=0),
+        lambda: saved.append(main.state.load()),  # what a kill now would leave
+        settle=True,
+    )
+    # It runs until its executor says it ended, so a restart gives it back.
+    assert [prompt.as_typed for prompt in saved[0].running] == ["a1 @top_k=5"]
+    assert saved[0].drafts == {}
+
+
+def test_a_cancelled_turns_end_behind_exit_gives_its_prompt_back_once(main: MainHarness):
+    session = main.create_session()
+    end = TurnEnded(session.id, error=TurnCancelled(reason="window closed"))
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1 @top_k=5"),
+        DraftReceived(session.id, ("typing",)),
+        WindowClosed(session.id, returncode=0),
+        together(main, MainCommandEntered("/exit"), end),  # before Main handles either
+        settle=True,
+    )
+    assert main.state.load().drafts == {session.id: ["a1 @top_k=5", "typing"]}
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(session.id)[-1]) == ["a1 @top_k=5", "typing"]
+
+
+def test_closing_from_main_chat_gives_back_no_queued_prompt_of_another_origin(main: MainHarness):
+    session, sender = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1"),
+        MainCommandEntered(f"/send {session.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        InputReceived(session.id, "a2"),
+        DraftReceived(session.id, ("typing",)),
+        MainCommandEntered(f"/close {session.id}"),
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert main.state.load().drafts == {session.id: ["a1", "a2", "typing"]}
+    [dropped] = [e for e in main.session_log(session) if e.event == "prompts_dropped"]
+    assert dropped.fields["texts"] == [f"[from Session {sender.id}]\ntrabajo", "a2"]
+
+
 # While its tools run (#121): what enters the Turn, and what a cut or a closed Window does
 # with it. The Turn's executor is held, so the events of its thread are given by hand.
 
@@ -326,6 +420,78 @@ def test_closing_the_window_gives_back_the_texts_that_entered_its_turn(main: Mai
     assert main.state.load().drafts == {session.id: ["duerme", "y luego esto", "y aquello"]}
     cancelled = [e.fields for e in main.session_log(session) if e.event == "turn_cancelled"]
     assert cancelled[0]["joined"] == ["y luego esto"]
+
+
+@pytest.mark.parametrize("stop", STOPS)
+def test_stopping_main_mid_turn_keeps_the_texts_that_entered_it_after_its_prompt(
+    main: MainHarness, stop: MainEvent
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "y luego esto"),
+        ToolsEnded(session.id, RETURNED, 10),
+        DraftReceived(session.id, ("typing",)),
+        stop,
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    # Once each (#176): Main stopping does not give them back a second time as it cancels.
+    assert restored(main.windows(session.id)[-1]) == ["duerme", "y luego esto", "typing"]
+    assert main.state.load().drafts == {session.id: ["duerme", "y luego esto", "typing"]}
+
+
+def test_exit_after_closing_the_window_mid_turn_keeps_its_prompt_and_texts_in_order(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "y luego esto"),
+        ToolsEnded(session.id, RETURNED, 10),
+        InputReceived(session.id, "y aquello"),  # still queued
+        WindowClosed(session.id, returncode=0),
+        MainCommandEntered("/exit"),  # before its executor said the Turn ended
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    expected = ["duerme", "y luego esto", "y aquello"]
+    assert restored(main.windows(session.id)[-1]) == expected
+
+
+@pytest.mark.parametrize(
+    "stopped",
+    [
+        pytest.param(LlmUnavailable(reason="fell"), id="suspended"),  # its Server fell
+        pytest.param(TurnYielded(), id="yielded"),  # to compact first
+    ],
+)
+def test_closing_the_window_on_a_turn_back_in_the_queue_keeps_its_texts(
+    main: MainHarness, stopped: AllInError
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        InputReceived(session.id, "y luego esto"),
+        ToolsEnded(session.id, RETURNED, 10),
+        StepEnded(session.id, RETURNED.interjecting(["y luego esto"])),
+        # Closed before its next Step is measured, so it waits in the queue.
+        together(
+            main, TurnEnded(session.id, error=stopped), WindowClosed(session.id, returncode=0)
+        ),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert len(main.held) == 1, "it never ran again"
+    [dropped] = [e for e in main.session_log(session) if e.event == "prompts_dropped"]
+    assert dropped.fields["texts"] == ["duerme"]
+    assert main.state.load().drafts == {session.id: ["duerme", "y luego esto"]}
 
 
 def test_a_rebuilt_chat_shows_the_texts_that_entered_a_turn_that_failed(main: MainHarness):

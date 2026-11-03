@@ -11,6 +11,7 @@ from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import InputRestore
 from allin.main.chat_rebuild import FAILED_BEFORE, rebuild_chat, returned_prompts
 from allin.main.events import (
+    DraftReceived,
     InputReceived,
     MainCommandEntered,
     ToolsEnded,
@@ -20,7 +21,14 @@ from allin.main.events import (
 )
 from allin.main.log import LogEntry
 from tests.llm_fakes import DroppedStream, FakeLlm, answer, full_reply
-from tests.test_dispatcher import SETTINGS, MainHarness, restored, server_ready
+from tests.test_dispatcher import (
+    SETTINGS,
+    FakeWindowLink,
+    MainHarness,
+    restored,
+    server_ready,
+    together,
+)
 from tests.test_write_during_turn import CALLED, RETURNED
 
 
@@ -32,6 +40,11 @@ def main(tmp_path: Path) -> MainHarness:
 def failing_twice() -> FakeLlm:
     """A Server that falls twice in the same Step: its Turn fails (ADR-0023)."""
     return FakeLlm(DroppedStream([answer("half")]), DroppedStream([answer("half")]))
+
+
+def restores(window: FakeWindowLink) -> list[str]:
+    """Each text an InputRestore put in the Window's input, as many times as it came."""
+    return [message.text for message in window.sent if isinstance(message, InputRestore)]
 
 
 def entry(event: str, **fields: object) -> LogEntry:
@@ -374,7 +387,8 @@ def test_a_failed_turn_gives_back_only_the_human_prompts_with_its_window_open(ma
     [dropped] = [e for e in log if e.event == "prompts_dropped"]
     assert dropped.fields["origins"] == [["human"], sent.labels]
     main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
-    assert restored(main.windows(a.id)[1]) == [], "its Draft keeps it, not the Log again"
+    # From the Draft Main keeps for it (#176), and not a second time from the Log.
+    assert restores(main.windows(a.id)[1]) == ["a2 @top_k=3"]
 
 
 def test_a_failed_turn_gives_back_only_the_human_prompts_as_its_window_opens(main: MainHarness):
@@ -449,4 +463,26 @@ def test_with_its_window_open_a_failed_turns_joined_texts_go_back_once(main: Mai
     )
     assert restored(main.windows(a.id)[0]) == ["duerme", "y luego esto", "y aquello"]
     main.run(WindowClosed(a.id, returncode=0), MainCommandEntered(f"/open {a.id}"), settle=True)
-    assert restored(main.windows(a.id)[1]) == [], "its Draft keeps them, not the Log again"
+    # From the Draft Main keeps for it (#176), and not a second time from the Log.
+    assert sorted(restores(main.windows(a.id)[1])) == ["duerme", "y aquello", "y luego esto"]
+    assert restored(main.windows(a.id)[1]) == ["duerme", "y luego esto", "y aquello"]
+
+
+def test_a_turn_that_fails_as_main_stops_leaves_what_it_gives_back_in_the_draft(
+    main: MainHarness,
+):
+    a = main.create_session()
+    main.hold_turns = True
+    failed = TurnEnded(a.id, error=TurnCrashed(reason="boom"))
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1 @top_k=5"),
+        InputReceived(a.id, "a2"),  # queued: it fails with it
+        DraftReceived(a.id, ("typing",)),
+        together(main, MainCommandEntered("/exit"), failed),  # before Main handles either
+        settle=True,
+    )
+    # Its Window can no longer send its Draft back, so Main keeps it itself (#176).
+    assert main.state.load().drafts == {a.id: ["a1 @top_k=5", "a2", "typing"]}
+    main.run(MainCommandEntered(f"/open {a.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(a.id)[-1]) == ["a1 @top_k=5", "a2", "typing"]

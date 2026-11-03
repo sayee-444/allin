@@ -1225,7 +1225,7 @@ def test_a_draft_comes_back_when_its_sessions_window_is_opened_again(main: MainH
     assert InputRestore(text="typing") in second.sent
 
 
-def test_the_prompt_of_a_turn_cancelled_by_closing_its_window_never_comes_back(
+def test_the_prompt_of_a_turn_cancelled_by_closing_its_window_is_kept_running_as_main_stops(
     main: MainHarness,
 ):
     session = main.create_session()
@@ -1237,7 +1237,8 @@ def test_the_prompt_of_a_turn_cancelled_by_closing_its_window_never_comes_back(
         MainCommandEntered("/exit"),  # before its executor reported the cancelled Turn
         settle=True,
     )
-    assert main.state.load() == MainState()
+    # The next start puts it back in its Draft, once (#156, #176).
+    assert without_ids(main.state.load()) == MainState(running=[Prompt(session.id, "a1")])
 
 
 def test_a_draft_that_arrived_just_before_shutdown_is_kept(main: MainHarness):
@@ -1257,6 +1258,19 @@ def test_a_restored_window_with_queued_prompts_says_why_they_wait(main: MainHarn
     main.run()
     [window] = main.windows(session.id)
     assert any(isinstance(m, ChatAppend) and "/health" in m.text for m in window.sent)
+
+
+def together(main: MainHarness, *events: MainEvent) -> Between:
+    """A step that puts ``events`` in the inbox at once: Main handles them all before what
+    the first ones lead it to put there, as when they arrive before it handles any."""
+
+    def arrive() -> None:
+        inbox = main.servers.inbox
+        assert inbox is not None
+        for event in events:
+            inbox.put(event)
+
+    return arrive
 
 
 def restored(window: FakeWindowLink) -> list[str]:
