@@ -1,0 +1,109 @@
+== Log de la Sesión jefa (prompt, subscribed, subscription_*, rewound) ==
+{"ts": "2026-11-02T21:45:03.338350-06:00", "event": "prompt", "text": "Usa tu tool enviar con sid=ayudante para preguntarle cuanto es 17 por 23. Cuando te llegue su respuesta, dime el resultado.", "prompt_id": "apuytv", "origin": ["human"]}
+{"ts": "2026-11-02T21:45:03.343588-06:00", "event": "turn_started", "need": 17423}
+{"ts": "2026-11-02T21:45:04.663735-06:00", "event": "subscribed", "subscription": "si37c80", "watching": "reply:ayudante", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T21:45:05.454301-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-02T21:45:06.259363-06:00", "event": "subscription_event", "subscription": "si37c80", "text": "Session ayudante answered:\n17 × 23 = **391**"}
+{"ts": "2026-11-02T21:45:07.082824-06:00", "event": "prompt", "text": "[from Subscription jefa.reply.ayudante]\nreply:ayudante (si37c80): Session ayudante answered:\n17 × 23 = **391**", "woke_by": ["si37c80"], "prompt_id": "1o9hrm", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante"]}
+{"ts": "2026-11-02T21:45:07.089843-06:00", "event": "turn_started", "need": 17801}
+{"ts": "2026-11-02T21:45:08.093577-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-02T21:47:11.861145-06:00", "event": "prompt", "text": "Juego de contar: con tu tool enviar manda a ayudante el numero 1 y pidele que lo repita. Cada vez que te llegue su respuesta, vuelve a usar enviar con el numero siguiente. No pares nunca por tu cuenta.", "prompt_id": "fxlb6g", "origin": ["human"]}
+{"ts": "2026-11-02T21:47:11.868132-06:00", "event": "turn_started", "need": 17959}
+{"ts": "2026-11-02T21:47:13.419355-06:00", "event": "subscribed", "subscription": "su4om8q", "watching": "reply:ayudante", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T21:47:14.183100-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-02T21:47:15.085625-06:00", "event": "subscription_event", "subscription": "su4om8q", "text": "Session ayudante answered:\n1"}
+{"ts": "2026-11-02T21:47:15.095976-06:00", "event": "prompt", "text": "[from Subscription jefa.reply.ayudante]\nreply:ayudante (su4om8q): Session ayudante answered:\n1", "woke_by": ["su4om8q"], "prompt_id": "o71sn2", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante"]}
+{"ts": "2026-11-02T21:47:15.103259-06:00", "event": "turn_started", "need": 18316}
+{"ts": "2026-11-02T21:47:16.118896-06:00", "event": "subscribed", "subscription": "szrywdl", "watching": "reply:ayudante", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:16.506847-06:00", "event": "turn_finished", "turn": 3}
+{"ts": "2026-11-02T21:47:17.301884-06:00", "event": "subscription_event", "subscription": "szrywdl", "text": "Session ayudante answered:\n2"}
+{"ts": "2026-11-02T21:47:18.096437-06:00", "event": "prompt", "text": "[from Subscription jefa.reply.ayudante]\nreply:ayudante (szrywdl): Session ayudante answered:\n2", "woke_by": ["szrywdl"], "prompt_id": "xjfw7v", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante"]}
+{"ts": "2026-11-02T21:47:18.105469-06:00", "event": "turn_started", "need": 18582}
+{"ts": "2026-11-02T21:47:19.105866-06:00", "event": "subscribed", "subscription": "sg4dtsp", "watching": "reply:ayudante", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:19.478117-06:00", "event": "turn_finished", "turn": 4}
+{"ts": "2026-11-02T21:47:20.287087-06:00", "event": "subscription_cut", "subscription": "sg4dtsp", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante"]}
+
+== Log de la Sesión ayudante (prompt, subscribed, subscription_*, rewound) ==
+{"ts": "2026-11-02T21:45:04.663812-06:00", "event": "prompt", "text": "[from Session jefa]\n¿Cuánto es 17 por 23?", "owed": ["si37c80"], "prompt_id": "cvrfk1", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T21:45:05.456322-06:00", "event": "turn_started", "need": 17431}
+{"ts": "2026-11-02T21:45:06.259242-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-02T21:47:13.419438-06:00", "event": "prompt", "text": "[from Session jefa]\nRepítelo: 1", "owed": ["su4om8q"], "prompt_id": "4b20kj", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T21:47:14.184962-06:00", "event": "turn_started", "need": 17537}
+{"ts": "2026-11-02T21:47:15.085519-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-02T21:47:16.119038-06:00", "event": "prompt", "text": "[from Session jefa]\nRepítelo: 2", "owed": ["szrywdl"], "prompt_id": "b3mumq", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:16.508643-06:00", "event": "turn_started", "need": 17602}
+{"ts": "2026-11-02T21:47:17.301800-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-02T21:47:19.105944-06:00", "event": "prompt", "text": "[from Session jefa]\nRepítelo: 3", "owed": ["sg4dtsp"], "prompt_id": "x5qr0f", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:19.479908-06:00", "event": "turn_started", "need": 17643}
+{"ts": "2026-11-02T21:47:20.286067-06:00", "event": "turn_finished", "turn": 3}
+{"ts": "2026-11-02T21:50:56.169568-06:00", "event": "rewound", "turn": 2, "asked": 2, "texts": ["[from Session jefa]\nRepítelo: 2", "[from Session jefa]\nRepítelo: 3"], "origins": [["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"], ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]]}
+{"ts": "2026-11-02T21:51:03.323344-06:00", "event": "prompt", "text": "[from Session vigia]\nRecibí un evento de rewind de tu sesión: se revirtieron los Prompts 3–4 (ids b3mumq, x5qr0f). Confírmame, por favor, tu estado actual: ¿en qué punto quedaste, qué tareas completaste y qué queda pendiente? Responde breve.", "owed": ["s6lfm1o"], "prompt_id": "4yj8gg", "origin": ["human", "subscription:syxlkns", "session:vigia"]}
+{"ts": "2026-11-02T21:51:05.897868-06:00", "event": "turn_started", "need": 17664}
+{"ts": "2026-11-02T21:51:09.988496-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-02T21:51:21.954830-06:00", "event": "prompt", "text": "[from Session vigia]\nPerfecto, gracias por el reporte. No necesito nada más por ahora; el rewind quedó verificado y no hay tareas pendientes. Quedo pendiente de nuevos eventos.", "owed": ["sslpoxp"], "prompt_id": "0cpvzv", "origin": ["human", "subscription:syxlkns", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante", "session:vigia"]}
+{"ts": "2026-11-02T21:51:23.514097-06:00", "event": "turn_started", "need": 18296}
+{"ts": "2026-11-02T21:51:24.784150-06:00", "event": "turn_finished", "turn": 3}
+
+== Log de la Sesión vigia (prompt, subscribed, subscription_*, rewound) ==
+{"ts": "2026-11-02T21:36:45.836058-06:00", "event": "subscribed", "subscription": "sz6eqfa", "watching": "process:avisos", "origin": ["human"]}
+{"ts": "2026-11-02T21:46:12.974876-06:00", "event": "subscription_event", "subscription": "sz6eqfa", "text": "avisos announced: novedades (1 de 3)"}
+{"ts": "2026-11-02T21:46:12.975931-06:00", "event": "subscription_event", "subscription": "sz6eqfa", "text": "avisos announced: novedades (2 de 3)"}
+{"ts": "2026-11-02T21:46:12.976692-06:00", "event": "subscription_event", "subscription": "sz6eqfa", "text": "avisos announced: novedades (3 de 3)"}
+{"ts": "2026-11-02T21:46:13.090191-06:00", "event": "prompt", "text": "[from Subscription sz6eqfa]\nprocess:avisos (sz6eqfa): avisos announced: novedades (1 de 3)\n\nprocess:avisos (sz6eqfa): avisos announced: novedades (2 de 3)\n\nprocess:avisos (sz6eqfa): avisos announced: novedades (3 de 3)", "woke_by": ["sz6eqfa"], "prompt_id": "20ezv6", "origin": ["human", "process:avisos", "subscription:sz6eqfa"]}
+{"ts": "2026-11-02T21:46:13.096083-06:00", "event": "turn_started", "need": 17485}
+{"ts": "2026-11-02T21:46:25.597969-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-02T21:49:52.826244-06:00", "event": "prompt", "text": "Usa tu tool suscribir con evento timer:120 y luego dime que lo hiciste.", "prompt_id": "kdq5xt", "origin": ["human"]}
+{"ts": "2026-11-02T21:49:52.835395-06:00", "event": "turn_started", "need": 19215}
+{"ts": "2026-11-02T21:49:54.106924-06:00", "event": "subscribed", "subscription": "s0hx52q", "watching": "timer:120", "origin": ["human", "session:vigia"]}
+{"ts": "2026-11-02T21:49:54.704042-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-02T21:50:31.326531-06:00", "event": "subscription_cancelled", "subscription": "s0hx52q", "reason": "rewound"}
+{"ts": "2026-11-02T21:50:31.326685-06:00", "event": "rewound", "turn": 0, "asked": 2, "texts": ["[from Subscription sz6eqfa]\nprocess:avisos (sz6eqfa): avisos announced: novedades (1 de 3)\n\nprocess:avisos (sz6eqfa): avisos announced: novedades (2 de 3)\n\nprocess:avisos (sz6eqfa): avisos announced: novedades (3 de 3)", "Usa tu tool suscribir con evento timer:120 y luego dime que lo hiciste."], "origins": [["human", "process:avisos", "subscription:sz6eqfa"], ["human"]]}
+{"ts": "2026-11-02T21:50:52.890591-06:00", "event": "subscribed", "subscription": "syxlkns", "watching": "rewind:ayudante", "origin": ["human"]}
+{"ts": "2026-11-02T21:50:56.169483-06:00", "event": "subscription_event", "subscription": "syxlkns", "text": "Session ayudante rewound Prompts 3–4 (ids b3mumq, x5qr0f)"}
+{"ts": "2026-11-02T21:50:57.124087-06:00", "event": "prompt", "text": "[from Subscription syxlkns]\nrewind:ayudante (syxlkns): Session ayudante rewound Prompts 3–4 (ids b3mumq, x5qr0f)", "woke_by": ["syxlkns"], "prompt_id": "mw2cws", "origin": ["human", "subscription:syxlkns"]}
+{"ts": "2026-11-02T21:50:57.129930-06:00", "event": "turn_started", "need": 17434}
+{"ts": "2026-11-02T21:51:03.323261-06:00", "event": "subscribed", "subscription": "s6lfm1o", "watching": "reply:ayudante", "origin": ["human", "subscription:syxlkns", "session:vigia"]}
+{"ts": "2026-11-02T21:51:05.895999-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-02T21:51:09.988596-06:00", "event": "subscription_event", "subscription": "s6lfm1o", "text": "Session ayudante answered:\nMi prompt actual es `4yj8gg`. Tras el rewind de los prompts 3–4, mi estado es:\n\n- **Completado:** 2 respuestas a la sesión *jefa* (17×23=391 y repetición de \"1\").\n- **Pendiente:** Nada. No tenía tareas abiertas.\n\n¿Necesitas algo más, vigia?"}
+{"ts": "2026-11-02T21:51:10.125158-06:00", "event": "prompt", "text": "[from Subscription vigia.reply.ayudante]\nreply:ayudante (s6lfm1o): Session ayudante answered:\nMi prompt actual es `4yj8gg`. Tras el rewind de los prompts 3–4, mi estado es:\n\n- **Completado:** 2 respuestas a la sesión *jefa* (17×23=391 y repetición de \"1\").\n- **Pendiente:** Nada. No tenía tareas abiertas.\n\n¿Necesitas algo más, vigia?", "woke_by": ["s6lfm1o"], "prompt_id": "q6ytj2", "origin": ["human", "subscription:syxlkns", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante"]}
+{"ts": "2026-11-02T21:51:10.132987-06:00", "event": "turn_started", "need": 18845}
+{"ts": "2026-11-02T21:51:21.954750-06:00", "event": "subscribed", "subscription": "sslpoxp", "watching": "reply:ayudante", "origin": ["human", "subscription:syxlkns", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante", "session:vigia"]}
+{"ts": "2026-11-02T21:51:23.512157-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-02T21:51:24.784238-06:00", "event": "subscription_event", "subscription": "sslpoxp", "text": "Session ayudante answered:\nRecibido, vigia. Aquí estoy, listo para lo que venga. 👍"}
+{"ts": "2026-11-02T21:51:25.126092-06:00", "event": "prompt", "text": "[from Subscription vigia.reply.ayudante]\nreply:ayudante (sslpoxp): Session ayudante answered:\nRecibido, vigia. Aquí estoy, listo para lo que venga. 👍", "woke_by": ["sslpoxp"], "prompt_id": "dkv49t", "origin": ["human", "subscription:syxlkns", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante"]}
+{"ts": "2026-11-02T21:51:25.136621-06:00", "event": "turn_started", "need": 20586}
+{"ts": "2026-11-02T21:51:26.700253-06:00", "event": "turn_finished", "turn": 2}
+
+== Log de Main: subscription y avisos ==
+{"ts": "2026-11-02T21:35:37.619135-06:00", "event": "command", "command": "/attach avisos", "result": "error fproc_not_offered: fproc='avisos'", "origin": ["human"]}
+{"ts": "2026-11-02T21:35:40.988492-06:00", "event": "command", "command": "/set subscription.repeats=2", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:36:42.454909-06:00", "event": "attached", "name": "avisos", "fproc": "avisos", "pid": 385281, "file": null, "to": [], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T21:36:42.454961-06:00", "event": "command", "command": "/attach avisos", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:36:45.836127-06:00", "event": "subscribed", "sid": "vigia", "subscription": "sz6eqfa", "watching": "process:avisos", "origin": ["human"]}
+{"ts": "2026-11-02T21:36:45.836153-06:00", "event": "command", "sid": "vigia", "command": "/subscribe vigia process:avisos", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:43:10.386039-06:00", "event": "command", "sid": "coordina", "command": "/rewind coordina 1", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:45:04.663765-06:00", "event": "subscribed", "sid": "jefa", "subscription": "si37c80", "watching": "reply:ayudante", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T21:46:12.977426-06:00", "event": "method_called", "name": "avisos", "method": "avisa", "arguments": {"texto": "novedades", "veces": 3}, "result": "\"anunciado\"", "origin": ["human"]}
+{"ts": "2026-11-02T21:46:12.977456-06:00", "event": "command", "command": "/call avisos avisa texto=novedades veces=3", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:46:22.473340-06:00", "event": "command", "sid": "sz6eqfa", "command": "/send sz6eqfa --reply-to=me Hola, avisos: acabo de recibir tus 3 anuncios de \"novedades\" (1 de 3, 2 de 3, 3 de 3). ¿Me pasas el contenido completo de las 3 novedades, por favor?", "result": "error session_not_found: session_id='sz6eqfa'", "origin": ["human", "process:avisos", "subscription:sz6eqfa", "session:vigia"]}
+{"ts": "2026-11-02T21:47:13.419391-06:00", "event": "subscribed", "sid": "jefa", "subscription": "su4om8q", "watching": "reply:ayudante", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T21:47:16.118992-06:00", "event": "subscribed", "sid": "jefa", "subscription": "szrywdl", "watching": "reply:ayudante", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:16.120104-06:00", "event": "command", "sid": "ayudante", "command": "/send ayudante --reply-to=me Repítelo: 2", "result": "ok", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:19.105898-06:00", "event": "subscribed", "sid": "jefa", "subscription": "sg4dtsp", "watching": "reply:ayudante", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:19.106984-06:00", "event": "command", "sid": "ayudante", "command": "/send ayudante --reply-to=me Repítelo: 3", "result": "ok", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]}
+{"ts": "2026-11-02T21:47:20.287111-06:00", "event": "subscription_cut", "sid": "jefa", "subscription": "sg4dtsp", "origin": ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante"]}
+{"ts": "2026-11-02T21:49:54.106957-06:00", "event": "subscribed", "sid": "vigia", "subscription": "s0hx52q", "watching": "timer:120", "origin": ["human", "session:vigia"]}
+{"ts": "2026-11-02T21:49:54.106981-06:00", "event": "command", "sid": "vigia", "command": "/subscribe vigia timer:120", "result": "ok", "origin": ["human", "session:vigia"]}
+{"ts": "2026-11-02T21:50:28.081557-06:00", "event": "command", "sid": "vigia", "command": "/subscribe vigia", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:50:31.326588-06:00", "event": "subscription_cancelled", "sid": "vigia", "subscription": "s0hx52q", "reason": "rewound"}
+{"ts": "2026-11-02T21:50:31.326714-06:00", "event": "rewound", "sid": "vigia", "turn": 0, "asked": 2, "texts": ["[from Subscription sz6eqfa]\nprocess:avisos (sz6eqfa): avisos announced: novedades (1 de 3)\n\nprocess:avisos (sz6eqfa): avisos announced: novedades (2 de 3)\n\nprocess:avisos (sz6eqfa): avisos announced: novedades (3 de 3)", "Usa tu tool suscribir con evento timer:120 y luego dime que lo hiciste."], "origins": [["human", "process:avisos", "subscription:sz6eqfa"], ["human"]]}
+{"ts": "2026-11-02T21:50:31.326958-06:00", "event": "command", "sid": "vigia", "command": "/rewind vigia 2", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:50:34.581949-06:00", "event": "command", "sid": "vigia", "command": "/subscribe vigia", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:50:52.890667-06:00", "event": "subscribed", "sid": "vigia", "subscription": "syxlkns", "watching": "rewind:ayudante", "origin": ["human"]}
+{"ts": "2026-11-02T21:50:52.890695-06:00", "event": "command", "sid": "vigia", "command": "/subscribe vigia rewind:ayudante", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:50:56.169594-06:00", "event": "rewound", "sid": "ayudante", "turn": 2, "asked": 2, "texts": ["[from Session jefa]\nRepítelo: 2", "[from Session jefa]\nRepítelo: 3"], "origins": [["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"], ["human", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa", "session:ayudante", "subscription:jefa.reply.ayudante", "session:jefa"]]}
+{"ts": "2026-11-02T21:50:56.169834-06:00", "event": "command", "sid": "ayudante", "command": "/rewind ayudante 2", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T21:51:03.323294-06:00", "event": "subscribed", "sid": "vigia", "subscription": "s6lfm1o", "watching": "reply:ayudante", "origin": ["human", "subscription:syxlkns", "session:vigia"]}
+{"ts": "2026-11-02T21:51:03.324250-06:00", "event": "command", "sid": "ayudante", "command": "/send ayudante --reply-to=me Recibí un evento de rewind de tu sesión: se revirtieron los Prompts 3–4 (ids b3mumq, x5qr0f). Confírmame, por favor, tu estado actual: ¿en qué punto quedaste, qué tareas completaste y qué queda pendiente? Responde breve.", "result": "ok", "origin": ["human", "subscription:syxlkns", "session:vigia"]}
+{"ts": "2026-11-02T21:51:21.954781-06:00", "event": "subscribed", "sid": "vigia", "subscription": "sslpoxp", "watching": "reply:ayudante", "origin": ["human", "subscription:syxlkns", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante", "session:vigia"]}
+{"ts": "2026-11-02T21:51:21.955914-06:00", "event": "command", "sid": "ayudante", "command": "/send ayudante --reply-to=me Perfecto, gracias por el reporte. No necesito nada más por ahora; el rewind quedó verificado y no hay tareas pendientes. Quedo pendiente de nuevos eventos.", "result": "ok", "origin": ["human", "subscription:syxlkns", "session:vigia", "session:ayudante", "subscription:vigia.reply.ayudante", "session:vigia"]}
