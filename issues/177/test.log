@@ -1,0 +1,59 @@
+# #177 — El Contexto tras compactar no vuelve con Rewind, un Turno que cedió ni /session id (2026-11-03)
+
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9933
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m177, en un xterm, con el código del commit b20a589.
+Ajustes: /set base_url=http://127.0.0.1:9933/v1, /exit y otra vez Main. Slot de 32000 tokens.
+Una function de prueba en el Perfil, `informe(tema)`, que devuelve un informe largo de líneas numeradas,
+aprobada con /piece approve y dada con /grant.
+
+## Criterios
+
+1. Tras un Rewind que recorta Turnos de una Conversación compactada, el borde y la fila no vuelven al Contexto de antes
+   - r177 con compact.keep=0.02: dos Prompts largos (faros, molinos) y dos cortos («Responde solo: si», «… no»).
+     Borde «context 8557 / 32k» (01-borde-antes-de-compactar.png; fila igual, 01b-organizador-antes-de-compactar.png).
+   - /session compact r177: «Prompts 1–2 summarized», los dos cortos quedan literales. Borde y fila: 252, lo medido
+     (02-borde-compactada.png, 02b-organizador-compactada.png).
+   - (tras el criterio 3) un Turno nuevo en n177, «Responde solo: vale»: borde 302, el suyo (04-borde-turno-tras-compactar.png).
+   - /rewind n177: queda la Conversación compactada con los dos cortos literales, cuyo último Paso corrió antes de
+     compactar (unos 8600). El borde dice «context ? / 32k» (05-borde-tras-rewind.png) y la fila del Organizador
+     queda sin Contexto (05b-organizador-tras-rewind.png). Antes de #177 volvía al Contexto de antes de compactar.
+
+2. Un Turno que cedió para compactar y sigue después no devuelve la fila ni el borde (también al reabrir) al Contexto de antes
+   - w177 con compact.keep=0.02 y compact.threshold=0.6 (19200 tokens): dos Prompts de unas 120 palabras.
+   - «Llama a la funcion informe con tema "faros" y luego dime en una frase…»: su primer Paso llama a `informe`
+     (tools_returned, grows 19392); con la fila en «context 5872 / 32k» (06-organizador-paso-de-antes.png) el Turno cede
+     («its next Step may not fit: measured again first, it compacts if it must»), compacta y el borde pasa a
+     «context 144 / 32k», lo medido (07-borde-w177-compactada.png).
+   - Mientras corre su Paso siguiente (turn_started de nuevo, «turn running»), la fila sigue en «context 144 / 32k»
+     (08-organizador-turno-sigue.png). Antes de #177 volvía a 5872, el Contexto del Paso de antes de compactar.
+   - Reabrir la Ventana (/bg y /open) durante ese Paso no se pudo capturar a mano: el Paso acabó antes de que la
+     Ventana reabierta pintara. Lo prueban los tests de abajo (reabrir, cambiar el límite del Servidor, una caída que
+     suspende el Turno y un reinicio de Main que repite la Compactación).
+
+3. /session id conserva el Contexto medido tras compactar
+   - Tras compactar r177 (borde 252), /session id r177 n177: la Ventana se cierra y se abre como n177 con
+     «context 252 / 32k» (03-borde-renombrada.png), y la fila n177 también dice 252 (03b-organizador-renombrada.png).
+     Antes de #177 la Ventana nueva decía «?» hasta el Turno siguiente.
+
+10-log-de-n177-y-w177.txt: los eventos del Log de las dos Sesiones que importan (Turnos, cesión, Compactación,
+renombre y Rewind).
+
+## Tests de #177
+tests/test_compaction_border.py:
+  test_rewinding_a_turn_after_compacting_leaves_the_border_unknown_not_as_before PASSED (y tras reiniciar Main)
+  test_rewinding_a_turn_after_compacting_leaves_the_organizer_unknown_as_the_border PASSED
+  test_a_renamed_session_keeps_the_context_measured_after_compacting PASSED
+  test_a_measure_that_comes_after_renaming_shows_under_the_new_id PASSED
+  test_a_turn_that_yielded_to_compact_shows_the_organizer_what_the_border_shows PASSED
+    (borde y fila: [None, 10, None, 213, 101]; antes la fila daba [None, 10, None, 102, None, 213, 10, 101])
+  test_a_window_reopened_while_a_yielded_turn_goes_on_shows_the_compacted_context PASSED (también con otro límite)
+  test_a_yielded_turn_that_a_fall_suspends_still_leaves_its_steps_of_before_out PASSED
+  test_a_yielded_turn_whose_compaction_a_restart_repeats_leaves_its_steps_of_before_out PASSED
+tests/test_rewind.py: test_rewinding_turns_after_a_compaction_leaves_its_context_unknown[summarized|pruned],
+  test_rewinding_a_conversation_never_compacted_keeps_its_last_turns_context,
+  test_rewinding_nothing_leaves_a_compacted_conversation_as_it_was PASSED
+tests/test_prompt_queue.py: test_a_compaction_leaves_out_of_the_context_the_steps_its_session_had_ended PASSED
+Con el código de antes fallan los ocho de test_compaction_border.py (los dos del Rewind con 199, el renombre con
+None, los de la cesión con 10 o 102).
+Suite completa: 1814 passed; basedpyright 0 errores; ruff limpio.

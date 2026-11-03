@@ -1,0 +1,25 @@
+n177 {"event": "turn_started", "need": 8097}
+n177 {"event": "turn_finished", "turn": 0}
+n177 {"event": "turn_started", "need": 12112}
+n177 {"event": "turn_finished", "turn": 1}
+n177 {"event": "turn_started", "need": 16469}
+n177 {"event": "turn_finished", "turn": 2}
+n177 {"event": "turn_started", "need": 16526}
+n177 {"event": "turn_finished", "turn": 3}
+n177 {"event": "compaction_started"}
+n177 {"event": "compacted", "summarized": 2, "replaced": 8467, "tokens": 130}
+n177 {"event": "session_renamed", "old": "r177"}
+n177 {"event": "turn_started", "need": 8271}
+n177 {"event": "turn_finished", "turn": 4}
+n177 {"event": "rewound", "turn": 4}
+w177 {"event": "turn_started", "need": 8364}
+w177 {"event": "turn_finished", "turn": 0}
+w177 {"event": "turn_started", "need": 11050}
+w177 {"event": "turn_finished", "turn": 1}
+w177 {"event": "turn_started", "need": 13899}
+w177 {"event": "tools_returned", "grows": 19392}
+w177 {"event": "turn_yielded"}
+w177 {"event": "compaction_started"}
+w177 {"event": "compacted", "summarized": 2, "replaced": 5610, "tokens": 121}
+w177 {"event": "turn_started", "need": 13850}
+w177 {"event": "turn_finished", "turn": 2}
