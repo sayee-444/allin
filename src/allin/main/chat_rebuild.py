@@ -9,7 +9,10 @@ Conversation's Turns.
 
 from collections.abc import Iterable, Sequence
 
+from pydantic import ValidationError
+
 from allin.core.cut import CutReason
+from allin.core.origin import HUMAN, Origin
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
 from allin.main.conversation import Conversation, Item, Step, Turn
@@ -70,21 +73,31 @@ def rebuild_chat(
         return [
             entry
             for turn in conversation.turns
-            for entry in [_prompt(turn.prompt, settings), *_turn_output(turn, settings)]
+            for entry in [
+                prompt_entry(turn.prompt, turn.origin, settings),
+                *_turn_output(turn, settings),
+            ]
         ]
     turns = _every_turn([*archived, conversation])
     chat: list[ChatAppend] = []
     shown_at = 0  # where the last Prompt shown starts: the Turn that finishes next is its
     starts: dict[int, int] = {}  # where each Turn the Conversation has starts in the Chat
+    # The Origin of each queued Prompt, by its text: a Log from before #154 names it only there.
+    waiting: dict[str, Origin] = {}
     for entry in log:
         fields = entry.fields
         match entry.event:
             case "prompt" if not fields.get("queued"):
                 shown_at = len(chat)
-                chat.append(_prompt(fields["text"], settings))
+                origin = _logged_origin(fields) or HUMAN
+                chat.append(prompt_entry(fields["text"], origin, settings))
+            case "prompt":  # queued: its Chat shows it once its Turn starts
+                waiting[fields["text"]] = _logged_origin(fields) or HUMAN
             case "prompt_started":  # a queued Prompt, shown where its Turn started (ADR-0024)
                 shown_at = len(chat)
-                chat.append(_prompt(fields["text"], settings))
+                queued = waiting.pop(fields["text"], HUMAN)
+                origin = _logged_origin(fields) or queued
+                chat.append(prompt_entry(fields["text"], origin, settings))
             case "turn_finished":
                 index: int = fields["turn"]
                 starts[index] = shown_at
@@ -124,8 +137,25 @@ def _every_turn(conversations: Iterable[Conversation]) -> dict[int, Turn]:
     }
 
 
+def prompt_entry(text: str, origin: Origin, settings: SessionSettings) -> ChatAppend:
+    """A Prompt as its Window's Chat shows it, live and rebuilt: with the user's name only if
+    a human sent it, else with the last link of its Origin, so no one reads it as theirs
+    (#154)."""
+    label = settings.username if origin.is_human else str(origin.chain[-1])
+    return ChatAppend(role="user", label=label, text=text)
+
+
 def _prompt(text: str, settings: SessionSettings) -> ChatAppend:
-    return ChatAppend(role="user", label=settings.username, text=text)
+    """What the human wrote during a Turn, whatever that Turn's Origin (ADR-0024)."""
+    return prompt_entry(text, HUMAN, settings)
+
+
+def _logged_origin(fields: dict[str, object]) -> Origin | None:
+    """The Origin a Log entry names; ``None`` if it names none it can read (#105, #154)."""
+    try:
+        return Origin.model_validate(fields.get("origin"))
+    except ValidationError:
+        return None
 
 
 def _turn_output(turn: Turn, settings: SessionSettings) -> list[ChatAppend]:

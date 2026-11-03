@@ -1,6 +1,9 @@
 from datetime import datetime
 from typing import Any
 
+import pytest
+
+from allin.core.origin import Origin
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ChatAppend
 from allin.main.chat_rebuild import compacted_entries, compaction_failed_entry, rebuild_chat
@@ -169,4 +172,80 @@ def test_a_failed_compaction_shows_why_and_that_nothing_changed():
     log = [entry("compaction_failed", error="compaction_failed: reason='x'")]
     assert rebuild_chat(Conversation(sysprompt="s"), log, SETTINGS) == [
         compaction_failed_entry("compaction_failed: reason='x'")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("origin", "label"),
+    [
+        (["human", "session:ab12"], "session:ab12"),
+        (["human", "process:bot"], "process:bot"),
+        (["human", "session:ab12", "subscription:s1"], "subscription:s1"),
+        (["main"], "main"),
+        (["human"], "ana"),
+    ],
+)
+def test_a_prompt_is_labelled_with_the_last_link_of_its_origin_unless_a_human_sent_it(
+    origin: list[str], label: str
+):
+    log = [entry("prompt", text="hola", origin=origin)]
+    assert rebuild_chat(Conversation(sysprompt="s"), log, SETTINGS) == [
+        ChatAppend(role="user", label=label, text="hola"),
+    ]
+
+
+def labels(log: list[LogEntry]) -> list[str]:
+    return [line.label for line in rebuild_chat(Conversation(sysprompt="s"), log, SETTINGS)]
+
+
+def test_a_prompt_logged_without_an_origin_it_can_read_is_the_users():
+    log = [entry("prompt", text="hola"), entry("prompt", text="mal", origin="nadie")]
+    assert labels(log) == ["ana", "ana"]
+
+
+def test_a_queued_prompt_keeps_its_label_where_its_turn_starts():
+    log = [
+        entry("prompt", text="a1"),
+        entry("prompt", text="b1", queued=True, origin=["human", "session:ab12"]),
+        entry("turn_finished", turn=0),
+        entry("prompt_started", text="b1", origin=["human", "session:ab12"]),
+    ]
+    assert rebuild_chat(Conversation(sysprompt="s"), log, SETTINGS) == [
+        ChatAppend(role="user", label="ana", text="a1"),
+        ChatAppend(role="user", label="session:ab12", text="b1"),
+    ]
+
+
+def test_a_queued_prompt_started_before_its_origin_was_logged_there_takes_it_from_the_queue():
+    log = [
+        entry("prompt", text="b1", queued=True, origin=["human", "process:bot"]),
+        entry("prompt", text="a1", queued=True),
+        entry("prompt_started", text="b1"),
+        entry("prompt_started", text="a1"),
+    ]
+    assert labels(log) == ["process:bot", "ana"]
+
+
+def test_a_session_without_a_log_labels_each_prompt_by_its_turns_origin():
+    sent = turn("hola", "", "Hello").model_copy(
+        update={"origin": Origin.model_validate(["human", "session:ab12"])}
+    )
+    assert rebuild_chat(Conversation(sysprompt="s", turns=[sent]), [], SETTINGS)[0] == ChatAppend(
+        role="user", label="session:ab12", text="hola"
+    )
+
+
+def test_what_the_human_wrote_during_a_turn_is_the_users_whatever_the_turns_origin():
+    interjected = Turn(
+        prompt="b1",
+        steps=[Step(output=[], interjected=["y esto"])],
+        origin=Origin.model_validate(["human", "session:ab12"]),
+    )
+    log = [
+        entry("prompt", text="b1", origin=["human", "session:ab12"]),
+        entry("turn_finished", turn=0),
+    ]
+    assert rebuild_chat(Conversation(sysprompt="s", turns=[interjected]), log, SETTINGS) == [
+        ChatAppend(role="user", label="session:ab12", text="b1"),
+        ChatAppend(role="user", label="ana", text="y esto"),
     ]

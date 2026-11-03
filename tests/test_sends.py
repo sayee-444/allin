@@ -10,10 +10,12 @@ from pydantic import JsonValue
 
 from allin.core.ids import BoxId
 from allin.core.origin import HUMAN, Link, Origin
-from allin.main.events import BoxAnswered, MainCommandEntered
+from allin.ipc.messages import ChatAppend
+from allin.main.events import BoxAnswered, InputReceived, MainCommandEntered, WindowClosed
 from allin.main.sessions import Session
 from allin.ui.screen import ShowBox
-from tests.test_dispatcher import MainHarness
+from tests.llm_fakes import FakeLlm, full_reply
+from tests.test_dispatcher import FakeWindowLink, MainHarness
 
 FIRST_BOX = BoxId("b1")
 
@@ -202,6 +204,40 @@ def test_an_approval_after_a_profile_switch_sends_nothing(main: MainHarness, tmp
     assert received(main, b) == []
     [result] = results(main, a)
     assert str(result).startswith("error outside_profile")
+
+
+def user_lines(window: FakeWindowLink) -> list[tuple[str, str]]:
+    """Each Prompt its Window's Chat shows, as its label and text."""
+    return [
+        (message.label, message.text)
+        for message in window.sent
+        if isinstance(message, ChatAppend) and message.role == "user"
+    ]
+
+
+def test_its_window_labels_each_prompt_by_who_sent_it_and_so_does_its_chat_reopened(
+    main: MainHarness,
+):
+    main.hold_turns = False
+    main.llm = FakeLlm(*(full_reply("", "ok") for _ in range(3)))
+    a, b = main.create_session(), main.create_session()
+    bot = Origin(chain=(*HUMAN.chain, Link("process", "bot")))
+    main.run(
+        MainCommandEntered(f"/open {b.id}"),
+        MainCommandEntered(f"/send {b.id} hola", origin=from_session(a)),
+        MainCommandEntered(f"/send {b.id} soy juan", origin=bot),
+        InputReceived(b.id, "y yo"),
+        WindowClosed(b.id, returncode=0),
+        MainCommandEntered(f"/open {b.id}"),
+        settle=True,
+    )
+    before, after = main.windows(b.id)
+    assert user_lines(before) == [
+        (f"session:{a.id}", f"[from Session {a.id}]\nhola"),
+        ("process:bot", "[from attached process bot]\nsoy juan"),
+        ("ana", "y yo"),
+    ]
+    assert user_lines(after) == user_lines(before)
 
 
 def test_a_human_text_goes_as_typed_even_if_it_starts_with_dashes(main: MainHarness):

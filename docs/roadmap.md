@@ -8,18 +8,11 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #124 Secretos (2026-11-03). Con él, F2 está completa.
-  - **`/secret set <instancia> <nombre>`** pide el valor en un recuadro del Chat de Main que solo muestra puntos (Enter guarda; Enter vacío cancela). Main lo guarda en `<perfil>/secrets/<instancia>.json`, que solo lee el usuario (600, en una carpeta 700), aunque la instancia no tenga Subperfil. `/secret` y `/secret list <instancia>` dan los nombres, nunca el valor, y `/secret remove` lo quita. Solo humano.
-  - **Entrega**: en cada adhesión, y también al reiniciarse por un cambio de Alcance, Main lo manda en el mensaje de arranque del canal (`AttachFproc`). La fproc lo lee con `self.secret("token")`. Nunca pasa por el entorno ni por su Carpeta de trabajo, ninguna tool lo alcanza (el Encierro deja fuera la carpeta de datos) y `secret` no es un método que se pueda llamar.
-  - **Nunca viaja**: ni en el Log ni en la Conversación; tampoco en copias del Perfil, Kits ni `/profile new`, que nombran lo que copian. Un valor escrito por error en la línea de `/secret` queda en el Log y en el Chat como `/secret set <instancia> <nombre> …`.
-  - **Probado a mano** sin Servidor, con una fproc `keeper` que solo dice la longitud y la huella de su token. Lo recibió en dos adhesiones seguidas y dejó de recibirlo al quitarlo. No estaba en su entorno ni en su carpeta. En toda la carpeta de la prueba, con la copia y el Kit, el valor solo estaba en su archivo.
-  - **La revisión encontró**, ya arreglado:
-    - el valor escrito en la línea llegaba al Log;
-    - un cambio de Perfil en espera lo guardaba en el Perfil nuevo;
-    - una Ventana podía cancelar el recuadro: ahora un recuadro solo lo contesta el Chat de Main o la Ventana de su Sesión;
-    - el archivo no se validaba al leerlo.
-  - Métricas: 1700 tests, cobertura 85 %, mutación 93 %, 41 escapes. Antes: #123 Iniciativa de una fproc, Externos y Subperfil.
-- **Siguiente:** #153, primero de «Pre-RAG · Pendientes de F2» (#153–#159): lo que quedó de F2, con dos decisiones de #123 ceñidas a ADR-0026 y los pendientes menores. Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
+- **Último hecho:** #154 La Ventana rotula cada Prompt por su Origen (2026-11-03), en paralelo con #153.
+  - Un Prompt que no es de Origen humano sale en el Chat de la Ventana con el último eslabón de su cadena (`session:lider`, `process:board`, `subscription:…`, `main`); solo el humano lleva el nombre del usuario, y lo que el humano escribe durante un Turno ajeno también. Lo mismo al reabrir la Ventana y al reiniciar Main: `prompt_started` guarda ahora el Origen en el Log, y un Log de antes lo toma del Prompt en cola con el mismo texto.
+  - **Probado a mano** con el Swift IQ3_XXS: la fproc `board`, llamada por el LLM de una Sesión, y la function `tell` de otra le mandaron un Prompt a `obra`, que salió rotulado `process:board` y `session:lider`; uno tecleado allí salió con `sayee`. Tras reiniciar Main y tras cerrar y reabrir la Ventana, las mismas etiquetas.
+  - Métricas: 1711 tests, cobertura 85 %, mutación 93 %, 41 escapes. Antes: #124 Secretos, que completó F2.
+- **Siguiente:** #155, en «Pre-RAG · Pendientes de F2» (#153–#159), si #153 ya está cerrado o en curso en otra sesión. Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -93,6 +86,9 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Que la lista que pide una tool no se escriba en el Chat de Main? La ve la Ventana de la Sesión, como salida de la tool; lo que teclea un humano sí sale.
   - ¿Que, con una cadena de varias Sesiones, cada una tenga que ser la destino o su creadora para que `@bg` la mande a segundo plano?
   - Un LLM aún no tiene cómo crear Sesiones, salvo con un módulo de `comsession/` que escriba un humano; las Sesiones que crea una fproc llegan con #123.
+
+  Sobre #154:
+  - ¿Le vale que el rótulo de un Prompt que trae una fproc sea solo `process:<nombre>`, sin la identidad del Externo? Esa identidad queda en el Turno y en el Log, y con #153 ya no va en la cabecera del texto, así que en la Ventana no se ve quién escribió.
 - **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
 - **Respuestas sobre #123 y #124 (2026-11-03):** ante cada pregunta, lo que más se apega a los ADR y a la lógica del proyecto.
   - Quedan como estaban, de #123:
@@ -212,7 +208,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelven a ceñirse a ADR-0026 y los pendientes menores.
 
 1. #153 La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026
-2. #154 La Ventana rotula cada Prompt por su Origen
+2. ✅ #154 La Ventana rotula cada Prompt por su Origen
 3. #155 `@secret` tecleado en una Ventana no deja su valor en el Log
 4. #156 El Prompt humano de un Turno cancelado al cerrar la Ventana vuelve al Borrador
 5. #157 Tras compactar, el borde muestra el Contexto nuevo
