@@ -5,10 +5,12 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import TurnCancelled, TurnCrashed
+from allin.core.origin import HUMAN, from_session
 from allin.ipc.messages import ChatAppend, InputRestore, TurnState
 from allin.main.conversation import NOTIFICATIONS_HEADER, Step
 from allin.main.cut_turns import INTERRUPTED_LINE
 from allin.main.events import (
+    DraftReceived,
     InputReceived,
     MainCommandEntered,
     QueuedWithdrawn,
@@ -18,8 +20,10 @@ from allin.main.events import (
     TurnOutput,
     WindowClosed,
 )
+from allin.main.prompts import Prompt
+from allin.main.state import MainState
 from allin.main.turn_queue import CUT_CALL, INTERRUPTED
-from tests.test_dispatcher import MainHarness, ended
+from tests.test_dispatcher import MainHarness, ended, restored
 
 
 @pytest.fixture
@@ -197,7 +201,66 @@ def test_closing_the_window_gives_the_queued_prompts_back_as_draft_blocks(main: 
         MainCommandEntered("/exit"),
         settle=True,
     )
-    assert main.state.load().drafts == {session.id: ["a2", "a3 @top_k=5"]}
+    # The cancelled Turn's Prompt comes back too, ahead of what waited behind it (#156).
+    assert main.state.load().drafts == {session.id: ["a1", "a2", "a3 @top_k=5"]}
+
+
+def test_a_cancelled_human_prompt_comes_back_as_typed_ahead_also_after_a_restart(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1 @top_k=5"),
+        InputReceived(session.id, "a2"),
+        DraftReceived(session.id, ("typing", "a1 @top_k=5")),  # never twice
+        WindowClosed(session.id, returncode=0),
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(session.id)[-1]) == ["a1 @top_k=5", "a2", "typing"]
+
+
+def test_closing_from_main_chat_gives_back_only_a_human_prompt(main: MainHarness):
+    session, sender = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/send {session.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        DraftReceived(session.id, ("typing",)),
+        MainCommandEntered(f"/close {session.id}"),  # cancels any Turn of the Session
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert main.held[0].cancellation.reason == "window closed"
+    assert main.state.load().drafts == {session.id: ["typing"]}
+
+
+def test_main_stopping_leaves_a_running_human_prompt_to_its_next_start_once(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "a1 @top_k=5"),
+        DraftReceived(session.id, ("typing",)),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(session.id)[-1]) == ["a1 @top_k=5", "typing"]
+
+
+def test_a_restart_gives_back_only_the_running_prompts_of_a_human(main: MainHarness):
+    session, sender = main.create_session(), main.create_session()
+    main.state.save(
+        MainState(
+            running=[Prompt(session.id, "trabajo", origin=from_session(HUMAN, sender.id))],
+            drafts={session.id: ["typing"]},
+        )
+    )
+    main.run(MainCommandEntered(f"/open {session.id}"), MainCommandEntered("/exit"), settle=True)
+    assert restored(main.windows(session.id)[-1]) == ["typing"]
 
 
 # While its tools run (#121): what enters the Turn, and what a cut or a closed Window does
@@ -260,7 +323,7 @@ def test_closing_the_window_gives_back_the_texts_that_entered_its_turn(main: Mai
         MainCommandEntered("/exit"),
         settle=True,
     )
-    assert main.state.load().drafts == {session.id: ["y luego esto", "y aquello"]}
+    assert main.state.load().drafts == {session.id: ["duerme", "y luego esto", "y aquello"]}
     cancelled = [e.fields for e in main.session_log(session) if e.event == "turn_cancelled"]
     assert cancelled[0]["joined"] == ["y luego esto"]
 

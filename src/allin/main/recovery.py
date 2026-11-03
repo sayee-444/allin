@@ -136,9 +136,10 @@ class Recovery:
             self._windows.show_error(error)
         saved = self._saved
         drafts = dict(saved.drafts)
-        for prompt in saved.running:
-            draft = drafts.get(prompt.session_id, [])
-            drafts[prompt.session_id] = put_back(draft, prompt.text)
+        for prompt in saved.running:  # only a human's goes back to the input, as typed (#156)
+            if prompt.origin.is_human:
+                draft = drafts.get(prompt.session_id, [])
+                drafts[prompt.session_id] = put_back(draft, prompt.as_typed)
         self._windows.replace_drafts(drafts)
         self._subscriptions.restore(saved.subscriptions)
         self._turns.requeue(saved.queue)  # first: an Encargo the lost settle cancels some

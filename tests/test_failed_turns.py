@@ -121,7 +121,7 @@ def test_sent_again_it_does_not_come_back_on_the_next_open(main: MainHarness):
     assert InputRestore(text="hola") not in window.sent
 
 
-def test_a_cancelled_turn_gives_nothing_back_on_reopen(main: MainHarness):
+def test_a_cancelled_turn_gives_its_prompt_back_on_reopen_once(main: MainHarness):
     session = main.create_session()
     main.hold_turns = True
     main.run(
@@ -134,7 +134,8 @@ def test_a_cancelled_turn_gives_nothing_back_on_reopen(main: MainHarness):
     main.hold_turns = False
     main.run(MainCommandEntered(f"/open {session.id}"), settle=True)
     [_, again] = main.windows(session.id)
-    assert InputRestore(text="hola") not in again.sent
+    # From its Draft (#156), and not a second time as a failed Turn's (#15).
+    assert [m for m in again.sent if isinstance(m, InputRestore)] == [InputRestore(text="hola")]
 
 
 def test_a_failed_turn_takes_its_sessions_queued_prompts_back_to_the_input_in_order(
