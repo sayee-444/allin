@@ -1,0 +1,44 @@
+# Prueba a mano de #115 (2026-11-02)
+
+Main: ./venv/bin/python -m allin --data-dir e115/var (carpeta de datos desechable dentro del repo).
+Servidor: llama serve -m Qwen3.8-27B-Uncensored-Q6_K.gguf, puerto 9931.
+fproc de prueba pizarra (@concurrent(2)), aprobada con /piece. /set session.tools.timeout=4 y /set attached.release=3 antes de /new.
+Sesiones: autora (-cs=send) y lectora. /attach pizarra --to=autora,lectora.
+
+## Log de Main: llamadas humanas y la caída
+{"ts": "2026-11-02T20:30:55.465479-06:00", "event": "attached", "name": "pizarra", "fproc": "pizarra", "pid": 328754, "file": null, "to": ["autora", "lectora"], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T20:35:24.108567-06:00", "event": "method_called", "name": "pizarra", "method": "a_mano", "arguments": {"texto": "escrito a mano"}, "result": "null", "origin": ["human"]}
+{"ts": "2026-11-02T20:35:27.381815-06:00", "event": "method_called", "name": "pizarra", "method": "leer", "arguments": {}, "result": "\"escrito a mano\"", "origin": ["human"]}
+{"ts": "2026-11-02T20:36:13.405041-06:00", "event": "method_called", "name": "pizarra", "method": "esperar", "arguments": {"segundos": 4}, "result": "\"20:36:09 -> 20:36:13\"", "origin": ["human"]}
+{"ts": "2026-11-02T20:36:14.021306-06:00", "event": "method_called", "name": "pizarra", "method": "esperar", "arguments": {"segundos": 4}, "result": "\"20:36:10 -> 20:36:14\"", "origin": ["human"]}
+{"ts": "2026-11-02T20:36:17.405680-06:00", "event": "method_called", "name": "pizarra", "method": "esperar", "arguments": {"segundos": 4}, "result": "\"20:36:13 -> 20:36:17\"", "origin": ["human"]}
+{"ts": "2026-11-02T20:36:25.000417-06:00", "event": "method_called", "name": "pizarra", "method": "larga", "arguments": {"pasos": 4}, "result": "4", "origin": ["human"]}
+{"ts": "2026-11-02T20:37:16.567354-06:00", "event": "method_called", "name": "pizarra", "method": "dejadas_hasta_ahora", "arguments": {}, "result": "[\"autora\"]", "origin": ["human"]}
+{"ts": "2026-11-02T20:37:41.408495-06:00", "event": "method_called", "name": "pizarra", "method": "dejadas_hasta_ahora", "arguments": {}, "result": "[\"autora\", \"segunda\"]", "origin": ["human"]}
+{"ts": "2026-11-02T20:38:02.317248-06:00", "event": "method_called", "name": "pizarra", "method": "dejadas_hasta_ahora", "arguments": {}, "result": "[\"autora\", \"segunda\", \"tercera\"]", "origin": ["human"]}
+{"ts": "2026-11-02T20:38:26.459980-06:00", "event": "attached_crashed", "name": "pizarra", "fproc": "pizarra", "exit_code": -9, "stderr": "", "killed": "its call to terca did not end after its timeout"}
+
+## Log de la Sesión autora: salidas de las tools de la pizarra
+{"ts": "2026-11-02T20:31:01.252984-06:00", "event": "tools_called", "tools": ["pizarra_leer"]}
+{"ts": "2026-11-02T20:31:53.302737-06:00", "event": "tools_called", "tools": ["pizarra_escribir"]}
+{"ts": "2026-11-02T20:34:21.330794-06:00", "event": "tools_called", "tools": ["pizarra_escribir"]}
+{"ts": "2026-11-02T20:34:21.331082-06:00", "event": "tool_failed", "tool": "pizarra_escribir", "error": "error: attached_changed: revision=2, advice='it changed since your last read: read it again, then write'"}
+{"ts": "2026-11-02T20:35:04.115256-06:00", "event": "tools_called", "tools": ["pizarra_leer"]}
+{"ts": "2026-11-02T20:35:31.690028-06:00", "event": "tools_called", "tools": ["pizarra_escribir"]}
+{"ts": "2026-11-02T20:35:31.690380-06:00", "event": "tool_failed", "tool": "pizarra_escribir", "error": "error: attached_changed: revision=3, advice='it changed since your last read: read it again, then write'"}
+{"ts": "2026-11-02T20:36:38.540956-06:00", "event": "tools_called", "tools": ["pizarra_larga"]}
+{"ts": "2026-11-02T20:37:04.664346-06:00", "event": "tools_called", "tools": ["pizarra_paciente"]}
+{"ts": "2026-11-02T20:37:08.663898-06:00", "event": "tool_failed", "tool": "pizarra_paciente", "error": "error: tool_timed_out: seconds=4.0"}
+{"ts": "2026-11-02T20:37:31.817587-06:00", "event": "tools_called", "tools": ["pizarra_paciente"]}
+{"ts": "2026-11-02T20:37:35.816837-06:00", "event": "tool_failed", "tool": "pizarra_paciente", "error": "error: tool_timed_out: seconds=4.0"}
+{"ts": "2026-11-02T20:37:57.072027-06:00", "event": "tools_called", "tools": ["pizarra_paciente"]}
+{"ts": "2026-11-02T20:37:58.973578-06:00", "event": "turn_cancelled", "error": "turn_cancelled: reason='window closed'", "reasoning": "The user is asking me to call pizarra_paciente with nombre=\"tercera\" and tell them what it returns.\n", "answer": "", "prompt": "Llama una sola vez a pizarra_paciente con nombre=tercera y dime lo que devuelve."}
+{"ts": "2026-11-02T20:38:19.417357-06:00", "event": "tools_called", "tools": ["pizarra_terca"]}
+{"ts": "2026-11-02T20:38:23.416903-06:00", "event": "tool_failed", "tool": "pizarra_terca", "error": "error: tool_timed_out: seconds=4.0"}
+
+## Log de la Sesión lectora: salidas de las tools de la pizarra
+{"ts": "2026-11-02T20:31:26.721398-06:00", "event": "tools_called", "tools": ["pizarra_leer"]}
+{"ts": "2026-11-02T20:32:19.954010-06:00", "event": "tools_called", "tools": ["pizarra_escribir"]}
+{"ts": "2026-11-02T20:32:19.954347-06:00", "event": "tool_failed", "tool": "pizarra_escribir", "error": "error: attached_changed: revision=1, advice='it changed since your last read: read it again, then write'"}
+{"ts": "2026-11-02T20:32:58.464316-06:00", "event": "tools_called", "tools": ["pizarra_leer"]}
+{"ts": "2026-11-02T20:33:51.100566-06:00", "event": "tools_called", "tools": ["pizarra_escribir"]}
