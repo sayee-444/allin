@@ -663,10 +663,14 @@ class TurnQueue:
         self._cancel(session_id, "window closed", by_human=True)
 
     def _cancel(self, session_id: SessionId, reason: str, by_human: bool) -> None:
-        self._falls.pop(session_id, None)
+        """Cancel the Session's running Turn and drop its queued Prompts; ``by_human``, only
+        those of a human Origin. The falls of its Turn's Step are forgotten only with that
+        Turn: one that goes on still fails at its second (ADR-0023, #181)."""
         dropped = self._drop_queued(session_id, reason, by_human)
         for text in reversed(_back_to_input(dropped)):  # each one goes ahead of the one after it
             self._windows.put_back(session_id, text)
+        if any(prompt.suspended for prompt in dropped):  # a running one's go as it ends
+            self._falls.pop(session_id, None)
         running = self._running.get(session_id)
         if running is not None and (not by_human or running.prompt.origin.is_human):
             running.cancellation.cancel(reason)
