@@ -1,5 +1,6 @@
 """The Organizer (#53, ADR-0020): Main's own screen, in its own xterm, listing the Profile's
-Sessions to bring one into view, send it to the background or close it.
+Sessions to bring one into view, send it to the background or close it; those of each
+Subperfil, folded under its instance (ADR-0026).
 
 It is part of Main, not a piece: what the human does in it runs as the Command main of the same
 name with a human Origin. There is one per Main; it does not count for the Máximo de Ventanas
@@ -24,6 +25,7 @@ from allin.main.boxes import MainBoxes
 from allin.main.open_windows import OpenWindows, WindowLink
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
+from allin.main.subprofiles import Subprofiles
 from allin.main.turn_queue import TurnQueue
 from allin.main.usage import context_tokens
 
@@ -85,12 +87,14 @@ class RowSource:
         turns: TurnQueue,
         boxes: MainBoxes,
         profile_sessions: Callable[[], list[SessionId]],
+        subprofiles: Subprofiles,
     ) -> None:
         self._sessions = sessions
         self._windows = windows
         self._turns = turns
         self._boxes = boxes
         self._profile_sessions = profile_sessions
+        self._subprofiles = subprofiles
         self._known: dict[SessionId, _Known] = {}
 
     def place(self, session_id: SessionId) -> Place:
@@ -104,15 +108,18 @@ class RowSource:
         open_ids = [*visible_ids, *hidden]
         try:
             profile = self._profile_sessions()
+            held = self._subprofiles.held()
         except AllInError:
-            profile = []
-        closed = [sid for sid in profile if sid not in open_ids]
+            profile, held = [], {}
+        closed = [sid for sid in [*profile, *held] if sid not in open_ids]
         closed.sort(key=self._sessions.changed_at, reverse=True)
         rows: list[OrganizerRow] = []
         for session_id in [*open_ids, *closed]:
             row = self._row(session_id)
             if row is not None:
-                rows.append(row)
+                name = held.get(session_id)
+                exempt = name is not None and self._subprofiles.is_exempt(name)
+                rows.append(row.model_copy(update={"subprofile": name, "exempt": exempt}))
         return rows
 
     def _row(self, session_id: SessionId) -> OrganizerRow | None:

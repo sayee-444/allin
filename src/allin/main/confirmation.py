@@ -41,14 +41,15 @@ class ConfirmationGate:
         the Turn runs."""
         self._turn = _Turn(session_id, cancellation, emit)
 
-    def ask(self, title: str, text: str) -> bool:
-        """From the Turn's thread: the user's answer, once the Turn may go on.
+    def ask(self, title: str, text: str, inside: bool = False) -> bool:
+        """From the Turn's thread: the user's answer, once the Turn may go on. ``inside``: what
+        it asks about touches nothing outside its Session's Carpeta de trabajo (ADR-0026).
 
         Raises ``TurnCancelled`` if the Turn is cancelled while it waits.
         """
         assert self._turn is not None, "ask() before the executor connected the gate"
         turn = self._turn
-        turn.emit(ConfirmationRequested(turn.session_id, title, text))
+        turn.emit(ConfirmationRequested(turn.session_id, title, text, inside))
         while True:
             turn.cancellation.check()
             try:

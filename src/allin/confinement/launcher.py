@@ -44,6 +44,8 @@ from allin.confinement.messages import (
     DescribeModule,
     Detach,
     Died,
+    Initiative,
+    InitiativeResult,
     Progress,
     Raised,
     Returned,
@@ -86,6 +88,7 @@ _ANSWER_MAX = 16 * 1024 * 1024
 _STOP_POLL = 0.1  # how often a waiting call asks whether its Turn was cancelled
 # What a call that cannot run Command sessions gets when it asks for one: a description.
 _NO_COMMANDS: JsonValue = {"error": "this call cannot run Command sessions"}
+_NO_INITIATIVE: JsonValue = {"error": "this Proceso adherido runs Command sessions only in a call"}
 _CANCELLED: JsonValue = {"error": str(AttachedCallCancelled())}
 _READ_AGAIN = "it changed since your last read: read it again, then write"
 
@@ -254,13 +257,15 @@ class ToolLauncher:
         timeout: float,
         on_end: "OnEnd" = lambda _: None,
         release: float = 5.0,
+        on_initiative: OnCommand | None = None,
     ) -> "AttachedProcess":
         """Start ``start``'s fproc as a Proceso adherido, confined for good with its Alcance and
         its shared file, and give it back once its class was made (ADR-0012). It dies with this
         launcher's thread, and so with Main; ``on_end`` hears, from another thread, that it
         ended; ``release``: the seconds a call past its timeout gets to end before Main kills
-        the whole process. Raises ``AttachFailed`` if making the class raised, and as ``run``
-        for the rest."""
+        the whole process; ``on_initiative`` runs, in a thread of its own, each Command session
+        it asks between calls (ADR-0026), which without it are refused. Raises
+        ``AttachFailed`` if making the class raised, and as ``run`` for the rest."""
         _refuse_compiled(start.package)
         tmp = self._data_dir / "tmp" / f"attached-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
@@ -275,7 +280,14 @@ class ToolLauncher:
         finally:
             tool_end.close()
         attached = AttachedProcess(
-            started.process, main_end, tmp, self._grace, on_end, start.at_once, release
+            started.process,
+            main_end,
+            tmp,
+            self._grace,
+            on_end,
+            start.at_once,
+            release,
+            on_initiative,
         )
         try:
             attached.send(self._attachment(start, tmp, servers, started.net_layer))
@@ -511,7 +523,9 @@ class _Lines:
 
 
 def _outcome(message: ToMain | None, stdout: str, stderr: str) -> ToolOutcome:
-    if message is None or isinstance(message, RunCommand | Attached | Stale | Progress | Announce):
+    if message is None or isinstance(
+        message, RunCommand | Attached | Stale | Progress | Announce | Initiative
+    ):
         raise ToolDied(exit_code=None, stderr=stderr[-_STDERR_TOLD:])
     match message:
         case Returned(value=value):
@@ -612,10 +626,13 @@ class AttachedProcess:
         on_end: OnEnd,
         at_once: int | None = 1,
         release: float = 5.0,
+        on_initiative: OnCommand | None = None,
     ) -> None:
         """``at_once``: the calls it takes at a time (``None``: any); ``release``: the seconds
-        a call past its timeout gets to end before Main kills the whole process."""
+        a call past its timeout gets to end before Main kills the whole process;
+        ``on_initiative``: what runs the Command sessions it asks between calls."""
         self._process = process
+        self._on_initiative = on_initiative
         self._channel = channel
         self._tmp = tmp
         self._grace = grace
@@ -635,7 +652,9 @@ class AttachedProcess:
         self._fproc_died: int | None = None  # its fproc's process's, as its warden told it
         self._hung: str | None = None
         self._reaping = threading.Lock()  # a kill never comes after its reaping
-        self._outbox: queue.Queue[CommandResult | None] = queue.Queue()  # the reader's sends
+        self._outbox: queue.Queue[CommandResult | InitiativeResult | None] = (
+            queue.Queue()
+        )  # the reader's sends
         self._reader: threading.Thread | None = None  # once its class was made
         self._reaper = threading.Thread(target=self._reap, name="attached-reaper", daemon=True)
         self._reaper.start()
@@ -662,7 +681,10 @@ class AttachedProcess:
         self._ended.wait()
         return self._fproc_died if self._fproc_died is not None else self._exit_code
 
-    def send(self, message: AttachFproc | CallMethod | CancelCall | CommandResult | Detach) -> None:
+    def send(
+        self,
+        message: AttachFproc | CallMethod | CancelCall | CommandResult | Detach | InitiativeResult,
+    ) -> None:
         """Write one message whole on its channel. Raises ``OSError`` once it is closed."""
         with self._sending:
             self._channel.sendall(encode(message))
@@ -871,6 +893,14 @@ class AttachedProcess:
             case Died(exit_code=code):
                 self._fproc_died = code
                 return
+            case Initiative(id=initiative_id, text=text):
+                threading.Thread(
+                    target=self._initiative,
+                    args=(initiative_id, text),
+                    name=f"initiative-{initiative_id}",
+                    daemon=True,
+                ).start()
+                return
             case Returned(id=int() as call_id) | Raised(id=int() as call_id):
                 pass
             case Stale(id=call_id) | Progress(id=call_id) | Announce(id=call_id):
@@ -891,6 +921,12 @@ class AttachedProcess:
                 refused = self._unwaited(pending, message)
         if refused:  # the reader never waits on a send: the writer does it
             self._outbox.put(CommandResult(id=call_id, result=_CANCELLED))
+
+    def _initiative(self, initiative_id: int, text: str) -> None:
+        """A Command session it asked on its own, run where it waits for nobody else's."""
+        on_initiative = self._on_initiative
+        result = on_initiative(text) if on_initiative is not None else _NO_INITIATIVE
+        self._outbox.put(InitiativeResult(id=initiative_id, result=result))
 
     def _watch(self) -> None:
         now = time.monotonic()

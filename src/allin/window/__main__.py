@@ -169,8 +169,8 @@ class MainListener:
                 self._show(ShowBox(Box(box_id, kind, title, text)))
             case BoxHide(box_id=box_id):
                 self._show(HideBox(box_id))
-            case Coverage(covered=covered):
-                self._marks.devastation(covered)
+            case Coverage(covered=covered, inside=inside):
+                self._marks.devastation(covered, inside)
             case GrantHeld(held=held):
                 self._marks.grant(held)
             case ConfinementGap(missing=missing):

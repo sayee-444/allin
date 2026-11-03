@@ -323,6 +323,16 @@ class SessionCommandAsked:
 
 
 @dataclass(frozen=True)
+class InitiativeAsked:
+    """A Proceso adherido asks for a Command session on its own, between calls (ADR-0026);
+    ``answer`` gets how it went, from Main's thread."""
+
+    name: AttachedName
+    text: str
+    answer: Callable[[SessionCommandResult], bool]
+
+
+@dataclass(frozen=True)
 class ToolsEnded:
     """A running Turn's tools gave back what they said, in ``step``'s results: its next Step,
     a Continuation, waits for a slot. It reads ``grows`` more tokens at most than the Step
@@ -340,6 +350,9 @@ class ConfirmationRequested:
     session_id: SessionId
     title: str
     text: str
+    # What it asks about touches nothing outside the Session's Carpeta de trabajo: the
+    # Exención of a Subperfil answers it (ADR-0026).
+    inside: bool = False
 
 
 @dataclass(frozen=True)
@@ -383,6 +396,7 @@ type MainEvent = (
     | InputMeasured
     | Tick
     | ConfirmationRequested
+    | InitiativeAsked
     | ToolsStarted
     | ToolsEnded
     | SessionCommandAsked

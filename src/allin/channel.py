@@ -44,9 +44,9 @@ def prompt_id() -> str:
 
 def command(text: str) -> _Json:
     """Run a Command session, ``@name …`` as a Window takes it, and give back its result:
-    ``{"result": "ok"}``, or ``{"error": …}`` with why it was refused or failed. Raises
-    ``RuntimeError`` outside a tool call, as in the encierro de descripción, and in a Proceso
-    adherido outside a thread that serves a call to one of its methods."""
+    ``{"result": "ok"}``, or ``{"error": …}`` with why it was refused or failed. In a Proceso
+    adherido, from a thread that serves no call, it runs on the fproc's own (ADR-0026). Raises
+    ``RuntimeError`` outside a tool call, as in the encierro de descripción."""
     attached = fproc_runtime.runtime()
     if attached is not None:
         return attached.command(text)

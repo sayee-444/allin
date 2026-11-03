@@ -375,6 +375,67 @@ class OutsideProfile(AllInError):
     code: ClassVar[str] = "outside_profile"
 
 
+class OutsideSubprofile(AllInError):
+    """A Session or a Proceso adherido reached a Session out of its space: the Subperfil of an
+    fproc is a boundary like the Profile's, which only a human crosses (ADR-0026)."""
+
+    code: ClassVar[str] = "outside_subprofile"
+
+
+class NoSubprofile(AllInError):
+    """An fproc that declares no ``@subprofile`` creates no Session (ADR-0026)."""
+
+    code: ClassVar[str] = "no_subprofile"
+
+
+class MoldNotDeclared(AllInError):
+    """An fproc creates Sessions only from the Moldes of its package its Alcance names: they
+    were approved with it (ADR-0026)."""
+
+    code: ClassVar[str] = "mold_not_declared"
+
+
+class SubprofileBusy(AllInError):
+    """As many Sessions of the Subperfil as its ``turns`` allow already have a Turn running or
+    queued: the fproc decides what to do, wait or tell whoever wrote to wait (ADR-0026)."""
+
+    code: ClassVar[str] = "subprofile_busy"
+
+
+class MadeOutsideSubprofile(AllInError):
+    """What acts in a Subperfil makes nothing outside it: only its fproc creates Sessions, in
+    it, and nothing in it attaches a Proceso adherido (ADR-0026)."""
+
+    code: ClassVar[str] = "made_outside_subprofile"
+
+
+class SubprofileOfAnother(AllInError):
+    """The Subperfil of that name is another fproc's: an instance never gets the Sessions and
+    the Exención of another fproc's (ADR-0026). Attach it with another name."""
+
+    code: ClassVar[str] = "subprofile_of_another"
+
+
+class SubprofileNotFound(AllInError):
+    """No instance attached with that name has a Subperfil in the active Profile."""
+
+    code: ClassVar[str] = "subprofile_not_found"
+
+
+class InitiativeRefused(AllInError):
+    """Between calls an fproc runs only the Command sessions that act on its own Sessions:
+    ``@new``, ``@send``, ``@open`` and ``@close`` (ADR-0026)."""
+
+    code: ClassVar[str] = "initiative_refused"
+
+
+class OutsiderNotFromProcess(AllInError):
+    """Only a Proceso adherido brings an Externo's words: anyone else's ``--outsider`` would
+    pass off its own text as a stranger's (ADR-0026)."""
+
+    code: ClassVar[str] = "outsider_not_from_process"
+
+
 class NotItsSession(AllInError):
     """A Session's LLM acts only on its own Session and on those it created: sending another
     to the background could take from a human the Window they are using (ADR-0020)."""

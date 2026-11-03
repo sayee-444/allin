@@ -47,7 +47,7 @@ from allin.core.ids import (
     SupervisorName,
     new_prompt_id,
 )
-from allin.core.origin import HUMAN, Origin, from_session
+from allin.core.origin import HUMAN, Origin, acting_process, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -685,13 +685,20 @@ class TurnQueue:
         self.send_turn_state(session_id)
         self._start_turns()
 
-    def confirmation_requested(self, session_id: SessionId, title: str, text: str) -> None:
+    def confirmation_requested(
+        self, session_id: SessionId, title: str, text: str, inside: bool = False
+    ) -> None:
         """A running Turn asks yes or no: it gives its slot back while a human answers
-        (ADR-0009), so Prompts that wait can use it."""
+        (ADR-0009), so Prompts that wait can use it. ``inside``: what it asks about stays inside
+        its Session, which is all ``--devastation inside`` answers (ADR-0026)."""
         running = self._running.get(session_id)
         if running is None or running.cancellation.reason is not None:
             return
-        if running.auto_confirm is not None:  # answered at once: it keeps its slot, goes on
+        answers = running.auto_confirm is not None and (
+            running.auto_confirm != "--devastation inside" or inside
+        )
+        if answers:  # answered at once: it keeps its slot, goes on
+            assert running.auto_confirm is not None
             by = running.auto_confirm
             fields = {"title": title, "text": text, "answer": True, "by": by}
             shown = f"confirmation answered by {by}: {title}"
@@ -714,11 +721,15 @@ class TurnQueue:
         """Who answers the Confirmations of the Prompt's Turn: ``-y`` on it, or who answered
         them before a fall, since a Turn keeps what it had when it started; else
         ``--devastation`` if it covers the Prompt's chain and the Session its tools act in
-        (ADR-0013); else a human."""
+        (ADR-0013), or only what stays inside if a Subperfil's Exención covers it (ADR-0026);
+        else a human."""
         if prompt.answered_by is not None or prompt.suspended:
             return prompt.answered_by
-        if self._devastation.answers(from_session(prompt.origin, session.id)):
+        chain = from_session(prompt.origin, session.id)
+        if self._devastation.answers(chain):
             return "--devastation"
+        if self._devastation.answers_inside(chain):
+            return "--devastation inside"
         return None
 
     def tools_started(self, session_id: SessionId, names: tuple[str, ...], step: Step) -> None:
@@ -1016,6 +1027,8 @@ class TurnQueue:
             or bool(prompt.woke_by)  # a Suscripción's: its Session goes on (ADR-0004)
         )
         kind: WaitClass = "continuation" if repeats else "prompt"
+        if kind == "prompt" and acting_process(prompt.origin) is not None:
+            kind = "fproc"  # behind the humans' and the Sessions' (ADR-0026)
         since = self._since.setdefault(session_id, self._wall())
         waiter = self._waiter(session_id, kind, since, need)
         return _Candidate(waiter, link, prompt=prompt, session=session)
@@ -1273,7 +1286,11 @@ class TurnQueue:
             self._reporter.record(session.id, "compaction_step_started", shown, need=need)
             self.send_turn_state(session.id)  # its border says so while the Step runs
         else:
-            self._reporter.record(session.id, "turn_started", "turn started", need=need)
+            # An Externo's words are noted with whose they were, and nothing more (ADR-0026).
+            outsider: dict[str, JsonValue] = (
+                {} if prompt.outsider is None else {"outsider": prompt.outsider}
+            )
+            self._reporter.record(session.id, "turn_started", "turn started", need=need, **outsider)
         self._submit_turn(job)
 
     def _server_changed(self, server: ServerKey, state: ServerState) -> None:
@@ -1881,6 +1898,7 @@ class TurnQueue:
             notifications=running.notifications,
             typed=running.prompt.typed,
             origin=running.prompt.origin,
+            outsider=running.prompt.outsider,
             prompt_id=running.prompt.prompt_id,
         )
         self._sessions.save_conversation(running.session, conversation.with_turn(turn))

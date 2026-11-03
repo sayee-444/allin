@@ -467,12 +467,13 @@ _FOR_RUNNER = {  # what Main sends a Proceso adherido's runner, and the fields i
     "method": ("method", "arguments", "seen", "prompt_id"),
     "command_result": ("result",),
     "cancel_call": (),
+    "initiative_result": ("result",),
 }
 
 
 def _for_runner(line: bytes) -> bytes | None:
-    """A call from Main, a Command session's result or a cancel, as the runner reads it, with
-    its call's id; ``None`` for anything else."""
+    """A call from Main, a Command session's result, a cancel or the result of what the fproc
+    asked on its own, as the runner reads it, with its id; ``None`` for anything else."""
     for kind, kept in _FOR_RUNNER.items():
         fields = _typed(line, kind)
         if fields is None or not isinstance(fields.get("id"), int):
@@ -495,6 +496,7 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
     try:
         from allin import fproc, fproc_runtime  # noqa: PLC0415 - the runner's alone
 
+        fproc_runtime.prepare(replies)
         fproc.attached_as(
             call.fproc.name, None if call.fproc.file is None else Path(call.fproc.file)
         )
@@ -505,7 +507,7 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
         _answer(replies, _line({"type": "raised", "error": f"{type(error).__name__}: {error}"}))
         os._exit(0)
     _answer(replies, answer)
-    fproc_runtime.serve(fproc_class, instance, calls_out, replies)
+    fproc_runtime.serve(fproc_class, instance, calls_out)
     os._exit(0)
 
 

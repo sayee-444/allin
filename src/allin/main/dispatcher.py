@@ -13,7 +13,7 @@ from collections.abc import Callable
 from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
 from allin.core.errors import AllInError
-from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_name
+from allin.core.ids import AttachedName, MainId, SessionId, SupervisorName, parse_supervisor_name
 from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
@@ -32,6 +32,7 @@ from allin.main.events import (
     ConfirmationRequested,
     DraftReceived,
     ErrorOccurred,
+    InitiativeAsked,
     InputMeasured,
     InputReceived,
     MainCommandEntered,
@@ -63,6 +64,7 @@ from allin.main.events import (
     WindowUsed,
 )
 from allin.main.func_commands import FuncCommands
+from allin.main.initiative import FprocInitiative, asker
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import KitCommands
 from allin.main.kits import Kits
@@ -92,6 +94,7 @@ from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
 from allin.main.status import live_state
+from allin.main.subprofiles import Subprofiles
 from allin.main.subscriptions import Subscriptions, SubscriptionState
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.tool_steps import SessionTools, session_tools
@@ -171,8 +174,27 @@ class Dispatcher:
         self._windows.set_maximum(settings.current.windows.max)
         self._marks = BorderMarks(main_screen)
         self._confinement = confinement
+        # Made below: the Subperfiles read them only once Main runs.
+        self._switch: ProfileSwitch
+        self._profile_commands: ProfileCommands
+        self._attached: AttachedProcesses
+
+        def in_profile(session_id: SessionId) -> bool:
+            return self._profile_commands.in_active(session_id)
+
+        def declares(name: AttachedName) -> bool:
+            return self._attached.declares_subprofile(name)
+
+        self._subprofiles = Subprofiles(lambda: self._switch.active.folder, in_profile, declares)
         self._devastation = Devastation(
-            devastation, self._marks, self._windows, sessions, self._boxes, self._reporter, main_id
+            devastation,
+            self._marks,
+            self._windows,
+            sessions,
+            self._boxes,
+            self._reporter,
+            main_id,
+            self._subprofiles,
         )
         self._notifications = Notifications(sessions, self._reporter, self._windows)
         self._turns = TurnQueue(
@@ -341,7 +363,12 @@ class Dispatcher:
             self._methods,
             calls,
             self._subscriptions,
+            self._subprofiles,
         )
+        self._initiative = FprocInitiative(
+            self._attached, sessions, self._reporter, self._commands.run
+        )
+        self._attached.act_through(lambda name: asker(inbox.put, name), self._subprofiles.ensure)
         self._session_commands = SessionCommands(
             command_types,
             sessions,
@@ -356,6 +383,7 @@ class Dispatcher:
             self._turns,
             self._boxes,
             lambda: profiles.sessions(self._switch.active),
+            self._subprofiles,
         )
         self._organizer = Organizer(
             open_organizer, self._rows.rows, lambda: self._themes.main_theme, self._reporter
@@ -573,14 +601,16 @@ class Dispatcher:
                     self._windows.send(session_id, logs_entry(line))
             case AttachedProcessEnded(name, pid):
                 self._attached.ended(name, pid)
-            case ConfirmationRequested(session_id, title, text):
-                self._turns.confirmation_requested(session_id, title, text)
+            case ConfirmationRequested(session_id, title, text, inside):
+                self._turns.confirmation_requested(session_id, title, text, inside)
             case ToolsStarted(session_id, names, step):
                 self._turns.tools_started(session_id, names, step)
             case ToolsEnded(session_id, step, grows):
                 self._turns.tools_ended(session_id, step, grows)
             case SessionCommandAsked(session_id, text, origin, answer):
                 self._session_commands.run(session_id, text, origin, answer)
+            case InitiativeAsked(name, text, answer):
+                self._initiative.run(name, text, answer)
             case BoxAnswered(box_id, answer):
                 self._boxes.answered(box_id, answer)
             case MainCommandEntered(text, origin):

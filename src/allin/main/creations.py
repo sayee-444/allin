@@ -22,7 +22,7 @@ from allin.core.settings import SessionSettings
 from allin.main.boxes import MainBoxes
 from allin.main.devastation import Devastation
 from allin.main.events import CommandOutcome, OnOutcome
-from allin.main.molds import LoadedMold, load_mold, parse_mold
+from allin.main.molds import LoadedMold, load_mold, load_package_mold, parse_mold
 from allin.main.provenance import SessionOrigin
 from allin.main.quarantine import PieceRef, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
@@ -56,6 +56,10 @@ class PieceCreator:
         if ref is None:
             raise InvalidArguments(usage=MOLD_USAGE)
         return load_mold(self._quarantine(), ref)
+
+    def package_mold(self, package: PieceRef, name: str) -> LoadedMold:
+        """The Molde ``name`` of an approved fproc's ``package`` (ADR-0026)."""
+        return load_package_mold(self._quarantine(), package, name)
 
     def create(
         self, piece: str, content: str, origin: Origin = HUMAN, answer: OnOutcome = _ignored

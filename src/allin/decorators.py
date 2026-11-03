@@ -25,6 +25,8 @@ COMMUTATIVE = "commutative"  # the mark ``@commutative`` leaves
 COMMUTATIVE_MARK = f"__allin_{COMMUTATIVE}__"
 CONCURRENT = "concurrent"  # the mark ``@concurrent`` leaves on an fproc's class
 CONCURRENT_MARK = f"__allin_{CONCURRENT}__"
+SUBPROFILE = "subprofile"  # the mark ``@subprofile`` leaves on an fproc's class
+SUBPROFILE_MARK = f"__allin_{SUBPROFILE}__"
 # Writing under these, outside a dotted or ``bin`` folder, is not where the user runs things.
 _HARMLESS_WRITES = (PurePosixPath("/dev/shm"),)  # noqa: S108 - a path an Alcance names
 
@@ -37,14 +39,15 @@ class Reach:
     plus a subpath, such as ``home/Documents``. ``net`` is ``False``, ``True`` (every port but
     AllIn's Servers') or the TCP ports it connects to; UDP stays open unless it is ``False``.
     ``display`` opens the X11 or Wayland socket, which is acting as the user. ``commands`` are
-    the Command sessions it runs, which Main will enforce (ADR-0025); for now it is
-    only kept."""
+    the Command sessions it runs, which Main enforces (ADR-0025). ``molds``, an fproc's: the
+    Moldes of its package (``molds/<name>.toml``) it creates its Sessions from (ADR-0026)."""
 
     read: tuple[str, ...] = ()
     write: tuple[str, ...] = ()
     net: bool | tuple[int, ...] = False
     display: bool = False
     commands: tuple[str, ...] = ()
+    molds: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """However it is made, by ``@reach``, by hand or parsed by Main: raises ``InvalidReach``
@@ -54,11 +57,21 @@ class Reach:
         _net(self.net)
         _flag("display", self.display)
         _strings("commands", self.commands)
+        _strings("molds", self.molds)
 
     @property
     def network(self) -> bool:
         """Whether it has any network: without it, UDP is closed too."""
         return self.net is not False
+
+    @property
+    def stays_in_work(self) -> bool:
+        """Whether it touches nothing but its Session's Carpeta de trabajo: no other path, no
+        network, no display and no Command session; what may stay inside a Subperfil
+        (ADR-0026)."""
+        paths = (*self.read, *self.write)
+        in_work = all(PurePosixPath(path).parts[0] == "work" for path in paths)
+        return in_work and not self.network and not self.display and not self.commands
 
     @property
     def acts_as_user(self) -> bool:
@@ -81,6 +94,7 @@ class Reach:
             and _net_within(self.net, declared.net)
             and (declared.display or not self.display)
             and set(self.commands) <= set(declared.commands)
+            and set(self.molds) <= set(declared.molds)
         )
 
     def tcp_ports(self, servers: frozenset[int]) -> tuple[int, ...] | None:
@@ -98,6 +112,7 @@ def reach[T](
     net: bool | Sequence[int] = False,
     display: bool = False,
     commands: Sequence[str] = (),
+    molds: Sequence[str] = (),
 ) -> Callable[[T], T]:
     """Declare the Alcance of a function, or of an fproc's class. Raises ``InvalidReach``."""
     declared = Reach(
@@ -106,6 +121,7 @@ def reach[T](
         net=_net(net),
         display=_flag("display", display),
         commands=_strings("commands", commands),
+        molds=_strings("molds", molds),
     )
 
     def mark(target: T) -> T:
@@ -159,6 +175,19 @@ def concurrent[T](at_once: int | None = None) -> Callable[[T], T]:
         return target
 
     return mark
+
+
+def subprofile[T](target: T) -> T:
+    """Mark an fproc's class as one that gets a Subperfil for each instance attached: its own
+    Sessions, which it creates from the Moldes of its package and acts on between calls, apart
+    from the Profile's (ADR-0026). One without it creates no Session."""
+    setattr(target, SUBPROFILE_MARK, True)
+    return target
+
+
+def has_subprofile(marks: Mapping[str, object]) -> bool:
+    """Whether an fproc whose class has ``marks`` declares ``@subprofile``."""
+    return marks.get(SUBPROFILE) is True
 
 
 def at_once(marks: Mapping[str, object]) -> int | None:

@@ -14,7 +14,7 @@ from pydantic import JsonValue
 
 from allin.core.errors import AllInError, InvalidArguments, PieceNotShown
 from allin.core.sources import is_text
-from allin.decorators import MINIMUM, Reach, writes_as_user
+from allin.decorators import MINIMUM, Reach, has_subprofile, writes_as_user
 from allin.main.descriptions import Description
 from allin.main.quarantine import (
     Adjustments,
@@ -158,6 +158,10 @@ def _reach_screen(module: str, described: Description | AllInError) -> list[str]
     if reach.commands:
         grant = ": declares Otorgar" if reach.grants else ""
         lines.append(f"  {_EXCESS} commands {', '.join(reach.commands)}{grant}")
+    if reach.molds:
+        lines.append(f"  {_EXCESS} molds {', '.join(reach.molds)}")
+    if has_subprofile(described.marks):
+        lines.append(f"  {_EXCESS} subprofile: it creates Sessions of its own and acts on them")
     if described.marks:
         lines.append(f"  marks: {', '.join(sorted(described.marks))}")
     return lines
@@ -177,6 +181,7 @@ def _reach_summary(reach: Reach) -> str:
     parts += [_network(reach)] if reach.network else []
     parts += ["display"] if reach.display else []
     parts += [f"commands {', '.join(reach.commands)}"] if reach.commands else []
+    parts += [f"molds {', '.join(reach.molds)}"] if reach.molds else []
     return "; ".join(parts)
 
 
@@ -204,7 +209,7 @@ def _code_screen(piece: Piece) -> list[str]:
 
 def _adjustments(words: list[str], quarantine: Quarantine, piece: Piece) -> Adjustments:
     """``--reach <module>:<field>=<value>`` and ``--confirm <tool>``, each repeatable. A field
-    replaces what the module declares: ``read``/``write``/``commands`` take a comma list (empty
+    replaces what the module declares: ``read``/``write``/``commands``/``molds`` take a comma list (empty
     for none), ``net`` takes ``off``, ``on`` or ports and ``display`` takes ``off``."""
     if len(words) % 2:
         raise InvalidArguments(usage=USAGE)
@@ -239,6 +244,8 @@ def _changed(reach: Reach, field: str, value: str) -> Reach:
                 return replace(reach, write=items)
             case "commands":
                 return replace(reach, commands=items)
+            case "molds":
+                return replace(reach, molds=items)
             case "net":
                 # No ports is no network: an empty list would leave UDP open with no TCP.
                 net = {"off": False, "on": True, "": False}.get(value)

@@ -173,6 +173,13 @@ class SessionTools:
         tool = self._tools.get(_name(call))
         return tool is not None and tool.confirm
 
+    def stays_inside(self, call: Item) -> bool:
+        """Whether ``call`` touches nothing outside its Session's Carpeta de trabajo: a
+        function's tool whose Alcance stays there, never an fproc's method, whose state others
+        share (ADR-0026)."""
+        tool = self._tools.get(_name(call))
+        return tool is not None and tool.method is None and tool.reach.stays_in_work
+
     def run(
         self,
         call: Item,
@@ -376,7 +383,9 @@ class ToolGate:
         if self._tools is None or not self._tools.confirms(call):
             return True
         return turn.confirmation.ask(
-            f"run {_name(call)}?", f"{_name(call)} {_arguments_shown(call)}"
+            f"run {_name(call)}?",
+            f"{_name(call)} {_arguments_shown(call)}",
+            inside=self._tools.stays_inside(call),
         )
 
 

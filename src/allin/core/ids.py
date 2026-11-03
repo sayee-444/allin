@@ -90,6 +90,19 @@ def parse_attached_name(text: str) -> AttachedName | None:
     return AttachedName(text) if _ATTACHED_NAME.fullmatch(text) is not None else None
 
 
+# An Externo, as the Proceso adherido that brings their words names them: ``discord:juan``
+# (ADR-0026). Noted, never any authority.
+Outsider = NewType("Outsider", str)
+
+_OUTSIDER = re.compile(r"[\w.:@+-]{1,64}")
+
+
+def parse_outsider(text: str) -> Outsider | None:
+    """``text`` as an Externo's identity if it has the shape of one: nothing in it can pass for
+    anything else in its Prompt's header."""
+    return Outsider(text) if _OUTSIDER.fullmatch(text) is not None else None
+
+
 # An fproc, as ``/attach`` names it: its module's name.
 FprocName = NewType("FprocName", str)
 

@@ -112,6 +112,23 @@ class CommandResult(BaseModel, frozen=True):
     id: int | None = None  # in a Proceso adherido, the call that asked
 
 
+class Initiative(BaseModel, frozen=True):
+    """A Proceso adherido asks Main for a Command session on its own, from a thread that
+    serves no call (ADR-0026); ``id`` tells its result apart from those of the others."""
+
+    type: Literal["initiative"] = "initiative"
+    id: int
+    text: str = Field(max_length=COMMAND_MAX)
+
+
+class InitiativeResult(BaseModel, frozen=True):
+    """Main to a Proceso adherido's warden: how the Command session it asked on its own went."""
+
+    type: Literal["initiative_result"] = "initiative_result"
+    id: int
+    result: JsonValue
+
+
 class Attached(BaseModel, frozen=True):
     """The fproc's class was made: the Proceso adherido takes calls to its methods."""
 
@@ -182,7 +199,16 @@ class Unconfined(BaseModel, frozen=True):
 
 
 type ToMain = (
-    Returned | Raised | Died | Unconfined | RunCommand | Attached | Stale | Progress | Announce
+    Returned
+    | Raised
+    | Died
+    | Unconfined
+    | RunCommand
+    | Attached
+    | Stale
+    | Progress
+    | Announce
+    | Initiative
 )
 
 _to_main: TypeAdapter[ToMain] = TypeAdapter(Annotated[ToMain, Field(discriminator="type")])

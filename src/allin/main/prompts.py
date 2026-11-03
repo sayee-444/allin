@@ -7,7 +7,7 @@ from collections.abc import Callable, Container
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
-from allin.core.ids import NO_PROMPT_ID, PromptId, SessionId, SubscriptionId
+from allin.core.ids import NO_PROMPT_ID, Outsider, PromptId, SessionId, SubscriptionId
 from allin.core.origin import HUMAN, LinkKind, Origin
 from allin.main.conversation import Attachment, Step
 from allin.main.prompt_commands import TurnOverrides
@@ -17,7 +17,8 @@ from allin.main.prompt_commands import TurnOverrides
 type PromptKind = Literal["prompt", "compact", "auto_compact"]
 
 
-type AutoConfirm = Literal["-y", "--devastation"]
+# ``--devastation inside``: only what stays inside a Subperfil with the Exención (ADR-0026).
+type AutoConfirm = Literal["-y", "--devastation", "--devastation inside"]
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,9 @@ class Prompt:
     # Typed in its Session's Window while a Turn of the Session was under way, and queued: it
     # may enter that Turn as a Texto intercalado instead of waiting for its own (ADR-0024).
     in_window: bool = False
+    # The Externo whose words a Proceso adherido brought: noted for the Log and the memory,
+    # never any authority (ADR-0026).
+    outsider: Outsider | None = None
 
     @property
     def as_typed(self) -> str:
@@ -186,8 +190,12 @@ _SENDERS: dict[LinkKind, str] = {
 }
 
 
-def origin_header(origin: Origin) -> str:
+def origin_header(origin: Origin, outsider: Outsider | None = None) -> str:
     """What heads a Prompt that no human typed, so its LLM reads it as data from whoever sent
-    it, never as the human's words: ``[from Session ab12]`` (ADR-0013)."""
+    it, never as the human's words: ``[from Session ab12]`` (ADR-0013); an Externo's, brought
+    by a Proceso adherido, says whose words they are (ADR-0026)."""
     last = origin.chain[-1]
-    return f"[from {' '.join(filter(None, (_SENDERS[last.kind], last.id)))}]"
+    sender = " ".join(filter(None, (_SENDERS[last.kind], last.id)))
+    return (
+        f"[from {sender}]" if outsider is None else f"[from {sender}, words of outsider {outsider}]"
+    )

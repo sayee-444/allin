@@ -17,7 +17,7 @@ Identidad con nombre de un Main raíz, guardada como archivos modulares en `prof
 _Avoid_: perfil de servidor, perfil de main, perfil de sesión, workspace
 
 **Subperfil** (`Subprofile`):
-Espacio propio de una instancia de Proceso adherido dentro del Perfil en que se adhirió: las Sesiones que creó, su RAG y su Carpeta de trabajo, aparte de los del Perfil. Es una frontera como la del Perfil: `/send` no la cruza en ningún sentido, y solo un humano pasa de un lado a otro. Lo tiene solo la fproc que lo necesita, y existe mientras su Perfil está activo.
+Espacio propio de una instancia de Proceso adherido dentro del Perfil en que se adhirió: las Sesiones que creó, su RAG y su Carpeta de trabajo, aparte de los del Perfil. Es una frontera como la del Perfil: `/send` no la cruza en ningún sentido, y solo un humano pasa de un lado a otro. Lo tiene solo la fproc que lo declara (`@subprofile`), y existe mientras su Perfil está activo. Sus Sesiones nacen en segundo plano, fuera de la lista del Perfil, y salen plegadas bajo la instancia en el Organizador. Un humano le pone la Exención o le cambia el tope de Turnos con `/subprofile <nombre> [exempt=on|off] [turns=<n>]`: cuántas de sus Sesiones tienen a la vez un Turno en marcha o en cola, una por defecto; pasado el tope, la fproc recibe `subprofile_busy`.
 _Avoid_: perfil de fproc, submain
 
 **Kit** (`Kit`):
@@ -208,7 +208,7 @@ Tokens totales que ocupa la Conversación en el último Paso (entrada + salida),
 _Avoid_: tokens gastados (ambiguo)
 
 **Admisión** (`Admission`):
-La decisión de si un Paso empieza ya en su Servidor. Lo que necesita es su entrada, medida con la plantilla y el tokenizador del propio Servidor, más su Tope de salida. Necesita un slot libre y su turno en la Lista de espera. Con caché KV unificada, además, tiene que caber en el pool menos lo que reservan los Pasos en curso de todos los Mains. Uno que no cabe puede ser adelantado por otro que sí, hasta que lleva esperando `admission.patience` segundos (Ajuste de Main): desde entonces nadie lo adelanta. Un Paso que no cabría ni en el slot vacío falla enseguida, sin hacer cola (ADR-0004, ADR-0022).
+La decisión de si un Paso empieza ya en su Servidor. Lo que necesita es su entrada, medida con la plantilla y el tokenizador del propio Servidor, más su Tope de salida. Necesita un slot libre y su turno en la Lista de espera. Con caché KV unificada, además, tiene que caber en el pool menos lo que reservan los Pasos en curso de todos los Mains. Uno que no cabe puede ser adelantado por otro que sí, hasta que lleva esperando `admission.patience` segundos (Ajuste de Main): desde entonces nadie lo adelanta. Un Paso que no cabría ni en el slot vacío falla enseguida, sin hacer cola. En la Lista de espera van primero las Continuaciones, luego los Prompts nuevos, luego los que trae un Proceso adherido, por su Iniciativa o desde un método, y al final los de `describir` (ADR-0004, ADR-0022, ADR-0026).
 _Avoid_: entrada al pool, cupo
 
 **Lista de espera** (`Wait list`):
@@ -248,8 +248,12 @@ Command prompt `@clave=valor` (p. ej. `@effort=medium`) que cambia un parámetro
 **Origen** (`origin`):
 De dónde viene un Prompt o un comando: un humano (lo tecleado en una Ventana o en el Chat de Main, o lo que hace en el Organizador) o una Sesión, con la cadena por la que llegó; lo que Main pide por su cuenta a un Proceso adherido lleva el Origen de Main, que nunca cuenta como humano. Una acción nunca tiene más autoridad que el eslabón más débil de su Origen, ni usa un Command session que no esté en la lista de todas las Sesiones de su cadena. Lo que llega de otra Sesión es dato: Main nunca lo trata como comando ni le da más autoridad, y el LLM puede seguirlo, pero con la autoridad de su cadena. Una pieza (function, Sysprompt, Molde, Plano) tiene Origen humano solo cuando un humano aprobó su versión; hasta entonces está en cuarentena. Cada Prompt y cada comando guardan su cadena entera (en su Turno y en el Log, como `["human", "session:ab12"]`), y un Prompt que no tecleó un humano llega al LLM con una cabecera que dice de quién viene (`[from Session ab12]`).
 
+**Iniciativa** (`initiative`):
+Lo que un Proceso adherido hace por su cuenta, entre llamadas: desde un hilo propio pide Command sessions por su canal (`allin.channel.command`), y Main los corre con el Origen de quien lo adhirió seguido del Proceso adherido. Solo la tiene la fproc que declara su Subperfil, y solo sobre las Sesiones de este: `@new` desde los Moldes de su package que nombra su Alcance, `@send`, `@open` (siempre en segundo plano) y `@close`. Lo que crea queda dentro: las Sesiones de su Subperfil no crean Sesiones ni adhieren procesos (ADR-0026).
+_Avoid_: autonomía, acción espontánea
+
 **Externo** (`outsider`):
-Persona de fuera de AllIn cuyo texto trae un Proceso adherido, como quien escribe en un canal de Discord. No es el humano, que siempre es el usuario de AllIn: lo que dice entra con el Origen del Proceso adherido, que nunca cuenta como humano, y su identidad solo se anota para el Log y la memoria.
+Persona de fuera de AllIn cuyo texto trae un Proceso adherido, como quien escribe en un canal de Discord. No es el humano, que siempre es el usuario de AllIn: lo que dice entra con el Origen del Proceso adherido, que nunca cuenta como humano, y su identidad (`@send <sid> --outsider=<quién> -- <texto>`) solo se anota en la cabecera del Prompt, en su Turno y en el Log.
 _Avoid_: usuario, humano, cliente
 
 **Otorgar** (`Grant`):

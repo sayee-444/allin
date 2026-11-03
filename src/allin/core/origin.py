@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, model_serializer, model_validator
 
+from allin.core.ids import AttachedName
+
 type LinkKind = Literal["human", "main", "session", "process", "subscription"]
 # What a chain may do, from the most to the least: only ``human`` uses ``-y``, ``--devastation``
 # and what is a human's alone; ``main`` is answered by Main's own ``--devastation``.
@@ -97,6 +99,18 @@ def weakest_link(origin: Origin) -> Authority:
     """The authority of an action: that of the weakest link of its chain (ADR-0013). The
     Confirmation, the Exemption and the Command sessions all ask it."""
     return min((_AUTHORITY[link.kind] for link in origin.chain), key=_RANK.__getitem__)
+
+
+def acting_process(origin: Origin) -> AttachedName | None:
+    """The Proceso adherido that acts last in ``origin``'s chain, if it is one and not a
+    Session: what it creates goes in its Subperfil, and what it sends waits behind the humans'
+    (ADR-0026)."""
+    for link in reversed(origin.chain):
+        if link.kind == "session":
+            return None
+        if link.kind == "process":
+            return AttachedName(link.id)
+    return None
 
 
 def from_session(origin: Origin, session_id: str) -> Origin:
