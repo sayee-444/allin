@@ -12,6 +12,7 @@ adherido) has no Carpeta de trabajo: every file it attaches is from outside.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -49,6 +50,15 @@ ME = "me"  # ``--reply-to=me``: the Session that sends, as its LLM writes it (#1
 OUTSIDER_USAGE = "--outsider=<who>: up to 64 letters, digits and . : @ + - _"
 
 
+@dataclass(frozen=True)
+class _Brought:
+    """What a Proceso adherido brings with a Prompt: whose words it is, an Externo's, and
+    whether it sends it on its own, by its Iniciativa (ADR-0026)."""
+
+    outsider: Outsider | None
+    initiative: bool
+
+
 class SessionSends:
     def __init__(
         self,
@@ -66,14 +76,21 @@ class SessionSends:
         self._subprofiles = subprofiles
 
     def send(
-        self, target: Session, options: SendOptions, origin: Origin, answer: OnOutcome
+        self,
+        target: Session,
+        options: SendOptions,
+        origin: Origin,
+        answer: OnOutcome,
+        initiative: bool = False,
     ) -> None:
         """Queue the Prompt for ``target``; ``answer`` hears how it went, maybe only once a
-        human answered the Approval of a file from outside."""
+        human answered the Approval of a file from outside. ``initiative``: a Proceso adherido
+        sends it on its own, not while it serves a call (ADR-0026)."""
         space = self._subprofiles.check_reach(origin, target.id)
         if space.subprofile is not None and not origin.is_human:
             self._check_room(space.subprofile, target.id)
         outsider = None if options.outsider is None else _outsider(options.outsider, origin)
+        brought = _Brought(outsider, initiative)
         subscriber = (
             None if options.reply_to is None else self._subscriber(options.reply_to, origin)
         )
@@ -81,7 +98,7 @@ class SessionSends:
         files = [(path, _source(path, base)) for path in options.attach]
         outside = [s for _, s in files if base is None or not s.is_relative_to(base.resolve())]
         if not outside:
-            self._push(target, options, origin, files, subscriber, outsider)
+            self._push(target, options, origin, files, subscriber, brought)
             answer("ok")
             return
 
@@ -90,7 +107,7 @@ class SessionSends:
                 if not yes:
                     raise AttachmentNotApproved(paths=list[JsonValue](map(str, outside)))
                 self._subprofiles.check_reach(origin, target.id)  # one may have switched
-                self._push(target, options, origin, files, subscriber, outsider)
+                self._push(target, options, origin, files, subscriber, brought)
             except AllInError as error:
                 answer(error)
             else:
@@ -123,11 +140,11 @@ class SessionSends:
         origin: Origin,
         files: Sequence[tuple[str, Path]],
         subscriber: SessionId | None,
-        outsider: Outsider | None,
+        brought: _Brought,
     ) -> None:
         """Copy the attachments, the very files resolved and shown, and queue the Prompt;
-        its answer wakes ``subscriber``, if any (#116), and its words are ``outsider``'s, if
-        an Externo's (ADR-0026)."""
+        its answer wakes ``subscriber``, if any (#116), and it keeps what a Proceso adherido
+        ``brought`` with it (ADR-0026)."""
         prompt_id = new_prompt_id()
         attachments = copy_in(files, self._sessions.workspace(target.id), prompt_id)
         owed: tuple[SubscriptionId, ...] = ()
@@ -135,9 +152,10 @@ class SessionSends:
             owed = (self._subscriptions.reply_to(subscriber, target.id, prompt_id, origin),)
         prompt = Prompt(
             target.id,
-            f"{origin_header(origin, outsider)}\n{options.text}",  # never read for @…
+            f"{origin_header(origin)}\n{options.text}",  # never read for @…
             origin=origin,
-            outsider=outsider,
+            outsider=brought.outsider,
+            initiative=brought.initiative,
             prompt_id=prompt_id,
             attachments=tuple(attachments),
             overrides=options.overrides,
@@ -174,7 +192,7 @@ class SessionSends:
 
 def _outsider(written: str, origin: Origin) -> Outsider:
     """The Externo ``--outsider=`` names: only a Proceso adherido brings one's words, and names
-    them in a way that cannot pass for anything else in its Prompt's header (ADR-0026)."""
+    them with the shape of an identity, for the Log and the memory (ADR-0026)."""
     if acting_process(origin) is None:
         raise OutsiderNotFromProcess(outsider=written, origin=list[JsonValue](origin.labels))
     outsider = parse_outsider(written)

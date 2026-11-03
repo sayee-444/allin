@@ -19,9 +19,18 @@ from allin.core.origin import HUMAN, Link, Origin
 from allin.main.descriptions import Descriptions
 from allin.main.events import InputReceived, MainCommandEntered
 from allin.main.quarantine import PieceRef, Quarantine
+from allin.main.state import MainState, MainStateStore
 from tests.llm_fakes import FakeLlm, full_reply
 from tests.test_attached import from_session
-from tests.test_dispatcher import TURNS_ENDED, DrainingInbox, MainHarness, ended, turn_lines
+from tests.test_attached_methods import calls
+from tests.test_dispatcher import (
+    TURNS_ENDED,
+    DrainingInbox,
+    MainHarness,
+    Until,
+    ended,
+    turn_lines,
+)
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
 
@@ -173,6 +182,34 @@ class Loner(Fproc):
         return self.heard
 '''
 
+RELAY = '''
+import threading
+
+from allin.channel import command
+from allin.decorators import reach, subprofile
+from allin.fproc import Fproc
+
+
+@subprofile
+@reach(commands=["new", "send"], molds=["helper", "tasked"])
+class Relay(Fproc):
+    """Relays what its channel says: on its own, or while it serves a call."""
+
+    def __init__(self):
+        self.heard = []
+
+    def act(self, text: str) -> None:
+        """Ask for ``text`` on its own, once this call is over."""
+        threading.Thread(target=lambda: self.heard.append(command(text)), daemon=True).start()
+
+    def heard_so_far(self) -> list:
+        return self.heard
+
+    def tell(self, sid: str, text: str) -> object:
+        """Send a Session a Prompt while it serves this call."""
+        return command(f"@send {sid} {text}")
+'''
+
 HELPER = """
 functions = ["function:alpha", "function:beta", "function:giver"]
 commands = ["send", "grant"]
@@ -211,8 +248,10 @@ def main(tmp_path: Path) -> Iterator[MainHarness]:
     (guides / "molds").mkdir(parents=True)
     (guides / "guide.py").write_text(GUIDE)
     (guides / "loner.py").write_text(LONER)
+    (guides / "relay.py").write_text(RELAY)
     (guides / "molds" / "helper.toml").write_text(HELPER)
     (guides / "molds" / "other.toml").write_text(HELPER)
+    (guides / "molds" / "tasked.toml").write_text(f'task = "Saluda."\n{HELPER}')
     for name in ("alpha", "beta"):
         (functions / name).mkdir()
         (functions / name / f"{name}.py").write_text(TOOL.format(name=name))
@@ -501,9 +540,148 @@ def test_an_outsiders_prompt_carries_the_fprocs_origin_and_never_y(main: MainHar
     assert conversation is not None
     [turn] = conversation.turns
     assert turn.origin.labels == ["human", "process:guide"]
-    assert turn.outsider == "chat:juan"
-    assert turn.prompt.startswith("[from attached process guide, words of outsider chat:juan]")
+    assert turn.prompt == "[from attached process guide]\nhola, soy Juan", "never who wrote it"
+    assert "chat:juan" not in str(main.llm.requests[0]["input"])
+    assert turn.outsider == "chat:juan", "for the memory"
     [started] = [e.fields for e in main.session_log(session) if e.event == "turn_started"]
     assert started["outsider"] == "chat:juan"
     assert "human_only" in str(heard[2]), "never -y"
     assert any("outsider_not_from_process" in line for line in chat)
+
+
+def started_sessions(chat: list[str]) -> list[str]:
+    """The Sessions whose Turns started, in order."""
+    return [line.split("]")[0][1:] for line in turn_lines(chat) if line.endswith("turn started")]
+
+
+def at(main: MainHarness, now: float) -> Callable[[], None]:
+    """A step: Main's clock reads ``now``, so what comes next arrives later."""
+    return lambda: setattr(main, "now", now)
+
+
+def relay_session(main: MainHarness, heard: list[JsonValue]) -> list[Callable[[], None] | Until]:
+    """Steps: the fproc ``relay``, attached, creates a Session on its own, whose answer lands
+    in ``heard``."""
+    return [
+        act(main, "@new helper", "relay"),
+        hearing(main, 1, "relay"),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main, "relay")),
+    ]
+
+
+def test_a_prompt_of_its_initiative_waits_behind_a_humans_and_a_sessions_that_came_later(
+    main: MainHarness,
+):
+    x, b, c = main.create_session(), main.create_session(), main.create_session()
+    a = main.sessions.save_commands(main.create_session(), (CommandName("send"),))
+    main.hold_turns = True
+    heard: list[JsonValue] = []
+    chat = main.run(
+        InputReceived(x.id, "x1"),
+        MainCommandEntered("/attach relay"),
+        *relay_session(main, heard),
+        act(main, lambda: f"@send {heard_state(heard, 0)} hola, soy Juan", "relay"),
+        hearing(main, 2, "relay"),
+        TURNS_ENDED,
+        at(main, 1.0),
+        InputReceived(b.id, "b1"),
+        at(main, 2.0),
+        MainCommandEntered(f"/send {c.id} desde A", from_session(a)),
+        ended(x),
+        ended(b),
+        ended(c),
+        settle=True,
+    )
+    sid = heard_state(heard, 0)
+    assert started_sessions(chat) == [x.id, b.id, c.id, sid]
+    [started] = [
+        e.fields for e in main.session_log(main.sessions.load(sid)) if e.event == "turn_started"
+    ]
+    assert started["initiative"] is True
+
+
+def test_the_task_of_a_molde_it_creates_on_its_own_waits_behind_a_humans(main: MainHarness):
+    x, b = main.create_session(), main.create_session()
+    main.hold_turns = True
+    heard: list[JsonValue] = []
+    chat = main.run(
+        InputReceived(x.id, "x1"),
+        MainCommandEntered("/attach relay"),
+        act(main, "@new tasked", "relay"),
+        hearing(main, 1, "relay"),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main, "relay")),
+        at(main, 1.0),
+        InputReceived(b.id, "b1"),
+        ended(x),
+        ended(b),
+        settle=True,
+    )
+    sid = heard_state(heard, 0)
+    assert started_sessions(chat) == [x.id, b.id, sid]
+    [started] = [
+        e.fields for e in main.session_log(main.sessions.load(sid)) if e.event == "turn_started"
+    ]
+    assert started["initiative"] is True
+
+
+def test_a_prompt_a_method_sends_during_a_call_is_admitted_by_arrival(main: MainHarness):
+    x, b = main.create_session(), main.create_session()
+    a = main.sessions.save_commands(main.create_session(), (CommandName("send"),))
+    main.hold_turns = True
+    heard: list[JsonValue] = []
+    chat = main.run(
+        InputReceived(x.id, "x1"),
+        MainCommandEntered(f"/attach relay --to={a.id}"),
+        *relay_session(main, heard),
+        at(main, 1.0),
+        enter(
+            main,
+            lambda: f"/call relay tell sid={heard_state(heard, 0)} text=hola",
+            lambda: from_session(a),
+        ),
+        lambda: calls(main),
+        TURNS_ENDED,
+        at(main, 2.0),
+        InputReceived(b.id, "b1"),
+        ended(x),
+        settle=True,
+    )
+    sid = heard_state(heard, 0)
+    assert started_sessions(chat) == [x.id, sid], "\n".join(chat[-12:])
+    session = main.sessions.load(sid)
+    [started] = [e.fields for e in main.session_log(session) if e.event == "turn_started"]
+    assert "initiative" not in started
+    sent = [e.fields for e in main.main_log() if e.fields.get("command") == f"/send {sid} hola"]
+    assert [s["origin"] for s in sent] == [["human", f"session:{a.id}", "process:relay"]]
+
+
+def test_its_initiatives_mark_stays_on_a_queued_prompt_through_a_profile_switch(
+    main: MainHarness,
+):
+    x = main.create_session()
+    main.profiles.create("tesis", main.profile)
+    main.hold_turns = True
+    heard: list[JsonValue] = []
+    left: list[MainState] = []
+    main.run(
+        InputReceived(x.id, "x1"),
+        MainCommandEntered("/attach relay"),
+        *relay_session(main, heard),
+        act(main, lambda: f"@send {heard_state(heard, 0)} hola, soy Juan", "relay"),
+        hearing(main, 2, "relay"),
+        TURNS_ENDED,
+        MainCommandEntered("/profile switch tesis"),
+        ended(x),
+        lambda: left.append(MainStateStore(main.profile.state).load()),
+        MainCommandEntered(f"/profile switch {main.profile.name}"),
+        settle=True,
+    )
+    sid = heard_state(heard, 0)
+    [kept] = left[0].queue
+    assert (kept.session_id, kept.initiative) == (sid, True)
+    [started] = [
+        e.fields for e in main.session_log(main.sessions.load(sid)) if e.event == "turn_started"
+    ]
+    assert started["initiative"] is True, "back from the switch, it is still its initiative's"
