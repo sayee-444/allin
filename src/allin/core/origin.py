@@ -101,15 +101,24 @@ def weakest_link(origin: Origin) -> Authority:
     return min((_AUTHORITY[link.kind] for link in origin.chain), key=_RANK.__getitem__)
 
 
+def actors(origin: Origin) -> tuple[Link, ...]:
+    """The links of ``origin``'s chain that act, first to last: each Session and Proceso
+    adherido; the last one is who acts now (ADR-0026). A human, Main or a Suscripción only
+    pass the action on, and a bare ``session``, saved before #105, names no one."""
+    return tuple(
+        link
+        for link in origin.chain
+        if link.kind == "process" or (link.kind == "session" and link.id)
+    )
+
+
 def acting_process(origin: Origin) -> AttachedName | None:
     """The Proceso adherido that acts last in ``origin``'s chain, if it is one and not a
     Session: what it creates goes in its Subperfil (ADR-0026)."""
-    for link in reversed(origin.chain):
-        if link.kind == "session":
-            return None
-        if link.kind == "process":
-            return AttachedName(link.id)
-    return None
+    acting = actors(origin)
+    if not acting or acting[-1].kind != "process":
+        return None
+    return AttachedName(acting[-1].id)
 
 
 def from_session(origin: Origin, session_id: str) -> Origin:

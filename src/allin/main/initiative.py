@@ -14,61 +14,14 @@ from collections.abc import Callable
 from pydantic import JsonValue
 
 from allin.confinement.launcher import OnCommand
-from allin.core.errors import (
-    AllInError,
-    InitiativeRefused,
-    InvalidSessionCommand,
-    NoSubprofile,
-    SessionCommandNotDeclared,
-    SessionCommandNotListed,
-)
-from allin.core.ids import AttachedName, CommandName
-from allin.core.origin import from_process
+from allin.core.errors import NoSubprofile, SessionCommandNotDeclared
+from allin.core.ids import AttachedName
+from allin.core.origin import Origin, from_process
 from allin.main.attached import AttachedProcesses
 from allin.main.commands import MainCommands
-from allin.main.events import (
-    CommandOutcome,
-    InitiativeAsked,
-    MainEvent,
-    Queried,
-    SessionCommandResult,
-)
+from allin.main.events import InitiativeAsked, MainEvent, OnOutcome, SessionCommandResult
 from allin.main.prompt_commands import session_command_name
-from allin.main.reporting import Reporter
-from allin.main.session_commands import lacking, new_command
-from allin.main.sessions import SessionStore
-
-type Answer = Callable[[SessionCommandResult], bool]
-
-_SID_TEXT = "<sid> <text>"
-
-
-def _one_sid(name: str) -> Callable[[str], str]:
-    def translate(args: str) -> str:
-        words = args.split()
-        if len(words) != 1 or words[0].startswith("-"):
-            msg = f"@{name} <sid>"
-            raise ValueError(msg)
-        return f"/{name} {words[0]}"
-
-    return translate
-
-
-def _send(args: str) -> str:
-    sid, _, text = args.partition(" ")
-    if not sid or not text.strip():
-        msg = f"@send {_SID_TEXT}"
-        raise ValueError(msg)
-    return f"/send {sid} {text}"
-
-
-# What an fproc runs on its own, and the Command main each becomes.
-_INITIATIVE: dict[str, Callable[[str], str]] = {
-    "new": new_command,
-    "send": _send,
-    "open": _one_sid("open"),
-    "close": _one_sid("close"),
-}
+from allin.main.session_commands import Answer, SessionCommands
 
 
 def asker(emit: Callable[[MainEvent], None], name: AttachedName) -> OnCommand:
@@ -94,63 +47,36 @@ class FprocInitiative:
     def __init__(
         self,
         attached: AttachedProcesses,
-        sessions: SessionStore,
-        reporter: Reporter,
+        session_commands: SessionCommands,
         commands: MainCommands,
     ) -> None:
-        """``commands`` runs each as a Command main asked by the Iniciativa, so the Prompts it
-        queues wait behind the humans' and the Sessions' (ADR-0026)."""
+        """``session_commands`` runs each as a Session's Command sessions run, and ``commands``
+        each Command main as asked by the Iniciativa, so the Prompts it queues wait behind the
+        humans' and the Sessions' (ADR-0026)."""
         self._attached = attached
-        self._sessions = sessions
-        self._reporter = reporter
+        self._session_commands = session_commands
         self._commands = commands
 
     def run(self, name: AttachedName, text: str, answer: Answer) -> bool:
         """Run ``text``, ``@name …``, for the Proceso adherido ``name``; ``answer`` gets how it
         went. Returns whether Main keeps running."""
-        try:
-            fproc = self._attached.attached_fproc(name)
-            if not self._attached.declares_subprofile(name):
-                raise NoSubprofile(name=name)  # it created no Session to act on
-            origin = from_process(self._attached.attached_by(name), name)
-            command = session_command_name(text) or ""
-            if command not in fproc.offered.description.reach.commands:
-                raise SessionCommandNotDeclared(command=command or text[:40], tool=name)
-            translate = _INITIATIVE.get(command)
-            if translate is None:
-                raise InitiativeRefused(command=command, allowed=list[JsonValue](_INITIATIVE))
-            missing = lacking(self._sessions, origin, CommandName(command))
-            if missing:
-                raise SessionCommandNotListed(command=command, not_in=list[JsonValue](missing))
-            args = text.strip().removeprefix(f"@{command}").strip()
-            try:
-                main_text = translate(args)
-            except ValueError as error:
-                raise InvalidSessionCommand(command=command, reason=str(error)) from error
-        except AllInError as error:
-            shown = f"[{name}] {text.strip()[:60]}: error {error}"
-            self._reporter.report(
-                None, "initiative", shown, name=name, command=text, result=str(error)
-            )
-            answer(SessionCommandResult(error=str(error)))
-            return True
-        self._reporter.log_main(
-            "initiative",
-            name=name,
-            command=text,
-            runs=main_text,
-            origin=list[JsonValue](origin.labels),
-        )
 
-        def done(outcome: CommandOutcome) -> None:
-            match outcome:
-                case "ok":
-                    answer(SessionCommandResult())
-                case Queried(state=state):
-                    answer(SessionCommandResult(state=state))
-                case "rejected":
-                    answer(SessionCommandResult(error="rejected"))
-                case AllInError() as error:
-                    answer(SessionCommandResult(error=str(error)))
+        def checked() -> Origin:
+            return self._origin(name, text)
 
-        return self._commands.run(main_text, origin, done, initiative=True)
+        def run_main(main_text: str, origin: Origin, done: OnOutcome) -> bool:
+            return self._commands.run(main_text, origin, done, initiative=True)
+
+        return self._session_commands.run_initiative(name, text, checked, answer, run_main)
+
+    def _origin(self, name: AttachedName, text: str) -> Origin:
+        """The Origin of what ``name`` asks on its own: who attached it, then the process.
+        Raises if its fproc declares no Subperfil, which leaves it no Session to act on, or
+        names no such Command session in its Alcance."""
+        fproc = self._attached.attached_fproc(name)
+        if not self._attached.declares_subprofile(name):
+            raise NoSubprofile(name=name)
+        command = session_command_name(text) or ""
+        if command not in fproc.offered.description.reach.commands:
+            raise SessionCommandNotDeclared(command=command or text[:40], tool=name)
+        return from_process(self._attached.attached_by(name), name)

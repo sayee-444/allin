@@ -23,7 +23,7 @@ from allin.core.errors import (
 )
 from allin.core.files import write_atomically
 from allin.core.ids import AttachedName, FprocName, SessionId, parse_attached_name
-from allin.core.origin import Origin
+from allin.core.origin import Origin, actors
 
 FOLDER = "subprofiles"
 DEFAULT_TURNS = 1  # its Sessions with a Turn running or queued at once: one of the two slots
@@ -146,17 +146,14 @@ class Subprofiles:
         in a Subperfil, nothing in the chain leaves it (ADR-0026). Raises ``OutsideProfile`` for
         a Session out of reach and ``OutsideSubprofile`` for a chain that crossed."""
         space: Space | None = None
-        for link in origin.chain:
-            match link.kind:
-                case "session" if link.id:
-                    here = self.space_of(SessionId(link.id))
-                    if here is None:
-                        raise OutsideProfile(session_id=link.id)
-                case "process":
-                    name = AttachedName(link.id)
-                    here = Space(name) if self._declares(name) else (space or PROFILE)
-                case _:
-                    continue
+        for link in actors(origin):
+            if link.kind == "session":
+                here = self.space_of(SessionId(link.id))
+                if here is None:
+                    raise OutsideProfile(session_id=link.id)
+            else:
+                name = AttachedName(link.id)
+                here = Space(name) if self._declares(name) else (space or PROFILE)
             if space is not None and space.subprofile is not None and here != space:
                 raise OutsideSubprofile(
                     link=f"{link.kind}:{link.id}",

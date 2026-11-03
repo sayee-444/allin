@@ -8,6 +8,8 @@ from allin.core.origin import (
     MAIN,
     Link,
     Origin,
+    acting_process,
+    actors,
     from_process,
     from_session,
     from_subscription,
@@ -34,6 +36,28 @@ A, B = "aaaa", "bbbb"
 def test_an_action_has_the_authority_of_the_weakest_link_of_its_chain(origin: Origin, weakest: str):
     assert weakest_link(origin) == weakest
     assert origin.is_human == (weakest == "human")
+
+
+@pytest.mark.parametrize(
+    ("origin", "acting", "process"),
+    [
+        (HUMAN, [], None),
+        (from_process(HUMAN, "bot"), ["process:bot"], "bot"),
+        (from_session(from_process(HUMAN, "bot"), A), ["process:bot", f"session:{A}"], None),
+        # A Suscripción only passes it on.
+        (
+            from_subscription(from_process(from_session(HUMAN, A), "bot"), "s1"),
+            [f"session:{A}", "process:bot"],
+            "bot",
+        ),
+        (Origin.model_validate(["session"]), [], None),  # saved before #105: names no one
+    ],
+)
+def test_who_acts_in_a_chain_is_its_last_session_or_proceso_adherido(
+    origin: Origin, acting: list[str], process: str | None
+):
+    assert [str(link) for link in actors(origin)] == acting
+    assert acting_process(origin) == process
 
 
 def test_the_chain_keeps_every_link_in_order():
