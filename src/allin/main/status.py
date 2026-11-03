@@ -1,6 +1,6 @@
 """Consultar (ADR-0011, #118): the state a Session has within reach, read only, of the active
 Profile alone: the queue, the Subscriptions and Encargos, the Procesos adheridos, the Servers
-its Sessions use and the Supervisors. The tree of Mains comes with F3."""
+its Enlaces watch and the Supervisors with their capacity. The tree of Mains comes with F3."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,60 +9,75 @@ from typing import Literal, get_args
 from pydantic import BaseModel, JsonValue
 
 from allin.core.errors import InvalidArguments
-from allin.core.ids import SessionId
+from allin.core.ids import AttachedName, ServerKey, SessionId, SubscriptionId, SupervisorName
 
-type StatusPart = Literal["queue", "subscriptions", "attached", "servers"]
+type StatusPart = Literal["queue", "subscriptions", "attached", "servers", "supervisors"]
 type ServerStateName = Literal["ready", "down", "loading", "asleep", "failed", "restarting"]
 PARTS: tuple[StatusPart, ...] = get_args(StatusPart.__value__)
-USAGE = "/status <sid> [queue|subscriptions|attached|servers]"
+PARTS_SHOWN = "|".join(PARTS)
+USAGE = f"/status <sid> [{PARTS_SHOWN}]"
+
+# Whether a Session is one of the active Profile's: Consultar shows those alone.
+type InActive = Callable[[SessionId], bool]
 
 
-class SessionWork(BaseModel, frozen=True):
-    """A Session with a Turn running or Prompts waiting for one."""
+class QueuedSession(BaseModel, frozen=True):
+    """A Session of the queue: with a Turn running, Prompts waiting for one, or both."""
 
     session: SessionId
     running: bool
     queued: int
 
 
-class ServerWork(BaseModel, frozen=True):
-    """A Server this Main's Sessions use: how it is and how much of it they take."""
+class WatchedServer(BaseModel, frozen=True):
+    """A Server an Enlace of this Main watches: how it is and how much of it the active
+    Profile's Turns take."""
 
-    server: str  # as an Enlace describes it, with its key
+    key: ServerKey
+    server: str  # as its Enlace describes it
     state: ServerStateName
     slots: int | None  # its Turns at once, once ready
-    busy: int  # this Main's Turns running on it
+    busy: int  # the active Profile's Turns running on it
     model: str | None
 
 
 class QueueView(BaseModel, frozen=True):
-    sessions: tuple[SessionWork, ...]
-    servers: tuple[ServerWork, ...]
+    """The queue as the TurnQueue sees it, of the active Profile's Sessions."""
+
+    sessions: tuple[QueuedSession, ...]
+    servers: tuple[WatchedServer, ...]
 
 
 class SubscriptionView(BaseModel, frozen=True):
-    id: str
+    """An open Suscripción or Encargo, with an Encargo's progress."""
+
+    id: SubscriptionId
     session: SessionId
-    event: str
+    event: str  # as ``@subscribe`` lists it
     progress: str | None  # an Encargo's, as "1 of 3 answered"
 
 
 class AttachedView(BaseModel, frozen=True):
-    name: str
+    """A Proceso adherido and the methods it offers."""
+
+    name: AttachedName
     methods: tuple[str, ...]
 
 
 class SupervisorView(BaseModel, frozen=True):
-    name: str
-    status: str
+    """A Supervisor, how it is, and its Server's capacity while an Enlace watches it."""
+
+    name: SupervisorName
+    status: str  # as ``/server`` lists it
     default: bool  # the default Enlace's
+    server: WatchedServer | None = None
 
 
 @dataclass(frozen=True)
 class Sources:
     """Where Consultar reads from; none of it changes anything."""
 
-    queue: Callable[[], QueueView]
+    queue: Callable[[InActive], QueueView]
     subscriptions: Callable[[], list[SubscriptionView]]
     attached: Callable[[], list[AttachedView]]
     supervisors: Callable[[], list[SupervisorView]]
@@ -79,12 +94,13 @@ def parse_part(text: str | None) -> StatusPart | None:
 
 
 class StatusReport(BaseModel, frozen=True):
-    """What Consultar read, as the tool gets it and as Main's Chat shows it."""
+    """What Consultar read, as the tool gets it and as Main's Chat shows it; a part not asked
+    for is ``None``."""
 
-    queue: tuple[SessionWork, ...] | None = None
+    queue: tuple[QueuedSession, ...] | None = None
     subscriptions: tuple[SubscriptionView, ...] | None = None
     attached: tuple[AttachedView, ...] | None = None
-    servers: tuple[ServerWork, ...] | None = None
+    servers: tuple[WatchedServer, ...] | None = None
     supervisors: tuple[SupervisorView, ...] | None = None
 
     def as_json(self) -> JsonValue:
@@ -93,60 +109,76 @@ class StatusReport(BaseModel, frozen=True):
         return {part: items for part, items in dumped.items() if items is not None}
 
     def lines(self) -> list[str]:
+        """The parts it read, as Main's Chat shows them: a heading and a line for each."""
         lines: list[str] = []
         if self.queue is not None:
-            lines.append("queue:" if self.queue else "queue: empty")
-            lines += [f"  {w.session}: {_work(w)}" for w in self.queue]
+            lines += _section("queue", [f"{q.session}: {_queued(q)}" for q in self.queue])
         if self.subscriptions is not None:
-            lines.append("subscriptions:" if self.subscriptions else "subscriptions: none")
-            lines += [
-                f"  {s.id} of {s.session}: {s.event}" + (f", {s.progress}" if s.progress else "")
-                for s in self.subscriptions
-            ]
+            lines += _section(
+                "subscriptions",
+                [
+                    f"{s.id} of {s.session}: {s.event}" + (f", {s.progress}" if s.progress else "")
+                    for s in self.subscriptions
+                ],
+            )
         if self.attached is not None:
-            lines.append("attached:" if self.attached else "attached: none")
-            lines += [f"  {a.name}: {', '.join(a.methods) or 'no methods'}" for a in self.attached]
+            lines += _section(
+                "attached",
+                [f"{a.name}: {', '.join(a.methods) or 'no methods'}" for a in self.attached],
+            )
         if self.servers is not None:
-            lines.append("servers:" if self.servers else "servers: none watched")
-            lines += [f"  {s.server}: {_server(s)}" for s in self.servers]
+            lines += _section("servers", [f"{s.server}: {_capacity(s)}" for s in self.servers])
         if self.supervisors is not None:
-            lines.append("supervisors:" if self.supervisors else "supervisors: none")
-            lines += [
-                f"  {s.name}{' (default Enlace)' if s.default else ''}: {s.status}"
-                for s in self.supervisors
-            ]
+            lines += _section("supervisors", [_supervisor(s) for s in self.supervisors])
         return lines
 
 
-def read(
-    sources: Sources, part: StatusPart | None, in_active: Callable[[SessionId], bool]
-) -> StatusReport:
+def read(sources: Sources, part: StatusPart | None, in_active: InActive) -> StatusReport:
     """What ``part`` (or every part) shows now, of the active Profile's Sessions alone."""
 
     def wanted(name: StatusPart) -> bool:
         return part is None or part == name
 
-    queue = sources.queue() if wanted("queue") or wanted("servers") else None
+    queue = sources.queue(in_active)
     return StatusReport(
-        queue=tuple(w for w in queue.sessions if in_active(w.session))
-        if queue is not None and wanted("queue")
-        else None,
-        subscriptions=tuple(s for s in sources.subscriptions() if in_active(s.session))
-        if wanted("subscriptions")
-        else None,
+        queue=queue.sessions if wanted("queue") else None,
+        subscriptions=_subscriptions(sources, in_active) if wanted("subscriptions") else None,
         attached=tuple(sources.attached()) if wanted("attached") else None,
-        servers=queue.servers if queue is not None and wanted("servers") else None,
-        supervisors=tuple(sources.supervisors()) if wanted("servers") else None,
+        servers=queue.servers if wanted("servers") else None,
+        supervisors=_supervisors(sources, queue) if wanted("supervisors") else None,
     )
 
 
-def _work(work: SessionWork) -> str:
-    running = "running" if work.running else "waiting"
-    return running + (f", {work.queued} queued" if work.queued else "")
+def _subscriptions(sources: Sources, in_active: InActive) -> tuple[SubscriptionView, ...]:
+    return tuple(s for s in sources.subscriptions() if in_active(s.session))
 
 
-def _server(server: ServerWork) -> str:
+def _supervisors(sources: Sources, queue: QueueView) -> tuple[SupervisorView, ...]:
+    """Each with its Server's capacity, when an Enlace watches it (its key is its name)."""
+    watched = {server.key: server for server in queue.servers}
+    return tuple(
+        s.model_copy(update={"server": watched.get(ServerKey(s.name))})
+        for s in sources.supervisors()
+    )
+
+
+def _section(name: str, items: list[str]) -> list[str]:
+    return [f"{name}:", *(f"  {item}" for item in items)] if items else [f"{name}: none"]
+
+
+def _queued(queued: QueuedSession) -> str:
+    running = "running" if queued.running else "waiting"
+    return running + (f", {queued.queued} queued" if queued.queued else "")
+
+
+def _capacity(server: WatchedServer) -> str:
     if server.slots is None:
         return server.state
     model = f" ({server.model})" if server.model else ""
     return f"{server.state}, {server.busy} of {server.slots} slot(s) busy{model}"
+
+
+def _supervisor(supervisor: SupervisorView) -> str:
+    default = " (default Enlace)" if supervisor.default else ""
+    capacity = f"; its Server {_capacity(supervisor.server)}" if supervisor.server else ""
+    return f"{supervisor.name}{default}: {supervisor.status}{capacity}"

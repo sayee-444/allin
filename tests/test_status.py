@@ -70,14 +70,17 @@ def read_state(main: MainHarness, a: Session, part: str = "") -> dict[str, Any]:
     return answer["state"]
 
 
-def test_a_tool_reads_the_queue_and_the_servers(tools: MainHarness):
+def test_a_tool_reads_the_queue_and_the_supervisors(tools: MainHarness, tmp_path: Path):
+    (tmp_path / "servers").mkdir(exist_ok=True)
+    (tmp_path / "servers" / "gpu.toml").write_text("")  # a Supervisor no Enlace watches
     a = looker(tools)
     state = read_state(tools, a)
     assert {"session": a.id, "running": True, "queued": 0} in state["queue"]
     [served] = state["servers"]
-    assert served["state"] == "ready" and served["slots"] == 1 and served["busy"] == 1
-    assert served["model"] == "m.gguf"
-    assert state["supervisors"] == []
+    assert served["key"] == "9931" and served["state"] == "ready"
+    assert served["slots"] == 1 and served["busy"] == 1 and served["model"] == "m.gguf"
+    [gpu] = state["supervisors"]
+    assert gpu["name"] == "gpu" and gpu["status"].startswith("asleep") and gpu["server"] is None
 
 
 def test_it_reads_only_the_part_asked_for(tools: MainHarness):
@@ -106,7 +109,7 @@ def test_it_shows_nothing_of_another_profile(main: MainHarness):
     other = main.profiles.create("tesis", main.profile)
     main.profiles.add_session(other, c.id)
     main.profiles.remove_session(main.profile, c.id)
-    main.llm = FakeLlm(full_reply("", "hola"))
+    main.llm = FakeLlm(full_reply("", "hola"))  # a switch waits for no Turn to run
     chat = main.run(
         MainCommandEntered("/profile switch tesis"),
         MainCommandEntered(f"/subscribe {c.id} timer:300"),
@@ -117,7 +120,7 @@ def test_it_shows_nothing_of_another_profile(main: MainHarness):
         settle=True,
     )
     shown = "\n".join(chat[chat.index("/profile switch default: ok") :])
-    assert "timer:60" in shown
+    assert "timer:60" in shown and "queue: none" in shown
     assert c.id not in shown and "timer:300" not in shown
 
 

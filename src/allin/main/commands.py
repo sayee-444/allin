@@ -74,6 +74,7 @@ from allin.main.settings_commands import (
     SettingsCommands,
     parse_session_command,
 )
+from allin.main.status import PARTS_SHOWN as STATUS_PARTS
 from allin.main.status import USAGE as STATUS_USAGE
 from allin.main.status import Sources, parse_part, read
 from allin.main.subscriptions import (
@@ -297,7 +298,7 @@ class MainCommands:
                 "show what a Session has within reach, read only: Consultar",
                 args={
                     "sid": "the Session that asks: a Session's LLM, its own",
-                    "part": "queue, subscriptions, attached or servers; every part if left out",
+                    "part": f"one of {STATUS_PARTS}; every part if left out",
                 },
                 usage_text=STATUS_USAGE,
                 optional=("part",),

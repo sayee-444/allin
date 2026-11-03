@@ -42,6 +42,7 @@ from allin.main.notifications import Notifications
 from allin.main.prompt_commands import session_command_name
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
+from allin.main.status import PARTS_SHOWN as STATUS_PARTS
 from allin.session_commands import SessionCommandCall, SessionCommandType
 
 FOLDER = "comsession"  # in the data dir: the human's Command session modules
@@ -123,7 +124,7 @@ SUBSCRIBE = SessionCommandType(
     "list your Suscripciones, or open one: the event wakes you with a Prompt once your Turn ended",
     _subscribe,
 )
-_STATUS_USAGE = "@status [queue|subscriptions|attached|servers]"
+_STATUS_USAGE = f"@status [{STATUS_PARTS}]"
 
 
 def _status(call: SessionCommandCall) -> str:
