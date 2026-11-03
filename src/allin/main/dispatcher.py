@@ -79,7 +79,7 @@ from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import ProfileCommands
 from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
-from allin.main.prompt_commands import holds_secret, kept_of_command, session_command_name
+from allin.main.prompt_commands import read_secret, session_command_name
 from allin.main.quarantine import Quarantine
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
@@ -425,15 +425,14 @@ class Dispatcher:
 
     def _typed_session_command(self, session_id: SessionId, text: str) -> None:
         """A Command session a human typed in a Window: one that fails says why there, and its
-        text goes back to the input; never one that holds an ``@secret …``, whose Draft would
-        keep a value typed in it (#155, #195)."""
+        text goes back to the input, which never takes one that holds an ``@secret …`` (#155,
+        #195, #209)."""
 
         def answer(result: SessionCommandResult) -> bool:
             if result.error is not None:
-                kept = kept_of_command(text).strip()
+                kept = read_secret(text).kept.strip()
                 self._windows.send(session_id, error_entry(f"{kept}: {result.error}"))
-                if not holds_secret(text):
-                    self._windows.put_back(session_id, text)
+                self._windows.put_back(session_id, text)
             return True
 
         self._session_commands.run(session_id, text, HUMAN, answer)

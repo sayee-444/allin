@@ -43,7 +43,7 @@ from allin.main.events import (
     SessionCommandResult,
 )
 from allin.main.notifications import Notifications
-from allin.main.prompt_commands import kept_of_command, sends_secret, session_command_name
+from allin.main.prompt_commands import read_secret, session_command_name
 from allin.main.reporting import Reporter
 from allin.main.secret_commands import USAGE as SECRET_USAGE
 from allin.main.sessions import Session, SessionStore
@@ -597,6 +597,7 @@ class SessionCommands:
         why the process may not ask, and ``run_main`` runs its Command main by its Iniciativa.
         Only those that act on its own Sessions run. Returns whether Main keeps running."""
         try:
+            _refuse_secret(text)
             origin = checked()
             command, translate = self._on_its_own(text)
             self._check_listed(command, origin)
@@ -658,7 +659,7 @@ class SessionCommands:
     ) -> bool:
         """Whoever asked hears why its Command session did not run, and Main's Chat shows it;
         of an ``@secret …`` line, never its value (#155)."""
-        kept = kept_of_command(text)
+        kept = read_secret(text).kept
         shown = f"[{asker}] {kept.strip()[:60]}: error {error}"
         self._reporter.report(None, event, shown, **fields, command=kept, result=str(error))
         answer(SessionCommandResult(error=str(error)))
@@ -673,8 +674,9 @@ class SessionCommands:
 
 def _refuse_secret(text: str) -> None:
     """``@secret`` is no Command session, whatever ``comsession/`` declares, nor what an
-    ``@send`` sends: a Secreto is given in Main's Chat alone (ADR-0026, #195)."""
-    if sends_secret(text):
+    ``@send`` sends, whoever asks: a Secreto is given in Main's Chat alone (ADR-0026, #195,
+    #209)."""
+    if read_secret(text).sends:
         raise SecretInMainChatOnly(usage=SECRET_USAGE)
 
 

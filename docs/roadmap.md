@@ -8,8 +8,8 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** los pendientes de Pre-RAG, de #153 a #197 (fusionados hasta el PR #200, 2026-11-03): la Iniciativa y el Externo (#153, #154, #159, #179), los Secretos fuera del Log y del Borrador (#155, #178, #195), lo que vuelve al input o al Borrador (#156, #166, #171, #174, #176, #182, #196), el Contexto tras compactar (#157, #169, #177, #197), el Supervisor sin modelo (#158) y las caídas y la cola (#181, #185, #188, #190, #197). Métricas al cerrar #197: 1914 tests, cobertura 85 %, mutación 94 %, 41 escapes. Qué cambió en cada uno, cómo se probó a mano y sus métricas está en el comentario de cierre de su issue. Después, las preguntas abiertas de #104 a #197 pasaron a decisiones según los ADR (abajo), y lo que el código no cumplía, a #201–#206.
-- **Siguiente:** #201 a #206, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
+- **Último hecho:** los pendientes de Pre-RAG, de #153 a #197 (fusionados hasta el PR #200, 2026-11-03): la Iniciativa y el Externo (#153, #154, #159, #179), los Secretos fuera del Log y del Borrador (#155, #178, #195), lo que vuelve al input o al Borrador (#156, #166, #171, #174, #176, #182, #196), el Contexto tras compactar (#157, #169, #177, #197), el Supervisor sin modelo (#158) y las caídas y la cola (#181, #185, #188, #190, #197). Métricas al cerrar #197: 1914 tests, cobertura 85 %, mutación 94 %, 41 escapes. Qué cambió en cada uno, cómo se probó a mano y sus métricas está en el comentario de cierre de su issue. Después, las preguntas abiertas de #104 a #197 pasaron a decisiones según los ADR (abajo), y lo que el código no cumplía, a #201–#206. Luego, #209 (2026-11-03): una sola lectura del `@secret` de una línea (`read_secret`) para el recorte del Log, el rechazo y la vuelta a la entrada, que no engañan opciones (también entre comillas), tabs, saltos de línea ni escapes de JSON, y que vale también para la Iniciativa; lo que encontró fuera de sus formas, a #210. Métricas al cerrar #209: 1951 tests, cobertura 85 %, mutación 94 %, 41 escapes.
+- **Siguiente:** #201 a #206 y #210, en «Pre-RAG · Pendientes de F2». Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
 
 ### Preguntas que sí necesitan al usuario
@@ -107,6 +107,9 @@ Lo que el código hace y se apega a la letra de los ADR y del GLOSSARY. Lo que n
 - #155 — Resuelto en #178: `/send <sid> @secret …` desde el Chat de Main se rechaza y se recorta en el Log.
 - #178 — Decidido según ADR-0026 (#178, #195): `/send <sid> @secret …` se rechaza con `secret_in_main_chat_only` y el uso de `/secret`, y el recorte del Log vale para todo `/send`, también el de una Sesión.
 - #195 — Decidido según ADR-0026 (#195): cualquier Log corta una línea de comando tres palabras después de su primer `@secret` o `/secret`, aunque solo lo nombre; un Encargo o un Lote cuya tarea manda un `@secret` se rechaza venga de quien venga; un Command session que lo nombra donde el Log lo cortaría no vuelve a la entrada ni al Borrador.
+- #209 — Decidido según ADR-0026 («el `@secret` que manda un `/send` … se rechaza») y el GLOSSARY (Command prompt): un `/send` humano con una palabra que empieza por `--` delante del `@secret` (`--attach=…`, `--temperature=…`, `--`) se rechaza. Su texto iría tal cual, pero empieza como la forma estructurada de una Sesión, y leerlo igual para todos deja una sola lectura de la línea; un Prompt que solo nombra `@secret` sigue yendo.
+- #209 — Decidido según ADR-0026 («no vuelve a ninguna entrada ni Borrador»): `OpenWindows.put_back` nunca devuelve una línea que lleva un `@secret`, la devuelva quien la devuelva, y el Log guarda el `\u0040secret` de un JSON ya leído («@secret set bot token …»).
+- #209 — Va a #210: `/secret set … <valor>` tecleado como Prompt en una Ventana, o mandado con `/send`, va entero al LLM y al Log.
 
 **Caídas y Supervisor**
 - #190 — Decidido según ADR-0023: la cuenta de caídas es de un Main vivo, y el Turno suspendido que se lleva el Perfil que se deja vuelve con dos intentos, como tras reiniciar Main.
@@ -260,6 +263,8 @@ Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelve
 27. #204 El Chat reconstruido muestra los Textos intercalados de un Turno perdido con un `kill -9` o cancelado mientras estaba suspendido (de #176 y #196)
 28. #205 Al reabrir la Ventana, lo de un Turno fallido y lo que devolvió un Rewind salen en el orden de la Ventana abierta (de #182)
 29. #206 Un Prompt que no cabe o no puede empezar se lleva su cola, como un Turno fallido (de #16 y #196)
+30. ✅ #209 Los caminos que aún llevaban el valor de un `@secret` a la entrada o al Log: opciones de `/send`, `@` escapado e Iniciativa (de #195)
+31. #210 `/secret set … <valor>` tecleado como Prompt en una Ventana, o mandado con `/send`, llega al LLM y al Log (de #209)
 
 ## RAG · Memoria de consulta
 
