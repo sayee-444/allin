@@ -1,6 +1,6 @@
 # The checks of .githooks/pre-commit, for every pull request and push to main, so a clone
-# without the hook cannot merge unchecked code. Tests that need Landlock ABI 6 skip themselves
-# on the runner's kernel; they run in the pre-commit hook on a machine that has it.
+# without the hook cannot merge unchecked code. The runner's kernel has Landlock ABI 6, so the
+# confinement tests run too; on an older one they skip themselves.
 name: checks
 
 on:
