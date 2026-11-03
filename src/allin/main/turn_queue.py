@@ -1124,6 +1124,9 @@ class TurnQueue:
         self._windows.show_error(error, session_id)
         self._answers.dropped(prompt, f"it could not start: {error}")
         if isinstance(error, PromptTooBig):
+            # As typed, for its input as the Window opens if it is closed (#174).
+            typed, origin = prompt.as_typed, list[JsonValue](prompt.origin.labels)
+            self._reporter.log_session(session_id, "prompt_too_big", typed=typed, origin=origin)
             self._give_back(session_id, _typed_by_human([prompt]))  # a human's, as typed (#171)
             if not self._compacts_alone(session_id):
                 hint = f"/session compact {session_id} may make room for it"
