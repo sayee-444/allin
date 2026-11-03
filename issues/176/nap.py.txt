@@ -1,0 +1,10 @@
+"""A function for #174's manual test: a tool that takes a while, so the human can write in
+the Window while it runs and the text enters the Turn (a Texto intercalado)."""
+
+import time
+
+
+def nap(seconds: int) -> str:
+    """Wait ``seconds`` seconds, then say so."""
+    time.sleep(seconds)
+    return f"slept {seconds} s"

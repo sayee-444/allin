@@ -1,0 +1,89 @@
+# #176 — Lo que vuelve al Borrador al cancelarse o fallar un Turno, también con /exit y con un Turno suspendido (2026-11-03)
+
+Código: rama fix/176-borrador-con-exit-y-suspendido, commit 33deda0.
+Servidor (Swift IQ3_XXS con -c 32000, para dejar sitio a la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/174 más «hold», 19932 → 9932): mientras existe <scratch>/hold, un POST de
+generación cuyo cuerpo contiene lo escrito en él espera sin respuesta (su Turno sigue en la petición HTTP, como cuando
+Main se para antes de que el Turno acabe); <scratch>/fall corta el POST que contiene lo escrito en él (una caída,
+ADR-0023) y crea <scratch>/down (/health 503) hasta que se borra.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m176, en el xterm allin-main-176, con /set base_url=http://127.0.0.1:19932/v1.
+Functions en <data-dir>/profiles/default/functions/: teller/tell.py (tell.py.txt, «@send <sid> <text>») y
+napper/nap.py (nap.py.txt, una tool que espera N segundos). /piece approve --all; /new --id=caja176;
+/new --id=siesta176; /func add siesta176 function:napper; /new --id=lider176; /func add lider176 function:teller.
+(El driver de X no escribe tildes, así que los textos van sin ellas.) Los extractos de state.json son de
+<data-dir>/profiles/default/state.json; «running» muestra lo tecleado (typed) si lo hay.
+
+## Criterios
+
+1. Un Turno humano cancelado cuyo fin no llega porque Main se para devuelve su Prompt al Borrador al arrancar de nuevo,
+   tal como se tecleó y una sola vez
+   - hold = «Cuenta hasta tres». En caja176: «Cuenta hasta tres. @top_k=5» (Enter: su Paso queda en la petición),
+     «Y luego hasta cuatro.» (Enter: en cola) y «sin enviar» sin Enter (01-caja-antes-de-cerrar.png).
+   - Se cierra la Ventana (kill del xterm «AllIn · caja176», por su pid): window_closed, prompts_dropped
+     (window closed). El Turno está cancelado pero su executor no acabó. state.json:
+       drafts  {"caja176": ["Y luego hasta cuatro.", "sin enviar"]}
+       running ["Cuenta hasta tres. @top_k=5"]
+     (antes de #176, running quedaba vacío: con un kill de Main en este momento, el Prompt se perdía).
+   - /exit en Main mientras sigue retenido: turn_cancelled (main is shutting down); state.json igual que arriba.
+   - rm hold; se arranca Main de nuevo; /open caja176 (02-caja-tras-reiniciar.png): el input trae
+     «Cuenta hasta tres. @top_k=5», tal como se tecleó, con «+2 waiting». state.json:
+       drafts  {"caja176": ["Cuenta hasta tres. @top_k=5", "Y luego hasta cuatro.", "sin enviar"]}
+       running []
+   - Con /close y con /profile switch --now, y con el fin del Turno detrás de /exit en el inbox: solo tests (la carrera
+     no se reproduce a mano).
+2. /close <sid> desde el Chat de Main solo pone en el Borrador los Prompts humanos de la cola
+   - hold = «Cuenta hasta cinco»; /new --id=cola176. En cola176: «Cuenta hasta cinco. @top_k=5» (retenido).
+   - En lider176: «Llama a la tool tell una vez con sid=cola176 y text=Di adios en una palabra.» → en cola176 queda en
+     cola «[from Session lider176] Di adios en una palabra.» (origin ["human","session:lider176"]).
+   - En cola176: «Y despues hasta seis.» (en cola, humano) (07-cola-antes-de-close.png).
+   - Desde Main: /close cola176. El Log:
+       prompts_dropped  texts=["[from Session lider176]\nDi adios en una palabra.", "Y despues hasta seis."]
+                        origins=[["human","session:lider176"],["human"]]
+     rm hold: turn_cancelled (window closed). state.json:
+       drafts  {"cola176": ["Cuenta hasta cinco. @top_k=5", "Y despues hasta seis."]}
+     El de lider176 no entra en el Borrador (antes de #176 entraba, con su cabecera).
+   - /open cola176 (08-cola-reabierta.png): «Cuenta hasta cinco. @top_k=5» con «+1 waiting».
+   - El /close de una fproc va por el mismo camino (TurnQueue.cancel): solo tests del de Main.
+3. Con /exit a mitad de un Turno humano, sus Textos intercalados vuelven al Borrador al arrancar de nuevo, tras su
+   Prompt
+   - hold = «Ademas di un color». En siesta176: «Llama a la tool nap con seconds=25 y luego di listo.»; mientras corre
+     nap, «Ademas di un color.» con Enter y «sin enviar» sin Enter. Al acabar nap el texto entra en el Turno
+     (prompt_joined) y el Paso siguiente queda retenido (03-siesta-antes-de-exit.png).
+   - /exit en Main. state.json:
+       drafts  {"siesta176": ["Ademas di un color.", "sin enviar"]}
+       running ["Llama a la tool nap con seconds=25 y luego di listo."]
+   - rm hold; se arranca Main de nuevo; la Ventana de siesta176 se reabre sola (04-siesta-tras-reiniciar.png): el input
+     trae el Prompt con «+2 waiting». state.json:
+       drafts  {"siesta176": ["Llama a la tool nap con seconds=25 y luego di listo.", "Ademas di un color.", "sin enviar"]}
+4. Al cerrar la Ventana con un Turno humano suspendido, vuelven su Prompt y sus Textos intercalados
+   - fall = «Y tambien un animal». /new --id=pausa176; /func add pausa176 function:napper. En pausa176: «Llama a la
+     tool nap con seconds=20 y luego di listo.»; mientras corre nap, «Y tambien un animal.». El texto entra y el Paso
+     siguiente cae: turn suspended, queue paused (05-pausa-suspendido.png). El Turno espera en la cola
+     (suspended=true en state.json).
+   - Se cierra la Ventana (kill del xterm «AllIn · pausa176»): prompts_dropped (window closed). state.json:
+       drafts  {"pausa176": ["Llama a la tool nap con seconds=20 y luego di listo.", "Y tambien un animal."]}
+     (antes de #176, solo el Prompt).
+   - rm fall down; /open pausa176 (06-pausa-reabierta.png): el Prompt con «+1 waiting».
+   - Cedido para compactar: solo tests.
+5. Un Prompt humano devuelto con la Ventana abierta mientras Main se cierra queda en el Borrador guardado
+   - Solo tests: el fallo tiene que llegar al inbox detrás de /exit, y esa carrera no se reproduce a mano.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+Logs completos: log-de-caja176.jsonl, log-de-siesta176.jsonl, log-de-pausa176.jsonl, log-de-cola176.jsonl.
+
+## Tests de #176
+tests/test_write_during_turn.py::test_a_cancelled_human_prompt_comes_back_once_when_main_stops_before_its_turn_ends
+  (4 casos: cerrar la Ventana o /close, y /exit o señal) PASSED
+tests/test_write_during_turn.py::test_a_cancelled_human_prompt_still_running_is_kept_for_a_main_that_dies PASSED
+tests/test_write_during_turn.py::test_a_cancelled_turns_end_behind_exit_gives_its_prompt_back_once PASSED
+tests/test_profile_switch.py::test_with_now_and_exit_before_the_turn_ends_its_prompt_comes_back_on_the_next_start PASSED
+tests/test_dispatcher.py::test_the_prompt_of_a_turn_cancelled_by_closing_its_window_is_kept_running_as_main_stops PASSED
+tests/test_write_during_turn.py::test_closing_from_main_chat_gives_back_no_queued_prompt_of_another_origin PASSED
+tests/test_write_during_turn.py::test_stopping_main_mid_turn_keeps_the_texts_that_entered_it_after_its_prompt
+  (2 casos: /exit y señal) PASSED
+tests/test_write_during_turn.py::test_exit_after_closing_the_window_mid_turn_keeps_its_prompt_and_texts_in_order PASSED
+tests/test_write_during_turn.py::test_closing_the_window_on_a_turn_back_in_the_queue_keeps_its_texts
+  (2 casos: suspendido y cedido para compactar) PASSED
+tests/test_failed_turns.py::test_a_turn_that_fails_as_main_stops_leaves_what_it_gives_back_in_the_draft PASSED
+Suite completa: 1813 pasan; basedpyright y ruff limpios.

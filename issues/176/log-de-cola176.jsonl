@@ -1,0 +1,13 @@
+{"ts": "2026-11-03T10:09:43.443717-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T10:09:43.448443-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:09:43.534797-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T10:09:44.898416-06:00", "event": "prompt", "text": "Cuenta hasta cinco.", "overrides": {"top_k": 5}, "typed": "Cuenta hasta cinco. @top_k=5", "prompt_id": "9jvt5w", "origin": ["human"]}
+{"ts": "2026-11-03T10:09:44.902903-06:00", "event": "turn_started", "need": 8627}
+{"ts": "2026-11-03T10:09:48.184686-06:00", "event": "prompt", "text": "[from Session lider176]\nDi adios en una palabra.", "prompt_id": "4zdblv", "queued": true, "origin": ["human", "session:lider176"]}
+{"ts": "2026-11-03T10:09:53.998117-06:00", "event": "prompt", "text": "Y despues hasta seis.", "prompt_id": "xm6miy", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T10:10:03.762244-06:00", "event": "window_closed", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T10:10:03.762423-06:00", "event": "prompts_dropped", "reason": "window closed", "texts": ["[from Session lider176]\nDi adios en una palabra.", "Y despues hasta seis."], "kinds": ["prompt", "prompt"], "origins": [["human", "session:lider176"], ["human"]]}
+{"ts": "2026-11-03T10:10:04.477464-06:00", "event": "turn_cancelled", "error": "turn_cancelled: reason='window closed'", "reasoning": "", "answer": "", "joined": [], "typed": "Cuenta hasta cinco. @top_k=5", "origin": ["human"], "prompt": "Cuenta hasta cinco."}
+{"ts": "2026-11-03T10:10:11.968104-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:10:12.055199-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T10:10:25.812841-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
