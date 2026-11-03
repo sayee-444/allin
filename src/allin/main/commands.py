@@ -945,19 +945,8 @@ class MainCommands:
         """``/errand`` and ``/batch``: its Session and every worker of the active Profile."""
         coordinator = self._active_session(session_id)
         errand = parse_errand(text, batch, self._settings.current.errand)
-        workers = errand.workers or tuple(p.worker for p in errand.parts if p.worker is not None)
-        known = {worker: self._active_session(worker) for worker in workers}  # by its id now
-        errand = errand.model_copy(
-            update={
-                "workers": tuple(known[w] for w in errand.workers),
-                "parts": tuple(
-                    p.model_copy(update={"worker": known[p.worker]}) if p.worker else p
-                    for p in errand.parts
-                ),
-            }
-        )
-        opened = self._subscriptions.open_errand(coordinator, errand, origin)
-        self._reporter.show(coordinator, f"errand {opened.id}: {opened.event}")
+        known = {worker: self._active_session(worker) for worker in errand.assigned}  # by id now
+        self._subscriptions.open_errand(coordinator, errand.with_workers(known), origin)
         return True
 
     def _unsubscribe(self, session_id: str, subscription: str, *, origin: Origin) -> bool:

@@ -12,13 +12,14 @@ from allin.core.drafts import put_back
 from allin.core.errors import AllInError, TurnCrashed
 from allin.core.ids import MainId, SessionId
 from allin.main.boxes import MainBoxes
+from allin.main.errands import OnErrand
 from allin.main.notifications import ERRAND, Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
 from allin.main.state import MainState, MainStateStore
-from allin.main.subscriptions import Subscriptions
+from allin.main.subscriptions import Subscription, Subscriptions
 from allin.main.turn_queue import TurnQueue
 from allin.main.window_room import NO_LIMIT
 
@@ -48,6 +49,8 @@ class Recovery:
         self._boxes = boxes
         self._notifications = notifications
         self._unclean = False  # the last Main died without closing what it had open
+        self._open_errands: list[Subscription] = []  # the Encargos the last Main left open
+        self._lost_sessions: set[SessionId] = set()  # whose Turn died with it
         self._subscriptions = subscriptions
         self._windows = windows
         self._turns = turns
@@ -97,12 +100,19 @@ class Recovery:
     def _report(self) -> None:
         """The Informe de recuperación: for now, the Encargos the dead Main had open, which
         go on, its workers that died with it counted as no answer (ADR-0011)."""
-        errands = self._subscriptions.errands()
+        errands = self._open_errands
         if not errands:
             return
-        lines = [f"errand {s.id} of Session {s.session_id} ({s.event}): goes on" for s in errands]
+        lines: list[str] = []
         for subscription in errands:
-            told = f"Main stopped while your errand {subscription.id} was open; it goes on"
+            if not isinstance(subscription.watch, OnErrand):
+                continue
+            lost = [str(p.worker) for p in subscription.watch.parts if p.status == "out"]
+            dead = [w for w in lost if w in self._lost_sessions]
+            fate = "settled" if subscription.id not in self._still_open() else "goes on"
+            line = f"errand {subscription.id} of Session {subscription.session_id}: {fate}"
+            lines.append(line + (f"; no answer from {', '.join(dead)}" if dead else ""))
+            told = f"Main stopped while your errand {subscription.id} was open: {fate}"
             self._notifications.leave(subscription.session_id, ERRAND, told)
         self._reporter.log_main("recovery_report", errands=list[JsonValue](lines))
         text = "Left half done when Main last stopped:\n" + "\n".join(lines)
@@ -114,6 +124,9 @@ class Recovery:
         self._state = state
         self._saved = MainState()
         self._put_back()
+
+    def _still_open(self) -> set[str]:
+        return {s.id for s in self._subscriptions.errands()}
 
     def _put_back(self) -> bool:
         """Whether Turns were running when the state was saved last."""
@@ -128,9 +141,11 @@ class Recovery:
             drafts[prompt.session_id] = put_back(draft, prompt.text)
         self._windows.replace_drafts(drafts)
         self._subscriptions.restore(saved.subscriptions)
+        self._turns.requeue(saved.queue)  # first: an Encargo the lost settle cancels some
+        self._open_errands = self._subscriptions.errands()  # as the dead Main left them
+        self._lost_sessions = {prompt.session_id for prompt in saved.running}
         for prompt in saved.running:  # in no Conversation, it answers no one
             self._subscriptions.lost(prompt, "Main stopped during its Turn")
-        self._turns.requeue(saved.queue)
         for session_id in saved.background:
             if not self._windows.is_open(session_id):
                 self._windows.keep_in_background(session_id)

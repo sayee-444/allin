@@ -135,6 +135,7 @@ def _errand(call: SessionCommandCall) -> str:
 
 
 def _batch(call: SessionCommandCall) -> str:
+    """Always for its own Session, as ``@errand``."""
     if not call.args.strip():
         raise ValueError(_BATCH_USAGE)
     return f"/batch {call.session_id} {call.args.strip()}"

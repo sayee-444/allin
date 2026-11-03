@@ -290,8 +290,7 @@ class Subscriptions:
         """Open an Encargo or a Lote for ``session_id``, which must be ``origin``'s own if a
         Session asks, and hand out what it can now (#117)."""
         _check_own(session_id, origin)
-        workers = errand.workers or tuple(p.worker for p in errand.parts if p.worker is not None)
-        self._check_tree(session_id, workers)
+        self._check_tree(session_id, errand.assigned)
         subscription = self._opened(session_id, errand, origin, prefix="e")
         self._advance(subscription.id)
         return subscription
@@ -418,7 +417,11 @@ class Subscriptions:
     # Inside -------------------------------------------------------------------------------
 
     def _opened(
-        self, session_id: SessionId, watch: Watch, origin: Origin, prefix: str = "s"
+        self,
+        session_id: SessionId,
+        watch: Watch,
+        origin: Origin,
+        prefix: Literal["s", "e"] = "s",
     ) -> Subscription:
         subscription = Subscription(
             id=new_subscription_id(prefix),
@@ -443,6 +446,7 @@ class Subscriptions:
     def _cancel(self, subscription: Subscription, why: str) -> None:
         """It no longer waits, and what came for it is dropped; an answer held back for it
         goes once nothing else holds it."""
+        subscription = self._open.get(subscription.id, subscription)  # as it is now
         self._open.pop(subscription.id, None)
         self._pending = [h for h in self._pending if h.subscription.id != subscription.id]
         shown = f"subscription {subscription.id} ({subscription.event}) cancelled: {why}"
@@ -504,15 +508,24 @@ class Subscriptions:
         return [*debts, *self._release(set(prompt.woke_by))]
 
     def _cancel_unsaved(self, prompt: Prompt) -> None:
-        """What ``prompt``'s Turn opened, which is in no Conversation, is cancelled."""
+        """What ``prompt``'s Turn opened, which is in no Conversation, is cancelled; but an
+        Encargo, which is its Session's and not its Turn's (ADR-0011): it goes on, held by no
+        Turn, and a Rewind to before that Turn still cancels it."""
         turn = self._next_turn(prompt.session_id)
         for subscription in self._waiting():
-            if (
+            if not (
                 subscription.session_id == prompt.session_id
                 and subscription.in_turn
                 and subscription.opened_after(turn)
             ):
-                self._cancel(subscription, "its Turn was not saved")
+                continue
+            if isinstance(subscription.watch, OnErrand) and subscription.id in self._open:
+                current = self._open[subscription.id]
+                self._open[subscription.id] = current.model_copy(
+                    update={"in_turn": False, "opened_turn": turn}
+                )
+                continue
+            self._cancel(subscription, "its Turn was not saved")
 
     def _unanswered(self, prompt: Prompt, why: str, kind: OutcomeKind) -> None:
         origin = from_session(prompt.origin, prompt.session_id)
@@ -576,6 +589,7 @@ class Subscriptions:
         """A part's Prompt ended: its result counts, or it goes out again, and its Encargo
         moves on; one that is no longer open drops it, and it stays in its worker's Log."""
         found = self._errand(errand_id)
+        served = self._turns.serving(outcome.session_id)  # a Lote's results say it
         if found is None and errand_id in self._closed:
             self._reporter.log_session(
                 outcome.session_id, "errand_result_dropped", errand=errand_id, text=outcome.text
@@ -585,7 +599,7 @@ class Subscriptions:
 
             def frozen_part(state: SubscriptionState) -> SubscriptionState:
                 kept = [
-                    s.model_copy(update={"watch": with_outcome(s.watch, index, outcome, "")})
+                    s.model_copy(update={"watch": with_outcome(s.watch, index, outcome, served)})
                     if s.id == errand_id and isinstance(s.watch, OnErrand)
                     else s
                     for s in state.open
@@ -595,7 +609,6 @@ class Subscriptions:
             self._frozen(frozen_part)
             return
         subscription, before = found
-        served = self._turns.serving(outcome.session_id) if before.batch else ""
         after = with_outcome(before, index, outcome, served)
         if after == before:
             self._reporter.log_session(
@@ -677,10 +690,11 @@ class Subscriptions:
         origins = [p.origin for p in errand.parts if p.origin is not None]
         longest = max(origins, key=lambda o: len(o.chain), default=subscription.origin)
         settled = subscription.model_copy(update={"watch": errand})
+        results = report(errand)
         self._reporter.log_session(
-            subscription.session_id, "errand_settled", errand=subscription.id, text=report(errand)
+            subscription.session_id, "errand_settled", errand=subscription.id, text=results
         )
-        self._happened(settled, report(errand), longest)
+        self._happened(settled, results, longest)
 
     def _stop_part(self, errand_id: SubscriptionId, index: int, part: Part, why: str) -> None:
         """Cancel what a part's worker does for it: its Prompt, queued or running, and what
@@ -692,6 +706,8 @@ class Subscriptions:
                 inner = next((s for s in self._waiting() if s.id == waiting), None)
                 if inner is not None:
                     self._cancel(inner, why)
+                # The Turn it woke, queued or running, would answer for the part.
+                self._turns.cancel_woken(debt.session_id, waiting, why)
         if part.status == "out" and part.worker is not None:
             self._turns.cancel_prompt(part.worker, part.prompt_id, why)
 
@@ -703,9 +719,15 @@ class Subscriptions:
             return
         subscription, errand = found
         deadline = found[1].deadline
+        # A Lote's task waiting for a free worker spends it too, while one could take it.
+        any_ready = any(self._turns.ready(w) for w in errand.workers)
         late: list[tuple[int, Part]] = []
         for index, part in enumerate(errand.parts):
-            if part.status != "out" or part.worker is None or not self._turns.ready(part.worker):
+            waiting = part.status == "pending" and part.worker is None and any_ready
+            running = (
+                part.status == "out" and part.worker is not None and self._turns.ready(part.worker)
+            )
+            if not (waiting or running):
                 continue
             spent = part.spent + elapsed
             if spent < deadline:

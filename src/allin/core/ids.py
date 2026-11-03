@@ -1,7 +1,7 @@
 import re
 import secrets
 import string
-from typing import NewType
+from typing import Literal, NewType
 
 _ALPHABET = string.ascii_lowercase + string.digits
 _LENGTH = 6
@@ -46,7 +46,7 @@ SubscriptionId = NewType("SubscriptionId", str)
 _SUBSCRIPTION_ID = re.compile(f"[se][{re.escape(_ALPHABET)}]{{{_LENGTH}}}")
 
 
-def new_subscription_id(prefix: str = "s") -> SubscriptionId:
+def new_subscription_id(prefix: Literal["s", "e"] = "s") -> SubscriptionId:
     return SubscriptionId(prefix + "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
 
 

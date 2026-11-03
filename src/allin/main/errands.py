@@ -93,8 +93,23 @@ class OnErrand(BaseModel, frozen=True):
 
     @property
     def waits_for(self) -> set[SessionId]:
-        """The workers it still waits for."""
-        return {p.worker for p in self.parts if p.worker is not None and not p.ended}
+        """The workers it still waits for: a Lote with tasks to go, every one of its list."""
+        out = {p.worker for p in self.parts if p.worker is not None and not p.ended}
+        return out | set(self.workers) if not self.settled else out
+
+    @property
+    def assigned(self) -> tuple[SessionId, ...]:
+        """Who it hands its tasks to: a Lote's list, or each part's worker."""
+        return self.workers or tuple(p.worker for p in self.parts if p.worker is not None)
+
+    def with_workers(self, known: dict[SessionId, SessionId]) -> "OnErrand":
+        """The same, each worker named by ``known`` instead (by its id now)."""
+        parts = tuple(
+            p.model_copy(update={"worker": known.get(p.worker, p.worker)}) if p.worker else p
+            for p in self.parts
+        )
+        workers = tuple(known.get(w, w) for w in self.workers)
+        return self.model_copy(update={"parts": parts, "workers": workers})
 
     @property
     def event(self) -> str:
@@ -160,7 +175,7 @@ def with_outcome(errand: OnErrand, index: int, outcome: Outcome, served_by: str)
         "result": outcome.text,
         "origin": outcome.origin,
         "prompt_id": NO_PROMPT_ID,
-        "served_by": served_by,
+        "served_by": served_by if errand.batch else "",
     }
     return errand.with_part(index, part.model_copy(update=update))
 
@@ -181,7 +196,9 @@ def report(errand: OnErrand) -> str:
             case "late":
                 lines.append(f"{head}: no answer within its deadline{tries}")
             case "cancelled":
-                lines.append(f"{head}: cancelled, its quorum was met")
+                met = errand.k is not None and errand.answered >= errand.k
+                why = "its quorum was met" if met else "its quorum could no longer be met"
+                lines.append(f"{head}: cancelled, {why}")
             case "pending" | "out":
                 lines.append(f"{head}: still out")
     return "\n".join(lines)

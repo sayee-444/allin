@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import JsonValue
 
-from allin.core.errors import TurnCrashed
+from allin.core.errors import TurnCancelled, TurnCrashed
 from allin.main.events import MainCommandEntered, Tick, TurnEnded
 from allin.main.sessions import Session
 from tests.test_dispatcher import (
@@ -377,3 +377,72 @@ def test_an_answer_that_comes_with_its_profile_inactive_counts_on_return(main: M
     )
     assert woke == [0], "frozen with its Profile"
     assert f"- Session {b.id} answered:\nhecho" in wake_text(main, c)
+
+
+def test_closing_its_sessions_window_cancels_its_turn_but_not_the_errand(main: MainHarness):
+    c, a = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {c.id}"),
+        MainCommandEntered(f"/send {c.id} reparte"),
+        MainCommandEntered(f"/errand {c.id} --to={a.id} trabaja", origin=from_session(c)),
+        MainCommandEntered(f"/close {c.id}"),  # its Turn is cancelled, in no Conversation
+        TurnEnded(c.id, error=TurnCancelled(reason="window closed")),
+        answers(a, "hecho"),
+        Tick(),
+        settle=True,
+    )
+    assert logged(main, c, "subscription_cancelled") == []
+    assert f"- Session {a.id} answered:\nhecho" in wake_text(main, c)
+
+
+def test_a_session_of_a_batchs_list_cannot_wait_for_it_before_it_got_a_task(
+    main: MainHarness,
+):
+    c, a, b = (main.create_session() for _ in range(3))
+    chat = main.run(
+        MainCommandEntered(f'/batch {c.id} --to={a.id},{b.id} ["t1", "t2"]'),  # one slot: a
+        MainCommandEntered(f"/errand {b.id} --to={c.id} vuelve", origin=from_session(b)),
+        settle=True,
+    )
+    assert any("errand_cycle" in line for line in chat), chat
+
+
+def test_a_batch_task_waiting_for_a_free_worker_spends_its_deadline(main: MainHarness):
+    c, a = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/send {a.id} ocupada"),  # a is busy, and stays so
+        MainCommandEntered(f'/batch {c.id} --deadline=5 --to={a.id} ["t1"]'),
+        later(main, 6),
+        Tick(),
+        settle=True,
+    )
+    assert "- task 1 (no worker): no answer within its deadline" in wake_text(main, c)
+
+
+def test_after_main_dies_the_report_shows_an_errand_its_lost_turn_settled(main: MainHarness):
+    c, a = main.create_session(), main.create_session()
+    main.run(MainCommandEntered(f"/errand {c.id} --to={a.id} trabaja"), settle=True)
+    main.held.clear()
+    main.run(Tick(), settle=True)
+    [report] = [e.fields for e in main.main_log() if e.event == "recovery_report"]
+    assert f"settled; no answer from {a.id}" in str(report["errands"])
+    assert f"- Session {a.id} did not answer: Main stopped during its Turn" in wake_text(main, c)
+
+
+def test_cancelling_an_errand_cancels_the_turn_its_worker_was_woken_for(main: MainHarness):
+    c, a, b = (main.create_session() for _ in range(3))
+
+    def unsubscribe() -> None:
+        [opened] = logged(main, c, "subscribed")
+        inbox(main).put(MainCommandEntered(f"/unsubscribe {c.id} {opened['subscription']}"))
+
+    main.run(
+        MainCommandEntered(f"/errand {c.id} --to={a.id} reparte"),
+        MainCommandEntered(f"/errand {a.id} --to={b.id} parte", origin=from_session(a)),
+        answers(a, "repartí"),
+        answers(b, "hecho"),
+        Tick(),  # a wakes with b's result, to answer for c
+        unsubscribe,
+        settle=True,
+    )
+    assert any("was cancelled: unsubscribed" in why for why in cancelled_for(main, a))

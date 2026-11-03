@@ -42,6 +42,7 @@ from allin.core.ids import (
     PromptId,
     ServerKey,
     SessionId,
+    SubscriptionId,
     SupervisorName,
     new_prompt_id,
 )
@@ -1529,6 +1530,17 @@ class TurnQueue:
             self.send_turn_state(session_id)
             self._start_turns()
             return
+
+    def cancel_woken(
+        self, session_id: SessionId, subscription_id: SubscriptionId, reason: str
+    ) -> None:
+        """Cancel the Session's Prompt that ``subscription_id`` woke, queued or running."""
+        running = self._running.get(session_id)
+        prompts = [*([running.prompt] if running else []), *self._prompts.of(session_id)]
+        for prompt in prompts:
+            if subscription_id in prompt.woke_by:
+                self.cancel_prompt(session_id, prompt.prompt_id, reason)
+                return
 
     def ready(self, session_id: SessionId) -> bool:
         """Whether the Session's Server is ready: an Encargo's deadline runs only then."""
