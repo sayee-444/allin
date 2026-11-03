@@ -1,0 +1,12 @@
+{"ts":"2026-11-03T08:41:28.626623-06:00","event":"session_created","owner":"root","mold":null}
+{"ts":"2026-11-03T08:41:28.631412-06:00","event":"window_opened"}
+{"ts":"2026-11-03T08:41:28.719908-06:00","event":"window_connected"}
+{"ts":"2026-11-03T08:41:51.631579-06:00","event":"prompt","text":"[from Session lider171]\nDi un color en una palabra.","prompt_id":"f10w5d","origin":["human","session:lider171"]}
+{"ts":"2026-11-03T08:41:51.638160-06:00","event":"turn_started","need":8390}
+{"ts":"2026-11-03T08:41:51.639332-06:00","event":"turn_suspended","error":"llm_unavailable: reason='Connection error.', reached=True","reasoning":"…","answer":"…"}
+{"ts":"2026-11-03T08:41:52.193602-06:00","event":"prompt","text":"[from Session lider171]\nDi un numero en una palabra.","prompt_id":"e2l7v9","queued":true,"origin":["human","session:lider171"]}
+{"ts":"2026-11-03T08:42:02.183254-06:00","event":"prompt","text":"Y ahora una fruta.","overrides":{"top_k":5},"typed":"Y ahora una fruta. @top_k=5","prompt_id":"kw6wts","queued":true,"origin":["human"]}
+{"ts":"2026-11-03T08:42:10.445442-06:00","event":"turn_started","need":8390}
+{"ts":"2026-11-03T08:42:10.446740-06:00","event":"turn_failed","error":"llm_unavailable: reason='Connection error.', reached=True","reasoning":"…","answer":"…","joined":[],"origin":["human","session:lider171"],"prompt":"[from Session lider171]\nDi un color en una palabra."}
+{"ts":"2026-11-03T08:42:10.446889-06:00","event":"prompts_dropped","reason":"the turn before failed","texts":["[from Session lider171]\nDi un numero en una palabra.","Y ahora una fruta."],"kinds":["prompt","prompt"],"typed":["[from Session lider171]\nDi un numero en una palabra.","Y ahora una fruta. @top_k=5"],"origins":[["human","session:lider171"],["human"]]}
+{"ts":"2026-11-03T08:42:10.446954-06:00","event":"prompt_returned","texts":["Y ahora una fruta. @top_k=5"]}

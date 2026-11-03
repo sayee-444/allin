@@ -1,0 +1,10 @@
+"""A function for #171's manual test: another Session sends a Prompt with @send."""
+
+from allin.channel import command
+from allin.decorators import reach
+
+
+@reach(commands=["send"])
+def tell(sid: str, text: str) -> object:
+    """Send ``text`` as a Prompt to the Session ``sid``."""
+    return command(f"@send {sid} {text}")

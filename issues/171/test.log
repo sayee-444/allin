@@ -1,0 +1,62 @@
+# #171 — Solo vuelve al input el Prompt humano de un Turno fallido, y el que no cabe vuelve como se tecleó (2026-11-03)
+
+Código: rama fix/171-prompt-fallido-solo-humano, commit 1c5ebcd (el final, tras la revisión).
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/166, 19932 → 9932, con dos cambios): solo cae el POST de generación cuyo cuerpo
+contiene lo escrito en <scratch>/fall (aquí «[from Session lider171]», la cabecera que lee el LLM de un Prompt
+enviado por lider171), así el Turno de lider171 sigue; y cada caída crea <scratch>/down (/health 503), para que dé
+tiempo a encolar Prompts antes del segundo intento.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m171, en el xterm allin-main-171, con /set base_url=http://127.0.0.1:19932/v1.
+Origen no humano: <data-dir>/profiles/default/functions/teller/tell.py (tell.py.txt), function `tell(sid, text)` con
+@reach(commands=["send"]) que hace «@send <sid> <text>»; /piece approve --all; /new --id=lider171; /func add lider171 function:teller.
+Sus Prompts llegan con origin ["human", "session:lider171"].
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Un Turno que falla con un Prompt de Origen no humano no lo devuelve al input, ni con la Ventana abierta ni al reabrirla
+2. Lo mismo con los Prompts no humanos de la cola que caen con él; los humanos sí vuelven
+   Con la Ventana abierta:
+   - /new --id=abierta171. En lider171: «Llama a la tool tell dos veces ... sid=abierta171 y text=Di un color en una palabra.
+     y luego ... text=Di un numero en una palabra.». El primero empieza su Turno y cae (turn suspended; queda down);
+     el segundo espera en cola. En la Ventana de abierta171, con Enter: «Y ahora una fruta. @top_k=5» (humano, en cola).
+     01-abierta-antes-del-fallo.png: los dos [queued], el de lider171 y el humano.
+   - rm down: el Turno vuelve a empezar y cae otra vez en el mismo Paso: turn failed; los dos de la cola salen con
+     «the turn before failed».
+   - 02-abierta-tras-el-fallo.png: el input trae solo «Y ahora una fruta. @top_k=5» (como se tecleó), sin «+N waiting»:
+     ni «Di un color...» ni «Di un numero...», que eran de lider171.
+   - Log (06-log-de-abierta171.jsonl):
+       turn_failed      origin=["human","session:lider171"]  prompt="[from Session lider171]\nDi un color en una palabra."
+       prompts_dropped  texts=[«...Di un numero...», "Y ahora una fruta."]  typed=[..., "Y ahora una fruta. @top_k=5"]
+                        origins=[["human","session:lider171"], ["human"]]
+       prompt_returned  texts=["Y ahora una fruta. @top_k=5"]
+   Con la Ventana cerrada, al reabrirla:
+   - /new --id=cerrada171 y /close cerrada171. En lider171: tell dos veces a cerrada171 («Di un animal en una palabra.»,
+     «Di una ciudad en una palabra.»): el primero cae y el segundo espera. En Main: /send cerrada171 Y ahora una flor. @temperature=0.3
+   - rm down: turn failed; los dos de la cola salen. Sin Ventana, nada vuelve aún (no hay prompt_returned).
+   - rm fall; /open cerrada171 (03-cerrada-al-reabrir.png): el Chat reconstruido con el Prompt de lider171, el error y
+     [dropped] 2; el input trae solo «Y ahora una flor. @temperature=0.3», sin «+N waiting». El Log suma
+       prompt_returned  texts=["Y ahora una flor. @temperature=0.3"]
+     Log completo: 07-log-de-cerrada171.jsonl.
+3. El Prompt humano que no cabe en el slot vuelve al input tal como se tecleó; uno de otro Origen no vuelve
+   - /new --id=grande171; /session set grande171 sampling.max_output_tokens=50000 (más que los 32000 del slot: ningún
+     Prompt cabe).
+   - En su Ventana, con Enter: «Di hola. @top_k=5» → prompt_too_big: need=50379, limit=32000, y el input vuelve con
+     «Di hola. @top_k=5», con su Command prompt (04-grande-humano-no-cabe.png; prompt_returned en el Log).
+   - En lider171: «Llama a la tool tell una vez con sid=grande171 y text=Di adios en una palabra.» → prompt_too_big:
+     need=50390, limit=32000, y el input sigue igual: no entra un bloque «[from Session lider171]...» ni hay
+     prompt_returned (05-grande-de-otra-sesion-no-vuelve.png; 08-log-de-grande171.jsonl).
+4. Tests: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+
+## Tests de #171
+tests/test_failed_turns.py::test_what_goes_back_to_the_input_is_read_from_the_log[log9..log14] PASSED
+  (origin en turn_failed, origins en prompts_dropped, un Log de antes sin Origen, un Origen ilegible)
+tests/test_failed_turns.py::test_a_failed_turn_gives_back_only_the_human_prompts_with_its_window_open PASSED
+tests/test_failed_turns.py::test_a_failed_turn_gives_back_only_the_human_prompts_as_its_window_opens PASSED
+tests/test_failed_turns.py::test_a_failed_turn_of_another_origin_alone_gives_nothing_back PASSED
+tests/test_pool_admission.py::test_a_human_prompt_that_does_not_fit_goes_back_as_it_was_typed PASSED
+tests/test_pool_admission.py::test_a_prompt_of_another_origin_that_does_not_fit_never_goes_to_the_input PASSED
+Suite completa: 1764 pasan; basedpyright y ruff limpios.

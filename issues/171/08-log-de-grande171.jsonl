@@ -1,0 +1,8 @@
+{"ts":"2026-11-03T08:43:15.550330-06:00","event":"session_created","owner":"root","mold":null}
+{"ts":"2026-11-03T08:43:15.555235-06:00","event":"window_opened"}
+{"ts":"2026-11-03T08:43:15.642770-06:00","event":"window_connected"}
+{"ts":"2026-11-03T08:43:25.615790-06:00","event":"prompt","text":"Di hola.","overrides":{"top_k":5},"typed":"Di hola. @top_k=5","prompt_id":"562jfg","origin":["human"]}
+{"ts":"2026-11-03T08:43:25.618932-06:00","event":"error","error":"prompt_too_big: need=50379, limit=32000"}
+{"ts":"2026-11-03T08:43:25.619006-06:00","event":"prompt_returned","texts":["Di hola. @top_k=5"]}
+{"ts":"2026-11-03T08:43:39.504992-06:00","event":"prompt","text":"[from Session lider171]\nDi adios en una palabra.","prompt_id":"bd8p0t","origin":["human","session:lider171"]}
+{"ts":"2026-11-03T08:43:39.514999-06:00","event":"error","error":"prompt_too_big: need=50390, limit=32000"}
