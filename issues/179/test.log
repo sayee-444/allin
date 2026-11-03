@@ -1,0 +1,51 @@
+# #179 — Un @new de la Iniciativa con tarea no deja una Sesión huérfana cuando el Subperfil está en su tope (2026-11-03)
+
+Rama fix/179-new-de-iniciativa-sin-sesion-huerfana; commit 0ff02b3 (fix).
+Servidor (la otra sesión podía levantar el suyo, así que Swift IQ3_XXS con -c 32000):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9933
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m179, en un xterm (allin-main-179), con el código de 0ff02b3.
+Ajustes: /set base_url=http://127.0.0.1:9933/v1 (y reinicio).
+
+## Preparación
+- <data-dir>/profiles/default/functions/chatbots/: bot.py (aquí al lado, como bot.py.txt) y molds/helper.toml y
+  molds/tasked.toml (este con task = "Saluda en una frase.").
+  bot.py: @subprofile, @reach(commands=["new","send"], molds=["helper","tasked"]). Desde su propio hilo lee
+  las líneas de inbox.txt (en su Carpeta de trabajo) y pide cada una por su cuenta (Iniciativa); lo que oye
+  va a answers.jsonl (03-lo-que-oyo-bot.jsonl).
+- /piece approve --all; /attach bot. El Subperfil de bot tiene turns=1 (por defecto).
+
+## Pasos
+1. inbox.txt: «@new helper» -> {"result": "ok", "state": {"session_id": "recdad", "place": "background"}}
+2. inbox.txt: «@send recdad Escribe un cuento de unas 800 palabras sobre un faro.» -> {"result": "ok"}
+   (recdad tiene su Turno en cola y luego en marcha: el tope de 1 está lleno)
+3. inbox.txt, enseguida: «@new tasked» -> {"error": "subprofile_busy: name='bot', turns=1"}
+   - <data-dir>/profiles/default/subprofiles/bot.json: "sessions": ["recdad"]
+   - <data-dir>/sessions/: solo recdad. Ninguna Sesión nueva.
+   - Chat de Main (01-main-tope-sin-huerfana.png): «/new --mold=tasked --bg: error subprofile_busy: name='bot', turns=1»
+     sin ningún «session created by bot» antes.
+4. Acaba el Turno de recdad (lo cortó su Output cap: el cuento no importa aquí).
+5. inbox.txt: «@new tasked» -> {"result": "ok", "state": {"session_id": "nnttf6", "place": "background"}}
+   - bot.json: "sessions": ["recdad", "nnttf6"] (06-subperfil-bot-al-final.json)
+   - Log de nnttf6 (05-log-de-nnttf6.jsonl): session_created (mold tasked, subprofile bot), prompt
+     «[from attached process bot]\nSaluda en una frase.» con Origen ["human", "process:bot"],
+     turn_started con "initiative": true, y turn_finished.
+   - Chat de Main (02-main-con-sitio-tarea.png): «[nnttf6] session created by bot, in its Subperfil»,
+     «/new --mold=tasked --bg: ok», «[nnttf6] turn started», «[nnttf6] turn finished».
+6. /exit; Servidor apagado.
+Log de Main, desde /attach bot (04-log-de-main.jsonl).
+
+## Criterios
+1. Con el Subperfil en su tope, un @new de la Iniciativa desde un Molde con tarea no crea ninguna Sesión y la
+   fproc oye el error del tope: paso 3. Test:
+   tests/test_fproc_initiative.py::test_past_its_cap_a_molde_with_a_task_creates_no_session_and_it_hears_busy
+   (el escenario de la revisión; antes del arreglo fallaba con dos Sesiones en el Subperfil).
+2. Si hay sitio, la Sesión se crea y su tarea entra como antes: paso 5. Tests:
+   test_a_session_of_its_subprofile_without_a_turn_leaves_room_for_a_moldes_task (nuevo: una Sesión del
+   Subperfil sin Turno no ocupa sitio) y test_the_task_of_a_molde_it_creates_on_its_own_waits_behind_a_humans (sin tocar).
+3. Tests: los dos de arriba; la suite entera, abajo.
+
+## Suite (tras fusionar origin/main con #174)
+  PYTHONPATH=src venv/bin/python -m pytest -q   -> 1801 passed
+  basedpyright (strict)                         -> 0 errors, 0 warnings, 0 notes
+  ruff check src tests                          -> All checks passed!
+  scripts.metrics: tests 1801; coverage 85%; mutation 93% (933/998); type errors 0; lint 0; escapes 41

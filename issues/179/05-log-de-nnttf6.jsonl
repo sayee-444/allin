@@ -1,0 +1,4 @@
+{"ts": "2026-11-03T09:51:47.368967-06:00", "event": "session_created", "owner": "root", "mold": "tasked", "subprofile": "bot"}
+{"ts": "2026-11-03T09:51:47.369262-06:00", "event": "prompt", "text": "[from attached process bot]\nSaluda en una frase.", "prompt_id": "qyz9gs", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:51:47.372478-06:00", "event": "turn_started", "need": 8089, "initiative": true}
+{"ts": "2026-11-03T09:51:48.071925-06:00", "event": "turn_finished", "turn": 0}

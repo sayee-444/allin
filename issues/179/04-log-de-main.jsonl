@@ -1,0 +1,12 @@
+{"ts": "2026-11-03T09:47:17.780429-06:00", "event": "attached", "name": "bot", "fproc": "bot", "pid": 1450945, "file": null, "to": [], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-03T09:47:17.780494-06:00", "event": "command", "command": "/attach bot", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T09:47:25.282572-06:00", "event": "initiative", "name": "bot", "command": "@new helper", "runs": "/new --mold=helper --bg", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:47:25.283897-06:00", "event": "session_created", "sid": "recdad", "owner": "root", "mold": "helper", "subprofile": "bot"}
+{"ts": "2026-11-03T09:47:25.284022-06:00", "event": "command", "command": "/new --mold=helper --bg", "result": "ok", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:47:31.287169-06:00", "event": "initiative", "name": "bot", "command": "@send recdad Escribe un cuento de unas 800 palabras sobre un faro.", "runs": "/send recdad Escribe un cuento de unas 800 palabras sobre un faro.", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:47:31.288798-06:00", "event": "command", "sid": "recdad", "command": "/send recdad Escribe un cuento de unas 800 palabras sobre un faro.", "result": "ok", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:47:31.289499-06:00", "event": "initiative", "name": "bot", "command": "@new tasked", "runs": "/new --mold=tasked --bg", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:47:31.290418-06:00", "event": "command", "command": "/new --mold=tasked --bg", "result": "error subprofile_busy: name='bot', turns=1", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:51:47.367703-06:00", "event": "initiative", "name": "bot", "command": "@new tasked", "runs": "/new --mold=tasked --bg", "origin": ["human", "process:bot"]}
+{"ts": "2026-11-03T09:51:47.368994-06:00", "event": "session_created", "sid": "nnttf6", "owner": "root", "mold": "tasked", "subprofile": "bot"}
+{"ts": "2026-11-03T09:51:47.370005-06:00", "event": "command", "command": "/new --mold=tasked --bg", "result": "ok", "origin": ["human", "process:bot"]}

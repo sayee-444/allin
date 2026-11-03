@@ -1,0 +1,4 @@
+{"asked": "@new helper", "answer": {"result": "ok", "state": {"session_id": "recdad", "place": "background"}}}
+{"asked": "@send recdad Escribe un cuento de unas 800 palabras sobre un faro.", "answer": {"result": "ok"}}
+{"asked": "@new tasked", "answer": {"error": "subprofile_busy: name='bot', turns=1"}}
+{"asked": "@new tasked", "answer": {"result": "ok", "state": {"session_id": "nnttf6", "place": "background"}}}

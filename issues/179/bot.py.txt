@@ -1,0 +1,33 @@
+import json
+import threading
+import time
+from pathlib import Path
+
+from allin.channel import command
+from allin.decorators import reach, subprofile
+from allin.fproc import Fproc
+
+
+@subprofile
+@reach(commands=["new", "send"], molds=["helper", "tasked"])
+class Bot(Fproc):
+    """A chat bot: each line of inbox.txt is a Command session it asks on its own."""
+
+    def __init__(self):
+        threading.Thread(target=self._listen, daemon=True).start()
+
+    def _listen(self):
+        inbox = Path("inbox.txt")
+        seen = 0
+        while True:
+            lines = inbox.read_text().splitlines() if inbox.exists() else []
+            for line in lines[seen:]:
+                self._ask(line)
+            seen = max(seen, len(lines))
+            time.sleep(0.5)
+
+    def _ask(self, text):
+        answer = command(text)
+        with open("answers.jsonl", "a") as out:
+            out.write(json.dumps({"asked": text, "answer": answer}) + "\n")
+        return answer
