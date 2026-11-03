@@ -24,6 +24,7 @@ from allin.core.errors import (
 )
 from allin.core.files import write_atomically
 from allin.core.ids import (
+    AttachedName,
     CommandName,
     MainId,
     NotificationSource,
@@ -112,6 +113,8 @@ class Session(BaseModel, frozen=True):
     commands: tuple[CommandName, ...] = ()
     # Its Notificaciones waiting for its next Prompt (#109).
     notifications: tuple[Notification, ...] = ()
+    # The Procesos adheridos whose methods its LLM gets as tools, by name (#114).
+    attached: tuple[AttachedName, ...] = ()
 
 
 class SessionStore:
@@ -309,6 +312,10 @@ class SessionStore:
     def save_functions(self, session: Session, functions: tuple[PieceId, ...]) -> Session:
         """The Session with other Function tools, already on disk."""
         return self._save(session.model_copy(update={"functions": functions}))
+
+    def save_attached(self, session: Session, attached: tuple[AttachedName, ...]) -> Session:
+        """The Session with the methods of other Procesos adheridos, already on disk."""
+        return self._save(session.model_copy(update={"attached": attached}))
 
     def save_notifications(
         self, session: Session, notifications: tuple[Notification, ...]

@@ -447,10 +447,10 @@ def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> b
                 from_main += chunk
                 while b"\n" in from_main:
                     line, _, from_main = from_main.partition(b"\n")
-                    method = _method_call(line)
-                    if method is None:
+                    for_runner = _method_call(line) or _command_result(line)
+                    if for_runner is None:
                         return False  # a detach, or anything else: Main is done with it
-                    _write_all(calls_in, method)
+                    _write_all(calls_in, for_runner)
                 continue
             chunk = os.read(replies_out, 1 << 16)
             if not chunk or len(from_runner) > _ANSWER_MAX:
@@ -475,12 +475,15 @@ def _method_call(line: bytes) -> bytes | None:
 def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> None:
     """The runner of a Proceso adherido: import the fproc from its package, make its class in
     its Carpeta de trabajo and answer each call to one of its public methods, one at a time,
-    until its calls end. It never returns."""
+    until its calls end. While it serves one, a method runs Command sessions through Main on
+    the same pipes (``allin.channel``). It never returns."""
     assert call.fproc is not None
     _prepare_runner(call, warden)
     replies = os.fdopen(replies_in, "wb")
     try:
-        from allin import fproc  # noqa: PLC0415 - the runner's alone
+        from allin import channel, fproc  # noqa: PLC0415 - the runner's alone
+
+        channel.connect(replies_in, calls_out)
 
         fproc.attached_as(
             call.fproc.name, None if call.fproc.file is None else Path(call.fproc.file)
@@ -492,7 +495,8 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
         _answer(replies, _line({"type": "raised", "error": f"{type(error).__name__}: {error}"}))
         os._exit(0)
     _answer(replies, answer)
-    with os.fdopen(calls_out, "rb") as calls:
+    # Unbuffered: a Command session's result is read from the same pipe, by ``allin.channel``.
+    with os.fdopen(calls_out, "rb", buffering=0) as calls:
         for line in calls:
             _answer(replies, _run_method(fproc_class, instance, line))
     os._exit(0)

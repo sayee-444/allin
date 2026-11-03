@@ -14,6 +14,7 @@ Session's Window says so when it gets it and marks it on its border while it has
 """
 
 from collections.abc import Callable, Iterable, Sequence
+from typing import Protocol
 
 from pydantic import JsonValue
 
@@ -32,7 +33,7 @@ from allin.core.origin import HUMAN, Origin
 from allin.decorators import GRANT as GRANT_NAME
 from allin.ipc.messages import GrantHeld
 from allin.main.boxes import MainBoxes
-from allin.main.notifications import FUNC, Notifications
+from allin.main.notifications import FUNC, Notifications, told_line
 from allin.main.open_windows import OpenWindows
 from allin.main.quarantine import Piece, PieceRef, PieceState, Quarantine, parse_piece_ref
 from allin.main.reporting import Reporter
@@ -40,8 +41,21 @@ from allin.main.session_commands import LoadedSessionCommands, chain_allows
 from allin.main.sessions import Change, Session, SessionStore
 
 USAGE = (
-    "/func list [sid] | /func add <sid> <piece|@command>… | /func remove <sid> <piece|@command>…"
+    "/func list [sid] | /func add <sid> <piece|@command|attached:name>…"
+    " | /func remove <sid> <piece|@command|attached:name>…"
 )
+ATTACHED = "attached:"  # how a line names a Proceso adherido's methods (#114)
+
+
+class ChangeMethods(Protocol):
+    """Gives a Session the methods of the Procesos adheridos a line names
+    (``attached:<name>``), or takes them away."""
+
+    def __call__(
+        self, session: Session, named: list[str], *, given: bool, origin: Origin
+    ) -> None: ...
+
+
 GRANT_USAGE = "/grant <sid> <piece|@command>…"
 GRANT = CommandName(GRANT_NAME)
 _STATES: dict[PieceState, str] = {
@@ -78,6 +92,7 @@ class FuncCommands:
         notifications: Notifications,
         windows: OpenWindows,
         in_profile: Callable[[SessionId], bool],
+        methods: ChangeMethods,
     ) -> None:
         """``load`` gives a Session of this Main by id; ``quarantine``, the active Profile's;
         ``commands``, the Command sessions Main loaded; ``in_profile``, whether a Session is
@@ -91,6 +106,7 @@ class FuncCommands:
         self._notifications = notifications
         self._windows = windows
         self._in_profile = in_profile
+        self._methods = methods
 
     def run(self, text: str = "", origin: Origin = HUMAN) -> bool:
         # Who may add is checked before (``only_human``); who did goes in the Log.
@@ -100,6 +116,7 @@ class FuncCommands:
             case ["list", sid]:
                 self._list_session(self._load(sid))
             case ["add", sid, *named] if named:
+                named = self._methods_named(sid, named, given=True, origin=origin)
                 refs, commands = self._named(named, USAGE)
                 if self._gives_grant(refs):  # its approved fsource gives Otorgar too
                     commands = [*commands, GRANT]
@@ -107,6 +124,7 @@ class FuncCommands:
                     self._add(self._load(sid), refs, origin)
                 self._add_commands(self._load(sid), commands, origin)
             case ["remove", sid, *named] if named:
+                named = self._methods_named(sid, named, given=False, origin=origin)
                 refs, commands = self._named(named, USAGE)
                 if self._may_grant(refs):  # Otorgar leaves with its fsource
                     commands = [*commands, GRANT]
@@ -116,6 +134,16 @@ class FuncCommands:
             case _:
                 raise InvalidArguments(usage=USAGE)
         return True
+
+    def _methods_named(
+        self, session_id: str, named: list[str], *, given: bool, origin: Origin
+    ) -> list[str]:
+        """Give or take the Procesos adheridos' methods the line names (``attached:<name>``),
+        and leave the rest for the pieces and Command sessions."""
+        methods = [word for word in named if word.startswith(ATTACHED)]
+        if methods:
+            self._methods(self._load(session_id), methods, given=given, origin=origin)
+        return [word for word in named if not word.startswith(ATTACHED)]
 
     def grant(self, session_id: str, named: str, origin: Origin = HUMAN) -> bool:
         """``/grant <sid> <piece|@command>…``: Otorgar. It gives a Session of the active
@@ -344,7 +372,7 @@ class FuncCommands:
         was given or lost (#109)."""
         for subject in dict.fromkeys(subjects):
             change = Change(subject=subject, given=given)
-            self._notifications.leave(session.id, FUNC, _told_line(change), change)
+            self._notifications.leave(session.id, FUNC, told_line(change), change)
 
     def _save(
         self,
@@ -359,16 +387,6 @@ class FuncCommands:
         shown = f"functions: {', '.join(functions) or 'none'}"
         origin_labels = list[JsonValue](origin.labels)
         self._reporter.record(session.id, event, shown, pieces=changed, origin=origin_labels)
-
-
-def _told_line(change: Change) -> str:
-    """How a Notificación tells the LLM what it was given or lost."""
-    command = change.subject.startswith("@")
-    if change.given:
-        what = "your tools may run it" if command else "its tools are yours"
-        return f"{change.subject} was given to you: {what}"
-    what = "your tools may no longer run it" if command else "its tools are no longer yours"
-    return f"{change.subject} was taken away: {what}"
 
 
 def _shown(names: Iterable[CommandName]) -> str:

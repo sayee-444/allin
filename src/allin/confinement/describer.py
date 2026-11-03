@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from pydantic import JsonValue, create_model
 
-from allin.core.errors import NotATool
+from allin.core.errors import InvalidReach, NotATool
 from allin.decorators import REACH_MARK, reach_of
 
 _MARK = "__allin_"
@@ -51,11 +51,17 @@ def _the_tool(module: ModuleType) -> Callable[..., object]:
 
 
 def _public_methods(fproc: type) -> list[tuple[str, Callable[..., object]]]:
-    return sorted(
+    """Its public methods. Raises ``InvalidReach`` for one with an Alcance of its own: the
+    class's is the whole process's (ADR-0016), so it would not count."""
+    methods = sorted(
         (name, method)
         for name, method in vars(fproc).items()
         if not name.startswith("_") and inspect.isfunction(method)
     )
+    for name, method in methods:
+        if hasattr(method, REACH_MARK):
+            raise InvalidReach(field=f"{fproc.__name__}.{name}", value="put @reach on the class")
+    return methods
 
 
 def _tool(name: str, function: Callable[..., object]) -> JsonValue:

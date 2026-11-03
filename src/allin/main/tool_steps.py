@@ -18,10 +18,15 @@ from pathlib import Path
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
-from allin.confinement.launcher import ToolCall, ToolLauncher
-from allin.core.errors import AllInError, SessionCommandNotDeclared, ToolCancelled
+from allin.confinement.launcher import OnCommand, ToolCall, ToolLauncher, ToolOutcome
+from allin.core.errors import (
+    AllInError,
+    SessionCommandNotDeclared,
+    ToolCancelled,
+    ToolNotStarted,
+)
 from allin.core.ids import PieceId, SessionId
-from allin.core.origin import Origin
+from allin.core.origin import Origin, from_process
 from allin.decorators import CONFIRM, Reach
 from allin.main.confirmation import ConfirmationGate
 from allin.main.conversation import TOOL_ERROR, Item, Step
@@ -44,6 +49,21 @@ REFUSED = "the user refused this call: it did not run"
 type Emit = Callable[[MainEvent], None]
 
 
+# Calls a Proceso adherido's method with its arguments, its timeout, what cancels the call
+# and where its Command sessions go.
+type MethodCall = Callable[
+    [dict[str, JsonValue], float, Callable[[], bool], OnCommand], ToolOutcome
+]
+
+
+@dataclass(frozen=True)
+class AttachedMethod:
+    """A tool that is a Proceso adherido's method (#114): its process runs it, not a new one."""
+
+    process: str  # the Proceso adherido's name, a link of its Command sessions' Origin
+    call: MethodCall
+
+
 @dataclass(frozen=True)
 class SessionTool:
     """One Function tool a Session's LLM may call, as Main runs it."""
@@ -54,6 +74,7 @@ class SessionTool:
     reach: Reach  # as its description read it, or as its Approval reduced it
     schema: Item  # as ``tools=[...]`` takes it
     confirm: bool = False  # it asks a Confirmation before each call: ``@confirm`` or its Approval
+    method: AttachedMethod | None = None  # an fproc's method, which its Proceso adherido runs
 
 
 def session_tools(
@@ -83,21 +104,30 @@ def session_tools(
     return list(tools.values())
 
 
-# Runs a Command session a tool asked for, with its Turn's Origin, and gives back how it went.
-type AskMain = Callable[[str], JsonValue]
+# Runs a Command session a tool asked for, with its Turn's Origin, and gives back how it went;
+# the second argument is the Proceso adherido whose method asked, a link of its Origin.
+type AskMain = Callable[[str, str | None], JsonValue]
 
 
-def _no_main(text: str) -> JsonValue:
+def _no_main(text: str, _: str | None) -> JsonValue:
     return {"error": f"no Main to run {text[:40]!r}"}
 
 
-def _declared(tool: SessionTool, text: str, ask_main: AskMain) -> JsonValue:
-    """Main runs only the Command sessions a function declares in its Alcance (ADR-0025)."""
+def refused_command(reach: Reach, text: str, tool: str) -> JsonValue | None:
+    """Why Main does not run ``text`` for ``tool``: only the Command sessions its function, or
+    its method's fproc, declares in its Alcance run (ADR-0025)."""
     name = session_command_name(text)
-    if name is None or name not in tool.reach.commands:
-        refused = SessionCommandNotDeclared(command=name or text[:40], tool=tool.name)
+    if name is None or name not in reach.commands:
+        refused = SessionCommandNotDeclared(command=name or text[:40], tool=tool)
         return {"error": str(refused)}
-    return ask_main(text)
+    return None
+
+
+def _declared(tool: SessionTool, text: str, ask_main: AskMain) -> JsonValue:
+    refused = refused_command(tool.reach, text, tool.name)
+    if refused is not None:
+        return refused
+    return ask_main(text, None if tool.method is None else tool.method.process)
 
 
 class SessionTools:
@@ -142,18 +172,7 @@ class SessionTools:
         except ValidationError:
             return f"{TOOL_ERROR}its arguments are not a JSON object"
         try:
-            self._workspace.mkdir(parents=True, exist_ok=True)  # made when first needed
-        except OSError as error:
-            return f"{TOOL_ERROR}its Carpeta de trabajo cannot be made: {error}"
-        try:
-            outcome = self._launcher.run(
-                ToolCall(
-                    tool.package, tool.module, tool.name, arguments, self._workspace, tool.reach
-                ),
-                self._timeout,
-                stop,
-                lambda text: _declared(tool, text, ask_main),
-            )
+            outcome = self._outcome(tool, arguments, stop, ask_main)
         except ToolCancelled:
             raise
         except AllInError as error:  # timed out, died, could not be confined or started
@@ -161,6 +180,27 @@ class SessionTools:
         if outcome.error is not None:
             return f"{TOOL_ERROR}{outcome.error}"
         return json.dumps(outcome.value, ensure_ascii=False)
+
+    def _outcome(
+        self,
+        tool: SessionTool,
+        arguments: dict[str, JsonValue],
+        stop: Callable[[], bool],
+        ask_main: AskMain,
+    ) -> ToolOutcome:
+        """Run the call: a method in its Proceso adherido, anything else in a process of its
+        own, in the Session's Carpeta de trabajo. Raises ``AllInError``."""
+        on_command: OnCommand = lambda text: _declared(tool, text, ask_main)
+        if tool.method is not None:
+            return tool.method.call(arguments, self._timeout, stop, on_command)
+        try:
+            self._workspace.mkdir(parents=True, exist_ok=True)  # made when first needed
+        except OSError as error:
+            raise ToolNotStarted(cause=f"its Carpeta de trabajo cannot be made: {error}") from error
+        call = ToolCall(
+            tool.package, tool.module, tool.name, arguments, self._workspace, tool.reach
+        )
+        return self._launcher.run(call, self._timeout, stop, on_command)
 
 
 _ARGUMENTS = TypeAdapter(dict[str, JsonValue])
@@ -243,7 +283,7 @@ class ToolGate:
                     self._tools.run(
                         call,
                         lambda: turn.cancellation.reason is not None,
-                        lambda text: self._ask_main(turn, text),
+                        lambda text, process: self._ask_main(turn, text, process),
                     )
                 )
             except ToolCancelled:
@@ -264,9 +304,11 @@ class ToolGate:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
 
-    def _ask_main(self, turn: _Turn, text: str) -> JsonValue:
-        """From the call's thread: Main runs the Command session with the Turn's Origin; wait
-        for how it went. Raises ``ToolCancelled`` if the Turn is cancelled meanwhile."""
+    def _ask_main(self, turn: _Turn, text: str, process: str | None) -> JsonValue:
+        """From the call's thread: Main runs the Command session with the Turn's Origin, after
+        the Proceso adherido ``process`` if a method of one asks; wait for how it went. Raises
+        ``ToolCancelled`` if the Turn is cancelled meanwhile."""
+        origin = self._origin if process is None else from_process(self._origin, process)
         answers: queue.Queue[SessionCommandResult] = queue.Queue()
         lock = threading.Lock()
         waiting = [True]
@@ -277,7 +319,7 @@ class ToolGate:
                     answers.put(result)
                 return waiting[0]
 
-        turn.emit(SessionCommandAsked(turn.session_id, text, self._origin, answer))
+        turn.emit(SessionCommandAsked(turn.session_id, text, origin, answer))
         while True:
             if turn.cancellation.reason is not None:
                 with lock:

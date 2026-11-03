@@ -23,6 +23,7 @@ from allin.core.ids import CommandName, MainId, SessionId, new_prompt_id
 from allin.core.origin import HUMAN, Origin
 from allin.ipc.messages import OrganizerRow
 from allin.main.attached import ATTACH_USAGE, DETACH_USAGE, AttachedProcesses
+from allin.main.attached_methods import CALL_USAGE, AttachedMethods
 from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
@@ -144,6 +145,7 @@ class MainCommands:
         notifications: Notifications,
         creator: PieceCreator,
         attached: AttachedProcesses,
+        methods: AttachedMethods,
     ) -> None:
         self._functions = functions
         self._creator = creator
@@ -403,6 +405,24 @@ class MainCommands:
                 args={"name": "its name"},
                 usage_text=DETACH_USAGE,
                 human_only=True,
+            ),
+            # The one Command main of every fproc's methods: a piece adds none (ADR-0021).
+            "/call": CommandSpec(
+                (),
+                methods.run,
+                "list a Proceso adherido's methods, or call one",
+                args={
+                    "name …": "the Proceso adherido's name; then one of its public methods,"
+                    " without which they are listed, and its arguments as key=value, a value"
+                    " that reads as JSON being JSON",
+                },
+                usage_text=CALL_USAGE,
+                optional=("name …",),
+                rest=True,
+                session_of=methods.session_of,
+                confirm=methods.delicate,
+                takes_origin=True,
+                takes_answer=True,
             ),
             # Built from this registry, so a new Command main shows by itself (#23).
             "/help": CommandSpec(

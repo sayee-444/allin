@@ -378,3 +378,26 @@ def test_the_packages_hash_sees_its_bytecode_and_its_links_but_not_where_they_le
     (folder / "__pycache__").mkdir()
     (folder / "__pycache__" / "f.cpython-314.pyc").write_bytes(b"planted")
     assert folder_hash(folder) != before
+
+
+def test_an_alcance_on_an_fprocs_method_fails_its_description_rather_than_being_ignored(
+    data_dir: Path, launcher: CountingLauncher
+):
+    folder = package(
+        data_dir,
+        "board",
+        """
+from allin.decorators import reach
+from allin.fproc import Fproc
+
+
+class Board(Fproc):
+    @reach(net=True)
+    def fetch(self) -> None:
+        \"\"\"Its Alcance is its class's: this one would not count.\"\"\"
+""",
+    )
+    with pytest.raises(DescriptionFailed) as raised:
+        descriptions(data_dir, launcher).describe(folder, "board", written_by_user=True)
+    error = str(raised.value.fields["error"])
+    assert "invalid_reach" in error and "fetch" in error

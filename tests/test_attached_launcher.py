@@ -12,10 +12,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from pydantic import JsonValue
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import AttachedProcess, FprocStart, ToolLauncher
-from allin.core.errors import AttachedEnded, AttachFailed, ToolTimedOut
+from allin.core.errors import AttachedEnded, AttachFailed, ToolCancelled, ToolTimedOut
 from allin.core.ids import AttachedName, FprocName
 from tests.test_tool_launcher import alive, unique_title
 
@@ -69,6 +70,15 @@ class Counter(Fproc):
 
     def fail(self) -> None:
         raise ValueError("no")
+
+    def ask(self, text: str) -> object:
+        from allin.channel import command
+
+        return [command(text), command(text + " again")]
+
+    def slow_add(self, n: int, seconds: float) -> int:
+        time.sleep(seconds)
+        return self.add(n)
 
     def _hidden(self) -> int:
         return 1
@@ -173,6 +183,33 @@ def test_a_method_that_raises_or_does_not_exist_gives_an_error_and_it_goes_on(
     for missing in ("_hidden", "nothing", "__init__"):
         assert "NoSuchMethod" in str(attached.call(missing, {}, timeout=10).error)
     assert attached.call("add", {"n": 1}, timeout=10).value == 1
+
+
+def test_a_method_runs_command_sessions_through_main_while_it_serves_a_call(
+    attached: AttachedProcess,
+):
+    asked: list[str] = []
+
+    def on_command(text: str) -> JsonValue:
+        asked.append(text)
+        return {"result": f"ran {text}"}
+
+    answer = attached.call("ask", {"text": "@send ab hi"}, timeout=10, on_command=on_command)
+    assert answer.value == [{"result": "ran @send ab hi"}, {"result": "ran @send ab hi again"}]
+    assert asked == ["@send ab hi", "@send ab hi again"]
+    refused = attached.call("ask", {"text": "@send ab hi"}, timeout=10).value
+    assert isinstance(refused, list) and "error" in str(refused[0])
+
+
+def test_a_call_whose_turn_was_cancelled_leaves_the_next_one_its_own_answer(
+    attached: AttachedProcess,
+):
+    stopped = time.monotonic() + 0.3
+    with pytest.raises(ToolCancelled):
+        attached.call(
+            "slow_add", {"n": 5, "seconds": 1}, timeout=10, stop=lambda: time.monotonic() > stopped
+        )
+    assert attached.call("add", {"n": 1}, timeout=10).value == 6
 
 
 def test_a_class_that_cannot_be_made_fails_the_attachment(

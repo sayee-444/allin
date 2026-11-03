@@ -533,6 +533,18 @@ class AttachedNotFound(AllInError):
     code: ClassVar[str] = "attached_not_found"
 
 
+class AttachedMethodNotFound(AllInError):
+    """The Proceso adherido ``name`` has no public method ``method``."""
+
+    code: ClassVar[str] = "attached_method_not_found"
+
+
+class AttachedMethodsNotGiven(AllInError):
+    """The Session ``session_id`` does not have the methods of the Proceso adherido ``name``."""
+
+    code: ClassVar[str] = "attached_methods_not_given"
+
+
 class AttachedNameTaken(AllInError):
     """A Proceso adherido of the active Profile already runs with this ``name``."""
 

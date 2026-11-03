@@ -30,10 +30,21 @@ from allin.main.sessions import Change, Notification, Session, SessionStore
 # The line a Turn interrupted with Shift+Enter leaves for the next Prompt.
 INTERRUPTED = NotificationSource("interrupted")
 FUNC = NotificationSource("/func")  # functions and Command sessions given or taken away
+CALL = NotificationSource("call")  # a human's @call of a Proceso adherido's method (#114)
 # The sources Main itself leaves Notificaciones from, listed even before any did.
-SOURCES = (FUNC, INTERRUPTED)
+SOURCES = (FUNC, CALL, INTERRUPTED)
 USAGE = "/conversation_logs <sid> on|off|list [source]"
 _ACTION = TypeAdapter[Literal["on", "off", "list"]](Literal["on", "off", "list"])
+
+
+def told_line(change: Change) -> str:
+    """How a Notificación tells the LLM what it was given or lost."""
+    command = change.subject.startswith("@")
+    if change.given:
+        what = "your tools may run it" if command else "its tools are yours"
+        return f"{change.subject} was given to you: {what}"
+    what = "your tools may no longer run it" if command else "its tools are no longer yours"
+    return f"{change.subject} was taken away: {what}"
 
 
 @dataclass(frozen=True)

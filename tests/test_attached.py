@@ -89,7 +89,7 @@ def records(main: MainHarness) -> list[dict[str, object]]:
 def crash(main: MainHarness) -> None:
     """Crash ``notes`` and wait for Main to hear it from the thread that watches it."""
     with pytest.raises(AttachedEnded):
-        main.dispatcher.attached.process("notes").call("crash", {}, timeout=10)
+        main.dispatcher.attached.attachment("notes").process.call("crash", {}, timeout=10)
     for thread in threading.enumerate():  # it tells Main as it ends
         if thread.name == "attached-notes":
             thread.join(5)
@@ -113,7 +113,7 @@ def test_attach_starts_it_with_its_name_and_folder_and_detach_lets_it_go(main: M
     kept: list[list[str]] = []
 
     def look() -> None:
-        process = main.dispatcher.attached.process("notes")
+        process = main.dispatcher.attached.attachment("notes").process
         pids.append(process.pid)
         wheres.append(process.call("where", {}, timeout=10).value)
         kept.append([str(r["name"]) for r in records(main)])
@@ -150,7 +150,7 @@ def test_attached_again_with_the_same_name_it_gets_its_folder_back(main: MainHar
     counts: list[object] = []
 
     def add() -> None:
-        process = main.dispatcher.attached.process("notes")
+        process = main.dispatcher.attached.attachment("notes").process
         counts.append(process.call("add", {"n": 2}, timeout=10).value)
 
     main.run(
@@ -171,7 +171,7 @@ def test_one_that_crashes_gives_a_notice_never_starts_again_and_its_methods_fail
 
     def methods_fail() -> None:
         try:
-            main.dispatcher.attached.process("notes")
+            main.dispatcher.attached.attachment("notes").process.call("add", {"n": 1}, 10)
         except AttachedEnded as error:
             crashed.append(error.code)
 
@@ -194,7 +194,9 @@ def test_one_that_crashed_comes_back_only_when_attached_again(main: MainHarness)
         MainCommandEntered("/attach counter notes"),
         lambda: crash(main),
         MainCommandEntered("/attach counter notes"),
-        lambda: dropped(main.dispatcher.attached.process("notes").call("add", {"n": 1}, 10)),
+        lambda: dropped(
+            main.dispatcher.attached.attachment("notes").process.call("add", {"n": 1}, 10)
+        ),
         settle=True,
     )
     assert len(events(main, "attached")) == 2
@@ -338,11 +340,11 @@ def test_switching_profile_detaches_the_outgoing_profiles(main: MainHarness):
 
     def gone() -> None:
         with pytest.raises(AttachedNotFound):
-            main.dispatcher.attached.process("notes")
+            main.dispatcher.attached.attachment("notes")
 
     main.run(
         MainCommandEntered("/attach counter notes"),
-        lambda: pids.append(main.dispatcher.attached.process("notes").pid),
+        lambda: pids.append(main.dispatcher.attached.attachment("notes").process.pid),
         MainCommandEntered("/profile switch tesis"),
         gone,
         settle=True,
@@ -356,7 +358,7 @@ def test_main_stopping_detaches_them_all(main: MainHarness):
     pids: list[int] = []
     main.run(
         MainCommandEntered("/attach counter notes"),
-        lambda: pids.append(main.dispatcher.attached.process("notes").pid),
+        lambda: pids.append(main.dispatcher.attached.attachment("notes").process.pid),
         settle=True,
     )
     assert not alive(pids[0])
@@ -413,11 +415,11 @@ def test_approving_its_fproc_with_another_reach_starts_it_again_with_it(main: Ma
 
     main.run(
         MainCommandEntered("/attach counter notes"),
-        lambda: pids.append(main.dispatcher.attached.process("notes").pid),
+        lambda: pids.append(main.dispatcher.attached.attachment("notes").process.pid),
         widen,
         MainCommandEntered("/piece show function:counting"),
         MainCommandEntered("/piece approve function:counting"),
-        lambda: pids.append(main.dispatcher.attached.process("notes").pid),
+        lambda: pids.append(main.dispatcher.attached.attachment("notes").process.pid),
         settle=True,
     )
     first, again = events(main, "attached")
