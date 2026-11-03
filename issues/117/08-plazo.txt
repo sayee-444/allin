@@ -1,0 +1,11 @@
+== Plazo de 30 s con el Server caído (Log de Main y de coord/obra1) ==
+{"ts": "2026-11-02T22:41:23.277306-06:00", "event": "subscribed", "sid": "coord", "subscription": "es35kbs", "watching": "errand:obra1", "origin": ["human"]}
+{"ts": "2026-11-02T22:41:27.609513-06:00", "event": "queue_paused", "server": "9931", "state": "ServerDown"}
+{"ts": "2026-11-02T22:43:09.054545-06:00", "event": "queue_paused", "server": "9931", "state": "ServerLoading"}
+{"ts": "2026-11-02T22:43:17.060026-06:00", "event": "server_ready", "total_slots": 2, "slot_context": 64000, "model_path": "Qwen3.8-27B-Uncensored-Q6_K.gguf", "vision": true, "server": "9931", "capacity": 2, "parallel": null}
+{"ts": "2026-11-02T22:43:17.060840-06:00", "event": "queue_resumed", "server": "9931"}
+{"ts": "2026-11-02T22:43:41.312987-06:00", "event": "turn_cancelled", "sid": "obra1", "error": "turn_cancelled: reason=\"its errand es35kbs's deadline passed\"", "reasoning": "The user is asking for a short story of about 400 words in Spanish about a night tra
+{"ts": "2026-11-02T22:41:23.277432-06:00", "event": "prompt", "text": "[from Session coord · Encargo es35kbs]\nEscribe un cuento de unas 400 palabras sobre un tren nocturno.", "owed": ["es35kbs.0"], "prompt_id": "3h2xo4", "origin": ["human", "session:coord"]}
+{"ts": "2026-11-02T22:41:27.609388-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "The user is asking for a Spanish short story of about 400 words about a night train. Let me write it in Sp
+{"ts": "2026-11-02T22:43:41.312922-06:00", "event": "turn_cancelled", "error": "turn_cancelled: reason=\"its errand es35kbs's deadline passed\"", "reasoning": "The user is asking for a short story of about 400 words in Spanish about a night train. Let me write
+{"ts": "2026-11-02T22:43:41.313215-06:00", "event": "errand_result_dropped", "errand": "es35kbs", "text": "its Turn cancelled: turn_cancelled: reason=\"its errand es35kbs's deadline passed\""}
