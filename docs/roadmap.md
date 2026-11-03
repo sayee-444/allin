@@ -8,28 +8,19 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #117 Encargo y Lote (2026-11-02).
-  - **Qué hace.** `@errand --to=<sid>,… <tarea>` (un humano: `/errand <sid> --to=… <tarea>`) da la tarea a cada trabajadora. `@batch --to=<sid>,… ["t1", …]` reparte una lista: cada tarea va a la trabajadora libre que tenga sitio en su Servidor. La coordinadora despierta una sola vez con todos los resultados. En el Lote, cada resultado dice de qué Servidor y modelo salió.
-  - **Opciones.** `--k=<n>` es el quórum: con `n` respuestas buenas se cancela el resto. `--deadline=<s>` es el plazo, que solo corre con el Servidor de la trabajadora listo. `--retries=<n>` vuelve a mandar una tarea que falló (por defecto `errand.retries`, 1).
-  - **El árbol.** Se rechaza (`errand_cycle`) un Encargo a una Sesión que, en cadena, espera a la coordinadora.
-  - **En cascada.** Cancelar el Encargo (Rewind, `/unsubscribe`, quórum, plazo) cancela los Turnos y los Prompts en cola de sus trabajadoras, y lo que ellas abrieron.
-  - **Informe de recuperación.** Tras un apagado no limpio, o con Turnos cortados, Main muestra un Aviso con los Encargos que quedaron abiertos y quién quedó sin respuesta, y deja una Notificación a cada coordinadora.
+- **Último hecho:** #118 Consultar (2026-11-02).
+  - **Qué hace.** `@status [queue|subscriptions|attached|servers|supervisors]` (un humano: `/status <sid> [parte]`) devuelve a la tool, por el canal de vuelta, `{"result": "ok", "state": {…}}`. Trae la cola (quién tiene Turno y cuántos Prompts esperan), las Suscripciones y Encargos con su avance, los Procesos adheridos con sus métodos, los Servidores que vigilan los Enlaces (estado, slots, cuántos ocupan Turnos del Perfil activo, modelo) y los Supervisores con su capacidad. El Chat de Main lo muestra en líneas.
+  - **Solo el Perfil activo** y **solo lee**: no pide Confirmación y viene en la lista por defecto de Command sessions.
   - **Probado a mano** con `llama serve` (Q6, dos slots):
-    - `coord` repartió con su tool `encargar` a `obra1`–`obra3` y despertó una vez con los tres números primos;
-    - con `--k=1`, la primera respuesta canceló el Turno de `obra1` y sacó de la cola el Prompt de `obra3`;
-    - con `/close obra3` a mitad de Turno, la tarea salió otra vez sin despertar a `coord` («after 2 tries»);
-    - un Lote de cinco traducciones entre tres trabajadoras despertó a `coord` una vez, con Servidor y modelo;
-    - `/errand obra2 --to=coord` dio `errand_cycle` mientras el Lote de `coord` estaba abierto;
-    - con `--deadline=30` y el Servidor caído minuto y medio, el plazo no corrió; venció 24 s después de que volviera;
-    - con Main muerto con `kill -9` a mitad de Encargo, al volver salió el Informe, y `coord` despertó con la respuesta de `obra3`, que estaba en cola, y con `obra1` y `obra2` sin respuesta.
+    - `jefa` usó su tool `consultar` con un Encargo a `obra` y un temporizador abiertos; recibió la cola, el Encargo «0 of 1 answered», el Servidor con 2 de 2 slots ocupados y el Supervisor dormido `reserva`;
+    - el temporizador de `otra`, del Perfil `tesis`, no salió desde `default`, y sí desde `tesis`; `/status otra` desde `default` dio `outside_profile`;
+    - las huellas del Estado de Main y de las Sesiones fueron iguales antes y después de tres `/status`.
   - **La revisión encontró**, ya arreglado:
-    - cerrar la Ventana de la coordinadora cancelaba su Encargo;
-    - al recuperar, un Encargo que se cerraba con los Turnos perdidos no salía en el Informe;
-    - el árbol no contaba a las trabajadoras de un Lote que aún no tenían tarea;
-    - una tarea de Lote que esperaba trabajadora libre no gastaba su plazo;
-    - la cascada no cancelaba el Turno con el que una trabajadora iba a contestar.
-  - Métricas: 1562 tests, cobertura 84 %, mutación 94 %, 40 escapes. Antes: #116 Suscripción.
-- **Siguiente:** #118 Consultar.
+    - los Supervisores no traían su capacidad;
+    - los slots ocupados contaban Turnos de cualquier Perfil;
+    - ids y nombres iban como texto suelto, y el Servidor mezclaba su descripción con su clave.
+  - Métricas: 1567 tests, cobertura 84 %, mutación 94 %, 40 escapes. Antes: #117 Encargo y Lote.
+- **Siguiente:** #119 Compactación en F2.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -68,6 +59,12 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Que «tener sitio» en el Lote signifique un slot del Servidor que no ocupa ya esta Main? Otros clientes del mismo Servidor no se ven.
   - ¿Que las tareas de un Lote se escriban como lista JSON o una por línea, y las de un Encargo con tarea propia por trabajadora como objeto JSON (`{"obra1": "…"}`)?
   - ¿Que una trabajadora cuyo Turno cortó un apagado limpio (`/exit`) cuente como sin respuesta en el siguiente arranque, igual que si Main muriera?
+
+  Sobre #118:
+  - ¿Le vale que el Command session se llame `@status` (un humano: `/status <sid>`), y que venga en la lista por defecto porque solo lee?
+  - ¿Que muestre las Suscripciones y Encargos de todas las Sesiones del Perfil activo, y no solo los de la Sesión que pregunta?
+  - ¿Que Servidores y Supervisores, que son de la máquina, salgan igual desde cualquier Perfil?
+  - Un Supervisor dormido sale sin capacidad: sus slots solo se saben cuando su Servidor está listo.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -156,7 +153,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 17. ✅ #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos
 18. ✅ #116 Suscripción
 19. ✅ #117 Encargo y Lote
-20. #118 Consultar
+20. ✅ #118 Consultar
 21. #119 Compactación en F2
 22. #120 Notificaciones de Turno cortado y de Contexto restante
 23. #121 Lo escrito durante un Turno entra antes del siguiente Paso
