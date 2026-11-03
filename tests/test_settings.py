@@ -23,6 +23,7 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "parallel",
         "step.stall",
         "admission.patience",
+        "attached.release",
         "windows.max",
         "session.assistant_name",
         "session.username",

@@ -2,8 +2,19 @@
 
 import pytest
 
-from allin.core.errors import InvalidReach
-from allin.decorators import MINIMUM, Reach, reach, reach_of
+from allin.core.errors import InvalidConcurrent, InvalidReach
+from allin.decorators import (
+    COMMUTATIVE_MARK,
+    CONCURRENT_MARK,
+    MINIMUM,
+    WRITES_MARK,
+    Reach,
+    at_once,
+    commutative,
+    concurrent,
+    reach,
+    reach_of,
+)
 
 
 def test_a_function_without_the_decorator_has_exactly_the_minimum_reach():
@@ -124,3 +135,32 @@ def test_a_reach_declaring_the_whole_system_may_be_reduced_to_home_or_work():
     assert Reach(read=("home/Documents",), write=("work/out",)).within(
         Reach(read=("/",), write=("/",))
     )
+
+
+def test_concurrent_says_how_many_calls_an_fproc_takes_at_once():
+    @concurrent(3)
+    class Three:
+        pass
+
+    @concurrent()
+    class Any:
+        pass
+
+    class One:
+        pass
+
+    marks = {"concurrent": getattr(Three, CONCURRENT_MARK)}
+    assert at_once(marks) == 3
+    assert at_once({"concurrent": getattr(Any, CONCURRENT_MARK)}) is None
+    assert not hasattr(One, CONCURRENT_MARK) and at_once({}) == 1
+    with pytest.raises(InvalidConcurrent):
+        concurrent(0)
+
+
+def test_commutative_is_a_write_nobody_is_told_to_read_again_before():
+    @commutative
+    def append(line: str) -> None:
+        pass
+
+    assert getattr(append, WRITES_MARK) is True
+    assert getattr(append, COMMUTATIVE_MARK) is True

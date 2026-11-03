@@ -41,7 +41,13 @@ from allin.decorators import CONFIRM, HUMAN_ONLY
 from allin.main.attached import AttachedFproc, AttachedProcesses, human_only
 from allin.main.attached_methods import held_names
 from allin.main.chat_rebuild import logs_entry
-from allin.main.events import CommandOutcome, MainEvent, MethodAnswered, OnOutcome
+from allin.main.events import (
+    CommandOutcome,
+    MainEvent,
+    MethodAnswered,
+    MethodProgressed,
+    OnOutcome,
+)
 from allin.main.notifications import CALL, Notifications
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
@@ -125,8 +131,17 @@ class MethodCalls:
 
         def call() -> None:
             outcome: ToolOutcome | AllInError
+            progressed = f"{attached.name}.{method.name}: "
             try:
-                outcome = attached.process.call(method.name, asked.arguments, timeout, on_command)
+                outcome = attached.process.call(
+                    method.name,
+                    asked.arguments,
+                    timeout,
+                    on_command,
+                    on_progress=lambda text: self._emit(
+                        MethodProgressed(asked.window, progressed + text)
+                    ),
+                )
             except AllInError as error:
                 outcome = error
             self._emit(MethodAnswered(lambda: self._answered(asked, outcome, origin, answer)))

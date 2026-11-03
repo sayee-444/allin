@@ -18,8 +18,9 @@ nor ``--devastation`` gives (ADR-0013). It is never AllIn's own.
 """
 
 import os
+import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -52,12 +53,13 @@ from allin.core.ids import (
     AttachedName,
     FprocName,
     ProfileName,
+    Revision,
     SessionId,
     parse_attached_name,
     parse_session_id,
 )
 from allin.core.origin import HUMAN, Origin
-from allin.decorators import CONFIRM, HUMAN_ONLY
+from allin.decorators import CONFIRM, HUMAN_ONLY, at_once
 from allin.main.boxes import MainBoxes
 from allin.main.descriptions import ToolSchema
 from allin.main.events import AttachedProcessEnded, CommandOutcome, MainEvent, OnOutcome
@@ -108,6 +110,38 @@ class _Asked:
     origin: Origin
 
 
+class Revisions:
+    """The revision of one Proceso adherido that each Session saw last, by the Turn it saw it
+    in: a Rewind forgets those seen since (ADR-0012). Safe from any thread: a Turn's thread
+    notes what each call saw at once, since its next call, in the same Step or the next, checks
+    it; going through Main's dispatcher would let that next call run first."""
+
+    def __init__(self) -> None:
+        self._seen: dict[SessionId, list[tuple[int, Revision]]] = {}
+        self._lock = threading.Lock()
+
+    def seen(self, session_id: SessionId) -> Revision:
+        """The last one the Session saw; ``NEVER_SEEN`` if it saw none."""
+        with self._lock:
+            seen = self._seen.get(session_id)
+            return seen[-1][1] if seen else NEVER_SEEN
+
+    def saw(self, session_id: SessionId, turn: int, revision: Revision | None) -> None:
+        """The Session saw ``revision`` in its Turn ``turn``; nothing for ``None``."""
+        if revision is not None:
+            with self._lock:
+                self._seen.setdefault(session_id, []).append((turn, revision))
+
+    def forget(self, session_id: SessionId, turns: int) -> None:
+        """The Session went back to its first ``turns`` Turns."""
+        with self._lock:
+            kept = [(t, r) for t, r in self._seen.get(session_id, []) if t < turns]
+            self._seen[session_id] = kept
+
+
+NEVER_SEEN = Revision(-1)  # one no process has: an ``@writes`` from it is always refused
+
+
 @dataclass(frozen=True)
 class AttachedFproc:
     """A Proceso adherido of the active Profile, attached or crashed, as its methods see it."""
@@ -115,6 +149,7 @@ class AttachedFproc:
     name: AttachedName
     offered: OfferedFunction  # its fproc, as it was approved when it started
     process: AttachedProcess
+    revisions: Revisions  # this process's, seen by each Session
 
     @property
     def methods(self) -> tuple[ToolSchema, ...]:
@@ -150,6 +185,7 @@ class _Instance:
     offered: OfferedFunction  # its fproc as it started: its Alcance and its methods
     process: AttachedProcess
     ended: bool = False  # it crashed, or was detached
+    revisions: Revisions = field(default_factory=Revisions)
 
 
 class AttachedProcesses:
@@ -167,6 +203,7 @@ class AttachedProcesses:
         emit: Callable[[MainEvent], None],
         data_dir: Path,
         start_timeout: float = 20.0,
+        release: Callable[[], float] = lambda: 5.0,
     ) -> None:
         """``launcher`` starts the processes, with a thread as long-lived as Main; without one
         nothing is attached. ``quarantine`` and ``profile`` are the active Profile's;
@@ -181,6 +218,7 @@ class AttachedProcesses:
         self._emit = emit
         self._data_dir = data_dir
         self._start_timeout = start_timeout
+        self._release = release  # Main's Setting, read as each one is attached
         self._given: Callable[[AttachedName, tuple[SessionId, ...]], None] = _nobody
         self._taken: Callable[[AttachedName], None] = _nobody
         self._instances: dict[AttachedName, _Instance] = {}
@@ -259,7 +297,13 @@ class AttachedProcesses:
         instance = self._instances.get(_name(name))
         if instance is None:
             raise AttachedNotFound(name=name)
-        return AttachedFproc(instance.asked.name, instance.offered, instance.process)
+        return AttachedFproc(
+            instance.asked.name, instance.offered, instance.process, instance.revisions
+        )
+
+    def fprocs(self) -> list[AttachedFproc]:
+        """Every Proceso adherido of the active Profile, attached or crashed."""
+        return [self.attached_fproc(name) for name in self._instances]
 
     def ended(self, name: AttachedName, pid: int) -> None:
         """Its process ended: one that was not detached crashed, and is not started again."""
@@ -272,6 +316,9 @@ class AttachedProcesses:
         stderr = instance.process.stderr[-_SHOWN_STDERR:]
         fproc = instance.asked.fproc
         how = _how_it_ended(code)
+        hung = instance.process.hung
+        if hung is not None:
+            how = f"AllIn killed it, {hung}"
         self._reporter.report(
             None,
             "attached_crashed",
@@ -280,9 +327,10 @@ class AttachedProcesses:
             fproc=fproc,
             exit_code=code,
             stderr=stderr,
+            killed=hung,
         )
         text = (
-            f"{name} ({fproc}) ended by itself: {how}. It does not start again by itself, and"
+            f"{name} ({fproc}) ended: {how}. It does not start again by itself, and"
             f" its methods fail; a human attaches it again with {_again(instance.asked)}."
         )
         if stderr.strip():
@@ -446,12 +494,14 @@ class AttachedProcesses:
             workspace,
             described.reach,
             asked.file,
+            at_once(described.marks),
         )
         name = asked.name
         process = self._launcher.attach(
             start,
             self._start_timeout,
             lambda ended: self._emit(AttachedProcessEnded(name, ended.pid)),
+            self._release(),
         )
         self._instances[name] = _Instance(asked, profile, offered, process)
         self._save()

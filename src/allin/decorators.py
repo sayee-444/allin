@@ -4,12 +4,12 @@ Main never imports a function, and a separate process reads the marks (ADR-0016)
 They run inside the tool's own process, so they use the standard library alone.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Literal, cast
 
-from allin.core.errors import InvalidReach
+from allin.core.errors import InvalidConcurrent, InvalidReach
 
 type Root = Literal["work", "home", "/"]
 ROOTS: tuple[Root, ...] = ("work", "home", "/")
@@ -19,6 +19,12 @@ CONFIRM_MARK = f"__allin_{CONFIRM}__"  # where ``@confirm`` marks its target del
 GRANT = "grant"  # Otorgar's Command session (ADR-0025)
 HUMAN_ONLY = "human"  # the mark ``@human`` leaves, as a description reads it
 HUMAN_ONLY_MARK = f"__allin_{HUMAN_ONLY}__"  # where ``@human`` marks an fproc's method
+WRITES = "writes"  # the mark ``@writes`` leaves, as a description reads it
+WRITES_MARK = f"__allin_{WRITES}__"
+COMMUTATIVE = "commutative"  # the mark ``@commutative`` leaves
+COMMUTATIVE_MARK = f"__allin_{COMMUTATIVE}__"
+CONCURRENT = "concurrent"  # the mark ``@concurrent`` leaves on an fproc's class
+CONCURRENT_MARK = f"__allin_{CONCURRENT}__"
 # Writing under these, outside a dotted or ``bin`` folder, is not where the user runs things.
 _HARMLESS_WRITES = (PurePosixPath("/dev/shm"),)  # noqa: S108 - a path an Alcance names
 
@@ -121,6 +127,46 @@ def human[T](target: T) -> T:
     ``tools=[...]`` (ADR-0021)."""
     setattr(target, HUMAN_ONLY_MARK, True)
     return target
+
+
+def writes[T](target: T) -> T:
+    """Mark an fproc's method as one that changes its state: it raises its revision, and a
+    Session that has not seen the current one gets "it changed since your last read; read
+    again" instead of running it (ADR-0012)."""
+    setattr(target, WRITES_MARK, True)
+    return target
+
+
+def commutative[T](target: T) -> T:
+    """Mark an fproc's method as a change that does not depend on what was read, such as adding
+    at the end: it raises the revision, as ``@writes``, but nobody is ever told to read again
+    before it (ADR-0012)."""
+    setattr(target, WRITES_MARK, True)
+    setattr(target, COMMUTATIVE_MARK, True)
+    return target
+
+
+def concurrent[T](at_once: int | None = None) -> Callable[[T], T]:
+    """Mark an fproc's class as one that takes ``at_once`` calls at a time, each in a thread of
+    its own, or as many as come without it; Main holds back the rest, in the order they came.
+    Without it, one at a time (ADR-0012)."""
+    given = cast(object, at_once)  # a class, if written ``@concurrent`` without parentheses
+    if given is not None and (type(given) is not int or given < 1):
+        raise InvalidConcurrent(value=repr(given))
+
+    def mark(target: T) -> T:
+        setattr(target, CONCURRENT_MARK, True if at_once is None else at_once)
+        return target
+
+    return mark
+
+
+def at_once(marks: Mapping[str, object]) -> int | None:
+    """How many calls an fproc whose class has ``marks`` takes at a time; ``None``: any."""
+    value = marks.get(CONCURRENT, 1)
+    if value is True:
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else 1
 
 
 def reach_of(target: object) -> Reach:

@@ -9,6 +9,8 @@ which takes the call down; Main kills what is left of its process group after ev
 """
 
 import contextlib
+import itertools
+import math
 import os
 import queue
 import secrets
@@ -23,7 +25,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
@@ -36,13 +38,16 @@ from allin.confinement.messages import (
     CallMethod,
     CallTool,
     Cancel,
+    CancelCall,
     CommandResult,
     DescribeModule,
     Detach,
     Died,
+    Progress,
     Raised,
     Returned,
     RunCommand,
+    Stale,
     ToMain,
     Unconfined,
     encode,
@@ -60,6 +65,7 @@ from allin.confinement.reach import (
 )
 from allin.core.errors import (
     AttachedCallCancelled,
+    AttachedChanged,
     AttachedEnded,
     AttachFailed,
     ConfinementFailed,
@@ -70,7 +76,7 @@ from allin.core.errors import (
     ToolNotStarted,
     ToolTimedOut,
 )
-from allin.core.ids import AttachedName, FprocName
+from allin.core.ids import AttachedName, FprocName, Revision
 from allin.core.sources import compiled_files
 from allin.decorators import MINIMUM, Reach
 
@@ -80,6 +86,7 @@ _STOP_POLL = 0.1  # how often a waiting call asks whether its Turn was cancelled
 # What a call that cannot run Command sessions gets when it asks for one: a description.
 _NO_COMMANDS: JsonValue = {"error": "this call cannot run Command sessions"}
 _CANCELLED: JsonValue = {"error": str(AttachedCallCancelled())}
+_READ_AGAIN = "it changed since your last read: read it again, then write"
 
 # Runs a Command session a tool asked for, as typed (``@name …``), and gives back its result.
 type OnCommand = Callable[[str], JsonValue]
@@ -123,6 +130,7 @@ class FprocStart:
     workspace: Path
     reach: Reach = MINIMUM
     file: Path | None = None  # read and written beyond its Alcance, for this instance alone
+    at_once: int | None = 1  # the calls it takes at a time, as ``@concurrent`` says; None: any
 
 
 @dataclass(frozen=True)
@@ -133,6 +141,7 @@ class ToolOutcome:
     error: str | None
     stdout: str
     stderr: str
+    revision: Revision | None = None  # a Proceso adherido's, as the call saw it
 
 
 @dataclass(frozen=True)
@@ -242,12 +251,14 @@ class ToolLauncher:
         start: FprocStart,
         timeout: float,
         on_end: "OnEnd" = lambda _: None,
+        release: float = 5.0,
     ) -> "AttachedProcess":
         """Start ``start``'s fproc as a Proceso adherido, confined for good with its Alcance and
         its shared file, and give it back once its class was made (ADR-0012). It dies with this
         launcher's thread, and so with Main; ``on_end`` hears, from another thread, that it
-        ended. Raises ``AttachFailed`` if making the class raised, and as ``run`` for the
-        rest."""
+        ended; ``release``: the seconds a call past its timeout gets to end before Main kills
+        the whole process. Raises ``AttachFailed`` if making the class raised, and as ``run``
+        for the rest."""
         _refuse_compiled(start.package)
         tmp = self._data_dir / "tmp" / f"attached-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
@@ -261,7 +272,9 @@ class ToolLauncher:
             raise
         finally:
             tool_end.close()
-        attached = AttachedProcess(started.process, main_end, tmp, self._grace, on_end)
+        attached = AttachedProcess(
+            started.process, main_end, tmp, self._grace, on_end, start.at_once, release
+        )
         try:
             attached.send(self._attachment(start, tmp, servers, started.net_layer))
             attached.wait_attached(timeout)
@@ -495,7 +508,7 @@ class _Lines:
 
 
 def _outcome(message: ToMain | None, stdout: str, stderr: str) -> ToolOutcome:
-    if message is None or isinstance(message, RunCommand | Attached):
+    if message is None or isinstance(message, RunCommand | Attached | Stale | Progress):
         raise ToolDied(exit_code=None, stderr=stderr[-_STDERR_TOLD:])
     match message:
         case Returned(value=value):
@@ -511,10 +524,70 @@ def _outcome(message: ToMain | None, stdout: str, stderr: str) -> ToolOutcome:
 # Hears that a Proceso adherido ended, from the thread that reaped it.
 type OnEnd = Callable[["AttachedProcess"], None]
 
+# What a call hears of the method while it waits for it: a line of progress.
+type OnProgress = Callable[[str], None]
+
+
+class _Turns:
+    """The calls a Proceso adherido runs at once: ``at_once`` (``None``: any), the rest held
+    back in the order they came (ADR-0012)."""
+
+    def __init__(self, at_once: int | None) -> None:
+        self._at_once = at_once
+        self._changed = threading.Condition()
+        self._waiting: deque[object] = deque()
+        self._running = 0
+        self._closed = False
+
+    def take(self, stop: Callable[[], bool]) -> bool:
+        """Wait for this call's turn; ``False`` if the process ended first. Raises
+        ``ToolCancelled`` once ``stop`` says so."""
+        ticket = object()
+        with self._changed:
+            self._waiting.append(ticket)
+            while not self._is_turn(ticket):
+                if self._closed or stop():
+                    self._waiting.remove(ticket)
+                    self._changed.notify_all()
+                    if self._closed:
+                        return False
+                    raise ToolCancelled
+                self._changed.wait(_STOP_POLL)
+            self._waiting.popleft()
+            self._running += 1
+            self._changed.notify_all()
+            return True
+
+    def give_back(self) -> None:
+        with self._changed:
+            self._running -= 1
+            self._changed.notify_all()
+
+    def close(self) -> None:
+        with self._changed:
+            self._closed = True
+            self._changed.notify_all()
+
+    def _is_turn(self, ticket: object) -> bool:
+        return self._waiting[0] is ticket and (
+            self._at_once is None or self._running < self._at_once
+        )
+
+
+@dataclass
+class _Pending:
+    """A call sent to the process whose answer has not come."""
+
+    id: int
+    method: str
+    inbox: queue.Queue[ToMain | None] = field(default_factory=queue.Queue[ToMain | None])
+    waiting: bool = True  # its caller still waits for it
+    kill_at: float = math.inf  # once nobody waits: when Main kills a process that still runs it
+
 
 class AttachedProcess:
     """A Proceso adherido as Main holds it: its process, and the channel its methods are called
-    on, one call at a time (ADR-0012). It is safe to use from any thread."""
+    on, each call with its id (ADR-0012). It is safe to use from any thread."""
 
     def __init__(
         self,
@@ -523,22 +596,33 @@ class AttachedProcess:
         tmp: Path,
         grace: float,
         on_end: OnEnd,
+        at_once: int | None = 1,
+        release: float = 5.0,
     ) -> None:
+        """``at_once``: the calls it takes at a time (``None``: any); ``release``: the seconds
+        a call past its timeout gets to end before Main kills the whole process."""
         self._process = process
         self._channel = channel
         self._tmp = tmp
         self._grace = grace
         self._on_end = on_end
+        self._release = release
         self._lines = _Lines(channel)
-        self._calls = threading.Lock()  # one call at a time reads the channel, and closes it
         self._sending = threading.Lock()  # whole lines: a detach never cuts a call in two
+        self._turns = _Turns(at_once)
+        self._pending: dict[int, _Pending] = {}
+        self._state = threading.Lock()  # over ``_pending`` and ``_closed``
+        self._closed = False
+        self._ids = itertools.count(1)
         self._stderr = _Capture(process.stderr, tail=True)
         self._stdout = _Capture(process.stdout)
         self._ended = threading.Event()
         self._exit_code: int | None = None  # its warden's
         self._fproc_died: int | None = None  # its fproc's process's, as its warden told it
-        # The deadlines of cancelled calls whose answers are still to come, under ``_calls``.
-        self._owed: deque[float] = deque()
+        self._hung: str | None = None
+        self._reaping = threading.Lock()  # a kill never comes after its reaping
+        self._outbox: queue.Queue[CommandResult | None] = queue.Queue()  # the reader's sends
+        self._reader: threading.Thread | None = None  # once its class was made
         self._reaper = threading.Thread(target=self._reap, name="attached-reaper", daemon=True)
         self._reaper.start()
 
@@ -552,13 +636,19 @@ class AttachedProcess:
         """The end of what it wrote to its standard error."""
         return self._stderr.text()[-_STDERR_TOLD:]
 
+    @property
+    def hung(self) -> str | None:
+        """Why Main killed it, if it did: a call that did not end after its timeout, or a line
+        Main does not read."""
+        return self._hung
+
     def wait(self) -> int | None:
         """Block until it ended, by itself or detached; its exit code (negative for a signal):
         its fproc's process's if that one ended first, as when it crashes."""
         self._ended.wait()
         return self._fproc_died if self._fproc_died is not None else self._exit_code
 
-    def send(self, message: AttachFproc | CallMethod | CommandResult | Detach) -> None:
+    def send(self, message: AttachFproc | CallMethod | CancelCall | CommandResult | Detach) -> None:
         """Write one message whole on its channel. Raises ``OSError`` once it is closed."""
         with self._sending:
             self._channel.sendall(encode(message))
@@ -570,89 +660,126 @@ class AttachedProcess:
         timeout: float,
         on_command: OnCommand | None = None,
         stop: Callable[[], bool] = lambda: False,
+        on_progress: OnProgress | None = None,
+        seen: Revision | None = None,
     ) -> ToolOutcome:
-        """Call a public method of its fproc and wait for its answer. Each Command session the
-        method asks for meanwhile goes to ``on_command``, and the time Main takes to run it
-        does not count in ``timeout``. Raises ``AttachedEnded`` if the process ended, before
-        or during the call; ``ToolTimedOut`` after ``timeout`` seconds, which takes the whole
-        Proceso adherido down; and ``ToolCancelled`` once ``stop`` says so, while the method
-        goes on: the next call skips its answer. Waiting for another call to end can be
-        cancelled too."""
-        while not self._calls.acquire(timeout=_STOP_POLL):
-            if stop():
-                raise ToolCancelled
-        try:
-            message = self._ask(
-                CallMethod(method=method, arguments=arguments), timeout, on_command, stop
-            )
-        finally:
-            self._calls.release()
-        # Waiting for its end happens out of the lock, which its reaper takes to close it.
-        match message:
-            case Returned(value=value):
-                return ToolOutcome(value=value, error=None, stdout="", stderr="")
-            case Raised(error=error):
-                return ToolOutcome(value=None, error=error, stdout="", stderr="")
-            case TimeoutError():
-                self.detach()
-                raise ToolTimedOut(seconds=timeout)
-            case _:  # it ended, before the call or while it ran, or said what Main does not read
-                if not self._ended.is_set():
-                    self.detach()
-                raise AttachedEnded(exit_code=self.wait())
+        """Call a public method of its fproc and wait for its answer, once it is this call's
+        turn. Each Command session the method asks for goes to ``on_command``, and each line of
+        progress to ``on_progress``; the timeout counts from the last one, and not while Main
+        runs a Command session. ``seen``: the revision its Session saw last, which an
+        ``@writes`` method checks; ``None`` for a human's call, never checked.
 
-    def _ask(
+        Raises ``AttachedEnded`` if the process ended, before or during the call;
+        ``AttachedChanged`` for an ``@writes`` its Session must read again before;
+        ``ToolTimedOut`` past the timeout, and ``ToolCancelled`` once ``stop`` says so, both
+        telling the method to leave it: if it does not end within its timeout and ``release``
+        seconds more, Main kills the whole process."""
+        if not self._turns.take(stop):
+            raise AttachedEnded(exit_code=self.wait())
+        pending = _Pending(next(self._ids), method)
+        with self._state:
+            closed = self._closed
+            if not closed:
+                self._pending[pending.id] = pending
+        if closed:
+            raise AttachedEnded(exit_code=self.wait())
+        try:
+            self.send(CallMethod(id=pending.id, method=method, arguments=arguments, seen=seen))
+        except OSError:
+            pending.inbox.put(None)  # its reader ends it with the rest
+        return self._wait_answer(pending, timeout, on_command, stop, on_progress)
+
+    def _wait_answer(
         self,
-        call: CallMethod,
+        pending: _Pending,
         timeout: float,
         on_command: OnCommand | None,
         stop: Callable[[], bool],
-    ) -> ToMain | TimeoutError | None:
-        """Send ``call`` and read its answer, under the call lock, after those of calls that
-        were cancelled; ``None`` once it ended, or said something Main does not read."""
-        if self._ended.is_set():
-            return None
-        deadline: float | None = None
-        try:
-            while self._owed:  # a cancelled call's method may still be running, in its time
-                self._answer(self._owed[0], stop, _cancelled_command)
-                self._owed.popleft()
-            deadline = time.monotonic() + timeout
-            self.send(call)
-            return self._answer(deadline, stop, on_command)
-        except ToolCancelled:
-            if deadline is not None:  # sent: its answer is still to come
-                self._owed.append(deadline)
-            raise
-        except TimeoutError as error:
-            return error
-        except (OSError, MalformedMessage):
-            return None
-
-    def _answer(
-        self, deadline: float, stop: Callable[[], bool], on_command: OnCommand | None
-    ) -> ToMain | None:
-        """The answer to the call it sent last, once Main ran each Command session the method
-        asked for; waiting for Main moves the deadline."""
+        on_progress: OnProgress | None,
+    ) -> ToolOutcome:
+        deadline = time.monotonic() + timeout
         while True:
-            line = self._lines.next(deadline, stop)
-            message = parse_to_main(line) if line else None
-            if not isinstance(message, RunCommand):
-                if isinstance(message, Died):
-                    self._fproc_died = message.exit_code
-                return message
-            asked = time.monotonic()
+            if stop():
+                self._give_up(pending, deadline)
+                raise ToolCancelled
+            now = time.monotonic()
+            if now >= deadline:
+                self._give_up(pending, now)
+                raise ToolTimedOut(seconds=timeout)
             try:
-                result = on_command(message.text) if on_command is not None else _NO_COMMANDS
-            except ToolCancelled:  # the method still waits for it
-                self.send(CommandResult(result=_CANCELLED))
-                raise
-            deadline += time.monotonic() - asked
-            self.send(CommandResult(result=result))
+                message = pending.inbox.get(timeout=min(deadline - now, _STOP_POLL))
+            except queue.Empty:
+                continue
+            match message:
+                case Progress(text=text):
+                    deadline = time.monotonic() + timeout
+                    if on_progress is not None:
+                        on_progress(text)
+                case RunCommand(text=text):
+                    asked = time.monotonic()
+                    try:
+                        result = on_command(text) if on_command is not None else _NO_COMMANDS
+                    except ToolCancelled:  # the method still waits for it
+                        self._answer_command(pending.id, _CANCELLED)
+                        self._give_up(pending, deadline + time.monotonic() - asked)
+                        raise
+                    deadline += time.monotonic() - asked
+                    self._answer_command(pending.id, result)
+                case Returned(value=value, revision=revision):
+                    self._done(pending)
+                    return ToolOutcome(value, None, "", "", _revision(revision))
+                case Raised(error=error, revision=revision):
+                    self._done(pending)
+                    return ToolOutcome(None, error, "", "", _revision(revision))
+                case Stale(revision=revision):
+                    self._done(pending)
+                    raise AttachedChanged(revision=revision, advice=_READ_AGAIN)
+                case _:  # it ended
+                    raise AttachedEnded(exit_code=self.wait())
+
+    def _answer_command(self, call_id: int, result: JsonValue) -> None:
+        with contextlib.suppress(OSError):  # it ended: the call hears it from its reader
+            self.send(CommandResult(id=call_id, result=result))
+
+    def _give_up(self, pending: _Pending, deadline: float) -> None:
+        """Nobody waits for ``pending`` any more: tell the method to leave it, and kill the
+        process if it still runs it ``release`` seconds after ``deadline``. Nothing is sent
+        under ``_state``, which the reader needs to go on reading."""
+        with contextlib.suppress(OSError):
+            self.send(CancelCall(id=pending.id))
+        refused = 0
+        with self._state:
+            pending.waiting = False
+            pending.kill_at = deadline + self._release
+            while not pending.inbox.empty():
+                refused += self._unwaited(pending, pending.inbox.get_nowait())
+        for _ in range(refused):
+            self._answer_command(pending.id, _CANCELLED)
+
+    def _done(self, pending: _Pending) -> None:
+        with self._state:
+            if self._pending.pop(pending.id, None) is None:
+                return  # the process ended meanwhile: its turns are closed
+        self._turns.give_back()
+
+    def _unwaited(self, pending: _Pending, message: ToMain | None) -> int:
+        """Under ``_state``: what comes for a call nobody waits for. Its answer gives its turn
+        back; how many Command sessions it asked, which do not run (1 or 0), is for the caller
+        to answer once out of ``_state``."""
+        match message:
+            case RunCommand():
+                return 1
+            case Returned() | Raised() | Stale():
+                if self._pending.pop(pending.id, None) is not None:
+                    self._turns.give_back()
+            case _:
+                pass
+        return 0
 
     def wait_attached(self, timeout: float) -> None:
-        """Wait for its class to be made. Raises ``AttachFailed`` if that raised,
-        ``ConfinementFailed``, ``ToolDied`` if it ended first and ``ToolTimedOut``."""
+        """Wait for its class to be made, then start reading its answers. Raises
+        ``AttachFailed`` if that raised, ``ConfinementFailed``, ``ToolDied`` if it ended first
+        and ``ToolTimedOut``."""
         try:
             line = self._lines.next(time.monotonic() + timeout, lambda: False)
         except TimeoutError as error:
@@ -660,7 +787,11 @@ class AttachedProcess:
         message = parse_to_main(line) if line else None
         match message:
             case Attached():
-                return
+                threading.Thread(target=self._write, name="attached-writer", daemon=True).start()
+                self._reader = threading.Thread(
+                    target=self._read, name="attached-reader", daemon=True
+                )
+                self._reader.start()
             case Raised(error=error):
                 raise AttachFailed(error=error)
             case Unconfined(call=call, errno=errno):
@@ -670,6 +801,84 @@ class AttachedProcess:
                 raise ToolDied(exit_code=code, stderr=self.stderr)
             case _:
                 raise ToolDied(exit_code=self.wait(), stderr=self.stderr)
+
+    def _read(self) -> None:
+        """Its one reader: pass each answer to the call it belongs to, until the channel ends;
+        meanwhile, kill it if a call nobody waits for runs past its time."""
+        while True:
+            try:
+                line = self._lines.next(time.monotonic() + _STOP_POLL, lambda: False)
+            except TimeoutError:
+                self._watch()
+                continue
+            except OSError:
+                break
+            if not line:
+                break
+            try:
+                message = parse_to_main(line)
+            except MalformedMessage:
+                self._kill("it sent Main a line it does not read")
+                continue
+            self._route(message)
+            self._watch()  # however busy the channel
+        with self._state:
+            self._closed = True
+            for pending in self._pending.values():
+                pending.inbox.put(None)
+            self._pending.clear()
+        self._turns.close()
+        self._outbox.put(None)
+
+    def _write(self) -> None:
+        """Its reader's sends, so that the reader never waits on one: until it ends."""
+        while (message := self._outbox.get()) is not None:
+            with contextlib.suppress(OSError):  # it ended
+                self.send(message)
+
+    def _route(self, message: ToMain) -> None:
+        match message:
+            case Died(exit_code=code):
+                self._fproc_died = code
+                return
+            case Returned(id=int() as call_id) | Raised(id=int() as call_id):
+                pass
+            case Stale(id=call_id) | Progress(id=call_id):
+                pass
+            case RunCommand(id=int() as call_id):
+                pass
+            case _:
+                self._kill("it sent Main a line it does not read")
+                return
+        refused = 0
+        with self._state:
+            pending = self._pending.get(call_id)
+            if pending is None:  # nobody asked it
+                refused = 1 if isinstance(message, RunCommand) else 0
+            elif pending.waiting:
+                pending.inbox.put(message)
+            else:
+                refused = self._unwaited(pending, message)
+        if refused:  # the reader never waits on a send: the writer does it
+            self._outbox.put(CommandResult(id=call_id, result=_CANCELLED))
+
+    def _watch(self) -> None:
+        now = time.monotonic()
+        with self._state:
+            hung = [p for p in self._pending.values() if not p.waiting and p.kill_at <= now]
+        if hung:
+            self._kill(f"its call to {hung[0].method} did not end after its timeout")
+
+    def _kill(self, why: str) -> None:
+        """Take it down as a crash: its reaper tells who listens. Never once it was reaped,
+        when its group's id may be another's."""
+        with self._reaping:
+            if self._exit_code is not None:
+                return
+            if self._hung is None:
+                self._hung = why
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self._process.pid, signal.SIGKILL)
 
     def detach(self) -> None:
         """Take it down: its warden ends it with every process it started, and what is left
@@ -684,26 +893,31 @@ class AttachedProcess:
 
     def _reap(self) -> None:
         """Its one reaper: once the warden ended, kill what is left of its group (before the
-        warden is reaped, so the group's id cannot be reused), close its channel once no call
-        reads it, clear its TMPDIR and tell who listens."""
+        warden is reaped, so the group's id cannot be reused), let its reader end, close its
+        channel, clear its TMPDIR and tell who listens."""
         pidfd = os.pidfd_open(self._process.pid)
         try:
             select.select([pidfd], [], [])  # readable once the warden has ended
         finally:
             os.close(pidfd)
-        with contextlib.suppress(ProcessLookupError):  # nothing else was left
-            os.killpg(self._process.pid, signal.SIGKILL)
-        self._exit_code = self._process.wait()
-        with self._calls:  # a call running now ends at once: its warden is gone
+        with self._reaping:
+            with contextlib.suppress(ProcessLookupError):  # nothing else was left
+                os.killpg(self._process.pid, signal.SIGKILL)
+            self._exit_code = self._process.wait()
+        if self._reader is not None:
+            self._reader.join()  # it reads to the end, how its fproc ended too
+        else:
             self._read_death()
-            with self._sending:
-                self._channel.close()
+            self._turns.close()
+        with self._sending:
+            self._channel.close()
         shutil.rmtree(self._tmp, ignore_errors=True)
         self._ended.set()
         self._on_end(self)
 
     def _read_death(self) -> None:
-        """What its warden said as it ended between calls: how its fproc's process ended."""
+        """What its warden said as it ended before its class was made: how its fproc's process
+        ended."""
         try:
             line = self._lines.next(time.monotonic() + _STOP_POLL, lambda: False)
             if line and isinstance(died := parse_to_main(line), Died):
@@ -712,9 +926,8 @@ class AttachedProcess:
             pass  # it said nothing, or nothing Main reads
 
 
-def _cancelled_command(_: str) -> JsonValue:
-    """What a Command session of a call that was cancelled gets: it does not run."""
-    return _CANCELLED
+def _revision(seen: int | None) -> Revision | None:
+    return None if seen is None else Revision(seen)
 
 
 def close_left_warden(pid: int, main_pid: int) -> bool:

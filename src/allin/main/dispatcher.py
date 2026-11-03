@@ -20,7 +20,7 @@ from allin.ipc.messages import ConfinementGap
 from allin.main.attached import AttachedProcesses
 from allin.main.attached_methods import AttachedMethods
 from allin.main.boxes import MainBoxes
-from allin.main.chat_rebuild import error_entry
+from allin.main.chat_rebuild import error_entry, logs_entry
 from allin.main.commands import MainCommands
 from allin.main.creations import PieceCreator
 from allin.main.descriptions import Descriptions
@@ -36,6 +36,7 @@ from allin.main.events import (
     MainCommandEntered,
     MainEvent,
     MethodAnswered,
+    MethodProgressed,
     OrganizerActed,
     OrganizerClosed,
     OrganizerConnected,
@@ -254,6 +255,7 @@ class Dispatcher:
             self._reporter,
             inbox.put,
             data_dir,
+            release=lambda: settings_commands.current.attached.release,
         )
         self._methods = AttachedMethods(
             self._attached,
@@ -262,6 +264,7 @@ class Dispatcher:
             self._turns.busy,
             self._notifications,
             self._reporter,
+            inbox.put,
         )
         calls = MethodCalls(
             self._attached,
@@ -513,6 +516,11 @@ class Dispatcher:
                 self._server_commands.adopted(name)
             case MethodAnswered(report):
                 report()
+            case MethodProgressed(session_id, line):
+                if session_id is None:
+                    self._reporter.show(None, line)
+                else:
+                    self._windows.send(session_id, logs_entry(line))
             case AttachedProcessEnded(name, pid):
                 self._attached.ended(name, pid)
             case ConfirmationRequested(session_id, title, text):
