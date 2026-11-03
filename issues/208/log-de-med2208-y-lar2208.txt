@@ -1,0 +1,14 @@
+lar2208 14:21:48.211 prompt {'text': 'Sin usar ninguna tool, escribe un texto muy largo, de unas seis mil palabras, sobre la historia de los barcos.'}
+lar2208 14:21:48.213 input_unmeasured {'text': 'the Server could not measure the input: admitted by its slots only'}
+lar2208 14:21:48.214 turn_started {'need': 8495}
+med2208 14:21:50.840 prompt {'text': 'Llama a la funcion informe con tema puentes y luego dime en una frase de que trata.'}
+med2208 14:21:50.842 input_unmeasured {'text': 'the Server could not measure the input: admitted by its slots only'}
+med2208 14:21:50.843 turn_started {'need': 8495}
+med2208 14:21:51.781 tools_called {'tools': ['informe']}
+med2208 14:21:51.807 tools_returned {'grows': 37076}
+med2208 14:21:51.808 continuation_measured {'need': 32000}
+med2208 14:21:51.808 input_unmeasured {'text': 'the Server could not measure the input: it waits for the whole pool'}
+med2208 14:22:34.574 continuation_measured {'need': 19181}
+lar2208 14:22:53.634 notice {'text': 'it reached its output cap of 8000 tokens; raise it with /session set lar2208 sampling.max_output_tokens=<n>, or ask it to go on'}
+lar2208 14:22:53.634 turn_finished {'turn': 0, 'cut': 'output_cap'}
+med2208 14:22:57.873 turn_finished {'turn': 0}

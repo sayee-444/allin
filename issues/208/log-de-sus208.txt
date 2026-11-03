@@ -1,0 +1,12 @@
+14:18:27.225 prompt {'text': 'Llama a la tool nap con seconds=3 y luego di listo.'}
+14:18:27.229 turn_started {'need': 8585}
+14:18:27.952 tools_called {}
+14:18:30.983 tools_returned {}
+14:18:30.986 turn_suspended {'error': "llm_unavailable: reason='Connection error.', reached=True"}
+14:18:40.678 turn_finished {'turn': 0, 'cut': 'interrupted'}
+14:18:40.678 prompt {'text': 'Mejor di hola en una palabra.'}
+14:18:53.552 turn_started {'need': 8704}
+14:18:53.554 turn_suspended {'error': "llm_unavailable: reason='Connection error.', reached=True"}
+14:19:02.567 turn_started {'need': 8704}
+14:19:03.092 turn_finished {'turn': 1}
+conversation.json turns: [('Llama a la tool nap con seconds=3 y luego di listo.', 'interrupted', [['reasoning', 'function_call']]), ('Mejor di hola en una palabra.', None, [['reasoning', 'message']])]

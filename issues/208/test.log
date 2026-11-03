@@ -1,0 +1,85 @@
+# #208 — Los caminos que quedaron fuera de la salida única del Turno (2026-11-03)
+
+Código: rama fix/208-caminos-fuera-de-la-salida-unica, commit b06a357.
+Servidor (Swift IQ3_XXS con -c 32000, para dejar sitio a la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, el fallproxy de issues/197 (fallproxy.py.txt, 19932 -> 9932), sin cambios: <scratch>/ctl/fall corta el POST de
+generación cuyo cuerpo contiene lo escrito en él y crea <scratch>/ctl/down (/health 503) hasta que se borra; mfall corta
+cada petición de medida (/apply-template, /tokenize) con /health bien; small hace que /props diga el n_ctx escrito en él.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m208 (PYTHONPATH=src), en el xterm allin-main-208, con
+/set base_url=http://127.0.0.1:19932/v1 (y reiniciado). Pool compartido de 32000 tokens, Tope de salida 8000.
+Functions en <data-dir>/profiles/default/functions/: napper/nap.py (issues/176/nap.py.txt) y reporter/informe.py
+(issues/197/informe.py.txt, 500 líneas). (El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Shift+Enter con un Turno suspendido lo corta y lo guarda cortado; el texto nuevo va después y no hereda su cuenta
+   de caídas
+   - /new --id=sus208; /func add sus208 function:napper; fall = «function_call_output» (cae el Paso que lee la salida
+     de la tool). En sus208: «Llama a la tool nap con seconds=3 y luego di listo.»: tools_called nap, tools_returned,
+     y su segundo Paso cae: turn_suspended (reached=True), borde «Server down» (01-sus208-suspendido.png).
+   - Con el Servidor aún caído, en sus208 «Mejor di hola en una palabra.» con Shift+Enter: al momento, sin Servidor,
+     «494 tokens this turn», «turn cut: interrupted with Shift+Enter» y, debajo, el Prompt nuevo (02-sus208-cortado.png).
+     Log: turn_finished turn=0 cut=interrupted, luego prompt «Mejor di hola…». conversation.json: el Turno 0 es
+     «Llama a la tool nap…», cut «interrupted», con el Paso que llamó a nap (reasoning, function_call) y su salida.
+     Con el código de main, el texto se ponía delante del Turno suspendido y corría primero, heredando su caída.
+   - fall = «Mejor di hola»; se borra down: el Paso del Prompt nuevo cae una vez y se suspende, no falla: es su primera
+     caída (03-sus208-hola-cae-y-se-suspende.png). Se borran fall y down: se repite y termina, «Hola.»
+     (04-sus208-hola-termina.png). log-de-sus208.txt tiene el Log y los Turnos de conversation.json.
+   - Con el Turno cedido para compactar (la Compactación corre cuando llega Shift+Enter): solo tests
+     (test_shift_enter_on_a_turn_yielded_to_compact_saves_it_cut_once_its_compaction_ends, y los cruces con /exit y
+     reinicio y con cerrar la Ventana): la Compactación acaba, el Turno se guarda cortado y el texto corre detrás.
+
+2. Una Compactación que sale de la cola, por cualquier camino, olvida su cuenta de caídas: solo tests
+   (test_a_compaction_a_fall_suspended_that_then_fails_takes_its_falls_with_it). La carrera de una caída del Paso de
+   resumen y luego una medida sin respuesta no se reproduce a mano con fiabilidad.
+
+3. Si la Compactación automática falla al empezar y el Paso aún cabe, el Turno sigue con un Aviso (ADR-0017): solo
+   tests (test_an_automatic_compaction_that_cannot_start_lets_a_turn_that_still_fits_go_on, con compact.txt en
+   cuarentena).
+
+4. Un Prompt que no puede arrancar porque su Conversación no se lee sale por _leave: solo tests
+   (test_a_prompt_whose_conversation_cannot_be_read_as_it_starts_goes_back); el archivo tiene que estropearse entre la
+   medida y el arranque.
+
+5. Una Continuación cuya medida se pierde porque su medidor oye la caída antes que la vigilancia del Servidor no se da
+   por medida
+   - /new --id=med2208, /new --id=lar2208; touch mfall (cada medida se corta, con /health bien: el medidor oye la caída
+     y la vigilancia no). En lar2208: «Sin usar ninguna tool, escribe un texto muy largo…»: su Paso queda en curso.
+   - En med2208: «Llama a la funcion informe con tema puentes y luego dime en una frase de que trata.»: tools_returned
+     grows 37076, se pide la medida, se corta, y como Main ve el Servidor listo: input_unmeasured «it waits for the
+     whole pool», continuation_measured need 32000; borde «waiting for room in the pool»
+     (05-med2208-sin-medida-espera-todo-el-pool.png).
+   - touch down: la vigilancia ve el Servidor caído (queue_paused, ServerLoading), borde «Server loading»
+     (06-med2208-servidor-caido.png).
+   - echo 24000 > small; rm mfall down: server_ready con 24000 tokens por slot. Main la mide otra vez:
+     continuation_measured need 19181, que cabe; borde «24k shared · waiting for room in the pool», mientras el Paso
+     de lar2208 sigue (07-med2208-medida-otra-vez.png). Con el código de main habría fallado con
+     «prompt_too_big: need=32000, limit=24000», una necesidad que nunca se midió.
+   - lar2208 termina (turn_finished, cut output_cap) y med2208 corre su Paso y termina (turn_finished):
+     «El informe trata sobre puentes…» (08-med2208-terminado.png). log-de-med2208-y-lar2208.txt tiene los dos Logs.
+
+6. Tests, uno por hallazgo: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas); se pararon el proxy y el Servidor.
+
+## Tests de #208 (los de los cinco hallazgos fallan con el código de main)
+tests/test_turn_exit.py
+  test_shift_enter_on_a_suspended_turn_saves_it_cut_and_its_text_goes_after_it PASSED
+  test_shift_enter_on_a_turn_suspended_before_any_step_ended_saves_it_cut_empty PASSED
+  test_a_prompt_whose_conversation_cannot_be_read_as_it_starts_goes_back PASSED
+tests/test_compaction_f2.py
+  test_shift_enter_on_a_turn_yielded_to_compact_saves_it_cut_once_its_compaction_ends PASSED
+  test_a_turn_cut_as_it_waits_for_its_compaction_is_saved_cut_after_a_restart PASSED
+  test_closing_the_window_as_a_cut_turn_waits_for_its_compaction_cancels_both PASSED
+tests/test_compaction_turns.py
+  test_an_automatic_compaction_that_cannot_start_lets_a_turn_that_still_fits_go_on PASSED
+  test_a_compaction_a_fall_suspended_that_then_fails_takes_its_falls_with_it PASSED
+tests/test_continuation_measure.py
+  test_a_continuation_whose_measurer_hears_the_fall_first_is_measured_again_once_back[same-pool] PASSED
+  test_a_continuation_whose_measurer_hears_the_fall_first_is_measured_again_once_back[smaller-pool] PASSED
+tests/test_prompt_queue.py
+  test_shift_enter_puts_the_last_prompt_ahead_of_the_others_but_not_of_a_turn_under_way PASSED
+  test_shift_enter_marks_the_sessions_turn_waiting_in_the_queue_to_be_cut PASSED
+
+Suite: 1926 passed; basedpyright 0 errores; ruff limpio.
