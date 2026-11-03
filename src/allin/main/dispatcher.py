@@ -382,11 +382,9 @@ class Dispatcher:
         its summary may have lost (ADR-0017)."""
         self._subscriptions.compacted(done)
         session = self._sessions.load(done.session_id)
-        held = {h.name for h in session.attached_methods}
-        own = [v for v in self._subscriptions.views() if v.session == session.id]
-        attached = [v for v in self._attached.views() if v.name in held]
-        if own or attached:  # with nothing open there is nothing it could forget
-            self._notifications.leave(session.id, COMPACT, live_state(own, attached))
+        state = live_state(session, self._subscriptions.views(), self._attached.views())
+        if state is not None:
+            self._notifications.leave(session.id, COMPACT, state)
 
     @property
     def commands(self) -> MainCommands:

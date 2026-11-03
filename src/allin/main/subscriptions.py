@@ -400,7 +400,7 @@ class Subscriptions:
         """Its ids: those of the Prompts it summarized, or pruned, now."""
         shown = ", ".join(i for i in done.ids if i)
         session_id = done.session_id
-        if done.pruned_only:
+        if done.kind == "pruned":
             numbers = _numbers(done.first, done.last)
             text = f"Session {session_id} compacted: the tool outputs of Prompt{numbers} pruned"
         else:

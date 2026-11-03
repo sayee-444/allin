@@ -9,11 +9,19 @@ import pytest
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
-from allin.core.ids import PieceId
+from allin.core.errors import TurnYielded
+from allin.core.ids import CommandName, PieceId
 from allin.main.compaction import CLOSING
 from allin.main.conversation import Conversation, Step, Turn, summary_item
 from allin.main.descriptions import Descriptions
-from allin.main.events import InputReceived, MainCommandEntered, Tick
+from allin.main.events import (
+    InputReceived,
+    MainCommandEntered,
+    Tick,
+    ToolsEnded,
+    ToolsStarted,
+    TurnEnded,
+)
 from allin.main.quarantine import PieceRef, Quarantine
 from allin.main.sessions import Session
 from tests.llm_fakes import FakeLlm, tool_call
@@ -153,12 +161,18 @@ def tooled_main(main: MainHarness, tmp_path: Path) -> Iterator[MainHarness]:
     folder = main.profile.folder / "functions" / "voice"
     folder.mkdir(parents=True)
     (folder / "shout.py").write_text(SHOUT)
+    approve_voice(main)
+    yield main
+    main.describer.stop()
+
+
+def approve_voice(main: MainHarness) -> None:
+    """Approve the ``voice`` package as its files are now."""
+    assert main.describer is not None
     descriptions = Descriptions(main.profile.folder.parents[1], main.describer, main.confinement)
     pieces = Quarantine(main.profile.folder, descriptions)
     ref = PieceRef("function", "voice")
     pieces.approve(ref, pieces.piece(ref).hash)
-    yield main
-    main.describer.stop()
 
 
 def talked(n: int) -> Turn:
@@ -181,8 +195,15 @@ def test_a_turn_whose_tools_fill_its_slot_compacts_between_its_steps_and_goes_on
         reply("We talked."),  # the summary, between its two Steps
         reply("done"),
     )
-    main.run(InputReceived(session.id, "lee"), settle=True)
+    main.run(
+        MainCommandEntered(f"/subscribe {session.id} timer:600"),
+        InputReceived(session.id, "lee"),
+        settle=True,
+    )
     first, summary_step, second = (r["input"] for r in main.llm.requests)
+    # It goes on reading what it still has open, which the summary may have lost.
+    [prompt] = [i["content"] for i in second if str(i.get("content", "")).endswith("lee")]
+    assert "after compacting, still open: no Encargos, Suscripciones: s" in prompt
     assert summary_step[0]["role"] == "developer" and "You summarize" in summary_step[0]["content"]
     assert summary_step[-1]["content"].startswith(CLOSING)
     after = conversation(main, session)
@@ -197,18 +218,69 @@ def test_a_turn_whose_tools_fill_its_slot_compacts_between_its_steps_and_goes_on
     assert "turn_yielded" in events(main, session)
 
 
-def test_a_turn_that_cannot_make_room_mid_turn_goes_on_if_it_fits_and_yields_once(
+def test_a_turn_whose_saved_turns_fit_in_keep_does_not_stop_for_nothing(
     tooled_main: MainHarness,
 ):
     main = tooled_main
     session = main.sessions.save_functions(main.create_session(), (PieceId("function:voice"),))
     seed(main, session, [talked(0)])  # one Turn, which compact.keep keeps: nothing to compact
-    # Its next Step needs about 889 of the 1 000 tokens: past the threshold, but it fits.
-    main.llm = FakeLlm(tool_call("shout", json.dumps({"text": LONG})), reply("done"))
+    big = " ".join(["palabra"] * 400)  # past the threshold, but it still fits
+    main.llm = FakeLlm(tool_call("shout", json.dumps({"text": big})), reply("done"))
     main.run(InputReceived(session.id, "lee"), settle=True)
     after = conversation(main, session)
     assert [turn.prompt for turn in after.turns] == ["p0", "lee"]
     assert len(after.turns[-1].steps) == 2
     logged = events(main, session)
-    assert logged.count("turn_yielded") == 1 and "compaction_failed" in logged
-    assert logged.count("turn_finished") == 1
+    assert "turn_yielded" not in logged and "compaction_failed" not in logged
+
+
+def test_a_turn_cut_as_it_stops_to_compact_is_cut_and_does_not_come_back(main: MainHarness):
+    session = main.create_session()
+    seed(main, session, [talked(n) for n in range(5)])
+    main.threaded_turns, main.hold_turns = False, True
+    main.run(
+        InputReceived(session.id, "lee"),
+        ToolsStarted(session.id, ("shout",)),
+        ToolsEnded(session.id, 600),  # its next Step would pass the threshold: it stops
+        InputReceived(session.id, "", interrupt=True),  # and is cut before it did
+        TurnEnded(session.id, error=TurnYielded()),
+        settle=True,
+    )
+    logged = events(main, session)
+    assert "turn_yielded" not in logged and "compaction_started" not in logged
+    assert [turn.prompt for turn in conversation(main, session).turns][-1] == "lee"
+    assert len(main.held) == 1, "it was not taken up again"
+
+
+COMPACT = '''
+from allin.channel import command
+from allin.decorators import reach
+
+
+@reach(commands=["compact"])
+def compact(instructions: str) -> object:
+    """Compact this Session's Conversation."""
+    return command(f"@compact {instructions}")
+'''
+
+
+def test_compact_from_a_tool_compacts_its_own_session_after_its_turn(tooled_main: MainHarness):
+    main = tooled_main
+    (main.profile.folder / "functions" / "voice" / "compact.py").write_text(COMPACT)
+    approve_voice(main)
+    created = main.sessions.save_functions(main.create_session(), (PieceId("function:voice"),))
+    session = main.sessions.save_commands(created, (CommandName("compact"),))
+    main.server = server(context=4_000)  # its tools' schemas count a character each
+    seed(main, session, [tooled(n) for n in range(8)])  # under the threshold: no automatic
+    main.llm = FakeLlm(
+        tool_call("compact", json.dumps({"instructions": "keep the file names"})),
+        reply("queued"),
+        reply("We read a file."),
+    )
+    main.run(InputReceived(session.id, "compacta"), settle=True)
+    answer = json.loads(str(tool_outputs(main.llm.requests[1]["input"])[-1]))
+    assert answer["result"] == "ok", answer
+    closing = main.llm.requests[-1]["input"][-1]["content"]
+    assert closing.endswith("What the human asks of this summary: keep the file names")
+    after = conversation(main, session)
+    assert after.summary == "We read a file." and after.summarized > 0

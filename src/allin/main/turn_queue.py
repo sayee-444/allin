@@ -218,6 +218,7 @@ class _RunningTurn:
     output_cap: int  # the most each of its Steps may generate, sent with each
     need: int  # what its Step reserves of the pool: measured input plus Output cap
     context_before: int | None  # its Session's Context when it started
+    grown: int = 0  # what its tools added to ``need`` since it started
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
     interrupted: bool = False
@@ -365,7 +366,10 @@ class TurnQueue:
         self._answers = answers
 
         def heard(done: CompactionDone) -> None:
-            self._yielded.pop(done.session_id, None)  # a later Step may compact again
+            if self._yielded.pop(done.session_id, None) is not None:
+                # Its Turn goes on reading the new summary, so it reads what is pending now
+                # too, the live state among it: its next Step's input changed anyway.
+                self._notifications.not_saved(done.session_id)
             compacted(done)
 
         self._compactions.on_compacted = heard
@@ -530,6 +534,12 @@ class TurnQueue:
         running = self._running.pop(session_id, None)
         if running is None:
             return
+        if isinstance(error, TurnYielded) and running.cancellation.reason is not None:
+            error = TurnCancelled(reason=running.cancellation.reason)  # it lands first
+        if not isinstance(error, TurnYielded) and self._yielded.get(session_id) == (
+            running.prompt.prompt_id
+        ):
+            del self._yielded[session_id]  # its Turn is over
         self._release(running)
         self._measures.pop(session_id, None)  # its Conversation changed
         self._withdraw(running)
@@ -701,6 +711,7 @@ class TurnQueue:
         if running is None or running.cancellation.reason is not None:
             return
         running.need += grows
+        running.grown += grows
         running.resume = running.job.tools.resume
         running.ready_at = self._wall()
         self._reporter.log_session(session_id, "tools_returned", grows=grows)
@@ -716,15 +727,21 @@ class TurnQueue:
 
     def _compacts_between_steps(self, running: _RunningTurn) -> bool:
         """Whether the Turn's next Step may pass ``compact.threshold`` of its slot, and its
-        Session has Turns before it to compact: it stops after its tools and compacts first,
-        once per Step, never twice in a row without a Compaction that served (ADR-0017)."""
+        Session's saved Turns may take more than ``compact.keep``, so some could be compacted:
+        it stops after its tools and compacts first. Never twice in a Turn without a
+        Compaction that served in between (ADR-0017)."""
         session = running.session
         compact = session.settings.compact
         if self._yielded.get(session.id) == running.prompt.prompt_id:
             return False
         if not wants_compaction(compact, running.need, running.slot_context):
             return False
-        return bool(self._conversation(session).turns)
+        # What it read when it started holds its saved Turns, and more: at most this much.
+        schemas = len(json.dumps(running.job.tools.schemas))  # counted a character each
+        saved = running.need - running.grown - running.output_cap - schemas
+        return saved > compact.keep * running.slot_context and bool(
+            self._conversation(session).turns
+        )
 
     def server_changed(self, server: ServerKey, state: ServerState) -> None:
         """What a watched Server says of itself changed (ADR-0004, ADR-0022)."""
@@ -957,6 +974,7 @@ class TurnQueue:
         repeats = (
             session_id in self._falls
             or prompt.suspended  # a Turn under way: a fall, or one that compacts mid-Turn
+            or session_id in self._yielded  # its Compaction, for that Turn
             or self._compactions.continuing(session_id)
             or bool(prompt.woke_by)  # a Suscripción's: its Session goes on (ADR-0004)
         )
@@ -1722,6 +1740,9 @@ class TurnQueue:
             self._since.pop(session_id, None)
         if not left or any(prompt.kind != "prompt" for prompt in dropped):
             self._compactions.drop(session_id)  # one it was doing, or would have done
+        if any(prompt.suspended for prompt in dropped):  # what its Turn told waits again
+            self._yielded.pop(session_id, None)
+            self._notifications.not_saved(session_id)
         for prompt in dropped:
             if prompt.kind == "prompt":
                 self._answers.dropped(prompt, f"it left the queue: {reason}")

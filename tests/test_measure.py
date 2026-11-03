@@ -36,9 +36,49 @@ def test_the_conversation_becomes_the_chat_messages_its_template_takes() -> None
     ]
 
 
+def test_a_step_s_tool_calls_and_their_outputs_are_messages_the_template_takes() -> None:
+    # llama's template refuses two assistant messages at the end, as a Turn that goes on from
+    # its Steps has them (ADR-0023, #119), and its Server reads them this way when it runs.
+    items: list[Item] = [
+        {"role": "user", "content": "read both"},
+        REASONING,
+        {"type": "function_call", "call_id": "c1", "name": "read", "arguments": '{"n": 1}'},
+        {"type": "function_call", "call_id": "c2", "name": "read", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "c1", "output": "mango"},
+        {"type": "function_call_output", "call_id": "c2", "output": [{"type": "input_text"}]},
+    ]
+    assert chat_messages(items) == [
+        {"role": "user", "content": "read both"},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "hmm",
+            "tool_calls": [
+                {
+                    "type": "function",
+                    "id": "c1",
+                    "function": {"name": "read", "arguments": '{"n": 1}'},
+                },
+                {"type": "function", "id": "c2", "function": {"name": "read", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "mango"},
+        {"role": "tool", "tool_call_id": "c2", "content": '[{"type": "input_text"}]'},
+    ]
+
+
+def test_an_answer_and_the_tools_its_step_called_are_one_message() -> None:
+    call: Item = {"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}
+    [message] = chat_messages([ANSWER, call])
+    assert message["content"] == "red, blue"
+    assert message["tool_calls"] == [
+        {"type": "function", "id": "c1", "function": {"name": "f", "arguments": "{}"}}
+    ]
+
+
 def test_an_item_it_does_not_know_is_measured_as_its_text() -> None:
-    call: Item = {"type": "function_call", "name": "f", "arguments": '{"a": 1}'}
-    assert chat_messages([call]) == [{"role": "assistant", "content": json.dumps(call)}]
+    other: Item = {"type": "image_generation_call", "id": "i1"}
+    assert chat_messages([other]) == [{"role": "assistant", "content": json.dumps(other)}]
 
 
 class _Llama(BaseHTTPRequestHandler):

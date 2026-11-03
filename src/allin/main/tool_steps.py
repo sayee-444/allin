@@ -356,6 +356,7 @@ class ToolGate:
 
     @property
     def yielded(self) -> bool:
+        """Whether Main stopped the Turn after its tools, to compact before its next Step."""
         return self._yielded
 
     def _ask_main(self, turn: _Turn, text: str, process: AttachedName | None) -> JsonValue:

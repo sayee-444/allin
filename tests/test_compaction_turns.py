@@ -48,7 +48,8 @@ def main(tmp_path: Path) -> MainHarness:
 def words(items: list[Item]) -> int:
     """What the fake Server counts in ``items``: one token per word."""
     return sum(
-        len(message["content"].split()) + len(message.get("reasoning_content", "").split())
+        len(str(message["content"]).split())
+        + len(str(message.get("reasoning_content", "")).split())
         for message in chat_messages(items)
     )
 

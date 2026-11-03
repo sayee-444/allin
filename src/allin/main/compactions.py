@@ -74,6 +74,10 @@ class _Work:
     checking: bool = False  # every part is summarized: its summary is being measured
 
 
+# Whether a Compactación summarized its Prompts, or only pruned their tool outputs.
+type CompactionKind = Literal["summarized", "pruned"]
+
+
 @dataclass(frozen=True)
 class CompactionDone:
     """A Compactación saved: its Session, the numbers (from 1) and ids of the Prompts it
@@ -84,7 +88,7 @@ class CompactionDone:
     last: int
     ids: tuple[PromptId, ...]
     origin: Origin
-    pruned_only: bool  # their tool outputs pruned, with no summary
+    kind: CompactionKind
 
 
 type Compacted = Callable[[CompactionDone], None]
@@ -158,6 +162,7 @@ class Compactions:
     def drop(self, session_id: SessionId) -> None:
         """Its Session's queue was dropped: the Compaction stops, changing nothing."""
         self._works.pop(session_id, None)
+        self._wanted.pop(session_id, None)
         self._tried.discard(session_id)
 
     def need(
@@ -208,8 +213,9 @@ class Compactions:
             self._ask(work, "check", [summary_item(text, prompts)])
 
     def measured(self, session_id: SessionId, ticket: int, tokens: int | None) -> bool:
-        """The Server measured something the Compaction asked; whether it is over and saved.
-        Raises ``CompactionFailed`` if it cannot go on or its summary does not serve."""
+        """The Server measured something the Compaction asked; whether it is over and saved:
+        its summary checked, or its Turns only pruned, which was enough. Raises
+        ``CompactionFailed`` if it cannot go on or its summary does not serve."""
         work = self._works[session_id]
         asked = work.asked.pop(ticket)
         if tokens is None:
@@ -237,6 +243,7 @@ class Compactions:
         """Tell why the Compaction failed; its Conversation is as it was."""
         session_id = entry.session_id
         self._works.pop(session_id, None)
+        self._wanted.pop(session_id, None)
         shown = f"compaction failed, nothing changed: {error}"
         self._reporter.record(session_id, "compaction_failed", shown, error=str(error))
         self._windows.send(session_id, compaction_failed_entry(str(error)))
@@ -259,8 +266,8 @@ class Compactions:
             raise CompactionFailed(reason=str(error)) from error
         conversation = self._conversation(session)
         work = _Work(entry, session, server, limit, cap, conversation, sysprompt)
-        if entry.kind == "auto_compact":
-            work.prompt_need = self._wanted.pop(session.id, None)
+        if entry.kind == "auto_compact":  # kept until it ends, should it start again
+            work.prompt_need = self._wanted.get(session.id)
         self._works[session.id] = work
         self._reporter.record(session.id, "compaction_started", "compacting…", kind=entry.kind)
         self._ask(work, "overhead", summary_request(sysprompt, None, 0, [], entry.text))
@@ -326,14 +333,10 @@ class Compactions:
             raise CompactionFailed(
                 reason="the summary does not save half", summary=tokens, replaced=replaced
             )
-        if self._conversation(work.session) != work.conversation:
-            raise CompactionFailed(reason="the Conversation changed meanwhile")
+        self._settle(work)
         archive = self._sessions.archive_conversation(work.session, work.conversation)
         after = compacted(work.conversation, work.summary, work.summarize)
         self._sessions.save_conversation(work.session, after)
-        del self._works[session_id]
-        if work.entry.kind == "auto_compact":
-            self._tried.add(session_id)
         shown = f"compacted: Prompts 1\N{EN DASH}{after.summarized} summarized, {replaced} → {tokens} tokens"
         self._reporter.record(
             session_id,
@@ -347,32 +350,45 @@ class Compactions:
         )
         for entry in compacted_entries(after.summarized, work.summary):
             self._windows.send(session_id, entry)
-        self._done(work, work.summarize, pruned_only=False)
+        self._done(work, work.summarize, "summarized")
 
     def _prune(self, work: _Work, count: int, saved: int) -> None:
         """Only prune the tool outputs of its first ``count`` Turns: they stay whole in the
         Conversation, for the Window and a Rewind, and its LLM reads one line for each."""
         session_id = work.session.id
-        if self._conversation(work.session) != work.conversation:
-            raise CompactionFailed(reason="the Conversation changed meanwhile")
+        self._settle(work)
         conversation = work.conversation
         after = conversation.model_copy(update={"pruned": max(conversation.pruned, count)})
         self._sessions.save_conversation(work.session, after)
-        del self._works[session_id]
-        self._tried.add(session_id)
-        first, last = conversation.summarized + 1, conversation.summarized + count
+        first, last = _numbers(conversation, count)
         shown = (
             f"compacted: tool outputs of Prompts {first}\N{EN DASH}{last} pruned, {saved} tokens"
             " saved; nothing summarized"
         )
         self._reporter.record(session_id, "pruned", shown, first=first, last=last, saved=saved)
         self._windows.send(session_id, ChatAppend(role="info", label="context", text=shown))
-        self._done(work, count, pruned_only=True)
+        self._done(work, count, "pruned")
 
-    def _done(self, work: _Work, count: int, *, pruned_only: bool) -> None:
+    def _settle(self, work: _Work) -> None:
+        """It is over, about to save: unless its Conversation changed meanwhile, which raises
+        ``CompactionFailed``. An automatic one is not tried again for the same Prompt."""
+        session_id = work.session.id
+        if self._conversation(work.session) != work.conversation:
+            raise CompactionFailed(reason="the Conversation changed meanwhile")
+        del self._works[session_id]
+        self._wanted.pop(session_id, None)
+        if work.entry.kind == "auto_compact":
+            self._tried.add(session_id)
+
+    def _done(self, work: _Work, count: int, kind: CompactionKind) -> None:
         conversation = work.conversation
         ids = tuple(turn.prompt_id for turn in conversation.turns[:count])
-        first, last = conversation.summarized + 1, conversation.summarized + count
+        first, last = _numbers(conversation, count)
         self.on_compacted(
-            CompactionDone(work.session.id, first, last, ids, work.entry.origin, pruned_only)
+            CompactionDone(work.session.id, first, last, ids, work.entry.origin, kind)
         )
+
+
+def _numbers(conversation: Conversation, count: int) -> tuple[int, int]:
+    """The numbers, from 1, of the first and last of its ``count`` first literal Turns."""
+    return conversation.summarized + 1, conversation.summarized + count

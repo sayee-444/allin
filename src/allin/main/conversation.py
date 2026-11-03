@@ -164,8 +164,11 @@ def turn_items(
     return [prompt, *((_pruned(item) if pruned else item) for item in items)]
 
 
-# A tool output at most this long costs about what its line would: it is never pruned.
+# A tool output at most this many characters costs about what its line would: never pruned.
 _PRUNE_ABOVE = 400
+# The line says about how many tokens it left out, at about this many characters each: it is
+# shown to the LLM, so no Server is asked.
+_CHARS_PER_TOKEN = 4
 PRUNED_LINE = "[tool output omitted: ~{tokens} tokens; archived]"
 
 
@@ -175,7 +178,8 @@ def _pruned(item: Item) -> Item:
         return item
     if len(output) <= _PRUNE_ABOVE:
         return item
-    return {**item, "output": PRUNED_LINE.format(tokens=_about(len(output) // 4))}
+    tokens = _about(len(output) // _CHARS_PER_TOKEN)
+    return {**item, "output": PRUNED_LINE.format(tokens=tokens)}
 
 
 def _about(tokens: int) -> str:
