@@ -21,6 +21,9 @@ but counts as the same Suscripción: the same Session waiting for the same one, 
 A Rewind of its Session to before it opened one cancels it. They live in the MainState of the
 Profile they were opened in: while it is inactive they are frozen, and what happens meanwhile
 to a Session it shares waits there, to come grouped when it is back.
+
+An Encargo or a Lote (#117, ``allin.main.errands``) is one more: it waits for the answers of
+the Prompts it hands out, and wakes its Session once, with all of them.
 """
 
 import math
@@ -31,15 +34,18 @@ from pydantic import BaseModel, Field, JsonValue
 
 from allin.core.errors import (
     AllInError,
+    ErrandCycle,
     SubscriptionInvalid,
     SubscriptionNotFound,
     SubscriptionNotOwn,
 )
 from allin.core.ids import (
+    NO_PROMPT_ID,
     AttachedName,
     PromptId,
     SessionId,
     SubscriptionId,
+    new_prompt_id,
     new_subscription_id,
     parse_attached_name,
     parse_session_id,
@@ -47,7 +53,18 @@ from allin.core.ids import (
 from allin.core.origin import Link, Origin, from_session
 from allin.core.settings import SubscriptionSettings
 from allin.main.conversation import Turn
-from allin.main.notifications import SUBSCRIPTION, Notifications
+from allin.main.errands import (
+    OnErrand,
+    Outcome,
+    OutcomeKind,
+    Part,
+    parse_part_id,
+    part_id,
+    report,
+    task_text,
+    with_outcome,
+)
+from allin.main.notifications import ERRAND, SUBSCRIPTION, Notifications
 from allin.main.prompts import Prompt, origin_header
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
@@ -98,7 +115,9 @@ class OnSession(BaseModel, frozen=True):
     session_id: SessionId
 
 
-type Watch = Annotated[OnReply | OnProcess | OnTime | OnSession, Field(discriminator="kind")]
+type Watch = Annotated[
+    OnReply | OnProcess | OnTime | OnSession | OnErrand, Field(discriminator="kind")
+]
 
 
 class Subscription(BaseModel, frozen=True):
@@ -124,6 +143,8 @@ class Subscription(BaseModel, frozen=True):
                 return f"process:{name}"
             case OnTime(left=left):
                 return f"timer:{math.ceil(left)}"
+            case OnErrand():
+                return self.watch.event
 
     @property
     def link(self) -> Link:
@@ -174,6 +195,8 @@ class SubscriptionState(BaseModel, frozen=True):
             watch = s.watch
             if isinstance(watch, OnReply | OnSession):
                 watch = watch.model_copy(update={"session_id": key(watch.session_id)})
+            elif isinstance(watch, OnErrand):
+                watch = watch.renamed(old, new)
             return s.model_copy(update={"session_id": key(s.session_id), "watch": watch})
 
         return SubscriptionState(
@@ -218,6 +241,8 @@ class Subscriptions:
         self._open: dict[SubscriptionId, Subscription] = {}
         self._pending: list[Happened] = []
         self._debts: list[Debt] = []
+        # Encargos settled or cancelled since Main started: what comes for them is dropped.
+        self._closed: set[SubscriptionId] = set()
 
     def state(self) -> SubscriptionState:
         return SubscriptionState(
@@ -261,6 +286,19 @@ class Subscriptions:
             raise SubscriptionNotFound(session_id=session_id, subscription=subscription_id)
         self._cancel(subscription, "unsubscribed")
 
+    def open_errand(self, session_id: SessionId, errand: OnErrand, origin: Origin) -> Subscription:
+        """Open an Encargo or a Lote for ``session_id``, which must be ``origin``'s own if a
+        Session asks, and hand out what it can now (#117)."""
+        _check_own(session_id, origin)
+        self._check_tree(session_id, errand.assigned)
+        subscription = self._opened(session_id, errand, origin, prefix="e")
+        self._advance(subscription.id)
+        return subscription
+
+    def errands(self) -> list[Subscription]:
+        """The open Encargos and Lotes."""
+        return [s for s in self._open.values() if isinstance(s.watch, OnErrand)]
+
     # What happens -------------------------------------------------------------------------
 
     def answered(self, prompt: Prompt, turn: int, answer: str) -> None:
@@ -274,7 +312,7 @@ class Subscriptions:
                 if s.session_id == prompt.session_id
                 and s.in_turn
                 and s.opened_turn == turn
-                and isinstance(s.watch, OnReply)
+                and isinstance(s.watch, OnReply | OnErrand)
             )
         )
         origin = from_session(prompt.origin, prompt.session_id)
@@ -290,26 +328,26 @@ class Subscriptions:
                 )
                 self._debts.append(held)
             else:
-                self._reply(debt.owed, _answered(prompt.session_id, answer), origin)
+                outcome = Outcome(
+                    session_id=prompt.session_id, kind="answered", text=answer, origin=origin
+                )
+                self._reply(debt.owed, outcome)
 
     def failed(self, prompt: Prompt, why: str) -> None:
         """``prompt``'s Turn ran and is in no Conversation: what it opened is cancelled, as a
         Rewind of it would, and who waits hears why it has no answer."""
-        turn = self._next_turn(prompt.session_id)
-        for subscription in self._waiting():
-            if (
-                subscription.session_id == prompt.session_id
-                and subscription.in_turn
-                and subscription.opened_after(turn)
-            ):
-                self._cancel(subscription, "its Turn was not saved")
-        self.dropped(prompt, why)
+        self._cancel_unsaved(prompt)
+        self._unanswered(prompt, why, "failed")
+
+    def lost(self, prompt: Prompt, why: str) -> None:
+        """``prompt``'s Turn died with Main: as ``failed``, but an Encargo counts it as no
+        answer, and does not try it again (ADR-0011)."""
+        self._cancel_unsaved(prompt)
+        self._unanswered(prompt, why, "lost")
 
     def dropped(self, prompt: Prompt, why: str) -> None:
         """``prompt`` left the queue before its Turn: who waits hears why it has no answer."""
-        origin = from_session(prompt.origin, prompt.session_id)
-        for debt in self._take_debts(prompt):
-            self._reply(debt.owed, f"Session {prompt.session_id} did not answer: {why}", origin)
+        self._unanswered(prompt, why, "failed")
 
     def announced(self, process: AttachedName, text: str, origin: Origin) -> None:
         for subscription in list(self._open.values()):
@@ -371,13 +409,22 @@ class Subscriptions:
                 continue
             del self._open[subscription.id]
             self._happened(subscription, "its time came", subscription.origin)
+        for subscription in self.errands():
+            self._spend(subscription.id, elapsed)
+            self._advance(subscription.id)
         self._wake()
 
     # Inside -------------------------------------------------------------------------------
 
-    def _opened(self, session_id: SessionId, watch: Watch, origin: Origin) -> Subscription:
+    def _opened(
+        self,
+        session_id: SessionId,
+        watch: Watch,
+        origin: Origin,
+        prefix: Literal["s", "e"] = "s",
+    ) -> Subscription:
         subscription = Subscription(
-            id=new_subscription_id(),
+            id=new_subscription_id(prefix),
             session_id=session_id,
             watch=watch,
             opened_turn=self._next_turn(session_id),
@@ -399,6 +446,7 @@ class Subscriptions:
     def _cancel(self, subscription: Subscription, why: str) -> None:
         """It no longer waits, and what came for it is dropped; an answer held back for it
         goes once nothing else holds it."""
+        subscription = self._open.get(subscription.id, subscription)  # as it is now
         self._open.pop(subscription.id, None)
         self._pending = [h for h in self._pending if h.subscription.id != subscription.id]
         shown = f"subscription {subscription.id} ({subscription.event}) cancelled: {why}"
@@ -409,12 +457,20 @@ class Subscriptions:
             subscription=subscription.id,
             reason=why,
         )
+        if isinstance(subscription.watch, OnErrand):
+            self._closed.add(subscription.id)
+            for index, part in enumerate(subscription.watch.parts):
+                why_here = f"its errand {subscription.id} was cancelled: {why}"
+                self._stop_part(subscription.id, index, part, why_here)
         for debt in self._release({subscription.id}):
             if debt.waiting:
                 self._debts.append(debt)
                 continue
-            answer = _answered(debt.session_id, debt.answer)
-            self._reply(debt.owed, answer, from_session(debt.origin, debt.session_id))
+            origin = from_session(debt.origin, debt.session_id)
+            outcome = Outcome(
+                session_id=debt.session_id, kind="answered", text=debt.answer, origin=origin
+            )
+            self._reply(debt.owed, outcome)
 
     def _waiting(self) -> list[Subscription]:
         """Those open, and those that fired and wait for their Session's Prompt."""
@@ -451,8 +507,39 @@ class Subscriptions:
             )
         return [*debts, *self._release(set(prompt.woke_by))]
 
-    def _reply(self, owed: Sequence[SubscriptionId], text: str, origin: Origin) -> None:
+    def _cancel_unsaved(self, prompt: Prompt) -> None:
+        """What ``prompt``'s Turn opened, which is in no Conversation, is cancelled; but an
+        Encargo, which is its Session's and not its Turn's (ADR-0011): it goes on, held by no
+        Turn, and a Rewind to before that Turn still cancels it."""
+        turn = self._next_turn(prompt.session_id)
+        for subscription in self._waiting():
+            if not (
+                subscription.session_id == prompt.session_id
+                and subscription.in_turn
+                and subscription.opened_after(turn)
+            ):
+                continue
+            if isinstance(subscription.watch, OnErrand) and subscription.id in self._open:
+                current = self._open[subscription.id]
+                self._open[subscription.id] = current.model_copy(
+                    update={"in_turn": False, "opened_turn": turn}
+                )
+                continue
+            self._cancel(subscription, "its Turn was not saved")
+
+    def _unanswered(self, prompt: Prompt, why: str, kind: OutcomeKind) -> None:
+        origin = from_session(prompt.origin, prompt.session_id)
+        outcome = Outcome(session_id=prompt.session_id, kind=kind, text=why, origin=origin)
+        for debt in self._take_debts(prompt):
+            self._reply(debt.owed, outcome)
+
+    def _reply(self, owed: Sequence[SubscriptionId], outcome: Outcome) -> None:
+        text, origin = outcome.told, outcome.origin
         for subscription_id in owed:
+            part = parse_part_id(subscription_id)
+            if part is not None:
+                self._part_ended(*part, outcome)
+                continue
             subscription = self._open.pop(subscription_id, None)
             if subscription is not None:
                 self._happened(subscription, text, origin)
@@ -470,6 +557,191 @@ class Subscriptions:
                 return state.model_copy(update={"open": kept, "pending": pending})
 
             self._frozen(frozen_reply)
+
+    # Encargos (#117) ----------------------------------------------------------------------
+
+    def _check_tree(self, session_id: SessionId, workers: Sequence[SessionId]) -> None:
+        """No Encargo waits for the Session that opens it nor for one waiting for it."""
+        above = {session_id}
+        while True:
+            more = {
+                s.session_id
+                for s in self.errands()
+                if isinstance(s.watch, OnErrand) and s.watch.waits_for & above
+            }
+            if more <= above:
+                break
+            above |= more
+        for worker in workers:
+            if worker in above:
+                raise ErrandCycle(session_id=session_id, worker=worker)
+
+    def _errand(self, errand_id: SubscriptionId) -> tuple[Subscription, OnErrand] | None:
+        subscription = self._open.get(errand_id)
+        if subscription is None or not isinstance(subscription.watch, OnErrand):
+            return None
+        return subscription, subscription.watch
+
+    def _put(self, subscription: Subscription, errand: OnErrand) -> None:
+        self._open[subscription.id] = subscription.model_copy(update={"watch": errand})
+
+    def _part_ended(self, errand_id: SubscriptionId, index: int, outcome: Outcome) -> None:
+        """A part's Prompt ended: its result counts, or it goes out again, and its Encargo
+        moves on; one that is no longer open drops it, and it stays in its worker's Log."""
+        found = self._errand(errand_id)
+        served = self._turns.serving(outcome.session_id)  # a Lote's results say it
+        if found is None and errand_id in self._closed:
+            self._reporter.log_session(
+                outcome.session_id, "errand_result_dropped", errand=errand_id, text=outcome.text
+            )
+            return
+        if found is None:
+
+            def frozen_part(state: SubscriptionState) -> SubscriptionState:
+                kept = [
+                    s.model_copy(update={"watch": with_outcome(s.watch, index, outcome, served)})
+                    if s.id == errand_id and isinstance(s.watch, OnErrand)
+                    else s
+                    for s in state.open
+                ]
+                return state.model_copy(update={"open": kept})
+
+            self._frozen(frozen_part)
+            return
+        subscription, before = found
+        after = with_outcome(before, index, outcome, served)
+        if after == before:
+            self._reporter.log_session(
+                outcome.session_id, "errand_result_dropped", errand=errand_id, text=outcome.text
+            )
+            return
+        self._put(subscription, after)
+        coordinator = subscription.session_id
+        if after.parts[index].status == "pending":
+            # It goes out at the next tick: the queue is still busy with the Turn that failed.
+            shown = f"errand {errand_id}: task {index + 1} goes out again: {outcome.text}"
+            self._reporter.record(coordinator, "errand_retry", shown, errand=errand_id, task=index)
+            return
+        told = f"errand {errand_id} ({after.event}): {after.progress}"
+        self._notifications.leave(coordinator, ERRAND, told)
+        self._advance(errand_id)
+
+    def _advance(self, errand_id: SubscriptionId) -> None:
+        """Hand out what can go now, or wake its Session if it is settled."""
+        while (found := self._errand(errand_id)) is not None:
+            subscription, errand = found
+            if errand.settled:
+                self._settle(subscription, errand)
+                return
+            if not self._send_next(subscription, errand):
+                return
+
+    def _send_next(self, subscription: Subscription, errand: OnErrand) -> bool:
+        """Send its next pending part that has a worker to go to; ``False`` if none."""
+        busy = {p.worker for p in errand.parts if p.status == "out"}
+        for index, part in enumerate(errand.parts):
+            if part.status != "pending":
+                continue
+            worker = part.worker or next(
+                (
+                    w
+                    for w in errand.workers
+                    if w not in busy and not self._turns.busy(w) and self._turns.room_for(w)
+                ),
+                None,
+            )
+            if worker is None:
+                return False  # a Lote's task waits for a free worker
+            prompt_id = new_prompt_id()
+            out = part.model_copy(
+                update={
+                    "status": "out",
+                    "worker": worker,
+                    "prompt_id": prompt_id,
+                    "tries": part.tries + 1,
+                }
+            )
+            self._put(subscription, errand.with_part(index, out))
+            origin = subscription.origin
+            if origin.chain[-1] != Link("session", subscription.session_id):
+                origin = from_session(origin, subscription.session_id)
+            try:
+                session = self._sessions.load(worker)
+            except AllInError as error:  # gone meanwhile
+                why = Outcome(session_id=worker, kind="failed", text=str(error), origin=origin)
+                self._part_ended(subscription.id, index, why)
+                return True
+            text = task_text(origin_header(origin), subscription.id, part.task)
+            owed = (part_id(subscription.id, index),)
+            prompt = Prompt(worker, text, origin=origin, prompt_id=prompt_id, owed=owed)
+            self._turns.push(session, prompt)
+            return True
+        return False
+
+    def _settle(self, subscription: Subscription, errand: OnErrand) -> None:
+        """Wake its Session with the results, once; what is still out is cancelled."""
+        del self._open[subscription.id]
+        self._closed.add(subscription.id)
+        for index, part in enumerate(errand.parts):
+            if not part.ended:
+                why = f"its errand {subscription.id} has what it waited for"
+                self._stop_part(subscription.id, index, part, why)
+                errand = errand.with_part(index, part.model_copy(update={"status": "cancelled"}))
+        origins = [p.origin for p in errand.parts if p.origin is not None]
+        longest = max(origins, key=lambda o: len(o.chain), default=subscription.origin)
+        settled = subscription.model_copy(update={"watch": errand})
+        results = report(errand)
+        self._reporter.log_session(
+            subscription.session_id, "errand_settled", errand=subscription.id, text=results
+        )
+        self._happened(settled, results, longest)
+
+    def _stop_part(self, errand_id: SubscriptionId, index: int, part: Part, why: str) -> None:
+        """Cancel what a part's worker does for it: its Prompt, queued or running, and what
+        its answer, held back, still waits for."""
+        owed = part_id(errand_id, index)
+        for debt in [d for d in self._debts if owed in d.owed]:
+            self._debts.remove(debt)
+            for waiting in debt.waiting:
+                inner = next((s for s in self._waiting() if s.id == waiting), None)
+                if inner is not None:
+                    self._cancel(inner, why)
+                # The Turn it woke, queued or running, would answer for the part.
+                self._turns.cancel_woken(debt.session_id, waiting, why)
+        if part.status == "out" and part.worker is not None:
+            self._turns.cancel_prompt(part.worker, part.prompt_id, why)
+
+    def _spend(self, errand_id: SubscriptionId, elapsed: float) -> None:
+        """Its parts out spend their deadline while their worker's Server is ready; one past
+        it is cancelled, as no answer."""
+        found = self._errand(errand_id)
+        if found is None or found[1].deadline is None:
+            return
+        subscription, errand = found
+        deadline = found[1].deadline
+        # A Lote's task waiting for a free worker spends it too, while one could take it.
+        any_ready = any(self._turns.ready(w) for w in errand.workers)
+        late: list[tuple[int, Part]] = []
+        for index, part in enumerate(errand.parts):
+            waiting = part.status == "pending" and part.worker is None and any_ready
+            running = (
+                part.status == "out" and part.worker is not None and self._turns.ready(part.worker)
+            )
+            if not (waiting or running):
+                continue
+            spent = part.spent + elapsed
+            if spent < deadline:
+                errand = errand.with_part(index, part.model_copy(update={"spent": spent}))
+                continue
+            late.append((index, part))
+            gone = {"status": "late", "spent": spent, "prompt_id": NO_PROMPT_ID}
+            errand = errand.with_part(index, part.model_copy(update=gone))
+        self._put(subscription, errand)
+        for index, part in late:
+            self._stop_part(errand_id, index, part, f"its errand {errand_id}'s deadline passed")
+        if late:
+            told = f"errand {errand_id} ({errand.event}): {errand.progress}"
+            self._notifications.leave(subscription.session_id, ERRAND, told)
 
     def _session_changed(
         self, kind: Literal["rewind", "compact"], session_id: SessionId, text: str, origin: Origin
@@ -546,10 +818,6 @@ class Subscriptions:
                 session_id, f"{origin_header(origin)}\n{events}", origin=origin, woke_by=woke_by
             )
             self._turns.push(session, prompt)
-
-
-def _answered(session_id: SessionId, answer: str) -> str:
-    return f"Session {session_id} answered:\n{answer}"
 
 
 def _check_own(session_id: SessionId, origin: Origin) -> None:

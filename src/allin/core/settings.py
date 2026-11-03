@@ -224,6 +224,23 @@ class SubscriptionSettings(BaseModel, frozen=True):
     )
 
 
+class ErrandSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    retries: int = Field(
+        default=1,
+        ge=0,
+        le=10,
+        description="times an Encargo tries a task again when its worker fails, unless it says"
+        " (--retries=)",
+    )
+    deadline: float = Field(
+        default=0.0,
+        ge=0,
+        description="seconds each worker of an Encargo has, unless it says (--deadline=); 0: none",
+    )
+
+
 WINDOWS_MAX_DEFAULT = 6
 
 
@@ -255,6 +272,7 @@ class MainSettings(BaseModel, frozen=True):
     windows: WindowsSettings = WindowsSettings()  # the Máximo de Ventanas (#52, ADR-0020)
     attached: AttachedSettings = AttachedSettings()  # the Procesos adheridos (ADR-0012)
     subscription: SubscriptionSettings = SubscriptionSettings()  # the Suscripciones (#116)
+    errand: ErrandSettings = ErrandSettings()  # the Encargos and Lotes (#117)
     # The Atajos of Main's own Chat as they differ from the defaults; only ``/key`` changes them.
     keys: dict[str, str] = Field(default_factory=dict[str, str])
     theme: ThemeName = Field(

@@ -231,7 +231,15 @@ def test_new_gives_the_roots_or_the_ones_named(main: MainHarness):
     first, second = (
         main.sessions.load(sid) for sid in sorted(main.sessions.ids(), key=_created(main))
     )
-    assert first.commands == ("send", "server", "conversation_logs", "subscribe", "unsubscribe")
+    assert first.commands == (
+        "send",
+        "server",
+        "conversation_logs",
+        "subscribe",
+        "unsubscribe",
+        "errand",
+        "batch",
+    )
     assert second.commands == ("send",)
     notices = [u.box for u in main.main_screen if isinstance(u, ShowBox)]
     assert [box.title for box in notices] == ["Command sessions missing"]
@@ -294,6 +302,8 @@ def run(call):
         "conversation_logs",
         "subscribe",
         "unsubscribe",
+        "errand",
+        "batch",
         "note",
     )
     assert [problem.code for problem in loaded.problems] == ["session_command_failed"]

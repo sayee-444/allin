@@ -116,7 +116,7 @@ Receta de un árbol de Mains: qué submains, qué Sesiones crea cada uno desde q
 _Avoid_: topología, red, estructura (como nombre del concepto)
 
 **Informe de recuperación** (`RecoveryReport`):
-Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio: lo que quedó a medias (Turnos, Ventanas, Procesos adheridos, Encargos). Queda en el Log, se muestra al usuario como Aviso y llega a cada Sesión afectada como Notificación; dice qué quedó a medias, no por qué murió Main.
+Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio o cortó Turnos: lo que quedó a medias (Turnos, Ventanas, Procesos adheridos, Encargos). Queda en el Log, se muestra al usuario como Aviso y llega a cada Sesión afectada como Notificación; dice qué quedó a medias, no por qué murió Main.
 _Avoid_: crash report, volcado
 
 **Ajustes** (`Settings`):
@@ -176,11 +176,11 @@ Petición de una Sesión de que un evento la despierte: cuando ocurre (responden
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
-Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Con un quórum `k`, la despierta cuando `k` terminan bien y cancela las demás; una carrera es `k=1`. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida. El plazo solo corre mientras su Perfil está activo en un Main vivo, y a cada trabajadora no le cuenta el tiempo en que su Servidor no está listo. Es del Perfil en que se abrió.
+Suscripción a las respuestas de los Prompts que una Sesión repartió a otras Sesiones de su árbol de Mains: la despierta con la lista de resultados cuando todas terminan, sea bien, fallando o sin respuesta al vencer su plazo. Con un quórum `k`, la despierta cuando `k` terminan bien y cancela las demás; una carrera es `k=1`. Los Encargos forman un árbol: ninguno puede esperar a la Sesión que lo abrió ni a sus ancestros. Pertenece a la Sesión, no a su Turno: cerrar su Ventana no lo cancela; solo lo cancelan un Rewind a antes de abrirlo o una cancelación explícita, que alcanza a lo que sus trabajadoras hacen para él. Vencer su plazo cancela igual la parte vencida. El plazo solo corre mientras su Perfil está activo en un Main vivo, y a cada trabajadora no le cuenta el tiempo en que su Servidor no está listo. Es del Perfil en que se abrió. Se abre con `@errand` (un humano, `/errand`), y una tarea que falla se reintenta hasta `--retries` sin despertarla.
 _Avoid_: job, barrera, tarea
 
 **Lote** (`Batch`):
-Encargo cuyas tareas no van asignadas de antemano. Main le da la siguiente a una trabajadora de su lista cuando esta no tiene Turno ni cola y su Servidor tiene sitio para empezarla, así que los Supervisores libres se turnan el lote. La Sesión que lo abrió despierta una sola vez, con todos los resultados y el Supervisor y el modelo que respondió cada uno. Plazo, quórum y cancelación funcionan como en el Encargo.
+Encargo cuyas tareas no van asignadas de antemano. Main le da la siguiente a una trabajadora de su lista cuando esta no tiene Turno ni cola y su Servidor tiene sitio para empezarla, así que los Supervisores libres se turnan el lote. La Sesión que lo abrió despierta una sola vez, con todos los resultados y el Supervisor y el modelo que respondió cada uno. Plazo, quórum y cancelación funcionan como en el Encargo. Se abre con `@batch` (un humano, `/batch`).
 _Avoid_: pool, cola de trabajo, job
 
 **Paso** (`Step`):

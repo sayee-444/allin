@@ -36,7 +36,16 @@ from allin.core.errors import (
     TurnCancelled,
     TurnCrashed,
 )
-from allin.core.ids import BoxId, MainId, ServerKey, SessionId, SupervisorName, new_prompt_id
+from allin.core.ids import (
+    BoxId,
+    MainId,
+    PromptId,
+    ServerKey,
+    SessionId,
+    SubscriptionId,
+    SupervisorName,
+    new_prompt_id,
+)
 from allin.core.origin import from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
@@ -1496,6 +1505,67 @@ class TurnQueue:
         """Whether the Session has a Turn, a queued Prompt or a Compaction under way."""
         return self._busy(session_id)
 
+    def cancel_prompt(self, session_id: SessionId, prompt_id: PromptId, reason: str) -> None:
+        """Cancel the Session's Prompt ``prompt_id``, queued or running, and nothing else: an
+        Encargo that no longer waits for it (#117). Its Turn, once its executor stops, is
+        saved in no Conversation, as any cancelled Turn."""
+        running = self._running.get(session_id)
+        if running is not None and running.prompt.prompt_id == prompt_id:
+            running.cancellation.cancel(reason)
+            self._withdraw(running)
+            return
+        for prompt in self._prompts.of(session_id):
+            if prompt.prompt_id != prompt_id or prompt.kind != "prompt":
+                continue
+            self._prompts.remove(prompt)
+            self._measures.pop(session_id, None)
+            if not self._prompts.has(session_id):
+                self._since.pop(session_id, None)
+            texts: list[JsonValue] = [prompt.text]
+            shown = dropped_entry(1, reason).text
+            self._reporter.record(
+                session_id, "prompts_dropped", shown, reason=reason, texts=texts, kinds=["prompt"]
+            )
+            self._answers.dropped(prompt, f"it left the queue: {reason}")
+            self.send_turn_state(session_id)
+            self._start_turns()
+            return
+
+    def cancel_woken(
+        self, session_id: SessionId, subscription_id: SubscriptionId, reason: str
+    ) -> None:
+        """Cancel the Session's Prompt that ``subscription_id`` woke, queued or running."""
+        running = self._running.get(session_id)
+        prompts = [*([running.prompt] if running else []), *self._prompts.of(session_id)]
+        for prompt in prompts:
+            if subscription_id in prompt.woke_by:
+                self.cancel_prompt(session_id, prompt.prompt_id, reason)
+                return
+
+    def ready(self, session_id: SessionId) -> bool:
+        """Whether the Session's Server is ready: an Encargo's deadline runs only then."""
+        link = self._watched_link_of(session_id)
+        return link is not None and self._ready(link.key)
+
+    def room_for(self, session_id: SessionId) -> bool:
+        """Whether the Session's Server is ready with a slot that none of this Main's
+        Sessions takes, running or waiting for one: a Lote gives it a task only then (#117)."""
+        link = self._watched_link_of(session_id)
+        state = None if link is None else self._states.get(link.key)
+        if link is None or not isinstance(state, ServerReady):
+            return False
+        running = {s for s, turn in self._running.items() if turn.link.key == link.key}
+        return len(running | set(self._sessions_on(link.key))) < state.props.total_slots
+
+    def serving(self, session_id: SessionId) -> str:
+        """Who answers the Session's Prompts now: its Server and the model there."""
+        link = self._watched_link_of(session_id)
+        if link is None:
+            return ""
+        state = self._states.get(link.key)
+        model = Path(state.props.model_path).name if isinstance(state, ServerReady) else ""
+        return " · ".join(filter(None, (f"{link.describe()} ({link.key})", model)))
+
     def _busy(self, session_id: SessionId) -> bool:
         """Whether a Prompt sent now would wait behind a Turn, a Prompt or a Compaction."""
         return (
@@ -1556,7 +1626,8 @@ class TurnQueue:
             session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields, prompt=prompt
         )
         self._windows.send(session_id, error_entry(str(error)))
-        self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
+        if not self._stopping:  # else MainState keeps it running, for the next start to tell
+            self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
         if not cancelled:  # its Prompt is in no Conversation, so the user may send it again
             # The Session's queued Prompts leave with it: without it in the Conversation they
             # would run out of the order they were written in (#16).

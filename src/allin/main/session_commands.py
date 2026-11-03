@@ -125,6 +125,41 @@ SUBSCRIBE = SessionCommandType(
 UNSUBSCRIBE = SessionCommandType(
     "unsubscribe", "@unsubscribe <subscription>", "close one of your Suscripciones", _unsubscribe
 )
+
+
+def _errand(call: SessionCommandCall) -> str:
+    """Always for its own Session (ADR-0011); the rest is checked by the Command main."""
+    if not call.args.strip():
+        raise ValueError(_ERRAND_USAGE)
+    return f"/errand {call.session_id} {call.args.strip()}"
+
+
+def _batch(call: SessionCommandCall) -> str:
+    """Always for its own Session, as ``@errand``."""
+    if not call.args.strip():
+        raise ValueError(_BATCH_USAGE)
+    return f"/batch {call.session_id} {call.args.strip()}"
+
+
+_ERRAND_USAGE = (
+    "@errand [--k=<n>] [--deadline=<seconds>] [--retries=<n>]"
+    ' --to=<sid>,<sid>… <task> | {"<sid>": "<task>", …}'
+)
+_BATCH_USAGE = (
+    '@batch [--k=<n>] [--deadline=<seconds>] [--retries=<n>] --to=<sid>,<sid>… ["<task>", …]'
+)
+ERRAND = SessionCommandType(
+    "errand",
+    _ERRAND_USAGE,
+    "hand tasks out to other Sessions; once all answered you wake with every result",
+    _errand,
+)
+BATCH = SessionCommandType(
+    "batch",
+    _BATCH_USAGE,
+    "a list of tasks free workers take in turns; once done you wake with every result",
+    _batch,
+)
 CONVERSATION_LOGS = SessionCommandType(
     "conversation_logs",
     _CONVERSATION_LOGS_USAGE,
@@ -236,6 +271,8 @@ BUILT_IN = LoadedSessionCommands(
             CONVERSATION_LOGS,
             SUBSCRIBE,
             UNSUBSCRIBE,
+            ERRAND,
+            BATCH,
             CREATE,
             GRANT,
             ATTACH,
@@ -243,9 +280,11 @@ BUILT_IN = LoadedSessionCommands(
         )
     },
     # @create, @attach and @call widen what Sessions do: given by name, never by default; a
-    # Suscripción only wakes its own Session, with its chain capped (#116).
+    # Suscripción only wakes its own Session, with its chain capped (#116), and an Encargo
+    # sends no more than @send would (#117).
     tuple(
-        CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS, SUBSCRIBE, UNSUBSCRIBE)
+        CommandName(kind.name)
+        for kind in (SEND, SERVER, CONVERSATION_LOGS, SUBSCRIBE, UNSUBSCRIBE, ERRAND, BATCH)
     ),
 )
 

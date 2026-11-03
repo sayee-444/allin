@@ -566,6 +566,19 @@ class SubscriptionNotOwn(AllInError):
     code: ClassVar[str] = "subscription_not_own"
 
 
+class ErrandInvalid(AllInError):
+    """An Encargo or a Lote as written cannot be opened: ``reason`` says why."""
+
+    code: ClassVar[str] = "errand_invalid"
+
+
+class ErrandCycle(AllInError):
+    """An Encargo would wait for ``worker``, which is the Session that opens it or one that
+    waits for it: Encargos form a tree, so each ends (ADR-0011)."""
+
+    code: ClassVar[str] = "errand_cycle"
+
+
 class AttachedCallsItself(AllInError):
     """A method of the Proceso adherido ``name`` calls ``name`` again: taking one call at a
     time, it would wait for itself for good, so no method calls its own process."""

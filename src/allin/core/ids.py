@@ -1,7 +1,7 @@
 import re
 import secrets
 import string
-from typing import NewType
+from typing import Literal, NewType
 
 _ALPHABET = string.ascii_lowercase + string.digits
 _LENGTH = 6
@@ -38,15 +38,16 @@ def new_prompt_id() -> PromptId:
     return PromptId("".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
 
 
-# A Suscripción's id (#116): ``s`` and 6 characters of ``[a-z0-9]``.
+# A Suscripción's id (#116): ``s`` and 6 characters of ``[a-z0-9]``; an Encargo's, which is
+# one too (#117), starts with ``e``.
 SubscriptionId = NewType("SubscriptionId", str)
 
 
-_SUBSCRIPTION_ID = re.compile(f"s[{re.escape(_ALPHABET)}]{{{_LENGTH}}}")
+_SUBSCRIPTION_ID = re.compile(f"[se][{re.escape(_ALPHABET)}]{{{_LENGTH}}}")
 
 
-def new_subscription_id() -> SubscriptionId:
-    return SubscriptionId("s" + "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
+def new_subscription_id(prefix: Literal["s", "e"] = "s") -> SubscriptionId:
+    return SubscriptionId(prefix + "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
 
 
 def parse_subscription_id(text: str) -> SubscriptionId | None:
