@@ -861,9 +861,10 @@ class TurnQueue:
         self._stopping = True
 
     def pause(self) -> None:
-        """No Turn starts until ``resume``; running ones go on (``/profile switch``)."""
+        """No Turn starts until ``resume``; running ones go on, their next Steps included
+        (``/profile switch``, #197)."""
         self._paused = True
-        self._publish([])  # nothing of ours waits in any Wait list meanwhile
+        self._start_turns()  # only those keep their place in the Wait lists meanwhile
 
     def resume(self) -> None:
         """Turns start again, and each Session with queued Prompts is told it has work."""
@@ -968,11 +969,11 @@ class TurnQueue:
         Room is this Main's ``parallel``, summing every Server; on each Server, a free slot
         lock, which Mains sharing it compete for (ADR-0008), and the Admission by its Wait list
         (``allin.main.admission``). A Server that is not ready, or full, holds back only its own
-        Sessions.
+        Sessions. While Main leaves its Profile, only the Turns under way go on (#197).
         """
         self._judge_changes()
         waiting: dict[SessionId, Waiting] = {}
-        while not self._stopping and not self._paused and self._start_one(waiting):
+        while not self._stopping and self._start_one(waiting):
             waiting = {}
         self._show_waiting(waiting)
         self._show_pools()
@@ -1012,8 +1013,9 @@ class TurnQueue:
 
     def _candidates(self, waiting: dict[SessionId, Waiting]) -> list[_Candidate] | None:
         """The Steps ready to start but for their Server, Continuations first, then each
-        Session's next Prompt in queue order; ``None`` if one failed on the way. ``waiting``
-        gets why the others cannot even wait for a slot yet."""
+        Session's next Prompt in queue order, unless Main is leaving its Profile; ``None`` if
+        one failed on the way. ``waiting`` gets why the others cannot even wait for a slot
+        yet."""
         candidates: list[_Candidate] = []
         for running in self._continuations():
             if not self._ready(running.link.key):
@@ -1024,6 +1026,8 @@ class TurnQueue:
             since = running.ready_at
             waiter = self._waiter(running.session.id, "continuation", since, running.need)
             candidates.append(_Candidate(waiter, running.link, running=running))
+        if self._paused:  # ``/profile switch`` waits for these to end, and starts nothing new
+            return candidates
         for session_id in self._changes.keys() - self._falls.keys():
             if self._prompts.has(session_id) and session_id not in self._running:
                 waiting[session_id] = Waiting("link")
@@ -1070,8 +1074,15 @@ class TurnQueue:
     def _continuation_measured(self, running: _RunningTurn, tokens: int | None) -> None:
         """The Server measured the input of the Continuation's next Step (#188): it needs that,
         its tools' schemas and its Output cap. One it could not measure reserves the whole
-        pool, so it starts once no other Step is in course."""
-        running.measuring, running.measured = None, True
+        pool, so it starts once no other Step is in course; one it could not reach, as it fell
+        or restarts, is measured again once it is back (#197)."""
+        running.measuring = None
+        if tokens is None and not self._ready(running.link.key):
+            shown = "the Server could not measure the input: measured again once it is back"
+            self._reporter.log_session(running.session.id, "input_unmeasured", text=shown)
+            self._start_turns()
+            return
+        running.measured = True
         if tokens is None:
             shown = "the Server could not measure the input: it waits for the whole pool"
             self._reporter.log_session(running.session.id, "input_unmeasured", text=shown)
@@ -1380,9 +1391,8 @@ class TurnQueue:
             output_cap=cap,
             need=need,
             grown=_chars(joined),
-            context_before=context_tokens(conversation.turns[-1].steps)
-            if conversation.turns
-            else None,
+            # What was measured once it compacted, never the Context of before (#197).
+            context_before=self._windows.saved_context(session.id, conversation),
             notifications=[]
             if compacting
             else self._notifications.opening(session, conversation, told),
@@ -1468,7 +1478,9 @@ class TurnQueue:
 
     def _tell_over_limit(self, link: Link, limit: int) -> None:
         """A Notice naming this Main's Sessions on ``link`` whose Context no longer fits its
-        lowered slot limit (ADR-0022); each compacts in parts before its next Turn (ADR-0017)."""
+        lowered slot limit (ADR-0022); each compacts in parts before its next Turn (ADR-0017).
+        A compacted Conversation weighs what the Server measured of it, never its Context of
+        before (#197)."""
         over: list[str] = []
         for session_id in self._sessions.ids():
             try:
@@ -1478,8 +1490,9 @@ class TurnQueue:
                 conversation = self._sessions.load_conversation(session)
             except AllInError:
                 continue
-            steps = conversation.turns[-1].steps if conversation and conversation.turns else []
-            context = context_tokens(steps)
+            if conversation is None:
+                continue
+            context = self._windows.saved_context(session_id, conversation)
             if context is not None and context > limit:
                 over.append(f"{session_id} ({context})")
         if over:
