@@ -286,6 +286,83 @@ def test_at_secret_with_no_value_is_refused_too_and_kept_whole(main: MainHarness
     assert error.startswith("@secret: secret_in_main_chat_only")
 
 
+# Written in Main's Chat as @secret, or sent to a Session with /send (#178)
+
+
+def logged_commands(main: MainHarness) -> list[JsonValue]:
+    return [entry.fields["command"] for entry in main.main_log() if entry.event == "command"]
+
+
+@pytest.mark.parametrize("window_open", [False, True])
+def test_sent_as_at_secret_from_mains_chat_it_reaches_no_draft_and_logs_four_words(
+    main: MainHarness, tmp_path: Path, window_open: bool
+):
+    session = main.create_session()
+    opened = [MainCommandEntered(f"/open {session.id}")] if window_open else []
+    chat = main.run(
+        *opened,
+        MainCommandEntered(f"/send {session.id} @secret set bot token {VALUE}"),
+        MainCommandEntered("/exit"),  # Main keeps its Drafts on disk
+        settle=True,
+    )
+    [refused] = [line for line in chat if "secret_in_main_chat_only" in line]
+    assert f"/send {session.id} @secret set bot token …: error" in refused
+    assert "/secret set <instance> <name>" in refused
+    assert f"/send {session.id} @secret set bot token …" in logged_commands(main)
+    for window in main.windows(session.id):
+        assert all(VALUE not in str(message) for message in window.sent)
+        assert not any(isinstance(message, InputRestore) for message in window.sent)
+    assert main.state.load().drafts == {}
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_sent_as_at_secret_with_reply_to_it_logs_four_words_of_it_too(
+    main: MainHarness, tmp_path: Path
+):
+    session, other = main.create_session(), main.create_session()
+    sent = f"/send {session.id} --reply-to={other.id} @secret set bot token {VALUE}"
+    main.run(MainCommandEntered(sent), MainCommandEntered("/exit"), settle=True)
+    assert f"/send {session.id} --reply-to={other.id} @secret set bot token …" in logged_commands(
+        main
+    )
+    assert main.state.load().drafts == {}
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_another_command_session_sent_from_mains_chat_still_goes_back_to_its_input(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.run(MainCommandEntered(f"/send {session.id} @rewind 1"), settle=True)
+    assert main.state.load().drafts == {session.id: ["@rewind 1"]}
+    assert f"/send {session.id} @rewind 1" in logged_commands(main)
+
+
+def test_typed_as_at_secret_in_mains_chat_it_shows_the_usage_and_keeps_four_words(
+    main: MainHarness, tmp_path: Path
+):
+    chat = main.run(
+        MainCommandEntered(f"@secret set bot token {VALUE}"),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    [refused] = [line for line in chat if "secret_in_main_chat_only" in line]
+    assert refused.startswith("@secret set bot token …: error")
+    assert "/secret set <instance> <name>" in refused
+    assert "@secret set bot token …" in logged_commands(main)
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+    assert secret_boxes(main) == []
+
+
+def test_another_unknown_command_in_mains_chat_is_still_kept_whole(main: MainHarness):
+    chat = main.run(MainCommandEntered("@rewind one two three four"))
+    assert any(
+        line.startswith("@rewind one two three four: error unknown_command") for line in chat
+    )
+
+
 def test_it_goes_to_the_profile_it_was_asked_in_though_main_switched_meanwhile(
     main: MainHarness,
 ):
