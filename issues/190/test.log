@@ -1,0 +1,62 @@
+# #190 — Un Turno suspendido que sale de la cola ya no deja viva su cuenta de caídas (2026-11-03)
+
+Código: rama fix/190-olvidar-caidas-al-cancelar, commit 46c2e3f.
+Servidor (Swift IQ3_XXS con -c 32000, como en #181):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/176, 19932 → 9932) con un modo más para #190: mientras existe <scratch>/ctl/small,
+/props dice como n_ctx el número escrito en él (el Servidor vuelve con un slot más pequeño). Como antes, cae el POST de
+generación cuyo cuerpo contiene lo escrito en <scratch>/ctl/fall (lo apunta en falls.log) y cada caída crea
+<scratch>/ctl/down (/health 503) hasta que se borra.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m190 (PYTHONPATH=src), en el xterm allin-main-190, con
+/set base_url=http://127.0.0.1:19932/v1 (y reiniciado, para que valga).
+/piece approve --all; /new --id=uno190; /new --id=dos190; /new --id=lider190; /profile new tesis.
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Tras cancelar con cancel_prompt un Turno suspendido, el siguiente Turno de la Sesión no falla a su primera caída
+   - Antes, sin caída: /errand lider190 --to=uno190 Di kiwi en una palabra. (el Encargo ed6sxvh termina: «kiwi»).
+   - fall = «mango». /errand lider190 --to=uno190 Di mango en una palabra. → Encargo e1rlc0f; el Turno de uno190 cae:
+     turn_suspended (llm_unavailable, reached=True); falls.log: 1 línea (01-uno-suspendido.png).
+   - /unsubscribe lider190 e1rlc0f: el Encargo se cancela y cancel_prompt saca de la cola el Turno suspendido:
+     prompts_dropped (its errand e1rlc0f was cancelled: unsubscribed) y errand_result_dropped.
+   - En la Ventana de uno190: «Di mango otra vez.», rm down: el Turno nuevo cae una vez y queda suspendido, no falla
+     (falls.log: 2 líneas). Con la cuenta del Turno cancelado viva habría fallado aquí (1 + 1 = 2).
+   - rm fall, rm down: turn_finished, «mango» (02-uno-encargo-cancelado-cuenta-olvidada.png).
+   - Log de uno190 (log-de-uno190.jsonl), desde el Encargo e1rlc0f:
+       prompt (origin human, session:lider190), turn_started, turn_suspended, prompts_dropped, errand_result_dropped,
+       prompt (Di mango otra vez.), turn_started, turn_suspended, turn_started, turn_finished
+2. Lo mismo con _drop_prompt y take_queue (a los dos les pasaba: lo prueban los tests de abajo con el código de antes)
+   _drop_prompt (un Turno suspendido que, al volver el Servidor con un slot más pequeño, ya no cabe):
+   - fall = «pera». En dos190: «Di pera en una palabra.» → cae: turn_suspended (falls.log: 3 líneas).
+   - echo 60 > small; rm down: el Servidor vuelve con 60 tokens por slot («the Server ready: 2 turn(s) at once, 60
+     tokens of context per slot»); el Turno suspendido se mide, no cabe y sale de la cola: error «prompt_too_big:
+     need=96, limit=60», prompt_too_big y prompt_returned; su Prompt vuelve al input (03-dos-no-cabe.png).
+   - rm small (el Servidor vuelve a 32000); Enter en la Ventana reenvía el Prompt devuelto: cae una vez y queda
+     suspendido, no falla (falls.log: 4 líneas). rm fall, rm down: turn_finished, «pera» (04-dos-cuenta-olvidada.png).
+   - Log de dos190 (log-de-dos190.jsonl): prompt, turn_started, turn_suspended, error, prompt_too_big,
+     prompt_returned, prompt, turn_started, turn_suspended, turn_started, turn_finished
+   take_queue (/profile switch se lleva la cola de las Sesiones que el Perfil de llegada no tiene):
+   - fall = «uva». En lider190: «Di uva en una palabra.» → cae: turn_suspended (falls.log: 5 líneas).
+   - /profile switch tesis: lider190 no está en tesis; su Ventana se cierra (profile switched) y su Turno suspendido
+     se queda en el Estado de Main de default.
+   - /open lider190 (entra en tesis: session_shared); en su Ventana «Di uva otra vez.», rm down: el Turno nuevo cae
+     una vez y queda suspendido, no falla (falls.log: 6 líneas). rm fall, rm down: turn_finished, «uva»
+     (06-lider-en-tesis-cuenta-olvidada.png; el Chat reconstruido muestra también el Prompt que se quedó en default).
+   - Log de lider190 (log-de-lider190.jsonl), desde «Di uva»: prompt, turn_started, turn_suspended, window_closed
+     (profile switched), window_opened, window_connected, prompt, turn_started, turn_suspended, turn_started,
+     turn_finished
+3. Tests: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+
+## Tests de #190
+tests/test_errands.py::test_a_suspended_turn_its_errand_no_longer_waits_for_forgets_the_falls_of_its_step PASSED
+  (cancel_prompt por un Encargo con k=1 ya cumplido; con el código de antes fallaba: turn_failed a la primera caída)
+tests/test_dispatcher.py::test_a_suspended_turn_that_no_longer_fits_its_slot_forgets_the_falls_of_its_step PASSED
+  (_drop_prompt con prompt_too_big; con el código de antes fallaba)
+tests/test_profile_switch.py::test_a_suspended_turn_the_outgoing_profile_keeps_takes_the_falls_of_its_step PASSED
+  (take_queue; con el código de antes fallaba)
+tests/test_profile_switch.py::test_a_shared_sessions_suspended_turn_keeps_the_falls_of_its_step PASSED
+  (una Sesión que comparten los dos Perfiles sigue en la cola y con su cuenta: falla a la segunda caída)
+Suite completa: 1859 pasan; basedpyright y ruff (src, tests) limpios.

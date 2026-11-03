@@ -1,0 +1,15 @@
+{"ts": "2026-11-03T11:44:46.774822-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T11:44:46.780030-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:44:46.867858-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:46:16.074801-06:00", "event": "prompt", "text": "Di pera en una palabra.", "prompt_id": "cket5x", "origin": ["human"]}
+{"ts": "2026-11-03T11:46:16.078850-06:00", "event": "turn_started", "need": 8081}
+{"ts": "2026-11-03T11:46:16.080274-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T11:46:16.677758-06:00", "event": "error", "error": "prompt_too_big: need=96, limit=60"}
+{"ts": "2026-11-03T11:46:16.677836-06:00", "event": "prompt_too_big", "typed": "Di pera en una palabra.", "origin": ["human"]}
+{"ts": "2026-11-03T11:46:16.677870-06:00", "event": "prompt_returned", "texts": ["Di pera en una palabra."]}
+{"ts": "2026-11-03T11:46:33.142256-06:00", "event": "prompt", "text": "Di pera en una palabra.", "prompt_id": "i49ckk", "origin": ["human"]}
+{"ts": "2026-11-03T11:46:33.145497-06:00", "event": "turn_started", "need": 8081}
+{"ts": "2026-11-03T11:46:33.146987-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T11:46:40.732991-06:00", "event": "turn_started", "need": 8081}
+{"ts": "2026-11-03T11:46:41.506867-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T11:47:06.032563-06:00", "event": "window_closed", "returncode": null, "reason": "profile switched"}
