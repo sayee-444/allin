@@ -1,0 +1,30 @@
+# Prueba a mano de #114 (2026-11-02)
+
+Main: ./venv/bin/python -m allin --data-dir e114/var (carpeta de datos desechable dentro del repo, ignorada por git).
+Servidor: llama serve -m Qwen3.8-27B-Uncensored-Q6_K.gguf (plantilla de una sola instancia), puerto 9931.
+fproc de prueba: e114/var/profiles/default/functions/board/board.py (la misma que tests/test_attached_methods.py), aprobada con /piece.
+Sesiones: autora (/new --id=autora -cs=send,call) y ajena (/new --id=ajena --bg, luego /func remove ajena @send). /attach board --to=autora,ajena.
+
+## Log de Main: llamadas humanas, lo que ejecutó el método y la Confirmación
+{"ts": "2026-11-02T19:45:52.191615-06:00", "event": "attached", "name": "board", "fproc": "board", "pid": 280089, "file": null, "to": ["autora", "ajena"], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T19:46:56.925365-06:00", "event": "method_called", "name": "board", "method": "pin", "arguments": {"text": "dos"}, "result": "2", "origin": ["human"]}
+{"ts": "2026-11-02T19:46:59.380355-06:00", "event": "method_called", "sid": "autora", "name": "board", "method": "pin", "arguments": {"text": "tres y cuatro"}, "result": "3", "origin": ["human"]}
+{"ts": "2026-11-02T19:47:01.642479-06:00", "event": "method_called", "sid": "autora", "name": "board", "method": "clear", "arguments": {}, "result": "0", "origin": ["human"]}
+{"ts": "2026-11-02T19:49:38.219972-06:00", "event": "confirmation_asked", "sid": "ajena", "command": "/grant ajena @send", "origin": ["human", "process:board"]}
+{"ts": "2026-11-02T19:49:48.678355-06:00", "event": "method_called", "sid": "autora", "name": "board", "method": "give", "arguments": {"sid": "ajena"}, "result": "{\"error\": \"rejected\"}", "origin": ["human"]}
+{"ts": "2026-11-02T19:49:51.009779-06:00", "event": "confirmation_asked", "command": "/call board burn", "origin": ["human"]}
+{"ts": "2026-11-02T19:49:53.115215-06:00", "event": "method_called", "name": "board", "method": "burn", "arguments": {}, "result": "\"burnt\"", "origin": ["human"]}
+{"ts": "2026-11-02T19:49:55.409391-06:00", "event": "method_called", "name": "board", "method": "burn", "arguments": {}, "result": "\"burnt\"", "origin": ["human"]}
+
+## Log de la Sesión ajena: el mensaje que mandó el método de board, con su Origen
+{"ts": "2026-11-02T19:47:48.063650-06:00", "event": "prompt", "text": "Llama una sola vez a board_tell con sid=autora y text=hola, y dime exactamente lo que devuelve.", "origin": ["human"]}
+{"ts": "2026-11-02T19:48:38.049936-06:00", "event": "prompt", "text": "[from attached process board]\nhola desde el tablero", "origin": ["human", "session:autora", "process:board"]}
+
+## Log de la Sesión autora: @call y su Notificación
+{"ts": "2026-11-02T19:45:52.189430-06:00", "event": "notification", "source": "/func", "text": "attached:board was given to you: its tools are yours", "conversation": true}
+{"ts": "2026-11-02T19:46:59.380430-06:00", "event": "method_called", "name": "board", "method": "pin", "arguments": {"text": "tres y cuatro"}, "result": "3", "origin": ["human"]}
+{"ts": "2026-11-02T19:46:59.380532-06:00", "event": "notification", "source": "call", "text": "@call board.pin by human: 3", "conversation": true}
+{"ts": "2026-11-02T19:47:01.642541-06:00", "event": "method_called", "name": "board", "method": "clear", "arguments": {}, "result": "0", "origin": ["human"]}
+{"ts": "2026-11-02T19:47:01.642632-06:00", "event": "notification", "source": "call", "text": "@call board.clear by human: 0", "conversation": true}
+{"ts": "2026-11-02T19:49:48.678452-06:00", "event": "method_called", "name": "board", "method": "give", "arguments": {"sid": "ajena"}, "result": "{\"error\": \"rejected\"}", "origin": ["human"]}
+{"ts": "2026-11-02T19:49:48.678593-06:00", "event": "notification", "source": "call", "text": "@call board.give by human: {\"error\": \"rejected\"}", "conversation": true}
