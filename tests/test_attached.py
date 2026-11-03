@@ -200,6 +200,27 @@ def test_one_that_crashed_comes_back_only_when_attached_again(main: MainHarness)
     assert len(events(main, "attached")) == 2
 
 
+def test_only_a_human_attaches_again_one_that_crashed_and_its_notice_says_how(
+    main: MainHarness, user_folder: Path
+):
+    shared = user_folder / "notes.txt"
+    shared.write_text("hello")
+    session = main.create_session()
+    attach = f"/attach counter notes --to={session.id} --file={shared}"
+    chat = main.run(
+        MainCommandEntered(attach),
+        lambda: crash(main),
+        MainCommandEntered(attach, from_session(session)),
+        settle=True,
+    )
+    assert any("human_only" in line for line in chat)
+    assert len(events(main, "attached")) == 1
+    [notice] = [
+        u.box for u in main.main_screen if isinstance(u, ShowBox) and u.box.kind == "notice"
+    ]
+    assert attach in notice.text
+
+
 def test_an_fproc_that_is_not_approved_or_cannot_start_is_not_attached(main: MainHarness):
     chat = main.run(
         MainCommandEntered("/attach nothing"),

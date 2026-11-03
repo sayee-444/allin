@@ -68,6 +68,7 @@ from allin.core.errors import (
     ToolNotStarted,
     ToolTimedOut,
 )
+from allin.core.ids import AttachedName, FprocName
 from allin.core.sources import compiled_files
 from allin.decorators import MINIMUM, Reach
 
@@ -79,6 +80,8 @@ _NO_COMMANDS: JsonValue = {"error": "this call cannot run Command sessions"}
 
 # Runs a Command session a tool asked for, as typed (``@name …``), and gives back its result.
 type OnCommand = Callable[[str], JsonValue]
+_WARDEN = b"allin.confinement.warden"  # in the command line of every warden
+_ORPHAN_GRACE = 2.0  # how long a warden a dead Main left gets to take itself down
 _STDERR_TOLD = 2000  # the end of stderr a ToolDied carries
 _PATH = "/usr/local/bin:/usr/bin:/bin"
 # What a graphical client needs from Main's environment, and only with ``display``.
@@ -112,8 +115,8 @@ class FprocStart:
     Carpeta de trabajo, its Alcance as approved, and the shared file chosen for it."""
 
     package: Path
-    module: str
-    name: str
+    module: FprocName
+    name: AttachedName
     workspace: Path
     reach: Reach = MINIMUM
     file: Path | None = None  # read and written beyond its Alcance, for this instance alone
@@ -231,11 +234,17 @@ class ToolLauncher:
         message = DescribeModule(package=str(package), module=module, read=[str(p) for p in read])
         return self._converse(package, MINIMUM, None, frozenset(), lambda _: message, timeout)
 
-    def attach(self, start: FprocStart, timeout: float) -> "AttachedProcess":
+    def attach(
+        self,
+        start: FprocStart,
+        timeout: float,
+        on_end: "OnEnd" = lambda _: None,
+    ) -> "AttachedProcess":
         """Start ``start``'s fproc as a Proceso adherido, confined for good with its Alcance and
         its shared file, and give it back once its class was made (ADR-0012). It dies with this
-        launcher's thread, and so with Main. Raises ``AttachFailed`` if making the class
-        raised, and as ``run`` for the rest."""
+        launcher's thread, and so with Main; ``on_end`` hears, from another thread, that it
+        ended. Raises ``AttachFailed`` if making the class raised, and as ``run`` for the
+        rest."""
         _refuse_compiled(start.package)
         tmp = self._data_dir / "tmp" / f"attached-{secrets.token_hex(8)}"
         tmp.mkdir(parents=True)
@@ -249,9 +258,9 @@ class ToolLauncher:
             raise
         finally:
             tool_end.close()
-        attached = AttachedProcess(started.process, main_end, tmp, self._grace)
+        attached = AttachedProcess(started.process, main_end, tmp, self._grace, on_end)
         try:
-            main_end.sendall(encode(self._attachment(start, tmp, servers, started.net_layer)))
+            attached.send(self._attachment(start, tmp, servers, started.net_layer))
             attached.wait_attached(timeout)
         except BaseException:
             attached.detach()
@@ -496,19 +505,30 @@ def _outcome(message: ToMain | None, stdout: str, stderr: str) -> ToolOutcome:
             raise ConfinementFailed(call=call, errno=errno)
 
 
+# Hears that a Proceso adherido ended, from the thread that reaped it.
+type OnEnd = Callable[["AttachedProcess"], None]
+
+
 class AttachedProcess:
     """A Proceso adherido as Main holds it: its process, and the channel its methods are called
     on, one call at a time (ADR-0012). It is safe to use from any thread."""
 
     def __init__(
-        self, process: subprocess.Popen[bytes], channel: socket.socket, tmp: Path, grace: float
+        self,
+        process: subprocess.Popen[bytes],
+        channel: socket.socket,
+        tmp: Path,
+        grace: float,
+        on_end: OnEnd,
     ) -> None:
         self._process = process
         self._channel = channel
         self._tmp = tmp
         self._grace = grace
+        self._on_end = on_end
         self._lines = _Lines(channel)
-        self._calls = threading.Lock()  # one call at a time on the channel
+        self._calls = threading.Lock()  # one call at a time reads the channel, and closes it
+        self._sending = threading.Lock()  # whole lines: a detach never cuts a call in two
         self._stderr = _Capture(process.stderr, tail=True)
         self._stdout = _Capture(process.stdout)
         self._ended = threading.Event()
@@ -533,32 +553,44 @@ class AttachedProcess:
         self._ended.wait()
         return self._fproc_died if self._fproc_died is not None else self._exit_code
 
+    def send(self, message: AttachFproc | CallMethod | Detach) -> None:
+        """Write one message whole on its channel. Raises ``OSError`` once it is closed."""
+        with self._sending:
+            self._channel.sendall(encode(message))
+
     def call(self, method: str, arguments: dict[str, JsonValue], timeout: float) -> ToolOutcome:
         """Call a public method of its fproc and wait for its answer. Raises ``AttachedEnded``
         if the process ended, before or during the call, and ``ToolTimedOut`` after
         ``timeout`` seconds, which takes the whole Proceso adherido down."""
         with self._calls:
-            if self._ended.is_set():
-                raise AttachedEnded(exit_code=self.wait())
-            try:
-                self._channel.sendall(encode(CallMethod(method=method, arguments=arguments)))
-                line = self._lines.next(time.monotonic() + timeout, lambda: False)
-            except TimeoutError as error:
-                self.detach()
-                raise ToolTimedOut(seconds=timeout) from error
-            except OSError as error:
-                raise AttachedEnded(exit_code=self.wait()) from error
-            message = parse_to_main(line) if line else None
+            message = self._ask(CallMethod(method=method, arguments=arguments), timeout)
+        # Waiting for its end happens out of the lock, which its reaper takes to close it.
         match message:
             case Returned(value=value):
                 return ToolOutcome(value=value, error=None, stdout="", stderr="")
             case Raised(error=error):
                 return ToolOutcome(value=None, error=error, stdout="", stderr="")
-            case Died(exit_code=code):  # it died while it ran
-                self._fproc_died = code
+            case TimeoutError():
+                self.detach()
+                raise ToolTimedOut(seconds=timeout)
+            case _:  # it ended, before the call or while it ran
                 raise AttachedEnded(exit_code=self.wait())
-            case _:  # its channel ended with nothing more
-                raise AttachedEnded(exit_code=self.wait())
+
+    def _ask(self, call: CallMethod, timeout: float) -> ToMain | TimeoutError | None:
+        """Send ``call`` and read its answer, under the call lock; ``None`` once it ended."""
+        if self._ended.is_set():
+            return None
+        try:
+            self.send(call)
+            line = self._lines.next(time.monotonic() + timeout, lambda: False)
+        except TimeoutError as error:
+            return error
+        except OSError:
+            return None
+        message = parse_to_main(line) if line else None
+        if isinstance(message, Died):
+            self._fproc_died = message.exit_code
+        return message
 
     def wait_attached(self, timeout: float) -> None:
         """Wait for its class to be made. Raises ``AttachFailed`` if that raised,
@@ -585,7 +617,7 @@ class AttachedProcess:
         """Take it down: its warden ends it with every process it started, and what is left
         of its process group after ``grace`` is killed. Waits until it is gone."""
         with contextlib.suppress(OSError):  # it is already gone
-            self._channel.sendall(encode(Detach()))
+            self.send(Detach())
         self._ended.wait(self._grace)
         if not self._ended.is_set():
             with contextlib.suppress(ProcessLookupError):
@@ -594,7 +626,8 @@ class AttachedProcess:
 
     def _reap(self) -> None:
         """Its one reaper: once the warden ended, kill what is left of its group (before the
-        warden is reaped, so the group's id cannot be reused) and clear its TMPDIR."""
+        warden is reaped, so the group's id cannot be reused), close its channel once no call
+        reads it, clear its TMPDIR and tell who listens."""
         pidfd = os.pidfd_open(self._process.pid)
         try:
             select.select([pidfd], [], [])  # readable once the warden has ended
@@ -603,24 +636,54 @@ class AttachedProcess:
         with contextlib.suppress(ProcessLookupError):  # nothing else was left
             os.killpg(self._process.pid, signal.SIGKILL)
         self._exit_code = self._process.wait()
-        self._read_death()
-        self._channel.close()
+        with self._calls:  # a call running now ends at once: its warden is gone
+            self._read_death()
+            with self._sending:
+                self._channel.close()
         shutil.rmtree(self._tmp, ignore_errors=True)
         self._ended.set()
+        self._on_end(self)
 
     def _read_death(self) -> None:
-        """What its warden said as it ended between calls: how its fproc's process ended. A
-        call running now reads it itself."""
-        if not self._calls.acquire(blocking=False):
-            return
+        """What its warden said as it ended between calls: how its fproc's process ended."""
         try:
             line = self._lines.next(time.monotonic() + _STOP_POLL, lambda: False)
             if line and isinstance(died := parse_to_main(line), Died):
                 self._fproc_died = died.exit_code
         except (TimeoutError, OSError, MalformedMessage):
             pass  # it said nothing, or nothing Main reads
-        finally:
-            self._calls.release()
+
+
+def close_left_warden(pid: int, main_pid: int) -> bool:
+    """Close the warden of a Proceso adherido that the dead Main ``main_pid`` left alive, with
+    every process of its group; whether there was one. Since that Main died, ``pid`` may belong
+    to an unrelated process now: only one whose command line is a warden of that Main is
+    touched."""
+    try:
+        args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:  # gone
+        return False
+    if not any(_WARDEN in arg for arg in args) or str(main_pid).encode() not in args:
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)  # its warden takes down what it started
+    except ProcessLookupError:
+        return False
+    deadline = time.monotonic() + _ORPHAN_GRACE
+    while _alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    with contextlib.suppress(ProcessLookupError, PermissionError):  # what is left of its group
+        os.killpg(pid, signal.SIGKILL)
+    return True
+
+
+def _alive(pid: int) -> bool:
+    """Whether ``pid`` is a live process; a zombie has already exited."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return stat.rpartition(")")[2].split()[0] != "Z"
 
 
 class _Capture:

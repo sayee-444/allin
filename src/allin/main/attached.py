@@ -17,18 +17,20 @@ asks for from outside its Carpeta de trabajo waits for a human's Approval, which
 nor ``--devastation`` gives (ADR-0013). It is never AllIn's own.
 """
 
-import contextlib
 import os
-import signal
-import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, JsonValue, ValidationError
 
-from allin.confinement.launcher import AttachedProcess, FprocStart, ToolLauncher
+from allin.confinement.launcher import (
+    AttachedProcess,
+    FprocStart,
+    ToolLauncher,
+    close_left_warden,
+)
 from allin.confinement.reach import install_root
 from allin.core.errors import (
     AllInError,
@@ -48,6 +50,7 @@ from allin.core.errors import (
 from allin.core.files import write_atomically
 from allin.core.ids import (
     AttachedName,
+    FprocName,
     ProfileName,
     SessionId,
     parse_attached_name,
@@ -64,12 +67,14 @@ from allin.main.sessions import SessionStore
 
 ATTACH_USAGE = "/attach [<fproc> [name] [--to=<sid,…>] [--file=<path>]]"
 DETACH_USAGE = "/detach <name>"
-_TO = "--to="
+TO = "--to="  # also @attach's, which gives the methods to its own Session
 _FILE = "--file="
 _RECORDS = "attached.json"  # in ``state/``: the wardens alive, for the next Main to check
-_WARDEN = b"allin.confinement.warden"  # in the command line of every warden
-_ORPHAN_GRACE = 2.0  # how long a warden a dead Main left gets to take itself down
 _SHOWN_STDERR = 300  # of what a crashed one wrote last, what its Notice shows
+
+
+# Why every Proceso adherido is let go at once.
+type DetachReason = Literal["main stopped", "profile switched"]
 
 
 def _ignored(_: CommandOutcome) -> None:
@@ -91,7 +96,7 @@ class _Records(BaseModel, frozen=True):
 class _Asked:
     """What ``/attach`` was asked, kept so that the same Proceso adherido can start again."""
 
-    fproc: str  # its module
+    fproc: FprocName
     name: AttachedName
     to: tuple[SessionId, ...]  # the Sessions that get its methods (#114)
     file: Path | None
@@ -104,8 +109,7 @@ class _Instance:
     profile: ProfileName
     reach: Reach  # what it was confined with when it started
     process: AttachedProcess
-    ended: bool = False
-    detaching: bool = False
+    ended: bool = False  # it crashed, or was detached
 
 
 class AttachedProcesses:
@@ -147,10 +151,8 @@ class AttachedProcesses:
             answer("ok")
             return True
         asked = self._parse(options, origin)
-        offered = self._offered(asked.fproc)
-        if offered.description.reach.grants and not origin.is_human:  # ADR-0025
-            raise HumanOnly(action="/attach", origin=list[JsonValue](origin.labels))
-        self._check_free(asked.name)
+        offered = self._offered_to(asked)
+        self._check_free(asked)
         if asked.file is None or origin.is_human or self._in_workspace(asked.file, origin):
             self._start(asked, offered)
             answer("ok")
@@ -160,8 +162,8 @@ class AttachedProcesses:
             try:
                 if not yes:
                     raise SharedFileNotApproved(path=str(asked.file))
-                self._check_free(asked.name)  # another may have taken it meanwhile
-                self._start(asked, self._offered(asked.fproc))
+                self._check_free(asked)  # another may have taken it meanwhile
+                self._start(asked, self._offered_to(asked))  # it may have changed meanwhile
             except AllInError as error:
                 answer(error)
             else:
@@ -185,7 +187,7 @@ class AttachedProcesses:
         self._reporter.report(None, "detached", f"{name} detached", name=name)
         return True
 
-    def detach_all(self, reason: str) -> None:
+    def detach_all(self, reason: DetachReason) -> None:
         """Let every one go: Main stops, or leaves their Profile."""
         for name, instance in list(self._instances.items()):
             if not instance.ended:
@@ -212,8 +214,6 @@ class AttachedProcesses:
             return  # detached, or one that this name had before
         instance.ended = True
         self._save()
-        if instance.detaching:
-            return
         code = instance.process.wait()
         stderr = instance.process.stderr[-_SHOWN_STDERR:]
         fproc = instance.asked.fproc
@@ -229,7 +229,7 @@ class AttachedProcesses:
         )
         text = (
             f"{name} ({fproc}) ended by itself: {how}. It does not start again by itself, and"
-            f" its methods fail; attach it again with /attach {fproc} {name}."
+            f" its methods fail; a human attaches it again with {_again(instance.asked)}."
         )
         if stderr.strip():
             text += f"\n\nIts last error output:\n{stderr}"
@@ -262,7 +262,7 @@ class AttachedProcesses:
         if not records:
             return
         for record in records:
-            closed = _close_orphan(record.pid, record.main_pid)
+            closed = close_left_warden(record.pid, record.main_pid)
             self._reporter.log_main(
                 "attached_lost",
                 name=record.name,
@@ -292,15 +292,15 @@ class AttachedProcesses:
         to: tuple[SessionId, ...] = ()
         file: Path | None = None
         for option in options:
-            if option.startswith(_TO):
-                to = self._sessions_named(option.removeprefix(_TO))
+            if option.startswith(TO):
+                to = self._sessions_named(option.removeprefix(TO))
             elif option.startswith(_FILE):
                 file = self._shared_file(option.removeprefix(_FILE), origin)
             elif option.startswith("--"):
                 raise InvalidArguments(usage=ATTACH_USAGE)
         if not 1 <= len(words) <= 2:
             raise InvalidArguments(usage=ATTACH_USAGE)
-        fproc = words[0]
+        fproc = FprocName(words[0])
         name = _name(words[-1])
         if not origin.is_human and any(sid != origin.sender for sid in to):
             # A Session gives its methods to itself; to others only those it creates (#114).
@@ -348,7 +348,15 @@ class AttachedProcesses:
         workspace = self._sender_workspace(origin)
         return workspace is not None and file.is_relative_to(workspace)
 
-    def _offered(self, fproc: str) -> OfferedFunction:
+    def _offered_to(self, asked: _Asked) -> OfferedFunction:
+        """The fproc ``asked`` names, if its Origin may attach it: one that declares Otorgar
+        only a human attaches (ADR-0025)."""
+        offered = self._offered(asked.fproc)
+        if offered.description.reach.grants and not asked.origin.is_human:
+            raise HumanOnly(action="/attach", origin=list[JsonValue](asked.origin.labels))
+        return offered
+
+    def _offered(self, fproc: FprocName) -> OfferedFunction:
         """The active Profile's approved fproc ``fproc``, with the Alcance it was approved
         with."""
         for offered in self._quarantine().offered():
@@ -356,11 +364,16 @@ class AttachedProcesses:
                 return offered
         raise FprocNotOffered(fproc=fproc)
 
-    def _check_free(self, name: AttachedName) -> None:
-        """One that crashed leaves its name free: attaching it again is how it comes back."""
-        instance = self._instances.get(name)
-        if instance is not None and not instance.ended:
-            raise AttachedNameTaken(name=name)
+    def _check_free(self, asked: _Asked) -> None:
+        """One that crashed leaves its name free for a human: attaching it again is how it
+        comes back, and only a human does it (ADR-0012)."""
+        instance = self._instances.get(asked.name)
+        if instance is None:
+            return
+        if not instance.ended:
+            raise AttachedNameTaken(name=asked.name)
+        if not asked.origin.is_human:
+            raise HumanOnly(action="/attach", origin=list[JsonValue](asked.origin.labels))
 
     def _start(self, asked: _Asked, offered: OfferedFunction, *, restarted: bool = False) -> None:
         if self._launcher is None:
@@ -373,17 +386,21 @@ class AttachedProcesses:
             raise ToolNotStarted(cause=type(error).__name__) from error
         described = offered.description
         start = FprocStart(
-            offered.package, described.module, asked.name, workspace, described.reach, asked.file
+            offered.package,
+            FprocName(described.module),
+            asked.name,
+            workspace,
+            described.reach,
+            asked.file,
         )
-        process = self._launcher.attach(start, self._start_timeout)
-        self._instances[asked.name] = _Instance(asked, profile, described.reach, process)
+        name = asked.name
+        process = self._launcher.attach(
+            start,
+            self._start_timeout,
+            lambda ended: self._emit(AttachedProcessEnded(name, ended.pid)),
+        )
+        self._instances[name] = _Instance(asked, profile, described.reach, process)
         self._save()
-        threading.Thread(
-            target=self._watch,
-            args=(asked.name, process),
-            name=f"attached-{asked.name}",
-            daemon=True,
-        ).start()
         verb = "started again: its fproc's Alcance changed" if restarted else "attached"
         file = "" if asked.file is None else f" with {asked.file}"
         self._reporter.report(
@@ -399,15 +416,9 @@ class AttachedProcesses:
             restarted=restarted,
         )
 
-    def _watch(self, name: AttachedName, process: AttachedProcess) -> None:
-        """In its own thread: tell Main once the process ended."""
-        process.wait()
-        self._emit(AttachedProcessEnded(name, process.pid))
-
     def _stop(self, instance: _Instance) -> None:
-        instance.detaching = True
+        instance.ended = True  # so its end, when Main hears it, is no crash
         instance.process.detach()
-        instance.ended = True
 
     def _list(self) -> None:
         if not self._instances:
@@ -446,6 +457,16 @@ def _how_it_ended(code: int | None) -> str:
     return f"killed by signal {-code}" if code < 0 else f"exit code {code}"
 
 
+def _again(asked: _Asked) -> str:
+    """The ``/attach`` that brings it back as it was."""
+    words = ["/attach", asked.fproc, asked.name]
+    if asked.to:
+        words.append(f"{TO}{','.join(asked.to)}")
+    if asked.file is not None:
+        words.append(f"{_FILE}{asked.file}")
+    return " ".join(words)
+
+
 def _name(text: str) -> AttachedName:
     name = parse_attached_name(text)
     if name is None:
@@ -458,34 +479,3 @@ def _load(path: Path) -> _Records:
         return _Records.model_validate_json(path.read_bytes())
     except (OSError, ValidationError):
         return _Records()  # none, or unreadable: there is nothing to close
-
-
-def _close_orphan(pid: int, main_pid: int) -> bool:
-    """Close the warden a dead Main left alive, with every process of its group; whether
-    there was one. Since that Main died, ``pid`` may belong to an unrelated process now: only
-    one whose command line is a warden of that Main is touched."""
-    try:
-        args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-    except OSError:  # gone
-        return False
-    if not any(_WARDEN in arg for arg in args) or str(main_pid).encode() not in args:
-        return False
-    try:
-        os.kill(pid, signal.SIGTERM)  # its warden takes down what it started
-    except ProcessLookupError:
-        return False
-    deadline = time.monotonic() + _ORPHAN_GRACE
-    while _alive(pid) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    with contextlib.suppress(ProcessLookupError, PermissionError):  # what is left of its group
-        os.killpg(pid, signal.SIGKILL)
-    return True
-
-
-def _alive(pid: int) -> bool:
-    """Whether ``pid`` is a live process; a zombie has already exited."""
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return False
-    return stat.rpartition(")")[2].split()[0] != "Z"

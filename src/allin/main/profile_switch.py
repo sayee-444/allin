@@ -42,7 +42,7 @@ class ProfileSwitch:
         recovery: Recovery,
         active: Profile,
         enter: EnterProfile,
-        detach_all: Callable[[str], None] = lambda _: None,
+        detach_all: Callable[[], None] = lambda: None,
     ) -> None:
         """``detach_all`` lets the outgoing Profile's Procesos adheridos go (ADR-0012)."""
         self._reporter = reporter
@@ -107,7 +107,7 @@ class ProfileSwitch:
         """The outgoing Profile keeps its MainState with the queue of its Sessions, and the
         Windows of those ``kept`` does not have close; a Session both share goes on as it is."""
         self._recovery.leave(self._turns.take_queue(kept))
-        self._detach_all(SWITCHED)
+        self._detach_all()
         for session_id in self._windows.pids():
             if session_id not in kept:
                 self._windows.close(session_id, SWITCHED)

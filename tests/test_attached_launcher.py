@@ -16,6 +16,7 @@ import pytest
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import AttachedProcess, FprocStart, ToolLauncher
 from allin.core.errors import AttachedEnded, AttachFailed, ToolTimedOut
+from allin.core.ids import AttachedName, FprocName
 from tests.test_tool_launcher import alive, unique_title
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
@@ -112,7 +113,7 @@ def start(
 ) -> FprocStart:
     workspace = data_dir / "attached" / "default" / "notes"
     workspace.mkdir(parents=True, exist_ok=True)
-    return FprocStart(package, module, "notes", workspace, file=file)
+    return FprocStart(package, FprocName(module), AttachedName("notes"), workspace, file=file)
 
 
 @pytest.fixture

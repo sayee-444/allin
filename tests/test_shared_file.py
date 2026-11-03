@@ -10,6 +10,7 @@ from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import AttachedProcess, FprocStart, ToolLauncher
 from allin.confinement.support import FULL_SUPPORT
 from allin.core.errors import AttachFailed
+from allin.core.ids import AttachedName, FprocName
 from allin.main.descriptions import Descriptions
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
@@ -41,7 +42,10 @@ def shared(tmp_path: Path) -> Path:
 def attach(launcher: ToolLauncher, data_dir: Path, file: Path | None) -> AttachedProcess:
     workspace = data_dir / "attached" / "default" / "notes"
     workspace.mkdir(parents=True, exist_ok=True)
-    return launcher.attach(FprocStart(PACKAGE, "shared_file", "notes", workspace, file=file), 20)
+    return launcher.attach(
+        FprocStart(PACKAGE, FprocName("shared_file"), AttachedName("notes"), workspace, file=file),
+        20,
+    )
 
 
 @pytest.fixture

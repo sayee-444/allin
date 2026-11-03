@@ -28,6 +28,7 @@ from allin.core.errors import (
 from allin.core.ids import CommandName, NotificationSource, ServerKey, SessionId
 from allin.core.origin import Origin
 from allin.decorators import GRANT as GRANT_NAME
+from allin.main.attached import TO
 from allin.main.events import (
     CommandOutcome,
     OnOutcome,
@@ -144,9 +145,9 @@ def _attach(call: SessionCommandCall) -> str:
     """Its methods go to its own Session (ADR-0021); a relative ``--file`` is from its Carpeta
     de trabajo, and one from outside waits for a human's Approval (#113)."""
     words = call.args.split()
-    if not words or any(word.startswith("--to=") for word in words):
+    if not words or any(word.partition("=")[0] == TO.rstrip("=") for word in words):
         raise ValueError(_ATTACH_USAGE)
-    return " ".join(["/attach", *words, f"--to={call.session_id}"])
+    return " ".join(["/attach", *words, f"{TO}{call.session_id}"])
 
 
 ATTACH = SessionCommandType(

@@ -67,6 +67,9 @@ def parse_attached_name(text: str) -> AttachedName | None:
     return AttachedName(text) if _ATTACHED_NAME.fullmatch(text) is not None else None
 
 
+# An fproc, as ``/attach`` names it: its module's name.
+FprocName = NewType("FprocName", str)
+
 # A Notice or Confirmation on screen, made by Main; its Window answers by it.
 BoxId = NewType("BoxId", str)
 

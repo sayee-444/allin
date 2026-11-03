@@ -422,8 +422,7 @@ def _attach(call: _Call, channel: socket.socket, warden: int, scoped: bool) -> N
         os.close(end)
     runner = _Runner(pid=pid, scoped=scoped)
     signal.signal(signal.SIGTERM, lambda _signum, _frame: _take_down_and_exit(runner))
-    ended = _relay_methods(channel, replies_out, calls_in)
-    if ended is not None:  # the runner ended by itself: Main hears how
+    if _relay_methods(channel, replies_out, calls_in):  # it ended by itself: Main hears how
         _, status = os.waitpid(runner.pid, 0)
         with contextlib.suppress(OSError):  # Main is gone too
             channel.sendall(_line({"type": "died", "exit_code": os.waitstatus_to_exitcode(status)}))
@@ -431,9 +430,9 @@ def _attach(call: _Call, channel: socket.socket, warden: int, scoped: bool) -> N
     os._exit(0)
 
 
-def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> bool | None:
+def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> bool:
     """Pass each method call from Main to the runner and each answer back, whole lines only.
-    ``True`` once the runner ended; ``None`` when Main detached it, closed its end or sent
+    Whether the runner ended by itself; not when Main detached it, closed its end or sent
     something that is no call."""
     selector = selectors.DefaultSelector()
     selector.register(channel, selectors.EVENT_READ)
@@ -444,13 +443,13 @@ def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> b
             if key.fileobj is channel:
                 chunk = channel.recv(1 << 16)
                 if not chunk:
-                    return None
+                    return False
                 from_main += chunk
                 while b"\n" in from_main:
                     line, _, from_main = from_main.partition(b"\n")
                     method = _method_call(line)
                     if method is None:
-                        return None  # a detach, or anything else: Main is done with it
+                        return False  # a detach, or anything else: Main is done with it
                     _write_all(calls_in, method)
                 continue
             chunk = os.read(replies_out, 1 << 16)
@@ -486,8 +485,8 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
         fproc.attached_as(
             call.fproc.name, None if call.fproc.file is None else Path(call.fproc.file)
         )
-        kind = _fproc_class(importlib.import_module(call.module))
-        instance = kind()
+        fproc_class = _fproc_class(importlib.import_module(call.module))
+        instance = fproc_class()
         answer = _line({"type": "attached"})
     except BaseException as error:  # noqa: BLE001 - why it could not start is its output
         _answer(replies, _line({"type": "raised", "error": f"{type(error).__name__}: {error}"}))
@@ -495,16 +494,16 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
     _answer(replies, answer)
     with os.fdopen(calls_out, "rb") as calls:
         for line in calls:
-            _answer(replies, _run_method(kind, instance, line))
+            _answer(replies, _run_method(fproc_class, instance, line))
     os._exit(0)
 
 
-def _run_method(kind: type, instance: object, line: bytes) -> bytes:
+def _run_method(fproc_class: type, instance: object, line: bytes) -> bytes:
     """The answer to one method call, as the line Main reads."""
     try:
         message = json.loads(line)
         method, arguments = message["method"], message["arguments"]
-        if not isinstance(vars(kind).get(method), FunctionType) or method.startswith("_"):
+        if not isinstance(vars(fproc_class).get(method), FunctionType) or method.startswith("_"):
             return _line({"type": "raised", "error": f"NoSuchMethod: {method!r}"})
         value = getattr(instance, method)(**arguments)
         return _line({"type": "returned", "value": value})

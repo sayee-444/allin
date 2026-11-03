@@ -231,7 +231,7 @@ class Dispatcher:
             self._recovery,
             profile,
             self._enter,
-            lambda reason: self._attached.detach_all(reason),  # noqa: PLW0108 - made below
+            lambda: self._attached.detach_all("profile switched"),  # made below
         )
         self._profile_commands = ProfileCommands(
             self._reporter, profiles, self._switch, sessions, main_id, self._boxes

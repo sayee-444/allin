@@ -552,8 +552,8 @@ class FprocNotOffered(AllInError):
 
 
 class SharedFileRefused(AllInError):
-    """``path`` cannot be a Proceso adherido's shared file: ``reason`` (none there, not a
-    file, or AllIn's own)."""
+    """``path`` cannot be a Proceso adherido's shared file: ``reason`` ("not a file", which
+    covers none there, or "AllIn's own")."""
 
     code: ClassVar[str] = "shared_file_refused"
 
