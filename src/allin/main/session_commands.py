@@ -21,6 +21,7 @@ from allin import session_commands
 from allin.core.errors import (
     AllInError,
     InvalidSessionCommand,
+    SecretInMainChatOnly,
     SessionCommandFailed,
     SessionCommandNotListed,
     UnknownSessionCommand,
@@ -39,8 +40,10 @@ from allin.main.events import (
     SessionCommandResult,
 )
 from allin.main.notifications import Notifications
-from allin.main.prompt_commands import session_command_name
+from allin.main.prompt_commands import is_secret_command, session_command_name
 from allin.main.reporting import Reporter
+from allin.main.secret_commands import USAGE as SECRET_USAGE
+from allin.main.secret_commands import kept_of_secret
 from allin.main.sessions import Session, SessionStore
 from allin.main.status import PARTS_SHOWN as STATUS_PARTS
 from allin.session_commands import SessionCommandCall, SessionCommandType
@@ -533,6 +536,7 @@ class SessionCommands:
         with ``origin``; ``answer`` gets how it went. Returns whether Main keeps running."""
         answer = answer or _ignored
         try:
+            _refuse_secret(text)
             session = self._load(session_id)
             name, kind = self._kind(text)
             self._check_listed(name, origin)
@@ -540,8 +544,9 @@ class SessionCommands:
             server = session.settings.server
             command = _translate(kind, SessionCommandCall(session.id, args, server))
         except AllInError as error:
-            shown = f"[{session_id}] {text.strip()[:60]}: error {error}"
-            self._reporter.report(None, "session_command", shown, command=text, result=str(error))
+            kept = kept_of_session_command(text)
+            shown = f"[{session_id}] {kept.strip()[:60]}: error {error}"
+            self._reporter.report(None, "session_command", shown, command=kept, result=str(error))
             answer(SessionCommandResult(error=str(error)))
             return True
         self._reporter.log_session(
@@ -601,6 +606,19 @@ class SessionCommands:
         missing = lacking(self._sessions, origin, name)
         if missing:
             raise SessionCommandNotListed(command=name, not_in=list[JsonValue](missing))
+
+
+def kept_of_session_command(text: str) -> str:
+    """What the Log and the Window keep of a Command session's line: of ``@secret …`` its first
+    four words, as ``/secret`` in Main's Chat (#155); any other as typed."""
+    return kept_of_secret(text) if is_secret_command(text) else text
+
+
+def _refuse_secret(text: str) -> None:
+    """``@secret`` is no Command session, whatever ``comsession/`` declares: a Secreto is
+    given in Main's Chat alone (ADR-0026)."""
+    if is_secret_command(text):
+        raise SecretInMainChatOnly(usage=SECRET_USAGE)
 
 
 def _translate(kind: SessionCommandType, call: SessionCommandCall) -> str:

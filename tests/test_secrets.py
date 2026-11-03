@@ -14,8 +14,16 @@ from pydantic import JsonValue
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
 from allin.core.ids import BoxId
+from allin.ipc.messages import ChatAppend, InputRestore
 from allin.main.descriptions import Descriptions
-from allin.main.events import BoxAnswered, MainCommandEntered
+from allin.main.events import (
+    BoxAnswered,
+    DraftReceived,
+    InputReceived,
+    MainCommandEntered,
+    SessionCommandAsked,
+    SessionCommandResult,
+)
 from allin.main.quarantine import PieceRef, Quarantine
 from allin.ui.boxes import Box
 from allin.ui.screen import ShowBox
@@ -206,6 +214,76 @@ def test_a_value_written_on_the_command_line_reaches_neither_the_log_nor_the_cha
     assert any("invalid_arguments" in line for line in chat)
     assert all(VALUE not in line for line in chat)
     assert files_with(tmp_path, VALUE) == []
+
+
+# Typed as @secret in a Window (#155): /secret is Main's Chat's alone
+
+
+def test_typed_as_at_secret_in_a_window_it_points_to_main_chat_and_keeps_four_words(
+    main: MainHarness, tmp_path: Path
+):
+    session = main.create_session()
+    chat = main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, f"  @secret set bot token {VALUE}"),
+        MainCommandEntered("/exit"),  # Main keeps its Drafts on disk
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    errors = [m.text for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
+    [error] = errors
+    assert error.startswith("@secret set bot token …: secret_in_main_chat_only")
+    assert "/secret set <instance> <name>" in error
+    assert all(VALUE not in str(message) for message in window.sent)
+    assert not any(isinstance(message, InputRestore) for message in window.sent)
+    assert main.state.load().drafts == {}
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+    assert secret_boxes(main) == []
+
+
+def test_asked_as_at_secret_by_a_tool_it_is_refused_and_logs_four_words(
+    main: MainHarness, tmp_path: Path
+):
+    session = main.create_session()
+    answers: list[SessionCommandResult] = []
+
+    def answer(result: SessionCommandResult) -> bool:
+        answers.append(result)
+        return True
+
+    asked = f"@secret set bot token {VALUE}"
+    main.run(SessionCommandAsked(session.id, asked, from_session(session), answer), settle=True)
+    [result] = answers
+    assert result.error is not None and result.error.startswith("secret_in_main_chat_only")
+    [logged] = [e.fields for e in main.main_log() if e.event == "session_command"]
+    assert logged["command"] == "@secret set bot token …"
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_a_draft_that_starts_with_at_secret_is_not_kept(main: MainHarness, tmp_path: Path):
+    # Main writes the Drafts to disk after each event, while the human may still be typing.
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        DraftReceived(session.id, ("hola", f"@secret set bot token {VALUE}")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert main.state.load().drafts == {session.id: ["hola"]}
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_at_secret_with_no_value_is_refused_too_and_kept_whole(main: MainHarness):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "@secret"),
+        settle=True,
+    )
+    [window] = main.windows(session.id)
+    [error] = [m.text for m in window.sent if isinstance(m, ChatAppend) and m.role == "error"]
+    assert error.startswith("@secret: secret_in_main_chat_only")
 
 
 def test_it_goes_to_the_profile_it_was_asked_in_though_main_switched_meanwhile(

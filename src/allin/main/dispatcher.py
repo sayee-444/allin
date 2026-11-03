@@ -79,7 +79,7 @@ from allin.main.piece_commands import PieceCommands
 from allin.main.profile_commands import ProfileCommands
 from allin.main.profile_switch import ProfileSwitch
 from allin.main.profiles import Profile, ProfileStore
-from allin.main.prompt_commands import session_command_name
+from allin.main.prompt_commands import is_secret_command, session_command_name
 from allin.main.quarantine import Quarantine
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
@@ -90,6 +90,7 @@ from allin.main.session_commands import (
     BUILT_IN,
     LoadedSessionCommands,
     SessionCommands,
+    kept_of_session_command,
 )
 from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import SettingsCommands
@@ -425,12 +426,15 @@ class Dispatcher:
 
     def _typed_session_command(self, session_id: SessionId, text: str) -> None:
         """A Command session a human typed in a Window: one that fails says why there, and its
-        text goes back to the input."""
+        text goes back to the input; never an ``@secret …``, whose Draft would keep a value
+        typed in it (#155)."""
 
         def answer(result: SessionCommandResult) -> bool:
             if result.error is not None:
-                self._windows.send(session_id, error_entry(f"{text.strip()}: {result.error}"))
-                self._windows.put_back(session_id, text)
+                kept = kept_of_session_command(text).strip()
+                self._windows.send(session_id, error_entry(f"{kept}: {result.error}"))
+                if not is_secret_command(text):
+                    self._windows.put_back(session_id, text)
             return True
 
         self._session_commands.run(session_id, text, HUMAN, answer)
