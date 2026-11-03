@@ -10,9 +10,18 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Make an issue a sub-issue of a parent**: `gh issue create --parent <parent> ...`, or `gh issue edit <parent> --add-sub-issue <child>` afterwards (`gh` 2.94+). Older `gh`: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` (database id, as in **Blocking** below). Without sub-issues, put `Part of #<parent>` at the top of the child body.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- **Close**: `gh issue close <number> --comment "..."`. A long closing comment (evidence, commits): `gh issue comment <number> --body-file <file>`, then `gh issue close <number> --reason completed`.
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+
+## gh 2.46
+
+The `gh` on this machine is 2.46 (Ubuntu's package). Checked on 2026-11-03:
+
+- `gh issue view <n>` and `gh pr view <n>` without `--json` fail with «GraphQL: Projects (classic) is being deprecated…»; so does `--comments`. Always pass `--json` with the fields you need (`--json number,title,body,labels,comments`, `--json state,mergeable,headRefName,baseRefName`).
+- `gh issue close` has no `--comment-file`: use the long-comment form in **Close** above.
+- `gh pr edit` fails with the same GraphQL error. Change a pull request through REST: `gh api --method PATCH repos/sayee-444/allin/pulls/<n> -f title=… -F body=@<file>`, or `-f base=main`.
+- Run `gh pr merge`, `gh issue comment`, `gh issue close` and `gh issue edit` as a bare command, with no `cd`, pipe or redirect. The allow rules in `.claude/settings.local.json` only match a bare command; a compound one goes to the auto-mode classifier, which has blocked merges.
 
 ## Pull requests as a triage surface
 
@@ -20,11 +29,11 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
+- **Read a PR**: `gh pr view <number> --json title,body,comments` and `gh pr diff <number>` for the diff.
 - **List external PRs for triage**: `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open' --jq '.[] | select(.author_association | IN("OWNER","MEMBER","COLLABORATOR") | not) | {number, title, author: .user.login, author_association, labels: [.labels[].name]}'`.
 - **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
 
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42 --json number` and fall back to `gh issue view 42 --json number`.
 
 ## When a skill says "publish to the issue tracker"
 

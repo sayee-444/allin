@@ -4,7 +4,23 @@ How an agent works through the roadmap on this repo. The user delegated supervis
 
 ## Order
 
-Follow `docs/roadmap.md` top to bottom; each phase is a GitHub milestone and blockers are native "blocked by" links. Never start an issue with an open blocker. Ask the user before starting each issue unless they said to keep going.
+Follow `docs/roadmap.md` top to bottom; each phase is a GitHub milestone and blockers are native "blocked by" links. Never start an issue with an open blocker. Ask the user before starting an issue unless their prompt named it or said to take the next one.
+
+**One issue per conversation.** When an issue is closed, stop and tell the user which issue comes next, so they can `/clear` and start it with a fresh context; never start a second issue in the same conversation, not even under `/goal`. A conversation that carries several issues compacts about once per issue and loses what was already tried: on 2026-11-03 a `/goal` over #113–#120 compacted six times, while #121 alone compacted none, at the same cost per issue. **Dónde vamos** is what lets the next conversation start from zero.
+
+## Effort and sessions at once
+
+- Implement at effort `high`; `.claude/settings.json` sets it as the default (`effortLevel`). Save `xhigh` for grilling, design and a bug that resists. Most of an issue's time is the model thinking, so this is the main lever on speed; the tests and the two reviewers catch what `high` misses.
+- Only one session writes in the main checkout. Other sessions open at the same time only talk, research or write under `docs/research/`; one that changes tracked files works in a worktree of its own.
+- A second session may implement at the same time only when all of these hold:
+  - It works in its own worktree (`claude --worktree`, or `EnterWorktree`). `worktree.symlinkDirectories` in `.claude/settings.json` links `venv` and `models` into it. Copy `.claude/settings.local.json` from the main checkout into it (the file is not tracked), so the `gh` allow rules apply there too.
+  - It runs every `pytest`, `python -m allin` and script with `PYTHONPATH=src`: the venv's editable install points at the main checkout's `src/`, so without it the worktree tests the other session's code. The pre-commit already does this.
+  - Its issue has no open blocker and touches other modules than the issue in progress. In «Pre-RAG · Pendientes de F2» the groups are the Window (#154–#157), the code of #123 (#153, #159) and the Supervisor (#158).
+  - The GPU is one. If another session's Server is up, use it when it has the model the test needs, or test everything else first; never start a second Server that doesn't fit beside it (**Testing with llama serve**).
+  - Its xterm titles and data dirs carry its issue number (`allin-main-157`, `<scratch>/m157`), so `tools/xterm_drive.py` never drives the other session's Window.
+  - Before opening its pull request, it merges `origin/main` into its branch and keeps both sessions' lines in **Dónde vamos**.
+
+  Each extra session spends the plan's usage as fast as the first, so two at once reach the limit in half the time.
 
 When the milestone "Pre-F2 · Pendientes de F1" starts, tell the user it is time to run `/grill-with-docs` for F2, so F2's issues exist before the pending ones run out.
 
@@ -22,6 +38,12 @@ When the milestone "Pre-F2 · Pendientes de F1" starts, tell the user it is time
 10. Mark the issue ✅ in `docs/roadmap.md` and update its **Dónde vamos** section (last done, next, open questions for the user), and commit that on the issue's branch before merging. A new session resumes from that section, so it must always be current.
 
 Never edit the body of a closed issue. If a decision changes during an issue, update the issue body, the glossary or the ADR first.
+
+## Editing and commands
+
+- Edit files with the Edit tool: it fails when the old text isn't there. A script's `str.replace` changes nothing and says nothing when the text doesn't match; if a script must edit, have it check the match count first.
+- `gh` on this machine is 2.46 and several of its forms fail: use the ones in **gh 2.46** of `docs/agents/issue-tracker.md`.
+- Never wait with a bare `sleep N`; Claude Code blocks it. Wait on the condition itself with a bounded loop (below for a Server), or run the command in the background and get notified when it ends.
 
 ## Metrics
 
@@ -55,4 +77,6 @@ The binary is `llama` (`llama serve …`). Models are in `models/` (gitignored);
 - **Two Servers at once**: `Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf` (12.3 GB) with `mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf`, `-ctk q4_0 -ctv q4_0`, e.g. `-c 64000` and `-c 32000`.
 - **Three Servers, or testing only the mechanics** (queues, slot locks, several brains): `Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf` (8.9 GB), two comfortably, three only with a small `-c` and no `--mmproj` (measure with `nvidia-smi`). It reasons noticeably worse: never judge a coordinator Session's behaviour with it.
 - Common flags: `-ngl all -fa on --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp`. Change `-np`, `-c` and `--kv-unified` as the test needs.
-- Port 9931 is usually the user's own Server: use it only when it is free; for raw `llama serve` probes use 9932+. Shut down every Server you started when done.
+- Port 9931 is usually the user's own Server: use it only when it is free; for raw `llama serve` probes use 9932+.
+- Wait for a Server with one bounded loop on its `/health`: `timeout 300 sh -c 'until curl -sf http://127.0.0.1:9932/health >/dev/null; do sleep 2; done'`.
+- Keep a Server up between issues when the next issue in the roadmap needs the same model: write its port, model and pid in **Dónde vamos**, and the next conversation checks `/health` and reuses it. Shut down every Server you started when the next issue doesn't need it, before starting one with another model, and when the user stops the roadmap.
