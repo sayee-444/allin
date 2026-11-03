@@ -76,7 +76,7 @@ from allin.core.errors import (
     ToolNotStarted,
     ToolTimedOut,
 )
-from allin.core.ids import AttachedName, FprocName
+from allin.core.ids import AttachedName, FprocName, Revision
 from allin.core.sources import compiled_files
 from allin.decorators import MINIMUM, Reach
 
@@ -141,7 +141,7 @@ class ToolOutcome:
     error: str | None
     stdout: str
     stderr: str
-    revision: int | None = None  # a Proceso adherido's, as the call saw it, to note for its Session
+    revision: Revision | None = None  # a Proceso adherido's, as the call saw it
 
 
 @dataclass(frozen=True)
@@ -528,10 +528,6 @@ type OnEnd = Callable[["AttachedProcess"], None]
 type OnProgress = Callable[[str], None]
 
 
-class _Closed(Exception):
-    """The process ended while a call waited for its turn."""
-
-
 class _Turns:
     """The calls a Proceso adherido runs at once: ``at_once`` (``None``: any), the rest held
     back in the order they came (ADR-0012)."""
@@ -543,9 +539,9 @@ class _Turns:
         self._running = 0
         self._closed = False
 
-    def take(self, stop: Callable[[], bool]) -> None:
-        """Wait for this call's turn. Raises ``ToolCancelled`` once ``stop`` says so, and
-        ``_Closed`` once the process ended."""
+    def take(self, stop: Callable[[], bool]) -> bool:
+        """Wait for this call's turn; ``False`` if the process ended first. Raises
+        ``ToolCancelled`` once ``stop`` says so."""
         ticket = object()
         with self._changed:
             self._waiting.append(ticket)
@@ -554,12 +550,13 @@ class _Turns:
                     self._waiting.remove(ticket)
                     self._changed.notify_all()
                     if self._closed:
-                        raise _Closed
+                        return False
                     raise ToolCancelled
                 self._changed.wait(_STOP_POLL)
             self._waiting.popleft()
             self._running += 1
             self._changed.notify_all()
+            return True
 
     def give_back(self) -> None:
         with self._changed:
@@ -623,6 +620,8 @@ class AttachedProcess:
         self._exit_code: int | None = None  # its warden's
         self._fproc_died: int | None = None  # its fproc's process's, as its warden told it
         self._hung: str | None = None
+        self._reaping = threading.Lock()  # a kill never comes after its reaping
+        self._outbox: queue.Queue[CommandResult | None] = queue.Queue()  # the reader's sends
         self._reader: threading.Thread | None = None  # once its class was made
         self._reaper = threading.Thread(target=self._reap, name="attached-reaper", daemon=True)
         self._reaper.start()
@@ -662,7 +661,7 @@ class AttachedProcess:
         on_command: OnCommand | None = None,
         stop: Callable[[], bool] = lambda: False,
         on_progress: OnProgress | None = None,
-        seen: int | None = None,
+        seen: Revision | None = None,
     ) -> ToolOutcome:
         """Call a public method of its fproc and wait for its answer, once it is this call's
         turn. Each Command session the method asks for goes to ``on_command``, and each line of
@@ -675,10 +674,8 @@ class AttachedProcess:
         ``ToolTimedOut`` past the timeout, and ``ToolCancelled`` once ``stop`` says so, both
         telling the method to leave it: if it does not end within its timeout and ``release``
         seconds more, Main kills the whole process."""
-        try:
-            self._turns.take(stop)
-        except _Closed:
-            raise AttachedEnded(exit_code=self.wait()) from None
+        if not self._turns.take(stop):
+            raise AttachedEnded(exit_code=self.wait())
         pending = _Pending(next(self._ids), method)
         with self._state:
             closed = self._closed
@@ -730,10 +727,10 @@ class AttachedProcess:
                     self._answer_command(pending.id, result)
                 case Returned(value=value, revision=revision):
                     self._done(pending)
-                    return ToolOutcome(value, None, "", "", revision)
+                    return ToolOutcome(value, None, "", "", _revision(revision))
                 case Raised(error=error, revision=revision):
                     self._done(pending)
-                    return ToolOutcome(None, error, "", "", revision)
+                    return ToolOutcome(None, error, "", "", _revision(revision))
                 case Stale(revision=revision):
                     self._done(pending)
                     raise AttachedChanged(revision=revision, advice=_READ_AGAIN)
@@ -746,32 +743,38 @@ class AttachedProcess:
 
     def _give_up(self, pending: _Pending, deadline: float) -> None:
         """Nobody waits for ``pending`` any more: tell the method to leave it, and kill the
-        process if it still runs it ``release`` seconds after ``deadline``."""
+        process if it still runs it ``release`` seconds after ``deadline``. Nothing is sent
+        under ``_state``, which the reader needs to go on reading."""
         with contextlib.suppress(OSError):
             self.send(CancelCall(id=pending.id))
+        refused = 0
         with self._state:
             pending.waiting = False
             pending.kill_at = deadline + self._release
             while not pending.inbox.empty():
-                self._unwaited(pending, pending.inbox.get_nowait())
+                refused += self._unwaited(pending, pending.inbox.get_nowait())
+        for _ in range(refused):
+            self._answer_command(pending.id, _CANCELLED)
 
     def _done(self, pending: _Pending) -> None:
         with self._state:
             if self._pending.pop(pending.id, None) is None:
-                return  # it ended meanwhile, which gave its turn back
+                return  # the process ended meanwhile: its turns are closed
         self._turns.give_back()
 
-    def _unwaited(self, pending: _Pending, message: ToMain | None) -> None:
-        """Under ``_state``: what comes for a call nobody waits for. Its Command sessions do not
-        run, and its answer gives its turn back."""
+    def _unwaited(self, pending: _Pending, message: ToMain | None) -> int:
+        """Under ``_state``: what comes for a call nobody waits for. Its answer gives its turn
+        back; how many Command sessions it asked, which do not run (1 or 0), is for the caller
+        to answer once out of ``_state``."""
         match message:
             case RunCommand():
-                self._answer_command(pending.id, _CANCELLED)
+                return 1
             case Returned() | Raised() | Stale():
-                del self._pending[pending.id]
-                self._turns.give_back()
+                if self._pending.pop(pending.id, None) is not None:
+                    self._turns.give_back()
             case _:
                 pass
+        return 0
 
     def wait_attached(self, timeout: float) -> None:
         """Wait for its class to be made, then start reading its answers. Raises
@@ -784,6 +787,7 @@ class AttachedProcess:
         message = parse_to_main(line) if line else None
         match message:
             case Attached():
+                threading.Thread(target=self._write, name="attached-writer", daemon=True).start()
                 self._reader = threading.Thread(
                     target=self._read, name="attached-reader", daemon=True
                 )
@@ -817,12 +821,20 @@ class AttachedProcess:
                 self._kill("it sent Main a line it does not read")
                 continue
             self._route(message)
+            self._watch()  # however busy the channel
         with self._state:
             self._closed = True
             for pending in self._pending.values():
                 pending.inbox.put(None)
             self._pending.clear()
         self._turns.close()
+        self._outbox.put(None)
+
+    def _write(self) -> None:
+        """Its reader's sends, so that the reader never waits on one: until it ends."""
+        while (message := self._outbox.get()) is not None:
+            with contextlib.suppress(OSError):  # it ended
+                self.send(message)
 
     def _route(self, message: ToMain) -> None:
         match message:
@@ -838,15 +850,17 @@ class AttachedProcess:
             case _:
                 self._kill("it sent Main a line it does not read")
                 return
+        refused = 0
         with self._state:
             pending = self._pending.get(call_id)
             if pending is None:  # nobody asked it
-                if isinstance(message, RunCommand):
-                    self._answer_command(call_id, _CANCELLED)
+                refused = 1 if isinstance(message, RunCommand) else 0
             elif pending.waiting:
                 pending.inbox.put(message)
             else:
-                self._unwaited(pending, message)
+                refused = self._unwaited(pending, message)
+        if refused:  # the reader never waits on a send: the writer does it
+            self._outbox.put(CommandResult(id=call_id, result=_CANCELLED))
 
     def _watch(self) -> None:
         now = time.monotonic()
@@ -856,11 +870,15 @@ class AttachedProcess:
             self._kill(f"its call to {hung[0].method} did not end after its timeout")
 
     def _kill(self, why: str) -> None:
-        """Take it down as a crash: its reaper tells who listens."""
-        if self._hung is None:
-            self._hung = why
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self._process.pid, signal.SIGKILL)
+        """Take it down as a crash: its reaper tells who listens. Never once it was reaped,
+        when its group's id may be another's."""
+        with self._reaping:
+            if self._exit_code is not None:
+                return
+            if self._hung is None:
+                self._hung = why
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self._process.pid, signal.SIGKILL)
 
     def detach(self) -> None:
         """Take it down: its warden ends it with every process it started, and what is left
@@ -882,9 +900,10 @@ class AttachedProcess:
             select.select([pidfd], [], [])  # readable once the warden has ended
         finally:
             os.close(pidfd)
-        with contextlib.suppress(ProcessLookupError):  # nothing else was left
-            os.killpg(self._process.pid, signal.SIGKILL)
-        self._exit_code = self._process.wait()
+        with self._reaping:
+            with contextlib.suppress(ProcessLookupError):  # nothing else was left
+                os.killpg(self._process.pid, signal.SIGKILL)
+            self._exit_code = self._process.wait()
         if self._reader is not None:
             self._reader.join()  # it reads to the end, how its fproc ended too
         else:
@@ -905,6 +924,10 @@ class AttachedProcess:
                 self._fproc_died = died.exit_code
         except (TimeoutError, OSError, MalformedMessage):
             pass  # it said nothing, or nothing Main reads
+
+
+def _revision(seen: int | None) -> Revision | None:
+    return None if seen is None else Revision(seen)
 
 
 def close_left_warden(pid: int, main_pid: int) -> bool:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from allin.core.errors import InvalidReach
+from allin.core.errors import InvalidConcurrent, InvalidReach
 from allin.decorators import (
     COMMUTATIVE_MARK,
     CONCURRENT_MARK,
@@ -153,7 +153,7 @@ def test_concurrent_says_how_many_calls_an_fproc_takes_at_once():
     assert at_once(marks) == 3
     assert at_once({"concurrent": getattr(Any, CONCURRENT_MARK)}) is None
     assert not hasattr(One, CONCURRENT_MARK) and at_once({}) == 1
-    with pytest.raises(ValueError, match="at least 1"):
+    with pytest.raises(InvalidConcurrent):
         concurrent(0)
 
 

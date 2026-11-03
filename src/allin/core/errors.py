@@ -548,8 +548,8 @@ class AttachedChanged(AllInError):
 
 
 class AttachedCallsItself(AllInError):
-    """A method of the Proceso adherido ``name`` calls ``name`` again: it serves one call at a
-    time, so it would wait for itself for good."""
+    """A method of the Proceso adherido ``name`` calls ``name`` again: taking one call at a
+    time, it would wait for itself for good, so no method calls its own process."""
 
     code: ClassVar[str] = "attached_calls_itself"
 
@@ -609,6 +609,13 @@ class SharedFileNotApproved(AllInError):
     not approve it: the Proceso adherido was not attached (ADR-0013)."""
 
     code: ClassVar[str] = "shared_file_not_approved"
+
+
+class InvalidConcurrent(AllInError):
+    """``@concurrent`` got ``value``, which is no number of calls of at least 1:
+    ``@concurrent()`` takes any."""
+
+    code: ClassVar[str] = "invalid_concurrent"
 
 
 class InvalidReach(AllInError):

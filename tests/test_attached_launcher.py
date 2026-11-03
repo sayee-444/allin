@@ -3,6 +3,7 @@ de tools, confined for good with its Alcance and its shared file, with its own C
 trabajo as current folder; its methods are served one at a time until it is detached, it
 crashes or Main dies, and it never starts again by itself."""
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -25,7 +26,7 @@ from allin.core.errors import (
     ToolCancelled,
     ToolTimedOut,
 )
-from allin.core.ids import AttachedName, FprocName
+from allin.core.ids import AttachedName, FprocName, Revision
 from tests.test_tool_launcher import alive, unique_title
 
 pytestmark = pytest.mark.skipif(abi_version() < 6, reason="needs Landlock ABI 6 (kernel 6.12)")
@@ -361,6 +362,9 @@ def test_detaching_it_takes_its_descendants_down(attached: AttachedProcess):
     assert not alive(title)
 
 
+NEVER = Revision(-1)  # a Session that read nothing
+
+
 @pytest.fixture
 def shared(launcher: ToolLauncher, data_dir: Path, package: Path) -> Iterator[AttachedProcess]:
     """``Shared``, two calls at a time as its ``@concurrent(2)`` says; a call past its timeout
@@ -375,8 +379,8 @@ def shared(launcher: ToolLauncher, data_dir: Path, package: Path) -> Iterator[At
 def test_a_write_from_a_session_that_did_not_see_the_last_one_is_refused(
     shared: AttachedProcess,
 ):
-    seen_a = shared.call("read", {}, timeout=10, seen=-1).revision
-    seen_b = shared.call("read", {}, timeout=10, seen=-1).revision
+    seen_a = shared.call("read", {}, timeout=10, seen=NEVER).revision
+    seen_b = shared.call("read", {}, timeout=10, seen=NEVER).revision
     assert seen_a == seen_b == 0
     wrote = shared.call("write", {"text": "de A"}, timeout=10, seen=seen_a)
     assert (wrote.value, wrote.revision) == ("de A", 1)
@@ -389,7 +393,7 @@ def test_a_write_from_a_session_that_did_not_see_the_last_one_is_refused(
 
 
 def test_a_change_the_fproc_marks_also_asks_to_read_again(shared: AttachedProcess):
-    seen = shared.call("read", {}, timeout=10, seen=-1).revision
+    seen = shared.call("read", {}, timeout=10, seen=NEVER).revision
     shared.call("edit_by_hand", {"text": "a mano"}, timeout=10)
     with pytest.raises(AttachedChanged):
         shared.call("write", {"text": "encima"}, timeout=10, seen=seen)
@@ -397,7 +401,7 @@ def test_a_change_the_fproc_marks_also_asks_to_read_again(shared: AttachedProces
 
 def test_a_commutative_write_is_never_refused_nor_counts_as_a_read(shared: AttachedProcess):
     shared.call("write", {"text": "x"}, timeout=10)  # a human's: nobody checks it
-    appended = shared.call("append", {"line": "una"}, timeout=10, seen=0)
+    appended = shared.call("append", {"line": "una"}, timeout=10, seen=Revision(0))
     assert (appended.value, appended.revision) == (1, None)
 
 
@@ -498,3 +502,17 @@ def test_its_tmpdir_is_gone_once_it_ended(attached: AttachedProcess, data_dir: P
     attached.detach()
     assert not list((data_dir / "tmp").glob("attached-*"))
     assert os.environ.get("TMPDIR") != str(data_dir / "tmp")
+
+
+def test_a_busy_channel_does_not_keep_a_hung_call_alive(shared: AttachedProcess):
+    def keep_busy() -> None:
+        with contextlib.suppress(AttachedEnded):
+            shared.call("long", {"steps": 200, "pause": 0.05}, timeout=10)
+
+    busy = threading.Thread(target=keep_busy, daemon=True)
+    busy.start()  # progress every 50 ms, from the other call it takes at once
+    with pytest.raises(ToolTimedOut):
+        shared.call("stubborn", {}, timeout=0.3)
+    began = time.monotonic()
+    assert shared.wait() == -signal.SIGKILL
+    assert time.monotonic() - began < 3

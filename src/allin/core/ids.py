@@ -59,6 +59,8 @@ def new_profile_name() -> ProfileName:
 # A Proceso adherido's name, also its Carpeta de trabajo's folder: a letter, then letters,
 # digits or _, up to 24. Its methods go to the LLM as ``<name>_<method>`` (ADR-0021).
 AttachedName = NewType("AttachedName", str)
+# How many changes a Proceso adherido has had: its Revisión (ADR-0012).
+Revision = NewType("Revision", int)
 _ATTACHED_NAME = re.compile(r"[a-z][a-z0-9_]{0,23}")
 
 

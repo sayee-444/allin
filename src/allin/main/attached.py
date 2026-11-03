@@ -53,6 +53,7 @@ from allin.core.ids import (
     AttachedName,
     FprocName,
     ProfileName,
+    Revision,
     SessionId,
     parse_attached_name,
     parse_session_id,
@@ -111,19 +112,21 @@ class _Asked:
 
 class Revisions:
     """The revision of one Proceso adherido that each Session saw last, by the Turn it saw it
-    in: a Rewind forgets those seen since (ADR-0012). Safe from any thread."""
+    in: a Rewind forgets those seen since (ADR-0012). Safe from any thread: a Turn's thread
+    notes what each call saw at once, since its next call, in the same Step or the next, checks
+    it; going through Main's dispatcher would let that next call run first."""
 
     def __init__(self) -> None:
-        self._seen: dict[SessionId, list[tuple[int, int]]] = {}
+        self._seen: dict[SessionId, list[tuple[int, Revision]]] = {}
         self._lock = threading.Lock()
 
-    def seen(self, session_id: SessionId) -> int:
+    def seen(self, session_id: SessionId) -> Revision:
         """The last one the Session saw; ``NEVER_SEEN`` if it saw none."""
         with self._lock:
             seen = self._seen.get(session_id)
             return seen[-1][1] if seen else NEVER_SEEN
 
-    def saw(self, session_id: SessionId, turn: int, revision: int | None) -> None:
+    def saw(self, session_id: SessionId, turn: int, revision: Revision | None) -> None:
         """The Session saw ``revision`` in its Turn ``turn``; nothing for ``None``."""
         if revision is not None:
             with self._lock:
@@ -136,7 +139,7 @@ class Revisions:
             self._seen[session_id] = kept
 
 
-NEVER_SEEN = -1  # a revision no process has: an ``@writes`` from it is always refused
+NEVER_SEEN = Revision(-1)  # one no process has: an ``@writes`` from it is always refused
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,9 @@ The warden's runner hands it the fproc's instance and its two pipes, and it answ
   of its progress (``Fproc.progress``) go with the id of the call it serves.
 - **The revision.** It goes up with each ``@writes`` method and each ``Fproc.changed()``, and
   each answer says which one the call saw. A checked ``@writes`` call whose Session has not seen
-  the current one is not run: the check and the change happen with every other write held off.
+  the current one is not run: the check and the change happen with every other ``@writes`` held off, while a
+  ``Fproc.changed()`` from another thread may still come between them: then the next check
+  catches it.
 - **Cancelling.** Main says which call it gave up on; ``Fproc.cancelled()`` tells the method,
   and a Command session it asks for from then on does not run.
 
@@ -25,10 +27,10 @@ from queue import Queue
 from types import FunctionType
 from typing import IO, cast
 
+from allin.decorators import COMMUTATIVE_MARK, WRITES_MARK
+
 type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | None
 
-_WRITES_MARK = "__allin_writes__"  # as ``allin.decorators`` leaves them
-_COMMUTATIVE_MARK = "__allin_commutative__"
 _CANCELLED: _Json = {"error": "attached_call_cancelled: its call was cancelled"}
 _PROGRESS_MAX = 2000  # as Main reads it (``messages.PROGRESS_MAX``)
 
@@ -107,7 +109,11 @@ class _Runtime:
     def _run(self, call: _Call, message: dict[str, _Json]) -> None:
         self._local.call = call
         try:
-            self._send(self._answer(call, message))
+            try:
+                answer = self._answer(call, message)
+            except BaseException as error:  # noqa: BLE001 - whatever it was, Main hears of it
+                answer = _raised(call, error)
+            self._send(answer)
         finally:
             with self._calls_lock:
                 del self._calls[call.id]
@@ -126,10 +132,10 @@ class _Runtime:
             or not isinstance(arguments, dict)
         ):
             return {"type": "raised", "id": call.id, "error": f"NoSuchMethod: {method!r}"}
-        if not getattr(function, _WRITES_MARK, False):
+        if not getattr(function, WRITES_MARK, False):
             revision = self._current_revision()
             return self._ran(call, lambda: getattr(self._instance, method)(**arguments), revision)
-        checked = isinstance(seen, int) and not getattr(function, _COMMUTATIVE_MARK, False)
+        checked = isinstance(seen, int) and not getattr(function, COMMUTATIVE_MARK, False)
         with self._writes:
             before = self._current_revision()
             if checked and seen != before:
@@ -147,7 +153,7 @@ class _Runtime:
             value = cast(_Json, run())
             answer: dict[str, _Json] = {"type": "returned", "id": call.id, "value": value}
         except BaseException as error:  # noqa: BLE001 - the method's error is its output, as data
-            return {"type": "raised", "id": call.id, "error": f"{type(error).__name__}: {error}"}
+            return _raised(call, error)
         try:
             json.dumps(value)
         except (TypeError, ValueError) as error:
@@ -177,6 +183,10 @@ class _Runtime:
             sys.stderr.flush()
             self._replies.write(line)
             self._replies.flush()
+
+
+def _raised(call: _Call, error: BaseException) -> dict[str, _Json]:
+    return {"type": "raised", "id": call.id, "error": f"{type(error).__name__}: {error}"}
 
 
 _runtime: _Runtime | None = None  # the process's one, once its class was made

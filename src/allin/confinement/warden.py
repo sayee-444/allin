@@ -473,8 +473,13 @@ def _for_runner(line: bytes) -> bytes | None:
     its call's id; ``None`` for anything else."""
     for kind, kept in _FOR_RUNNER.items():
         fields = _typed(line, kind)
-        if fields is not None and isinstance(fields.get("id"), int):
-            return _line({"type": kind, "id": fields["id"], **{k: fields.get(k) for k in kept}})
+        if fields is None or not isinstance(fields.get("id"), int):
+            continue
+        if kind == "method" and not (
+            isinstance(fields.get("method"), str) and isinstance(fields.get("arguments"), dict)
+        ):
+            return None
+        return _line({"type": kind, "id": fields["id"], **{k: fields.get(k) for k in kept}})
     return None
 
 

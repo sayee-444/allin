@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Literal, cast
 
-from allin.core.errors import InvalidReach
+from allin.core.errors import InvalidConcurrent, InvalidReach
 
 type Root = Literal["work", "home", "/"]
 ROOTS: tuple[Root, ...] = ("work", "home", "/")
@@ -152,11 +152,7 @@ def concurrent[T](at_once: int | None = None) -> Callable[[T], T]:
     Without it, one at a time (ADR-0012)."""
     given = cast(object, at_once)  # a class, if written ``@concurrent`` without parentheses
     if given is not None and (type(given) is not int or given < 1):
-        msg = (
-            f"@concurrent takes a number of calls of at least 1, not {given!r};"
-            " @concurrent() takes any"
-        )
-        raise ValueError(msg)
+        raise InvalidConcurrent(value=repr(given))
 
     def mark(target: T) -> T:
         setattr(target, CONCURRENT_MARK, True if at_once is None else at_once)
