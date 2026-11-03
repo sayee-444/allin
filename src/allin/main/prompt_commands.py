@@ -27,13 +27,21 @@ _OVERRIDE = re.compile(r"@([a-z_]+)=(\S*)")
 _REFERENCE = re.compile(r"@((?:/|~|\./)\S*)")
 _COMMAND_SESSION = re.compile(r"\s*@([a-z][a-z0-9_]*)(?:\s|$)")
 _SPACE = re.compile(r"(\s+)")
-# Never a Command session: ``/secret`` is Main's Chat's alone (#155).
-_SECRET = ["@secret"]
-_SENDS = [["@send"], ["/send"]]
+# Never a Command session: ``/secret`` is Main's Chat's alone (#155); also in quotes (#209).
+_SENT_SECRET = re.compile(r"""\s*["']?@secret(?:["'\s]|$)""")
+# A send, ``@send`` or ``/send``, up to its ``<sid>``, with a human's ``-y`` if it has one.
+_SEND_HEAD = re.compile(r"\s*[@/]send(?:\s+-y)?(?:\s+\S+)?(?=\s|$)")
+# Any word ahead of a send's text that starts with ``--``, a JSON-quoted value read whole, as
+# ``parse_send`` reads it; ``--`` alone ends them.
+_LEADING_OPTION = re.compile(r'\s*--(?P<option>[a-z_-]+="(?:[^"\\]|\\.)*"(?=\s|$)|\S+)?')
 # What no Log or Chat keeps more than three words after (``/secret set <instance> <name>``),
 # also inside a quote, as in an Encargo's JSON; never part of a path or of another word.
 _SECRET_WORD = re.compile(r"(?<![\w@/.-])[@/]secret(?![\w-])")
 _KEPT_AFTER = 3
+# The escapes of a JSON string, as an Encargo's task is read (``\u0040`` is ``@``, ``\t`` a
+# tab); never half a surrogate pair, which no Log could write.
+_ESCAPE = re.compile(r'\\(?:u(?P<code>(?![dD][89a-fA-F])[0-9a-fA-F]{4})|(?P<char>[bfnrt"\\/]))')
+_ESCAPED = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "/": "/"}
 # One option of ``/send``'s structured form, with the one space after it; ``--`` alone ends them.
 _SEND_OPTION = re.compile(r'\s*--(?:(?P<key>[a-z_-]+)=(?P<value>"(?:[^"\\]|\\.)*"|\S+))?(?:\s|$)')
 # Sent as arguments of the SDK, as the Session's Sampling settings are.
@@ -105,48 +113,71 @@ def session_command_name(text: str) -> str | None:
     return command.group(1) if command is not None else None
 
 
-def sends_secret(text: str) -> bool:
-    """Whether ``text`` is ``@secret …``, or an ``@send`` or ``/send`` whose text is, after its
-    ``<sid>`` and options, however many deep (#155, #178, #195). It may hold a Secreto's value
-    typed by mistake: it never runs, goes back to an input or stays in a Draft."""
-    words = text.split()
-    while words[:1] in _SENDS:
-        words = _sent_words(words[1:])
-    return words[:1] == _SECRET
+@dataclass(frozen=True)
+class SecretReading:
+    """What Main reads of the ``@secret`` in a line, the one reading that the Log's cut, the
+    refusal and the way back to an input share, however the line is written (ADR-0026, #209)."""
+
+    # What a Log or a Chat keeps of it as a command's line: cut three words after its first
+    # ``@secret`` or ``/secret``, wherever it is, with ``…`` for the rest, such as a value
+    # typed there by mistake; any other as typed.
+    kept: str
+    # It is ``@secret …``, or an ``@send`` or ``/send`` whose text is, after its ``<sid>`` and
+    # options, however many deep: it may hold a Secreto's value typed by mistake, and never runs.
+    sends: bool
+    # No input or Draft may get it back: it sends ``@secret …``, or is a Command session that
+    # names it anywhere a Log cuts, such as an Encargo's task. A Prompt that only names it is
+    # the human's text, and stays.
+    held: bool
 
 
-def kept_of_command(text: str) -> str:
-    """What a Log or a Chat keeps of a command's line: cut three words after its first
-    ``@secret`` or ``/secret``, wherever it is, with ``…`` for the rest, such as a value typed
-    there by mistake (ADR-0026); any other as typed."""
+def read_secret(line: str) -> SecretReading:
+    """How ``line`` holds an ``@secret``, also through tabs, newlines, quoted options and the
+    escapes of a JSON string (#155, #178, #195, #209)."""
+    cut = _cut(_unescaped(line))
+    sends = _sends(line)
+    named = cut is not None and session_command_name(line) is not None
+    return SecretReading(line if cut is None else cut, sends, sends or named)
+
+
+def _cut(text: str) -> str | None:
+    """``text`` cut three words after its first ``@secret`` or ``/secret``; ``None`` if it has
+    none, or no more words after it."""
     secret = _SECRET_WORD.search(text)
     if secret is None:
-        return text
+        return None
     after = text[secret.end() :].split()
     if len(after) <= _KEPT_AFTER:
-        return text
+        return None
     return " ".join([*text[: secret.end()].split(), *after[:_KEPT_AFTER]]) + " …"
 
 
-def holds_secret(text: str) -> bool:
-    """Whether a line no input or Draft may get back: one that sends ``@secret …``, or a
-    Command session that names it anywhere a Log would cut, such as an Encargo's task (#195).
-    A Prompt that only names it is the human's text, and stays."""
-    named = session_command_name(text) is not None and kept_of_command(text) != text
-    return named or sends_secret(text)
+def _unescaped(text: str) -> str:
+    """``text`` with the escapes of a JSON string read, wherever they are."""
+
+    def unescaped(escape: re.Match[str]) -> str:
+        code = escape.group("code")
+        return chr(int(code, 16)) if code is not None else _ESCAPED[escape.group("char")]
+
+    return _ESCAPE.sub(unescaped, text)
 
 
-def _sent_words(words: list[str]) -> list[str]:
-    """The words of the text a send sends, after its ``-y``, its ``<sid>`` and its options
-    (``--reply-to=<sid>``, or a Session's structured form up to a lone ``--``)."""
-    if words[:1] == ["-y"]:
-        words = words[1:]
-    words = words[1:]
-    while words and words[0].startswith("--"):
-        option, *words = words
-        if option == "--":
+def _sends(line: str) -> bool:
+    """Whether ``line`` is ``@secret …``, or a send whose text is, however many deep."""
+    text = line
+    while (head := _SEND_HEAD.match(text)) is not None:
+        text = _without_options(text[head.end() :])
+    return _SENT_SECRET.match(text) is not None
+
+
+def _without_options(text: str) -> str:
+    """What a send sends, after its options (``--reply-to=<sid>``, or a Session's structured
+    form up to a lone ``--``)."""
+    while (option := _LEADING_OPTION.match(text)) is not None:
+        text = text[option.end() :]
+        if option.group("option") is None:
             break
-    return words
+    return text
 
 
 def parse_prompt(text: str) -> ParsedPrompt:

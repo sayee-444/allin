@@ -15,7 +15,7 @@ from pydantic import JsonValue
 from allin.core.errors import AllInError
 from allin.core.ids import SessionId
 from allin.main.log import Log
-from allin.main.prompt_commands import kept_of_command
+from allin.main.prompt_commands import read_secret
 from allin.main.sessions import SessionStore
 
 
@@ -109,6 +109,6 @@ def _kept(fields: dict[str, JsonValue]) -> dict[str, JsonValue]:
     """What a Log keeps of an event: of a command's line, never a Secreto's value typed in it
     by mistake, whoever wrote it there (ADR-0026, #195)."""
     return {
-        key: kept_of_command(value) if key in _COMMAND_FIELDS and isinstance(value, str) else value
+        key: read_secret(value).kept if key in _COMMAND_FIELDS and isinstance(value, str) else value
         for key, value in fields.items()
     }

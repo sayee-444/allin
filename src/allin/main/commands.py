@@ -71,11 +71,9 @@ from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import (
     SendOptions,
     TurnOverrides,
-    holds_secret,
-    kept_of_command,
     parse_prompt,
     parse_send,
-    sends_secret,
+    read_secret,
 )
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
@@ -672,7 +670,8 @@ class MainCommands:
             args = _split_rest(text, len(command.params) + len(command.optional))
         session_id = None
         # Never a Secreto's value typed by mistake, whatever the command (ADR-0026).
-        kept = kept_of_command(text)
+        secret = read_secret(text)
+        kept = secret.kept
 
         def done(outcome: CommandOutcome) -> None:
             """How it went, maybe later: only then is it logged, under the Session it names
@@ -682,16 +681,13 @@ class MainCommands:
 
         keep_running = True
         try:
+            if command is not None:
+                session_id = _named_session(command, args)
+            if secret.sends:  # whoever asks, by Iniciativa too, however it is written (#209)
+                raise SecretInMainChatOnly(usage=SECRET_USAGE)
             if command is None:
-                if sends_secret(text):
-                    raise SecretInMainChatOnly(usage=SECRET_USAGE)
                 raise UnknownCommand(command=name)
             names = command.params + command.optional
-            session_id = (
-                command.session_of(args)
-                if command.session_of is not None
-                else dict(zip(names, args, strict=False)).get("sid")
-            )
             if not len(command.params) <= len(args) <= len(names):
                 raise InvalidArguments(usage=command.usage(name))
             if (yes or command.only_human(args)) and not origin.is_human:
@@ -1184,9 +1180,9 @@ class MainCommands:
             self._sends.send(session, options, origin, answer, initiative)
             return True
         reply_to, typed = _reply_to(text)
-        if holds_secret(typed):
+        if read_secret(typed).held:
             # Never back to its input, nor to the Draft Main keeps on disk: it may hold a
-            # Secreto's value typed by mistake (#178, #195).
+            # Secreto's value typed by mistake, as a Command session's would (#178, #195).
             refused = SecretInMainChatOnly(usage=SECRET_USAGE)
             self._windows.send(session.id, error_entry(str(refused)))
             raise refused
@@ -1299,7 +1295,7 @@ class MainCommands:
         """``/errand`` and ``/batch``: its Session and every worker of the active Profile."""
         coordinator = self._active_session(session_id)
         errand = parse_errand(text, batch, self._settings.current.errand)
-        if any(sends_secret(part.task) for part in errand.parts):  # a Prompt to each worker
+        if any(read_secret(part.task).sends for part in errand.parts):  # a Prompt to each worker
             raise SecretInMainChatOnly(usage=SECRET_USAGE)
         known = {worker: self._active_session(worker) for worker in errand.assigned}  # by id now
         self._subscriptions.open_errand(coordinator, errand.with_workers(known), origin)
@@ -1333,11 +1329,19 @@ _REPLY_TO = "--reply-to="  # a human's /send: first, the Session its answer wake
 
 
 def _reply_to(text: str) -> tuple[str | None, str]:
-    """A human's ``/send <sid> --reply-to=<sid> <text>``: the Session, and the text."""
-    first, _, rest = text.partition(" ")
-    if not first.startswith(_REPLY_TO) or not rest.strip():
+    """A human's ``/send <sid> --reply-to=<sid> <text>``: the Session, and the text, after any
+    whitespace, a newline too (#209)."""
+    words = text.split(maxsplit=1)
+    if len(words) < 2 or not words[0].startswith(_REPLY_TO):
         return None, text
-    return first.removeprefix(_REPLY_TO), rest
+    return words[0].removeprefix(_REPLY_TO), words[1]
+
+
+def _named_session(command: CommandSpec, args: list[str]) -> str | None:
+    """The Session a command's arguments name, under which it is logged."""
+    if command.session_of is not None:
+        return command.session_of(args)
+    return dict(zip(command.params + command.optional, args, strict=False)).get("sid")
 
 
 # How a Session writes it: its Command prompts in the structured form, ahead of the text.
