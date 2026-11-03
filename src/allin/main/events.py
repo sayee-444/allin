@@ -275,8 +275,16 @@ class ToolsStarted:
     names: tuple[str, ...]
 
 
-# How a Command main went: it ran, a human said no at its Confirmation, or why it failed.
-type CommandOutcome = Literal["ok", "rejected"] | AllInError
+@dataclass(frozen=True)
+class Queried:
+    """A Command main that only reads ran, and this is what it read: Consultar (#118)."""
+
+    state: JsonValue
+
+
+# How a Command main went: it ran, a human said no at its Confirmation, or why it failed; one
+# that only reads, what it read.
+type CommandOutcome = Literal["ok", "rejected"] | Queried | AllInError
 # Who hears how a Command main went, maybe later: a Session's tool, through its Command session.
 type OnOutcome = Callable[[CommandOutcome], None]
 
@@ -288,6 +296,7 @@ class SessionCommandResult:
     error: str | None = None  # why it was refused or failed; ``None`` if it ran
     # How its Server came back, after an ``@server restart``.
     server: Literal["ready", "failed"] | None = None
+    state: JsonValue = None  # what one that only reads read: ``@status`` (#118)
 
     def as_json(self) -> JsonValue:
         """As the tool that asked for it reads it, on its channel."""
@@ -296,6 +305,8 @@ class SessionCommandResult:
         )
         if self.server is not None:
             shown["server"] = self.server
+        if self.state is not None:
+            shown["state"] = self.state
         return shown
 
 

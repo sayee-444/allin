@@ -68,6 +68,7 @@ from allin.main.notifications import ERRAND, SUBSCRIPTION, Notifications
 from allin.main.prompts import Prompt, origin_header
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
+from allin.main.status import SubscriptionView
 from allin.main.turn_queue import TurnQueue
 
 SUBSCRIBE_USAGE = "/subscribe <sid> [process:<name>|timer:<seconds>|rewind:<sid>|compact:<sid>]"
@@ -261,6 +262,18 @@ class Subscriptions:
 
     def listed(self, session_id: SessionId) -> list[Subscription]:
         return [s for s in self._open.values() if s.session_id == session_id]
+
+    def views(self) -> list[SubscriptionView]:
+        """Consultar's (#118): those open in the active Profile, an Encargo with its progress."""
+        return [
+            SubscriptionView(
+                id=s.id,
+                session=s.session_id,
+                event=s.event,
+                progress=s.watch.progress if isinstance(s.watch, OnErrand) else None,
+            )
+            for s in self._open.values()
+        ]
 
     def subscribe(self, session_id: SessionId, watch: Watch, origin: Origin) -> Subscription:
         """Open one for ``session_id``, which must be ``origin``'s own if a Session asks."""

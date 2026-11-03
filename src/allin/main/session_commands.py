@@ -32,6 +32,7 @@ from allin.main.attached import TO
 from allin.main.events import (
     CommandOutcome,
     OnOutcome,
+    Queried,
     ServerFailed,
     ServerReady,
     ServerState,
@@ -121,6 +122,24 @@ SUBSCRIBE = SessionCommandType(
     _SUBSCRIBE_USAGE,
     "list your Suscripciones, or open one: the event wakes you with a Prompt once your Turn ended",
     _subscribe,
+)
+_STATUS_USAGE = "@status [queue|subscriptions|attached|servers]"
+
+
+def _status(call: SessionCommandCall) -> str:
+    """Always for its own Session, read only (#118)."""
+    words = call.args.split()
+    if len(words) > 1:
+        raise ValueError(_STATUS_USAGE)
+    return " ".join(["/status", call.session_id, *words])
+
+
+STATUS = SessionCommandType(
+    "status",
+    _STATUS_USAGE,
+    "see what you have within reach: the queue, Suscripciones and Encargos, Procesos adheridos,"
+    " Servers and Supervisors",
+    _status,
 )
 UNSUBSCRIBE = SessionCommandType(
     "unsubscribe", "@unsubscribe <subscription>", "close one of your Suscripciones", _unsubscribe
@@ -273,6 +292,7 @@ BUILT_IN = LoadedSessionCommands(
             UNSUBSCRIBE,
             ERRAND,
             BATCH,
+            STATUS,
             CREATE,
             GRANT,
             ATTACH,
@@ -281,10 +301,19 @@ BUILT_IN = LoadedSessionCommands(
     },
     # @create, @attach and @call widen what Sessions do: given by name, never by default; a
     # Suscripción only wakes its own Session, with its chain capped (#116), and an Encargo
-    # sends no more than @send would (#117).
+    # sends no more than @send would (#117), and @status only reads (#118).
     tuple(
         CommandName(kind.name)
-        for kind in (SEND, SERVER, CONVERSATION_LOGS, SUBSCRIBE, UNSUBSCRIBE, ERRAND, BATCH)
+        for kind in (
+            SEND,
+            SERVER,
+            CONVERSATION_LOGS,
+            SUBSCRIBE,
+            UNSUBSCRIBE,
+            ERRAND,
+            BATCH,
+            STATUS,
+        )
     ),
 )
 
@@ -413,6 +442,8 @@ class SessionCommands:
                     self._restarting.setdefault(ServerKey(restarts), []).append(reply)
                 case "ok":
                     reply(SessionCommandResult())
+                case Queried(state=state):
+                    reply(SessionCommandResult(state=state))
                 case "rejected":
                     reply(SessionCommandResult(error="rejected"))
                 case AllInError() as error:

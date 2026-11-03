@@ -87,6 +87,7 @@ from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.slots import ServerProps, capacity
+from allin.main.status import QueueView, ServerStateName, ServerWork, SessionWork
 from allin.main.sysprompt import render_sysprompt
 from allin.main.tool_steps import SessionTools, ToolGate
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
@@ -1547,6 +1548,31 @@ class TurnQueue:
         link = self._watched_link_of(session_id)
         return link is not None and self._ready(link.key)
 
+    def snapshot(self) -> QueueView:
+        """Consultar's view (#118): who runs or waits, and the Servers its Enlaces watch."""
+        sessions = [
+            SessionWork(
+                session=session_id,
+                running=session_id in self._running,
+                queued=len(self._prompts.of(session_id)),
+            )
+            for session_id in dict.fromkeys([*self._running, *self._prompts.session_ids()])
+        ]
+        servers: list[ServerWork] = []
+        for key, link in self._watched.items():
+            state = self._states.get(key)
+            ready = state if isinstance(state, ServerReady) else None
+            servers.append(
+                ServerWork(
+                    server=f"{link.describe()} ({key})",
+                    state=_state_name(state),
+                    slots=ready.props.total_slots if ready else None,
+                    busy=sum(1 for turn in self._running.values() if turn.link.key == key),
+                    model=Path(ready.props.model_path).name if ready else None,
+                )
+            )
+        return QueueView(sessions=tuple(sessions), servers=tuple(servers))
+
     def room_for(self, session_id: SessionId) -> bool:
         """Whether the Session's Server is ready with a slot that none of this Main's
         Sessions takes, running or waiting for one: a Lote gives it a task only then (#117)."""
@@ -1749,3 +1775,20 @@ def _compacting(running: _RunningTurn) -> bool:
 def _reason(error: AllInError) -> JsonValue:
     """Why a cancelled Turn was cancelled; ``None`` for any other error."""
     return error.fields.get("reason") if isinstance(error, TurnCancelled) else None
+
+
+def _state_name(state: ServerState | None) -> ServerStateName:
+    """As Consultar names it; one not heard from yet is down."""
+    match state:
+        case ServerReady():
+            return "ready"
+        case ServerLoading():
+            return "loading"
+        case ServerAsleep():
+            return "asleep"
+        case ServerFailed():
+            return "failed"
+        case ServerRestarting():
+            return "restarting"
+        case ServerDown() | None:
+            return "down"
