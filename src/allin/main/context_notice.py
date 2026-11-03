@@ -19,16 +19,16 @@ _THRESHOLD = 0.8
 
 def _check(event: NoticeEvent, params: dict[str, JsonValue]) -> Mapping[str, object] | None:
     threshold = params.get("threshold")
-    if not isinstance(threshold, int | float) or event.used is None or not event.limit:
+    share = _share(event)
+    if not isinstance(threshold, int | float) or share is None:
         return None
-    mark = threshold * event.limit
-    if event.used < mark or (event.used_before is not None and event.used_before >= mark):
+    used, limit = share
+    mark = threshold * limit
+    if used < mark or (event.used_before is not None and event.used_before >= mark):
         return None  # below it, or already above it at the Step before
-    what = "the shared pool" if event.shared else "the Context"
     # With ``compact.auto`` off nobody compacts it but a human (ADR-0017).
     hint = "" if event.compacts else f"; /session compact {event.session_id} makes room"
-    pct = 100 * event.used // event.limit
-    return {"what": what, "pct": pct, "limit": event.limit, "hint": hint}
+    return {"what": _what(event), "pct": 100 * used // limit, "limit": limit, "hint": hint}
 
 
 CONTEXT = NoticeType(
@@ -41,11 +41,23 @@ CONTEXT = NoticeType(
 
 
 def context_left(event: NoticeEvent) -> str | None:
-    """The line the LLM is told when the Context Notice shows: how much is left, which it
-    cannot see (#120)."""
+    """The line the LLM is told once the Context Notice showed in a Turn: how much is left
+    when it ended, which it cannot see (#120)."""
+    share = _share(event)
+    if share is None:
+        return None
+    used, limit = share
+    what = "The shared pool" if event.shared else "Your Context"
+    left = max(0, limit - used)
+    return f"{what} is at {100 * used // limit}% of {limit} tokens: about {left} tokens are left."
+
+
+def _share(event: NoticeEvent) -> tuple[int, int] | None:
+    """What counts against its limit, and that limit; ``None`` if either is unknown."""
     if event.used is None or not event.limit:
         return None
-    what = "The shared pool" if event.shared else "Your Context"
-    pct = 100 * event.used // event.limit
-    left = max(0, event.limit - event.used)
-    return f"{what} is at {pct}% of {event.limit} tokens: about {left} tokens are left."
+    return event.used, event.limit
+
+
+def _what(event: NoticeEvent) -> str:
+    return "the shared pool" if event.shared else "the Context"

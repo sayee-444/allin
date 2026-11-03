@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from allin.core.settings import Sampling
-from allin.main.conversation import NOTIFICATIONS_HEADER
+from allin.main.compaction import compacted
+from allin.main.conversation import NOTIFICATIONS_HEADER, Conversation, Step, Turn
+from allin.main.cut_turns import cut_line, last_cut
 from allin.main.events import (
     InputReceived,
     MainCommandEntered,
@@ -103,3 +105,39 @@ def test_conversation_logs_off_keeps_each_out(main: MainHarness, source: str):
     )
     assert ("Your last answer was cut" in told) == (source != "cut")
     assert ("Your Context is at" in told) == (source != "context")
+
+
+def filled(prompt: str) -> Turn:
+    usage = {"input_tokens": 2400, "output_tokens": 671}
+    return Turn(prompt=prompt, steps=[Step(output=[], usage=usage)], cut="slot_limit")
+
+
+def test_a_compaction_that_replaces_the_cut_turn_still_tells_it():
+    conversation = Conversation(sysprompt="s", turns=[filled("p0")])
+    note = last_cut(compacted(conversation, "We wrote a lot.", 1))
+    assert note is not None
+    assert cut_line(note) == (
+        "Your last answer was cut: the Conversation filled its slot's context (3071 tokens)."
+    )
+    kept = compacted(
+        Conversation(sysprompt="s", turns=[filled("p0"), Turn(prompt="p1", steps=[])]), "x", 1
+    )
+    assert last_cut(kept) is None, "its last Turn is literal and was not cut"
+
+
+def test_a_rewind_takes_back_how_much_context_was_left(main: MainHarness):
+    main.server = server(context=10_000)
+    session = main.create_session()
+    main.llm = FakeLlm(
+        [answer("a"), completed("", "a", tokens=(8_000, 500))],  # 85 %: the Notice shows
+        [answer("b"), completed("", "b", tokens=(100, 10))],
+    )
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        WindowConnected(session.id),
+        InputReceived(session.id, "uno"),
+        MainCommandEntered(f"/rewind {session.id}"),
+        InputReceived(session.id, "dos"),
+        settle=True,
+    )
+    assert main.llm.requests[1]["input"][-1]["content"] == "dos"

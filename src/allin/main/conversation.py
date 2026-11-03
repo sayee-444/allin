@@ -94,6 +94,14 @@ class Turn(BaseModel, frozen=True):
         return self.typed or self.prompt
 
 
+class CutNote(BaseModel, frozen=True):
+    """Why a Turn was cut and the tokens that tell it (#120): what it generated, for its
+    Output cap; its Context, for the slot's limit; ``None`` without its usage."""
+
+    reason: CutReason
+    tokens: int | None = None
+
+
 class Conversation(BaseModel, frozen=True):
     sysprompt: str  # rendered text, so editing the file later does not change this Session
     # A Molde's initial history: messages that open the Conversation and are no Turns (#112).
@@ -105,6 +113,9 @@ class Conversation(BaseModel, frozen=True):
     # How many of its first Turns the LLM reads pruned: their long tool outputs, one line each.
     # They stay whole here, for the Window and a Rewind (ADR-0017, #119).
     pruned: int = 0
+    # Its last Turn's cut when a Compaction replaced every Turn: the next Prompt still tells
+    # the LLM, which sees no last Turn (#120).
+    summarized_cut: CutNote | None = None
 
     @property
     def next_turn(self) -> int:

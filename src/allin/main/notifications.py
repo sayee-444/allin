@@ -17,12 +17,13 @@ from typing import Literal
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
+from allin.core.cut import CutReason
 from allin.core.errors import InvalidArguments
 from allin.core.ids import NotificationSource, SessionId
 from allin.core.settings import ConversationLogs
 from allin.main.chat_rebuild import logs_entry
 from allin.main.conversation import Conversation
-from allin.main.cut_turns import cut_line
+from allin.main.cut_turns import cut_line, last_cut
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import Change, Notification, Session, SessionStore
@@ -38,9 +39,9 @@ COMPACT = NotificationSource("compact")
 # That its last answer reached its Output cap or filled the slot (#120).
 CUT = NotificationSource("cut")
 # How much Context is left, once its Notice shows (#120).
-CONTEXT = NotificationSource("context")
+CONTEXT_LEFT = NotificationSource("context")
 # The sources Main itself leaves Notificaciones from, listed even before any did.
-SOURCES = (FUNC, CALL, INTERRUPTED, CUT, CONTEXT, SUBSCRIPTION, ERRAND, COMPACT)
+SOURCES = (FUNC, CALL, INTERRUPTED, CUT, CONTEXT_LEFT, SUBSCRIPTION, ERRAND, COMPACT)
 USAGE = "/conversation_logs <sid> on|off|list [source]"
 _ACTION = TypeAdapter[Literal["on", "off", "list"]](Literal["on", "off", "list"])
 
@@ -116,13 +117,11 @@ class Notifications:
     def opening(self, session: Session, conversation: Conversation, told: Told) -> list[str]:
         """What a Prompt of the Session opens with: that its last Turn was cut, then ``told``,
         as far as its Conversation logs let each in."""
-        logs = session.settings.conversation_logs
-        cut = cut_line(conversation)
-        if cut is None:
-            return list(told.lines)
-        reason, line = cut
-        source = INTERRUPTED if reason == "interrupted" else CUT
-        return [line, *told.lines] if logs.enters(source) else list(told.lines)
+        note = last_cut(conversation)
+        enters = note is not None and session.settings.conversation_logs.enters(
+            _cut_source(note.reason)
+        )
+        return [cut_line(note), *told.lines] if note is not None and enters else list(told.lines)
 
     def pending(self, session_id: SessionId) -> Told:
         """What its next Prompt would open with now; nothing is marked told."""
@@ -146,6 +145,15 @@ class Notifications:
         session = self._sessions.load(session_id)
         left = tuple(n for n in session.notifications if n.id not in told.ids)
         self._sessions.save_notifications(session, left)
+
+    def withdraw(self, session_id: SessionId, source: NotificationSource) -> None:
+        """Newer news replaces the pending ones of ``source`` no running Turn told yet: how
+        much Context is left, once the Context changed (#120)."""
+        session = self._sessions.load(session_id)
+        told = self._told.get(session_id, NOTHING_TOLD).ids
+        left = tuple(n for n in session.notifications if n.source != source or n.id in told)
+        if len(left) != len(session.notifications):
+            self._sessions.save_notifications(session, left)
 
     def not_saved(self, session_id: SessionId) -> None:
         """The Turn that told them failed, was cancelled or suspended: they wait for the next."""
@@ -179,3 +187,12 @@ class Notifications:
         shown = f"conversation logs {chosen}" + (f" for {source}" if source else "")
         self._reporter.record(session.id, "conversation_logs", shown, action=chosen, source=source)
         return True
+
+
+def _cut_source(reason: CutReason) -> NotificationSource:
+    """Which Conversation logs source lets a cut Turn's line in."""
+    match reason:
+        case "interrupted":
+            return INTERRUPTED
+        case "output_cap" | "slot_limit":
+            return CUT

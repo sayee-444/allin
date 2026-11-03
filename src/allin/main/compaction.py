@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from allin.core.settings import CompactSettings
 from allin.main.conversation import Conversation, Item, Step, Turn, summary_item, turn_items
+from allin.main.cut_turns import last_cut
 
 # The compaction Sysprompt when the Profile has no file named by ``compact.sysprompt``: Profiles
 # made before Compactions existed have none, since ``sysprompts/`` is copied only once.
@@ -108,5 +109,9 @@ def compacted(conversation: Conversation, summary: str, replaced: int) -> Conver
             "summarized": conversation.summarized + replaced,
             "turns": conversation.turns[replaced:],
             "pruned": max(0, conversation.pruned - replaced),
+            # With every Turn replaced, the next Prompt still tells how the last one was cut.
+            "summarized_cut": last_cut(conversation)
+            if replaced >= len(conversation.turns)
+            else None,
         }
     )
