@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from pydantic import JsonValue
 
-from allin.core.errors import TurnCrashed
+from allin.core.errors import AllInError, TurnCancelled, TurnCrashed
 from allin.core.origin import HUMAN, Link, Origin
 from allin.main.conversation import Step
-from allin.main.events import MainCommandEntered, Tick, TurnEnded
+from allin.main.events import MainCommandEntered, MainEvent, Shutdown, Tick, TurnEnded
 from allin.main.sessions import Session
-from tests.test_dispatcher import MainHarness
+from tests.test_dispatcher import MainHarness, together
 
 
 @pytest.fixture
@@ -284,6 +284,46 @@ def test_suscripciones_survive_a_restart_and_a_prompt_cut_by_it_still_answers(
     text = str(wake["text"])
     assert "its time came" in text
     assert f"Session {b.id} did not answer" in text
+
+
+@pytest.mark.parametrize("stop", [MainCommandEntered("/exit"), Shutdown()], ids=["exit", "signal"])
+@pytest.mark.parametrize(
+    ("error", "ending"),
+    [(TurnCrashed(reason="boom"), "failed"), (TurnCancelled(reason="window closed"), "cancelled")],
+    ids=["failed", "cancelled"],
+)
+def test_a_turn_that_ends_behind_the_stop_still_tells_who_waits_it_had_no_answer(
+    main: MainHarness, stop: MainEvent, error: AllInError, ending: str
+):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/send {a.id} --reply-to={b.id} trabajo", origin=from_session(b)),
+        # Its end comes in right behind the stop, before Main handles either (#185).
+        together(main, stop, TurnEnded(a.id, error=error)),
+        settle=True,
+    )
+    saved = main.state.load()
+    assert saved.running == []
+    assert saved.subscriptions.open == []
+    [came] = saved.subscriptions.pending
+    assert f"Session {a.id} did not answer: its Turn {ending}: {error}" in came.text
+    main.run(Tick(), settle=True)
+    [wake] = woken(main, b)
+    assert f"did not answer: its Turn {ending}" in str(wake["text"])
+
+
+def test_a_turn_cut_as_main_stops_is_told_once_on_the_next_start_as_lost(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/send {a.id} --reply-to={b.id} trabajo", origin=from_session(b)),
+        settle=True,  # its Turn still runs as Main stops
+    )
+    main.run(Tick(), settle=True)
+    [came] = logged(main, b, "subscription_event")
+    assert came["text"] == f"Session {a.id} did not answer: Main stopped during its Turn"
+    [wake] = woken(main, b)
+    assert "did not answer: Main stopped during its Turn" in str(wake["text"])
+    assert "its Turn cancelled" not in str(wake["text"])
 
 
 def test_a_rewind_cancels_a_reply_that_came_but_has_not_woken_it_yet(main: MainHarness):

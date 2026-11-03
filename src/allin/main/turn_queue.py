@@ -1919,12 +1919,15 @@ class TurnQueue:
             session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields, prompt=prompt
         )
         self._windows.send(session_id, error_entry(str(error)))
-        if not self._stopping:  # else MainState keeps it running, for the next start to tell
+        # A Turn ``cancel_running`` cuts as Main stops stays running in the saved MainState,
+        # for the next start to tell as lost (#176); any other end, even one handled behind
+        # the stop, leaves no trace of the Turn there, so who waits hears it now (#185).
+        stopped = _reason(error) == SHUTTING_DOWN
+        if not stopped:
             self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
         if cancelled:  # back to its Draft, as what still waited in the queue (ADR-0024)
             # A human's Prompt as typed, ahead of its Textos intercalados (#156); not as Main
             # stops, since MainState keeps it running and them in the Draft already (#176).
-            stopped = _reason(error) == SHUTTING_DOWN
             back = [] if stopped else [*_typed_by_human([running.prompt]), *joined]
             for text in reversed(back):
                 self._windows.put_back(session_id, text)
