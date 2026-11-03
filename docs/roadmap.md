@@ -8,7 +8,11 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #158 Un Supervisor que propone un Kit avisa si su modelo no está (2026-11-03), en paralelo con #156.
+- **Último hecho:** #157 Tras compactar, el borde muestra el Contexto nuevo (2026-11-03), en paralelo con #158.
+  - #157: en cuanto se guarda una Compactación, resumida o solo podada, el borde deja el Contexto de antes: pasa a «?» y luego al que mide el Servidor de la Conversación compactada tal como la lee su LLM, con su plantilla y su tokenizador. Si no sabe medir, se queda en «?» (y el Log dice `context_unmeasured`) hasta el Turno siguiente. La Ventana reabierta muestra lo medido; tras reiniciar Main, «?», porque la Conversación guardada lo marca (`compacted_since_turn`) hasta su Turno siguiente. Un cambio de Enlace mide contra el nuevo límite lo medido, no el Contexto de antes.
+  - **Probado a mano** con el Swift IQ3_XXS y un proxy delante que, a demanda, no deja medir lo compactado: en `borde157`, de «context 18914» a «context 153» al compactar (lo mismo que mide aparte la Conversación guardada), también al reabrir la Ventana; y de «context 2972» a «context ? / 32k» cuando el Servidor no supo medir, también tras reiniciar Main.
+  - Métricas: 1750 tests (con #158 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
+- #158 Un Supervisor que propone un Kit avisa si su modelo no está (2026-11-03), en paralelo con #156.
   - #158: el Supervisor mira si existe el archivo de su modelo antes de lanzar `llama` (uno relativo parte de su `cwd` o, si no lo tiene, de la carpeta desde la que corre). Si no está, no lanza nada y queda `failed` con `model_missing`; unos Ajustes pendientes con un modelo que no está vuelven a los últimos que arrancaron. El Aviso de Main («Supervisor <nombre> has no model») nombra el archivo y `/server set <nombre> model=<path>`, y lo mismo dicen la espera de sus Sesiones y un cambio de Enlace que falla. El recuadro de `/kit load` busca el modelo sugerido junto a los modelos de los Supervisores de la carpeta de datos: si está, el Supervisor creado lo nombra con su ruta; si no, el recuadro lo dice con la misma orden.
   - **Probado a mano** sin Servidor (el criterio es justo que no se lance): un Kit con dos Supervisores, uno con el Swift IQ2_XXS (junto al IQ3_XXS de `base`) y otro con un modelo que no existe. El primero se creó con la ruta del modelo; el segundo, al enlazarle una Sesión, dio el Aviso y nunca escribió `server.log`.
   - Métricas: 1741 tests (con #156 fusionado), cobertura 85 %, mutación 93 %, 41 escapes.
@@ -28,7 +32,7 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - El LLM lee el Prompt de un Externo con la cabecera del proceso (`[from attached process bot]`); su identidad queda en el Turno guardado y en `turn_started`. El Prompt recuerda que lo trajo la Iniciativa (`initiative`, también en el Estado de Main y en `turn_started`), y solo ese va detrás de los humanos y de las Sesiones en la Lista de espera (la clase pasa de `fproc` a `initiative`), con la Compactación que lo precede y con la tarea del Molde de un `@new` por su cuenta. El que manda un método durante una llamada va por orden de llegada, aunque su cadena sea la misma.
   - **Probado a mano** con el Swift IQ3_XXS y una fproc `bot` que lee un buzón: el LLM de la Sesión de Juan no supo quién le escribía; con un Turno largo en marcha, el Prompt de la Iniciativa esperó detrás de uno humano posterior y el de `@call bot tell` no; y la marca siguió en la cola del Perfil tras `/profile switch` ida y vuelta.
   - Métricas: 1716 tests, cobertura 85 %, mutación 93 %, 41 escapes.
-- **Siguiente:** #157, en «Pre-RAG · Pendientes de F2» (quedan #157 y #166, en una sesión). Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
+- **Siguiente:** #166, en «Pre-RAG · Pendientes de F2» (quedan #166 y #169, que salió de #157; tocan módulos distintos, así que pueden ir en paralelo). Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -122,6 +126,12 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
   Sobre #159:
   - ¿Le vale que `SessionCommandType`, que también importan los módulos de `comsession/`, lleve el campo `initiative`, aunque solo lo pongan los de Main? Así la Iniciativa usa los mismos tipos, en vez de una tabla aparte.
+
+  Sobre #157:
+  - ¿Le vale que el Contexto tras compactar sea la Conversación como la lee el LLM, sin los esquemas de sus tools ni sus imágenes (que van por su nombre, como en las medidas de la propia Compactación)? El Turno siguiente, que sí los cuenta, puede mostrar algo más.
+  - ¿Que, tras reiniciar Main, el borde de una Conversación compactada sin Turno nuevo diga «?» en vez de volver a medirla? Lo medido vive solo en la memoria de Main.
+  - ¿Que tras un Rewind a una Conversación compactada sin Turno nuevo el borde también diga «?»? El último Turno que queda se midió con la Conversación de antes de compactar.
+  - El Organizador sigue mostrando el Contexto de antes hasta el Turno siguiente: es #169.
 
   Sobre #158:
   - ADR-0014 dice que, sin su modelo, el Supervisor «sigue dormido con un Aviso». Queda `failed` (`model_missing`), no dormido: uno dormido se despierta con el trabajo y volvería a fallar en bucle; fallido, lo intenta el siguiente Prompt, y eso no cuesta nada porque no lanza `llama`. ¿Le vale?
@@ -249,10 +259,11 @@ Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelve
 2. ✅ #154 La Ventana rotula cada Prompt por su Origen
 3. ✅ #155 `@secret` tecleado en una Ventana no deja su valor en el Log
 4. ✅ #156 El Prompt humano de un Turno cancelado al cerrar la Ventana vuelve al Borrador
-5. #157 Tras compactar, el borde muestra el Contexto nuevo
+5. ✅ #157 Tras compactar, el borde muestra el Contexto nuevo
 6. ✅ #158 Un Supervisor que propone un Kit avisa si su modelo no está
 7. ✅ #159 Quitar las duplicaciones que dejó #123 (tras #153)
 8. #166 El Prompt de un Turno fallido vuelve al input tal como se tecleó (de #156)
+9. #169 Tras compactar, el Organizador muestra el Contexto nuevo (de #157)
 
 ## RAG · Memoria de consulta
 
