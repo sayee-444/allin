@@ -98,8 +98,8 @@ _OUTSIDER = re.compile(r"[\w.:@+-]{1,64}")
 
 
 def parse_outsider(text: str) -> Outsider | None:
-    """``text`` as an Externo's identity if it has the shape of one: nothing in it can pass for
-    anything else in its Prompt's header."""
+    """``text`` as an Externo's identity if it has the shape of one: a single word, so nothing
+    in it can pass for anything else where it is shown, in the Log and the memory."""
     return Outsider(text) if _OUTSIDER.fullmatch(text) is not None else None
 
 

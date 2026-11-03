@@ -21,9 +21,9 @@ from pydantic import BaseModel, ValidationError
 from allin.core.files import write_atomically
 from allin.core.ids import MainId, ServerKey, SessionId
 
-# What a waiter goes on with: work already started, a new Prompt, one an fproc brought
-# (ADR-0026), or Main's own ``describir``.
-type WaitClass = Literal["continuation", "prompt", "fproc", "describe"]
+# What a waiter goes on with: work already started, a new Prompt, one an fproc brought on its
+# own, by its Iniciativa (ADR-0026), or Main's own ``describir``.
+type WaitClass = Literal["continuation", "prompt", "initiative", "describe"]
 
 
 class Waiter(BaseModel, frozen=True):

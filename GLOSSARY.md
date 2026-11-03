@@ -208,7 +208,7 @@ Tokens totales que ocupa la Conversación en el último Paso (entrada + salida),
 _Avoid_: tokens gastados (ambiguo)
 
 **Admisión** (`Admission`):
-La decisión de si un Paso empieza ya en su Servidor. Lo que necesita es su entrada, medida con la plantilla y el tokenizador del propio Servidor, más su Tope de salida. Necesita un slot libre y su turno en la Lista de espera. Con caché KV unificada, además, tiene que caber en el pool menos lo que reservan los Pasos en curso de todos los Mains. Uno que no cabe puede ser adelantado por otro que sí, hasta que lleva esperando `admission.patience` segundos (Ajuste de Main): desde entonces nadie lo adelanta. Un Paso que no cabría ni en el slot vacío falla enseguida, sin hacer cola. En la Lista de espera van primero las Continuaciones, luego los Prompts nuevos, luego los que trae un Proceso adherido, por su Iniciativa o desde un método, y al final los de `describir` (ADR-0004, ADR-0022, ADR-0026).
+La decisión de si un Paso empieza ya en su Servidor. Lo que necesita es su entrada, medida con la plantilla y el tokenizador del propio Servidor, más su Tope de salida. Necesita un slot libre y su turno en la Lista de espera. Con caché KV unificada, además, tiene que caber en el pool menos lo que reservan los Pasos en curso de todos los Mains. Uno que no cabe puede ser adelantado por otro que sí, hasta que lleva esperando `admission.patience` segundos (Ajuste de Main): desde entonces nadie lo adelanta. Un Paso que no cabría ni en el slot vacío falla enseguida, sin hacer cola. En la Lista de espera van primero las Continuaciones, luego los Prompts nuevos, luego los que trae un Proceso adherido por su Iniciativa, y al final los de `describir` (ADR-0004, ADR-0022, ADR-0026). El que manda uno de sus métodos durante una llamada es un Prompt nuevo, por orden de llegada, como el de una Sesión; el Prompt recuerda que vino de la Iniciativa, porque la cadena de Origen de los dos puede ser la misma.
 _Avoid_: entrada al pool, cupo
 
 **Lista de espera** (`Wait list`):
@@ -253,7 +253,7 @@ Lo que un Proceso adherido hace por su cuenta, entre llamadas: desde un hilo pro
 _Avoid_: autonomía, acción espontánea
 
 **Externo** (`outsider`):
-Persona de fuera de AllIn cuyo texto trae un Proceso adherido, como quien escribe en un canal de Discord. No es el humano, que siempre es el usuario de AllIn: lo que dice entra con el Origen del Proceso adherido, que nunca cuenta como humano, y su identidad (`@send <sid> --outsider=<quién> -- <texto>`) solo se anota en la cabecera del Prompt, en su Turno y en el Log.
+Persona de fuera de AllIn cuyo texto trae un Proceso adherido, como quien escribe en un canal de Discord. No es el humano, que siempre es el usuario de AllIn: lo que dice entra con el Origen del Proceso adherido, que nunca cuenta como humano, y su identidad (`@send <sid> --outsider=<quién> -- <texto>`) solo se anota para el Log y la memoria: en su Turno y en el Log, nunca en la cabecera que lee el LLM, que dice solo el proceso (`[from attached process bot]`). Si el código de la fproc quiere que su LLM sepa quién habla, lo escribe en el texto, que siempre es dato (ADR-0026).
 _Avoid_: usuario, humano, cliente
 
 **Otorgar** (`Grant`):

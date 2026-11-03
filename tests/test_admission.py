@@ -65,13 +65,13 @@ def test_continuations_go_before_new_prompts_and_describe_last() -> None:
     assert admit(describe, listed, pool=None, now=10.0) == Admission("queued", 3)
 
 
-def test_a_prompt_an_fproc_brings_goes_after_the_new_prompts_of_a_human() -> None:
-    fproc = waiter("f", 0.5, kind="fproc")
+def test_a_prompt_of_an_fprocs_initiative_goes_after_the_new_prompts_of_a_human() -> None:
+    initiative = waiter("f", 0.5, kind="initiative")
     human = waiter("h", 9.0)
     describe = waiter("d", 0.1, kind="describe")
-    listed = view(fproc, human, describe)
+    listed = view(initiative, human, describe)
     assert admit(human, listed, pool=None, now=10.0) == Admission("go", 1)
-    assert admit(fproc, listed, pool=None, now=10.0) == Admission("queued", 2)
+    assert admit(initiative, listed, pool=None, now=10.0) == Admission("queued", 2)
     assert admit(describe, listed, pool=None, now=10.0) == Admission("queued", 3)
 
 

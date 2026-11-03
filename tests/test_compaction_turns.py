@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from allin.core.errors import TurnCancelled
 from allin.core.ids import SessionId
+from allin.core.origin import Origin
 from allin.core.settings import CompactSettings
 from allin.core.wait_list import Reservation, WaitList
 from allin.ipc.messages import BoxShow, ChatAppend, InputRestore, TurnState
@@ -29,9 +30,10 @@ from allin.main.measure import chat_messages
 from allin.main.prompts import Prompt
 from allin.main.sessions import Session
 from allin.main.slots import ServerProps
+from allin.main.state import MainState
 from tests.llm_fakes import DroppedStream, FakeLlm, Script, answer, completed, failed
 from tests.pieces import approve_sysprompt
-from tests.test_dispatcher import KEY, MainHarness, server, server_ready
+from tests.test_dispatcher import KEY, MainHarness, ended, server, server_ready
 from tests.test_pool_admission import OTHER, waiting
 
 WORDS = 99  # each answer; with its one-word Prompt, a Turn of 100 tokens
@@ -384,3 +386,29 @@ def test_a_compaction_wakes_who_subscribed_to_it(main: MainHarness):
     ids = [str(e.fields["prompt_id"]) for e in main.session_log(session) if e.event == "prompt"]
     shown = f"Session {session.id} compacted: Prompts 1\N{EN DASH}4 summarized"
     assert f"{shown} (ids {', '.join(ids[:4])})" in str(wake["text"])
+
+
+def test_the_compaction_before_a_prompt_of_an_fprocs_initiative_waits_with_it_behind_a_humans(
+    main: MainHarness,
+):
+    session, first, human = main.create_session(), main.create_session(), main.create_session()
+    main.llm = FakeLlm(*answers(6))
+    main.run(*talk(session, 6), settle=True)
+    by_itself = Prompt(
+        session.id,
+        "[from attached process relay]\nhola",
+        origin=Origin.model_validate(["human", "process:relay"]),
+        initiative=True,
+    )
+    # Restarted with it queued behind a human's: its Compaction goes first (ADR-0017).
+    main.state.save(MainState(queue=[Prompt(first.id, "f1"), by_itself]))
+    main.hold_turns = True
+    main.run(
+        lambda: setattr(main, "now", 1.0),
+        InputReceived(human.id, "h1"),
+        ended(first),
+        ended(human),
+        settle=True,
+    )
+    assert [job.session_id for job in main.held] == [first.id, human.id, session.id]
+    assert "compaction_step_started" in events(main, session)

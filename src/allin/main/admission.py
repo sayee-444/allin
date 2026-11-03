@@ -2,8 +2,8 @@
 (ADR-0004, ADR-0022), and what a waiting Session's Window says on its border.
 
 The list is ordered by class (Continuations, then new Prompts, then those a Proceso adherido
-brought, ADR-0026, then ``describir``) and, within
-each class, by arrival. A free slot goes to the first; with ``--kv-unified`` a Step also needs
+brought on its own, by its Iniciativa, ADR-0026, then ``describir``) and, within each class, by
+arrival. A free slot goes to the first; with ``--kv-unified`` a Step also needs
 room in the pool: its measured input plus its Output cap must fit in ``-c`` minus what every
 Step in course reserved, whatever Main runs it. One that does not fit may be overtaken by one
 behind it that does, until it has waited its patience (``firm_at``): from then on nobody
@@ -26,7 +26,7 @@ from allin.main.events import (
 # Whether the Step starts now, waits for those ahead of it, or waits for room in the pool.
 type Verdict = Literal["go", "queued", "pool"]
 
-_RANK: dict[WaitClass, int] = {"continuation": 0, "prompt": 1, "fproc": 2, "describe": 3}
+_RANK: dict[WaitClass, int] = {"continuation": 0, "prompt": 1, "initiative": 2, "describe": 3}
 
 
 @dataclass(frozen=True)

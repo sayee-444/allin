@@ -25,6 +25,7 @@ from allin.core.errors import (
 from allin.core.ids import AttachedName, CommandName
 from allin.core.origin import from_process
 from allin.main.attached import AttachedProcesses
+from allin.main.commands import MainCommands
 from allin.main.events import (
     CommandOutcome,
     InitiativeAsked,
@@ -34,7 +35,7 @@ from allin.main.events import (
 )
 from allin.main.prompt_commands import session_command_name
 from allin.main.reporting import Reporter
-from allin.main.session_commands import RunMain, lacking, new_command
+from allin.main.session_commands import lacking, new_command
 from allin.main.sessions import SessionStore
 
 type Answer = Callable[[SessionCommandResult], bool]
@@ -95,12 +96,14 @@ class FprocInitiative:
         attached: AttachedProcesses,
         sessions: SessionStore,
         reporter: Reporter,
-        run_main: RunMain,
+        commands: MainCommands,
     ) -> None:
+        """``commands`` runs each as a Command main asked by the Iniciativa, so the Prompts it
+        queues wait behind the humans' and the Sessions' (ADR-0026)."""
         self._attached = attached
         self._sessions = sessions
         self._reporter = reporter
-        self._run_main = run_main
+        self._commands = commands
 
     def run(self, name: AttachedName, text: str, answer: Answer) -> bool:
         """Run ``text``, ``@name …``, for the Proceso adherido ``name``; ``answer`` gets how it
@@ -150,4 +153,4 @@ class FprocInitiative:
                 case AllInError() as error:
                     answer(SessionCommandResult(error=str(error)))
 
-        return self._run_main(main_text, origin, done)
+        return self._commands.run(main_text, origin, done, initiative=True)
