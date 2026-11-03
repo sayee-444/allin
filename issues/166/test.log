@@ -1,0 +1,48 @@
+# #166 — El Prompt de un Turno fallido vuelve al input tal como se tecleó (2026-11-03)
+
+Código: rama fix/166-prompt-fallido-como-se-tecleo, commit 8f29fac (el final, tras la revisión).
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (un script de Python: el fallproxy.py de issues/15, con el puerto 19932 → 9932 y un modo más): mientras existe <scratch>/fall,
+cada POST llega y se corta la conexión sin responder (una caída con el Paso dentro, ADR-0023); mientras existe
+<scratch>/down, /health responde 503, para que los dos Prompts esperen en cola antes de que empiece el Turno.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m166, en el xterm allin-main-166, con /set base_url=http://127.0.0.1:19932/v1.
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Un Turno que falla devuelve su Prompt al input tal como se tecleó, con sus Command prompts
+2. Lo mismo con los Prompts de la cola que caen con él
+   - touch down, touch fall; /new --id=abierta166. En su Ventana, con Enter:
+     «Di un color en una palabra. @top_k=5» y «Y ahora un numero. @temperature=0.3». Los dos esperan en cola
+     (01-abierta-antes-del-fallo.png: el segundo, [queued]).
+   - rm down: el Turno empieza, cae (turn suspended), vuelve a empezar y cae otra vez en el mismo Paso: turn failed,
+     y el segundo Prompt sale de la cola con «the turn before failed».
+   - 02-abierta-tras-el-fallo.png: el input trae «Di un color en una palabra. @top_k=5», con su @top_k=5, y «+1 waiting»
+     (el segundo, en su propio bloque detrás).
+   - Log (05-log-de-abierta166.jsonl):
+       turn_failed      prompt="Di un color en una palabra."  typed="Di un color en una palabra. @top_k=5"
+       prompts_dropped  texts=["Y ahora un numero."]  typed=["Y ahora un numero. @temperature=0.3"]
+       prompt_returned  texts=["Di un color en una palabra. @top_k=5", "Y ahora un numero. @temperature=0.3"]
+     El Log sigue guardando lo que leyó el LLM (prompt, texts); lo tecleado va aparte (typed).
+3. Lo mismo al reabrir la Ventana tras un fallo con ella cerrada
+   - /new --id=cerrada166 y /close cerrada166; touch down; en Main:
+       /send cerrada166 Di un animal en una palabra. @top_k=5
+       /send cerrada166 Y ahora una fruta. @temperature=0.3
+   - rm down: el Turno cae dos veces y falla; el segundo Prompt sale de la cola. Sin Ventana, nada vuelve aún
+     (no hay prompt_returned).
+   - rm fall; /open cerrada166 (03-cerrada-al-reabrir.png): el Chat reconstruido con el Prompt, el error y [dropped];
+     el input trae «Di un animal en una palabra. @top_k=5» y «+1 waiting». El Log suma
+       prompt_returned  texts=["Di un animal en una palabra. @top_k=5", "Y ahora una fruta. @temperature=0.3"]
+   - Enter en esa Ventana (04-cerrada-reenviado-con-enter.png): el Prompt reenviado lleva otra vez su Command prompt
+     (evento prompt con overrides={"top_k": 5}), el Turno termina («Gato») y el input muestra el siguiente bloque,
+     «Y ahora una fruta. @temperature=0.3». Log completo: 06-log-de-cerrada166.jsonl.
+4. Tests: abajo.
+
+Al final: /exit en Main, se paran el proxy y el Servidor.
+
+## Tests de #166 (tests/test_failed_turns.py)
+test_what_goes_back_to_the_input_is_read_from_the_log[log8-texts8] PASSED  (typed en turn_failed y prompts_dropped)
+test_a_failed_turn_gives_back_what_was_typed_with_its_window_open PASSED
+test_a_failed_turn_gives_back_what_was_typed_as_its_window_opens PASSED
+Suite completa: 1753 pasan; basedpyright y ruff limpios.

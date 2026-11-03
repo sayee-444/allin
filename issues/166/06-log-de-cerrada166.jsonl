@@ -1,0 +1,20 @@
+{"ts": "2026-11-03T08:18:33.930685-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T08:18:33.935027-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T08:18:34.041580-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T08:18:34.957179-06:00", "event": "window_closed", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T08:18:58.447671-06:00", "event": "prompt", "text": "Di un animal en una palabra.", "overrides": {"top_k": 5}, "typed": "Di un animal en una palabra. @top_k=5", "prompt_id": "rtb5uu", "origin": ["human"]}
+{"ts": "2026-11-03T08:19:00.046088-06:00", "event": "prompt", "text": "Y ahora una fruta.", "overrides": {"temperature": 0.3}, "typed": "Y ahora una fruta. @temperature=0.3", "prompt_id": "mb3n3z", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T08:19:01.106306-06:00", "event": "input_unmeasured", "text": "the Server could not measure the input: admitted by its slots only"}
+{"ts": "2026-11-03T08:19:01.107046-06:00", "event": "turn_started", "need": 8002}
+{"ts": "2026-11-03T08:19:01.108344-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T08:19:02.108973-06:00", "event": "input_unmeasured", "text": "the Server could not measure the input: admitted by its slots only"}
+{"ts": "2026-11-03T08:19:02.109432-06:00", "event": "turn_started", "need": 8002}
+{"ts": "2026-11-03T08:19:02.110923-06:00", "event": "turn_failed", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": "", "joined": [], "typed": "Di un animal en una palabra. @top_k=5", "prompt": "Di un animal en una palabra."}
+{"ts": "2026-11-03T08:19:02.111034-06:00", "event": "prompts_dropped", "reason": "the turn before failed", "texts": ["Y ahora una fruta."], "kinds": ["prompt"], "typed": ["Y ahora una fruta. @temperature=0.3"]}
+{"ts": "2026-11-03T08:19:02.753852-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T08:19:02.754263-06:00", "event": "prompt_returned", "texts": ["Di un animal en una palabra. @top_k=5", "Y ahora una fruta. @temperature=0.3"]}
+{"ts": "2026-11-03T08:19:02.839865-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T08:19:15.012847-06:00", "event": "prompt", "text": "Di un animal en una palabra.", "overrides": {"top_k": 5}, "typed": "Di un animal en una palabra. @top_k=5", "prompt_id": "m8uzy4", "origin": ["human"]}
+{"ts": "2026-11-03T08:19:15.016714-06:00", "event": "turn_started", "need": 8084}
+{"ts": "2026-11-03T08:19:15.636920-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T08:19:26.426634-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}

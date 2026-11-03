@@ -1,0 +1,14 @@
+{"ts": "2026-11-03T08:17:52.874520-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T08:17:52.879472-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T08:17:52.965523-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T08:17:54.354776-06:00", "event": "prompt", "text": "Di un color en una palabra.", "overrides": {"top_k": 5}, "typed": "Di un color en una palabra. @top_k=5", "prompt_id": "ldlxa8", "origin": ["human"]}
+{"ts": "2026-11-03T08:17:55.439425-06:00", "event": "prompt", "text": "Y ahora un numero.", "overrides": {"temperature": 0.3}, "typed": "Y ahora un numero. @temperature=0.3", "prompt_id": "oynv2n", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T08:18:06.012038-06:00", "event": "input_unmeasured", "text": "the Server could not measure the input: admitted by its slots only"}
+{"ts": "2026-11-03T08:18:06.012585-06:00", "event": "turn_started", "need": 8002}
+{"ts": "2026-11-03T08:18:06.013765-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T08:18:07.015013-06:00", "event": "input_unmeasured", "text": "the Server could not measure the input: admitted by its slots only"}
+{"ts": "2026-11-03T08:18:07.015481-06:00", "event": "turn_started", "need": 8002}
+{"ts": "2026-11-03T08:18:07.016731-06:00", "event": "turn_failed", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": "", "joined": [], "typed": "Di un color en una palabra. @top_k=5", "prompt": "Di un color en una palabra."}
+{"ts": "2026-11-03T08:18:07.016874-06:00", "event": "prompts_dropped", "reason": "the turn before failed", "texts": ["Y ahora un numero."], "kinds": ["prompt"], "typed": ["Y ahora un numero. @temperature=0.3"]}
+{"ts": "2026-11-03T08:18:07.016924-06:00", "event": "prompt_returned", "texts": ["Di un color en una palabra. @top_k=5", "Y ahora un numero. @temperature=0.3"]}
+{"ts": "2026-11-03T08:19:26.426561-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
