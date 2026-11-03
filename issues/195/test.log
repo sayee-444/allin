@@ -1,0 +1,58 @@
+# #195 — @send <sid> @secret tecleado en una Ventana, y un /send que no encaja, no dejan el valor en el Log (2026-11-03)
+
+Servidor: ninguno (rechazar un @secret no pide LLM; Main corrió con su Enlace sin Servidor, «queue paused»).
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m195, en un xterm (allin-main-195), con PYTHONPATH=src,
+con el código del commit 400974e salvo el arreglo del error de JSON de un Encargo (ese, solo tests; abajo).
+Valor de prueba tecleado: xoxb-195-valor-de-prueba (inventado).
+
+## Pasos
+1. En Main: /new --id=otra, /close otra, /new --id=caja (abre su Ventana).
+2. En la Ventana de caja, con Enter:
+   @send otra @secret set bot token xoxb-195-valor-de-prueba
+   @errand {"otra": "@secret set bot token xoxb-195-valor-de-prueba"}
+   La Ventana muestra (01-caja.png):
+   «[error] @send otra @secret set bot token …: secret_in_main_chat_only: usage='/secret …'»
+   «[error] @errand {"otra": "@secret set bot token …: secret_in_main_chat_only: usage='/secret …'»
+   y su entrada queda vacía: ninguna línea volvió (antes, la de @send volvía con el valor).
+3. En el Chat de Main, con Enter (02-main.png):
+   @send otra @secret set bot token xoxb-…   -> «@send otra @secret set bot token …: error secret_in_main_chat_only»
+                                                (antes, unknown_command y la línea entera)
+   /send @secret set bot token xoxb-…        -> «[@secret] /send @secret set bot token …: error session_not_found»
+                                                (antes, la línea entera)
+   /errand caja --to=otra @secret set bot token xoxb-…
+                                             -> «/errand caja --to=otra @secret set bot token …: error secret_in_main_chat_only»
+4. En la Ventana de caja, sin Enter: @send otra @secret set bot token xoxb-195-valor-de-prueba (03-caja-borrador.png).
+   - <data-dir>/profiles/default/state.json: "drafts": {}
+   - grep -rl xoxb-195 <data-dir>: nada.
+5. /exit en Main (guarda el Estado de Main por última vez y cierra la Ventana).
+   - state.json: "drafts": {}; grep -rl xoxb-195 <data-dir>: nada.
+6. Log de Main, eventos command y session_command (04-log-de-main.jsonl): cada línea con @secret acaba en
+   «@secret set bot token …».
+
+## Criterios
+1. @send <sid> @secret … <valor> tecleado en una Ventana se rechaza y el valor no llega al Log de la Sesión ni al de
+   Main, a su Chat, al Borrador, a state.json ni a la Conversación: pasos 2, 4, 5 y 6. Tests:
+   test_sent_as_at_send_at_secret_from_a_window_it_runs_nothing_and_keeps_four_words[simple, --reply-to, anidado],
+   test_typed_as_at_send_at_secret_in_mains_chat_it_shows_the_usage_and_keeps_four_words,
+   test_sent_with_send_as_at_send_at_secret_it_reaches_no_draft, test_a_draft_that_is_at_send_at_secret_is_not_kept.
+2. Un /send con @secret que no encaja como <sid> <texto> también se guarda recortado: paso 3 (sin <sid>). El salto de
+   línea tras el <sid>, solo tests (el Chat de Main lo mete con un atajo que xterm_drive no manda):
+   test_a_send_with_at_secret_that_does_not_fit_is_kept_cut_too[salto de línea, sin sid, -y con tab].
+3. Un grep del valor en la carpeta de datos, tras /exit, no da nada: paso 5 (y en los tests, files_with tras /exit).
+4. Tests: los de arriba y los de abajo, en tests/test_secrets.py.
+
+## Además: otros caminos al Log
+- Un solo recorte donde se escribe el Log (Reporter): los campos command y runs se cortan tres palabras tras su
+  primer @secret o /secret, quien sea que los escriba. Sustituye a los recortes de /send, /secret y los Command
+  sessions. Test: test_any_log_keeps_a_command_line_cut_at_its_at_secret[command|runs].
+- Un Encargo o un Lote cuya tarea manda un @secret se rechaza (pasos 2 y 3). Tests:
+  test_an_errand_from_a_window_with_an_at_secret_task_sends_nothing[--to, JSON, Lote con @send],
+  test_an_errand_from_mains_chat_with_an_at_secret_task_sends_nothing,
+  test_a_draft_with_any_command_session_that_names_at_secret_is_not_kept.
+- El error de un JSON de Encargo con un tipo equivocado ya no repite lo tecleado (pydantic citaba la entrada):
+  solo tests, test_an_errand_whose_json_is_wrong_says_why_without_what_was_typed.
+- Un Prompt que solo nombra @secret sigue yendo: test_a_prompt_that_only_names_at_secret_still_goes; y una ruta o
+  @secretary no se recortan: test_a_line_that_names_no_at_secret_word_or_no_more_than_four_is_kept_whole.
+
+Los cinco tests de la revisión (rev/test_rev_secret2.py) pasan.
+Suite completa: 1881 passed; basedpyright 0 errores; ruff limpio.

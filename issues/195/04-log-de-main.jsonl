@@ -1,0 +1,9 @@
+{"ts": "2026-11-03T12:32:11.908579-06:00", "event": "command", "command": "/new --id=otra", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T12:32:21.782582-06:00", "event": "command", "sid": "otra", "command": "/close otra", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T12:32:22.183964-06:00", "event": "command", "command": "/new --id=caja", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T12:32:30.810836-06:00", "event": "session_command", "command": "@send otra @secret set bot token …", "result": "secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'"}
+{"ts": "2026-11-03T12:32:32.882778-06:00", "event": "command", "sid": "caja", "command": "/errand caja {\"otra\": \"@secret set bot token …", "result": "error secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T12:33:03.667508-06:00", "event": "command", "command": "@send otra @secret set bot token …", "result": "error secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T12:33:05.322709-06:00", "event": "command", "sid": "@secret", "command": "/send @secret set bot token …", "result": "error session_not_found: session_id='@secret'", "origin": ["human"]}
+{"ts": "2026-11-03T12:33:07.486668-06:00", "event": "command", "sid": "caja", "command": "/errand caja --to=otra @secret set bot token …", "result": "error secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T12:33:31.346861-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
