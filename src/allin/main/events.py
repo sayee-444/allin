@@ -1,7 +1,7 @@
 """Events consumed by Main's dispatcher, in arrival order (ADR-0001)."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import JsonValue
@@ -357,10 +357,12 @@ class ConfirmationRequested:
 
 @dataclass(frozen=True)
 class BoxAnswered:
-    """A Notice or Confirmation was answered, in Main's Chat or in a Window."""
+    """A Notice or Confirmation was answered, in Main's Chat or in a Window; ``value`` is what
+    Main's Chat took in a Secreto's box."""
 
     box_id: BoxId
     answer: bool | None
+    value: str | None = field(default=None, repr=False)  # never in a traceback
 
 
 @dataclass(frozen=True)

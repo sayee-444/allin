@@ -70,6 +70,8 @@ from allin.main.prompt_commands import SendOptions, TurnOverrides, parse_prompt,
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
+from allin.main.secret_commands import USAGE as SECRET_USAGE
+from allin.main.secret_commands import SecretCommands
 from allin.main.sends import SessionSends
 from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
@@ -194,6 +196,7 @@ class MainCommands:
         calls: MethodCalls,
         subscriptions: Subscriptions,
         subprofiles: Subprofiles,
+        secrets: SecretCommands,
     ) -> None:
         self._functions = functions
         self._subprofiles = subprofiles
@@ -431,6 +434,19 @@ class MainCommands:
                 self._switch_devastation,
                 "let Main answer the Confirmations of its own Chat by itself",
                 args={"state": "on or off"},
+                human_only=True,
+            ),
+            "/secret": CommandSpec(
+                (),
+                secrets.run,
+                "list the Secretos of the Procesos adheridos by name, or give or remove one",
+                usage_text=SECRET_USAGE,
+                args={
+                    "action…": "set <instance> <name>: asks for its value in a box, never"
+                    " shown; remove <instance> <name>; list [<instance>]",
+                },
+                optional=("action…",),
+                rest=True,
                 human_only=True,
             ),
             "/subprofile": CommandSpec(

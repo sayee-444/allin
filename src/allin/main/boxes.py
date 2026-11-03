@@ -1,8 +1,9 @@
-"""The boxes Main has on screen: Notices and Confirmations, until they are answered.
+"""The boxes Main has on screen: Notices, Confirmations and the boxes that take a Secreto's
+value, until they are answered.
 
 Each one shows in Main's Chat and, if it concerns a Session, in that Session's Window; whichever
 answers first counts, and it leaves both. One whose Window is closed shows again when the
-Window opens, as long as nobody answered it.
+Window opens, as long as nobody answered it. A Secreto's box shows in Main's Chat alone.
 """
 
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from allin.ui.screen import HideBox, ShowBox
 
 type MainScreenBox = Callable[[ShowBox | HideBox], None]
 type OnAnswer = Callable[[bool], None]
+type OnValue = Callable[[str | None], None]
 
 # A Session a Session's LLM asked to bring into view, with no room for it (ADR-0020): its mark
 # is this Notice, until the human brings it or dismisses it.
@@ -30,6 +32,7 @@ class _Pending:
     session_id: SessionId | None
     on_answer: OnAnswer | None  # only a Confirmation's
     kind: str | None  # a Notice's type
+    on_value: OnValue | None = None  # only a Secreto's box
 
 
 class MainBoxes:
@@ -44,6 +47,14 @@ class MainBoxes:
     ) -> BoxId:
         """Ask the user yes or no; ``on_answer`` gets the answer once someone gives it."""
         return self._show("confirm", session_id, title, text, on_answer, None)
+
+    def ask_secret(self, title: str, text: str, on_value: OnValue) -> BoxId:
+        """Ask the human in Main's Chat for a Secreto's value, which the box never shows;
+        ``on_value`` gets it, or ``None`` if they left it empty (#124)."""
+        box = Box(next(self._ids), "secret", title, text)
+        self._pending[box.box_id] = _Pending(box, None, None, None, on_value)
+        self._main_screen(ShowBox(box))
+        return box.box_id
 
     def asking(self, session_id: SessionId) -> bool:
         """Whether a Confirmation of the Session waits for its answer."""
@@ -95,15 +106,17 @@ class MainBoxes:
                     self.withdraw(box_id)
         return self._show("notice", session_id, title, text, None, kind)
 
-    def answered(self, box_id: BoxId, answer: bool | None) -> None:
+    def answered(self, box_id: BoxId, answer: bool | None, value: str | None = None) -> None:
         """Someone answered a box, in Main's Chat or in a Window; a late second answer to the
-        same box does nothing."""
+        same box does nothing. ``value`` is what Main's Chat took in a Secreto's box."""
         pending = self._pending.pop(box_id, None)
         if pending is None:
             return
         self._hide(pending)
         if pending.on_answer is not None:
             pending.on_answer(bool(answer))
+        if pending.on_value is not None:
+            pending.on_value(value)
 
     def withdraw(self, box_id: BoxId) -> None:
         """A box no longer valid, e.g. its Turn was cancelled: nobody answers it."""

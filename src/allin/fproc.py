@@ -16,10 +16,14 @@ Between calls it may act on its own (ADR-0026): from a thread of its own, such a
 ``__init__`` starts, ``allin.channel.command`` runs the Command sessions its Alcance declares on
 the Sessions it created, in its Subperfil (``@subprofile``), from the Moldes of its package.
 
+``self.secret("token")`` gives a Secreto a human set for this instance with ``/secret set``
+(#124): it arrives over the channel as the process starts, never by its environment.
+
 It runs inside the Proceso adherido, so it uses the standard library alone.
 """
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from allin import fproc_runtime
@@ -29,15 +33,16 @@ from allin import fproc_runtime
 class _Attached:
     name: str
     file: Path | None
+    secrets: Mapping[str, str] = field(default_factory=dict[str, str], repr=False)
 
 
 _attached: _Attached | None = None  # set by the warden before it makes the class
 
 
-def attached_as(name: str, file: Path | None) -> None:
+def attached_as(name: str, file: Path | None, secrets: Mapping[str, str] | None = None) -> None:
     """Set by the warden in the Proceso adherido, before it makes the fproc's class."""
     global _attached  # noqa: PLW0603 - the process's one Proceso adherido, set once
-    _attached = _Attached(name, file)
+    _attached = _Attached(name, file, dict(secrets or {}))
 
 
 class Fproc:
@@ -53,6 +58,12 @@ class Fproc:
         """The shared file it was attached with, which it may read and write; ``None`` if it
         was attached without one."""
         return _context().file
+
+    def secret(self, name: str) -> str | None:
+        """The Secreto ``name`` a human set for this instance with ``/secret set``, as it was
+        when the process started; ``None`` if it has none. Keep it out of what a method
+        returns: that goes to the LLM, and its Conversation keeps it."""
+        return _context().secrets.get(name)
 
     def changed(self) -> None:
         """Say the state changed other than through an ``@writes`` method, as when the human

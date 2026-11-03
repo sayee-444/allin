@@ -46,10 +46,12 @@ type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | Non
 
 @dataclass(frozen=True)
 class _Fproc:
-    """What ``messages.AttachFproc`` adds to a call: the Proceso adherido's name and file."""
+    """What ``messages.AttachFproc`` adds to a call: the Proceso adherido's name and file, and
+    its Secretos, which only the runner keeps, in memory (#124)."""
 
     name: str
     file: str | None
+    secrets: dict[str, str] = dataclasses.field(default_factory=dict[str, str], repr=False)
 
 
 @dataclass(frozen=True)
@@ -211,12 +213,22 @@ def _parse_tool_call(fields: dict[object, object]) -> _Call | None:
 def _parse_attachment(fields: dict[object, object]) -> _Call | None:
     """An attachment is a tool call without a function or arguments, plus its fproc."""
     name, file = fields.get("name"), fields.get("file")
-    if not (isinstance(name, str) and (file is None or isinstance(file, str))):
+    secrets = _secrets(fields.get("secrets", {}))
+    if not (isinstance(name, str) and (file is None or isinstance(file, str))) or secrets is None:
         return None
     call = _parse_tool_call({**fields, "function": "", "arguments": {}})
     if call is None:
         return None
-    return dataclasses.replace(call, function=None, fproc=_Fproc(name, file))
+    return dataclasses.replace(call, function=None, fproc=_Fproc(name, file, secrets))
+
+
+def _secrets(raw: object) -> dict[str, str] | None:
+    """The Secretos as Main wrote them, each name to its value; ``None`` if not that."""
+    if not isinstance(raw, dict):
+        return None
+    items: dict[object, object] = raw  # pyright: ignore[reportUnknownVariableType] - JSON
+    secrets = {k: v for k, v in items.items() if isinstance(k, str) and isinstance(v, str)}
+    return secrets if len(secrets) == len(items) else None
 
 
 def _ports(raw: object) -> tuple[int, ...] | None:
@@ -498,7 +510,9 @@ def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> N
 
         fproc_runtime.prepare(replies)
         fproc.attached_as(
-            call.fproc.name, None if call.fproc.file is None else Path(call.fproc.file)
+            call.fproc.name,
+            None if call.fproc.file is None else Path(call.fproc.file),
+            call.fproc.secrets,
         )
         fproc_class = _fproc_class(importlib.import_module(call.module))
         instance = fproc_class()

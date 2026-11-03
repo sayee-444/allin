@@ -83,6 +83,8 @@ from allin.main.prompt_commands import session_command_name
 from allin.main.quarantine import Quarantine
 from allin.main.recovery import CloseOrphanWindow, Recovery
 from allin.main.reporting import Reporter
+from allin.main.secret_commands import SecretCommands
+from allin.main.secrets import Secrets
 from allin.main.server_commands import ServerCommands
 from allin.main.session_commands import (
     BUILT_IN,
@@ -186,6 +188,7 @@ class Dispatcher:
             return self._attached.declares_subprofile(name)
 
         self._subprofiles = Subprofiles(lambda: self._switch.active.folder, in_profile, declares)
+        self._secrets = Secrets(lambda: self._switch.active.folder)
         self._devastation = Devastation(
             devastation,
             self._marks,
@@ -297,6 +300,7 @@ class Dispatcher:
             self._reporter,
             inbox.put,
             data_dir,
+            self._secrets.of,
             release=lambda: settings_commands.current.attached.release,
         )
         self._methods = AttachedMethods(
@@ -364,6 +368,7 @@ class Dispatcher:
             calls,
             self._subscriptions,
             self._subprofiles,
+            SecretCommands(self._secrets, self._boxes, self._reporter),
         )
         self._initiative = FprocInitiative(
             self._attached, sessions, self._reporter, self._commands.run
@@ -611,8 +616,8 @@ class Dispatcher:
                 self._session_commands.run(session_id, text, origin, answer)
             case InitiativeAsked(name, text, answer):
                 self._initiative.run(name, text, answer)
-            case BoxAnswered(box_id, answer):
-                self._boxes.answered(box_id, answer)
+            case BoxAnswered(box_id, answer, value):
+                self._boxes.answered(box_id, answer, value)
             case MainCommandEntered(text, origin):
                 return self._commands.run(text, origin)
             case OrganizerConnected():

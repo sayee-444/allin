@@ -42,7 +42,9 @@ class DescribeModule(BaseModel, frozen=True):
 
 class AttachFproc(BaseModel, frozen=True):
     """Main to the warden: start this fproc as a Proceso adherido named ``name``, confined for
-    good to these folders, with ``file`` as its shared file (ADR-0012, ADR-0016)."""
+    good to these folders, with ``file`` as its shared file (ADR-0012, ADR-0016), and the
+    Secretos a human gave that instance (#124), which travel here alone: never in its
+    environment or its Carpeta de trabajo."""
 
     type: Literal["attach"] = "attach"
     package: str
@@ -56,6 +58,7 @@ class AttachFproc(BaseModel, frozen=True):
     net_layer: int | None
     ip: bool
     unix: bool
+    secrets: dict[str, str] = Field(default_factory=dict[str, str], repr=False)
 
 
 class CallMethod(BaseModel, frozen=True):

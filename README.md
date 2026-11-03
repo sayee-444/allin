@@ -129,9 +129,12 @@ class Bot(Fproc):
         threading.Thread(target=self._listen, daemon=True).start()
 
     def _listen(self):
+        token = self.secret("token")  # for its chat's API, given with /secret set bot token
         sid = command("@new helper")["state"]["session_id"]
         command(f"@send {sid} --outsider=chat:juan -- hola")
 ```
+
+**Secrets.** `/secret set bot token` asks for the value in a box of Main's Chat that shows only dots, and keeps it in the Profile for the instance `bot`, which reads it with `self.secret("token")`. Main hands it over the process's channel each time it is attached, never through its environment or its working folder. `/secret` lists the names, never a value, and `/secret remove bot token` takes one away. Only you set or remove one: no Session does, and no Log, Conversation, Kit or copy of the Profile carries one. Keep it out of what a method returns, which the LLM reads.
 
 **Trimming.** Landlock grants whole folders, so granting `home` would grant AllIn's data inside it too. At every call, Main turns each granted folder that holds something of AllIn's into grants on every sibling along the way. With AllIn installed in `~/Pictures/Neva` and its data folder in `~/Pictures/Neva/var`:
 
@@ -235,6 +238,7 @@ In a Prompt you type, `@key=value` changes a sampling parameter for that Turn on
 | `/raw on\|off [sid]` | Show the raw stream events in Main's Chat |
 | `/devastation on\|off` | Let Main answer the Confirmations by itself |
 | `/subprofile [<name> [exempt=on\|off] [turns=<n>]]` | List the Subperfiles of the fprocs, or give one the Exención or a cap on Turns |
+| `/secret [list [<name>]]` · `/secret set\|remove <name> <secret>` | List the Secretos of the attached processes by name, or give or remove one |
 | `/exit` | Close everything cleanly |
 
 ---

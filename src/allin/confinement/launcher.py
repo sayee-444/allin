@@ -136,6 +136,8 @@ class FprocStart:
     reach: Reach = MINIMUM
     file: Path | None = None  # read and written beyond its Alcance, for this instance alone
     at_once: int | None = 1  # the calls it takes at a time, as ``@concurrent`` says; None: any
+    # Its instance's Secretos, by name (#124): only its channel carries them.
+    secrets: dict[str, str] = field(default_factory=dict[str, str], repr=False)
 
 
 @dataclass(frozen=True)
@@ -315,6 +317,7 @@ class ToolLauncher:
             net_layer=net_layer,
             ip=start.reach.network,
             unix=start.reach.display,
+            secrets=start.secrets,
         )
 
     def _converse(
