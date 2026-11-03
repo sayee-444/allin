@@ -38,6 +38,8 @@ En la Admisión, un Prompt que trae una fproc por su cuenta va detrás de los de
 
 Un humano da cada Secreto con `/secret set <instancia> <nombre>`, y Main lo guarda en el Perfil a nombre de la instancia, aunque esta no tenga Subperfil. Main se lo entrega a la fproc al lanzarla por su canal, nunca por el entorno (ADR-0005), y vale en cada adhesión hasta que un humano lo quita. Nunca va en su Carpeta de trabajo. No lo ven el LLM, la Conversación, el Log ni el RAG, y nunca viaja en Moldes, Kits ni copias del Perfil.
 
+Al implementarlo (#124), el valor se pide en un recuadro del Chat de Main que solo muestra puntos, nunca en la línea del comando, que guarda el Log; si alguien lo escribe ahí por error, el Log y el Chat solo guardan `/secret set <instancia> <nombre> …`. La fproc lo lee en claro con `self.secret("<nombre>")`. Lo que devuelve uno de sus métodos lo lee el LLM, así que no pasárselo depende de su código, igual que todo lo que hace con su red: lo frena la Aprobación.
+
 ## La red
 
 Landlock limita la red por puerto, no por host (ADR-0016). Una fproc con red hacia Discord puede conectar al puerto 443 de cualquier sitio. El único freno es la Aprobación de su código.

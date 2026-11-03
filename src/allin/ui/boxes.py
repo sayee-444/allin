@@ -51,7 +51,7 @@ class BoxStack:
         self._typed = ""  # in the shown Secreto's box: kept here alone, never drawn
 
     @property
-    def typed(self) -> int:
+    def typed_count(self) -> int:
         """How many characters were typed in the shown Secreto's box."""
         return len(self._typed)
 

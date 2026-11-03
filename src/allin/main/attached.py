@@ -205,14 +205,14 @@ class AttachedProcesses:
         reporter: Reporter,
         emit: Callable[[MainEvent], None],
         data_dir: Path,
-        secrets: Callable[[AttachedName], Mapping[SecretName, str]],
+        secrets_of: Callable[[AttachedName], Mapping[SecretName, str]],
         start_timeout: float = 20.0,
         release: Callable[[], float] = lambda: 5.0,
     ) -> None:
         """``launcher`` starts the processes, with a thread as long-lived as Main; without one
         nothing is attached. ``quarantine`` and ``profile`` are the active Profile's;
-        ``emit`` takes the event of a process that ended, from any thread; ``secrets`` gives
-        an instance's Secretos, read anew each time it is attached (#124)."""
+        ``emit`` takes the event of a process that ended, from any thread; ``secrets_of``
+        gives an instance's Secretos, read anew each time it is attached (#124)."""
         self._launcher = launcher
         self._quarantine = quarantine
         self._profile = profile
@@ -222,7 +222,7 @@ class AttachedProcesses:
         self._reporter = reporter
         self._emit = emit
         self._data_dir = data_dir
-        self._secrets = secrets
+        self._secrets_of = secrets_of
         self._start_timeout = start_timeout
         self._release = release  # Main's Setting, read as each one is attached
         self._given: Callable[[AttachedName, tuple[SessionId, ...]], None] = _nobody
@@ -537,7 +537,7 @@ class AttachedProcesses:
             described.reach,
             asked.file,
             at_once(described.marks),
-            dict(self._secrets(asked.name).items()),
+            dict(self._secrets_of(asked.name).items()),  # their names as the channel's str
         )
         name = asked.name
         process = self._launcher.attach(

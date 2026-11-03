@@ -357,12 +357,13 @@ class ConfirmationRequested:
 
 @dataclass(frozen=True)
 class BoxAnswered:
-    """A Notice or Confirmation was answered, in Main's Chat or in a Window; ``value`` is what
-    Main's Chat took in a Secreto's box."""
+    """A Notice or Confirmation was answered, in Main's Chat or in the Window of ``window``;
+    ``value`` is what Main's Chat took in a Secreto's box."""
 
     box_id: BoxId
     answer: bool | None
     value: str | None = field(default=None, repr=False)  # never in a traceback
+    window: SessionId | None = None  # ``None``: Main's Chat
 
 
 @dataclass(frozen=True)

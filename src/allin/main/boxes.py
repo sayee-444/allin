@@ -52,7 +52,8 @@ class MainBoxes:
         """Ask the human in Main's Chat for a Secreto's value, which the box never shows;
         ``on_value`` gets it, or ``None`` if they left it empty (#124)."""
         box = Box(next(self._ids), "secret", title, text)
-        self._pending[box.box_id] = _Pending(box, None, None, None, on_value)
+        pending = _Pending(box, session_id=None, on_answer=None, kind=None, on_value=on_value)
+        self._pending[box.box_id] = pending
         self._main_screen(ShowBox(box))
         return box.box_id
 
@@ -106,12 +107,20 @@ class MainBoxes:
                     self.withdraw(box_id)
         return self._show("notice", session_id, title, text, None, kind)
 
-    def answered(self, box_id: BoxId, answer: bool | None, value: str | None = None) -> None:
-        """Someone answered a box, in Main's Chat or in a Window; a late second answer to the
-        same box does nothing. ``value`` is what Main's Chat took in a Secreto's box."""
-        pending = self._pending.pop(box_id, None)
-        if pending is None:
+    def answered(
+        self,
+        box_id: BoxId,
+        answer: bool | None,
+        value: str | None = None,
+        window: SessionId | None = None,
+    ) -> None:
+        """Someone answered a box, in Main's Chat or in the Window of ``window``; a late second
+        answer to the same box does nothing, and nor does one from a Window the box does not
+        show in. ``value`` is what Main's Chat took in a Secreto's box."""
+        pending = self._pending.get(box_id)
+        if pending is None or (window is not None and window != pending.session_id):
             return
+        del self._pending[box_id]
         self._hide(pending)
         if pending.on_answer is not None:
             pending.on_answer(bool(answer))

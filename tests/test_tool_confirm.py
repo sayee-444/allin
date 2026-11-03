@@ -124,6 +124,20 @@ def test_on_no_it_does_not_run_and_the_llm_reads_the_refusal(main: MainHarness):
     assert "confirmation_answered" in events and events[-1] == "turn_finished"
 
 
+def test_only_mains_chat_or_its_own_sessions_window_answers_it(main: MainHarness):
+    session = with_voice(main)
+    other = main.create_session()
+    main.llm = shout()
+    main.run(
+        InputReceived(session.id, "grita"),
+        box_shown(main),
+        BoxAnswered(FIRST_BOX, False, window=other.id),
+        BoxAnswered(FIRST_BOX, True, window=session.id),
+        settle=True,
+    )
+    assert outputs(main.llm.requests[1]) == ['"HOLA"']
+
+
 def test_a_tool_without_it_does_not_ask(main: MainHarness):
     session = with_voice(main)
     main.llm = FakeLlm(tool_call("whisper", json.dumps({"text": "HOLA"})), full_reply("", "ok"))

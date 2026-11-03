@@ -39,10 +39,10 @@ class _Attached:
 _attached: _Attached | None = None  # set by the warden before it makes the class
 
 
-def attached_as(name: str, file: Path | None, secrets: Mapping[str, str] | None = None) -> None:
+def attached_as(name: str, file: Path | None, secrets: Mapping[str, str]) -> None:
     """Set by the warden in the Proceso adherido, before it makes the fproc's class."""
     global _attached  # noqa: PLW0603 - the process's one Proceso adherido, set once
-    _attached = _Attached(name, file, dict(secrets or {}))
+    _attached = _Attached(name, file, dict(secrets))
 
 
 class Fproc:

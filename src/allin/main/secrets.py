@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NewType
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from allin.core.errors import ProfileStorageFailed, SecretInvalid, SecretNotFound
 from allin.core.files import write_atomically
@@ -32,19 +32,37 @@ def parse_secret_name(text: str) -> SecretName | None:
     return SecretName(text) if _NAME.fullmatch(text) is not None else None
 
 
-def check_value(value: str) -> None:
-    """Raises ``SecretInvalid`` for a value that is empty, too long or has control characters;
-    its reason never holds the value."""
+def _value_problem(value: str) -> str | None:
+    """What is wrong with a value, never quoting it: empty, too long or with control
+    characters; ``None`` for one Main keeps."""
     if not value:
-        raise SecretInvalid(reason="empty")
+        return "empty"
     if len(value) > VALUE_MAX:
-        raise SecretInvalid(reason=f"longer than {VALUE_MAX} characters")
+        return f"longer than {VALUE_MAX} characters"
     if not value.isprintable():
-        raise SecretInvalid(reason="control characters")
+        return "control characters"
+    return None
+
+
+def check_value(value: str) -> None:
+    """Raises ``SecretInvalid`` for a value Main does not keep; its reason never holds it."""
+    problem = _value_problem(value)
+    if problem is not None:
+        raise SecretInvalid(reason=problem)
 
 
 class _Record(BaseModel, frozen=True):
-    values: dict[SecretName, str]
+    values: dict[SecretName, str] = Field(repr=False)
+
+    @field_validator("values")
+    @classmethod
+    def _as_set_keeps_them(cls, values: dict[SecretName, str]) -> dict[SecretName, str]:
+        """A file edited by hand holds only what ``/secret set`` would have kept."""
+        for name, value in values.items():
+            if parse_secret_name(name) is None or _value_problem(value) is not None:
+                msg = "a Secreto /secret set would refuse"
+                raise ValueError(msg)
+        return values
 
 
 class Secrets:
@@ -52,6 +70,11 @@ class Secrets:
 
     def __init__(self, profile_folder: Callable[[], Path]) -> None:
         self._profile_folder = profile_folder
+
+    def pinned(self) -> "Secrets":
+        """The Secretos of the Profile active now, which stay its after Main switches."""
+        folder = self._profile_folder()
+        return Secrets(lambda: folder)
 
     def names(self) -> dict[AttachedName, list[SecretName]]:
         """The names of each instance's Secretos, never their values; instances in name order."""
@@ -100,4 +123,4 @@ class Secrets:
             path.parent.chmod(0o700)
             write_atomically(path, _Record(values=values).model_dump_json(indent=2), mode=0o600)
         except OSError as error:
-            raise ProfileStorageFailed(path=str(path), reason=type(error).__name__) from None
+            raise ProfileStorageFailed(path=str(path), reason=str(error)) from error

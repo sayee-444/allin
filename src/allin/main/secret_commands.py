@@ -18,6 +18,17 @@ USAGE = (
 )
 
 
+_KEPT_WORDS = 4  # /secret set <instance> <name>: never the value after them
+
+
+def kept_of_secret(text: str) -> str:
+    """What Main's Chat and Log keep of a ``/secret`` line: its first four words, and ``…``
+    for whatever follows them, such as a value typed there by mistake."""
+    words = text.split()
+    hidden = " …" if len(words) > _KEPT_WORDS else ""
+    return " ".join(words[:_KEPT_WORDS]) + hidden
+
+
 class SecretCommands:
     def __init__(self, secrets: Secrets, boxes: MainBoxes, reporter: Reporter) -> None:
         self._secrets = secrets
@@ -41,21 +52,23 @@ class SecretCommands:
     def _list(self) -> None:
         names = self._secrets.names()
         self._reporter.show(None, f"secrets: {sum(len(each) for each in names.values())}")
-        for instance, secrets in names.items():
-            self._reporter.show(None, f"  {instance}: {', '.join(secrets)}")
+        for instance, its_names in names.items():
+            self._reporter.show(None, f"  {instance}: {', '.join(its_names)}")
 
     def _list_of(self, instance: AttachedName) -> None:
-        secrets = sorted(self._secrets.of(instance))
-        self._reporter.show(None, f"{instance}: {', '.join(secrets) or 'none'}")
+        its_names = sorted(self._secrets.of(instance))
+        self._reporter.show(None, f"{instance}: {', '.join(its_names) or 'none'}")
 
     def _ask(self, instance: AttachedName, name: SecretName) -> None:
+        asked_in = self._secrets.pinned()  # Main may switch Profile while the box is open
+
         def given(value: str | None) -> None:
             if value is None:
                 shown = f"secret {name} of {instance}: not set, the box was left empty"
                 self._reporter.report(None, "secret_not_set", shown, instance=instance, name=name)
                 return
             try:
-                self._secrets.set(instance, name, value)
+                asked_in.set(instance, name, value)
             except AllInError as error:
                 self._reporter.error(error)
                 return

@@ -90,12 +90,12 @@ def test_a_secret_box_never_shows_what_was_typed_and_the_next_one_starts_empty()
     stack.show(SECRET)
     stack.show(QUESTION)
     stack.key(Paste("hunter2"))
-    rows = box_rows(SECRET, width=40, hidden=stack.typed)
+    rows = box_rows(SECRET, width=40, hidden=stack.typed_count)
     assert "hunter2" not in " ".join(rows)
     assert rows[-2:] == ["•••••••", "Enter saves · empty Enter cancels"]
     assert box_rows(SECRET, width=4, hidden=9)[-2] == "••••"
     stack.key(KeyChord(Key.ENTER))
-    assert stack.typed == 0
+    assert stack.typed_count == 0
 
 
 def test_a_secret_box_withdrawn_forgets_what_was_typed():
@@ -104,4 +104,4 @@ def test_a_secret_box_withdrawn_forgets_what_was_typed():
     stack.key(Paste("hunter2"))
     stack.hide(SECRET.box_id)
     stack.show(Box(BoxId("k2"), "secret", "Secret webhook of bot", "Its value"))
-    assert stack.typed == 0
+    assert stack.typed_count == 0

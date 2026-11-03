@@ -616,8 +616,8 @@ class Dispatcher:
                 self._session_commands.run(session_id, text, origin, answer)
             case InitiativeAsked(name, text, answer):
                 self._initiative.run(name, text, answer)
-            case BoxAnswered(box_id, answer, value):
-                self._boxes.answered(box_id, answer, value)
+            case BoxAnswered(box_id, answer, value, window):
+                self._boxes.answered(box_id, answer, value, window)
             case MainCommandEntered(text, origin):
                 return self._commands.run(text, origin)
             case OrganizerConnected():

@@ -4,6 +4,7 @@ channel, each time it is attached. No list shows a value, and none reaches the L
 Conversation, a Kit or a copy of the Profile."""
 
 import hashlib
+import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -145,6 +146,20 @@ def test_a_value_with_control_characters_or_too_long_is_refused_without_showing_
 
 
 @pytest.mark.parametrize(
+    "values", [{"to/ken": VALUE}, {"token": f"{VALUE}\n"}], ids=["name", "value"]
+)
+def test_a_file_edited_by_hand_that_set_would_refuse_is_an_error_that_shows_no_value(
+    main: MainHarness, values: dict[str, str]
+):
+    folder = main.profile.folder / "secrets"
+    folder.mkdir()
+    (folder / "bot.json").write_text(json.dumps({"values": values}))
+    chat = main.run(MainCommandEntered("/secret"))
+    assert any("profile_storage_failed" in line for line in chat)
+    assert all(VALUE not in line for line in chat)
+
+
+@pytest.mark.parametrize(
     "command",
     [
         "/secret set",
@@ -170,20 +185,42 @@ def test_from_a_session_nobody_sets_lists_or_removes_one(main: MainHarness, comm
     assert secret_boxes(main) == []
 
 
-def test_the_box_shows_in_mains_chat_alone_and_an_answer_from_a_window_sets_nothing(
-    main: MainHarness,
-):
+def test_the_box_shows_in_mains_chat_alone_and_no_window_answers_it(main: MainHarness):
     session = main.create_session()
     chat = main.run(
         MainCommandEntered(f"/open {session.id}"),
         MainCommandEntered("/secret set bot token"),
-        BoxAnswered(BoxId("b1"), True),  # a Window answers only yes or no
+        BoxAnswered(BoxId("b1"), False, window=session.id),
+        BoxAnswered(BoxId("b1"), None, VALUE),
         MainCommandEntered("/secret"),
     )
-    assert all(
-        "box" not in type(message).__name__.lower() for message in main.windows(session.id)[0].sent
+    [window] = main.windows(session.id)
+    assert all("box" not in type(message).__name__.lower() for message in window.sent)
+    assert "secrets: 1" in chat
+
+
+def test_a_value_written_on_the_command_line_reaches_neither_the_log_nor_the_chat(
+    main: MainHarness, tmp_path: Path
+):
+    chat = main.run(MainCommandEntered(f"/secret set bot token {VALUE}"))
+    assert any("invalid_arguments" in line for line in chat)
+    assert all(VALUE not in line for line in chat)
+    assert files_with(tmp_path, VALUE) == []
+
+
+def test_it_goes_to_the_profile_it_was_asked_in_though_main_switched_meanwhile(
+    main: MainHarness,
+):
+    chat = main.run(
+        MainCommandEntered("/profile new other"),
+        MainCommandEntered("/secret set bot token"),
+        MainCommandEntered("/profile switch other"),
+        BoxAnswered(BoxId("b1"), None, VALUE),
+        MainCommandEntered("/secret"),
     )
-    assert "secrets: 0" in chat
+    assert chat[-2:] == ["secrets: 0", "/secret: ok"]
+    profiles = main.profile.folder.parent
+    assert files_with(profiles, VALUE) == [main.profile.folder / "secrets" / "bot.json"]
 
 
 @pytest.fixture
@@ -305,3 +342,29 @@ def test_its_secret_accessor_is_no_method_anyone_calls(keeper: MainHarness):
     methods = [line.strip() for line in chat if line.startswith("  ")]
     assert [line.partition("(")[0] for line in methods] == ["fingerprint", "found_besides"]
     assert all(VALUE not in line for line in chat)
+
+
+@needs_landlock
+def test_started_again_because_its_reach_changed_it_gets_them_again(keeper: MainHarness):
+    seen: list[JsonValue] = []
+    source = keeper.profile.folder / "functions" / "keepers" / "keeper.py"
+
+    def widen() -> None:
+        text = source.read_text().replace(
+            "class Keeper(Fproc):", '@reach(read=["home"])\nclass Keeper(Fproc):'
+        )
+        source.write_text("from allin.decorators import reach\n" + text)
+
+    keeper.run(
+        MainCommandEntered("/secret set keeper token"),
+        BoxAnswered(BoxId("b1"), None, VALUE),
+        MainCommandEntered("/attach keeper"),
+        widen,
+        MainCommandEntered("/piece show function:keepers"),
+        MainCommandEntered("/piece approve function:keepers"),
+        calling(keeper, "fingerprint", seen, TOKEN),
+        settle=True,
+    )
+    restarted = [e.fields["restarted"] for e in keeper.main_log() if e.event == "attached"]
+    assert restarted == [False, True]
+    assert seen == [FINGERPRINT]

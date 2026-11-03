@@ -71,7 +71,7 @@ from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
 from allin.main.secret_commands import USAGE as SECRET_USAGE
-from allin.main.secret_commands import SecretCommands
+from allin.main.secret_commands import SecretCommands, kept_of_secret
 from allin.main.sends import SessionSends
 from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
@@ -157,6 +157,9 @@ class CommandSpec:
     covers_its_session: bool = False
     # Raises what running it would, before a Confirmation asks a human about it: /grant.
     check: Callable[[list[str]], None] | None = None
+    # What Main's Chat and Log keep of its text, if not all of it: /secret's never holds a
+    # value typed on the command line by mistake (#124).
+    kept: Callable[[str], str] | None = None
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -448,6 +451,7 @@ class MainCommands:
                 optional=("action…",),
                 rest=True,
                 human_only=True,
+                kept=kept_of_secret,
             ),
             "/subprofile": CommandSpec(
                 (),
@@ -640,11 +644,12 @@ class MainCommands:
         if command is not None and command.rest:
             args = _split_rest(text, len(command.params) + len(command.optional))
         session_id = None
+        kept = text if command is None or command.kept is None else command.kept(text)
 
         def done(outcome: CommandOutcome) -> None:
             """How it went, maybe later: only then is it logged, under the Session it names
             (read when it is called), and answered."""
-            self._report(session_id, text, outcome, origin)
+            self._report(session_id, kept, outcome, origin)
             answer(outcome)
 
         keep_running = True
