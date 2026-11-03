@@ -1,0 +1,42 @@
+# #156 — El Prompt humano de un Turno cancelado al cerrar la Ventana vuelve al Borrador (2026-11-03)
+
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m156, en un xterm, con el código del commit 20df9bd (el final, tras la revisión).
+Ajustes: /set base_url=http://127.0.0.1:9932/v1, /exit y otra vez Main.
+
+## Criterios
+1. Al cerrar la Ventana con un Turno humano en marcha, su Prompt vuelve al Borrador como bloque propio
+   - /new --id=caja156. En su Ventana: «Cuenta del 1 al 300 en palabras, uno por linea. @top_k=20» (Enter; empieza el Turno),
+     «Luego di adios.» (Enter; queda [queued]) y «esto no lo envio» sin Enter (01-caja-antes-de-cerrar.png).
+   - Cerrado el xterm de la Ventana (kill de su pid, el de state.json): window_closed y turn_cancelled «window closed».
+   - El Borrador de caja156 en el Estado de Main (02-estado-tras-cerrar.json):
+     ["Cuenta del 1 al 300 en palabras, uno por linea. @top_k=20", "Luego di adios.", "esto no lo envio"]
+     El Prompt vuelve tal como se tecleó (con su @top_k=20), en un bloque propio; la cola y los Turnos en curso quedan vacíos.
+2. Al reabrir la Ventana se ve delante de lo que estaba en cola, sin mezclarse ni repetirse
+   - /open caja156: el input muestra el Prompt cancelado y el borde «+2 waiting» (03-caja-reabierta.png):
+     detrás esperan «Luego di adios.» y «esto no lo envio», cada uno en su bloque y una sola vez.
+3. Lo mismo tras reiniciar Main
+   - /exit con la Ventana abierta y otra vez Main: la Ventana se reabre con el mismo input y «+2 waiting»
+     (04-caja-tras-reiniciar-main.png); el Estado de Main guardaba los mismos tres bloques.
+4. Un Turno que no es de Origen humano sigue sin cancelarse al cerrar la Ventana
+   - <data-dir>/profiles/default/functions/teller/tell.py: function `tell(sid, text)`, `@reach(commands=["send"])`, que hace «@send <sid> <text>».
+   - /piece approve --all; /new --id=lider156; /func add lider156 function:teller.
+   - En la Ventana de lider156: «Llama a la tool tell con sid=caja156 y text=Cuenta del 1 al 200 …». caja156 recibe el Prompt
+     con origin ["human", "session:lider156"] y empieza su Turno (05-caja-turno-de-lider.png, aún con el Borrador de antes).
+   - Cerrado el xterm de caja156 a mitad del Turno (07:24:50): el Turno sigue y acaba con turn_finished (07:24:58), sin turn_cancelled,
+     y su Prompt no entra en el Borrador de caja156, que sigue con los tres bloques de antes.
+   - 06-log-de-caja156.jsonl: los eventos del Log de caja156 de toda la prueba (razonamiento y respuesta recortados).
+5. Tests: abajo.
+
+## Tests de #156
+tests/test_write_during_turn.py::test_closing_the_window_gives_the_queued_prompts_back_as_draft_blocks PASSED
+tests/test_write_during_turn.py::test_a_cancelled_human_prompt_comes_back_as_typed_ahead_also_after_a_restart PASSED
+tests/test_write_during_turn.py::test_closing_from_main_chat_gives_back_only_a_human_prompt PASSED
+tests/test_write_during_turn.py::test_main_stopping_leaves_a_running_human_prompt_to_its_next_start_once PASSED
+tests/test_write_during_turn.py::test_a_restart_gives_back_only_the_running_prompts_of_a_human PASSED
+tests/test_write_during_turn.py::test_closing_the_window_gives_back_the_texts_that_entered_its_turn PASSED
+tests/test_failed_turns.py::test_a_cancelled_turn_gives_its_prompt_back_on_reopen_once PASSED
+tests/test_profile_switch.py::test_with_now_only_a_human_prompt_goes_back_and_as_it_was_typed PASSED
+tests/test_origin_chain.py::test_closing_a_window_cancels_only_a_turn_a_human_asked_for PASSED (ya existía)
+Suite completa: 1726 passed; basedpyright 0 errores; ruff limpio.
