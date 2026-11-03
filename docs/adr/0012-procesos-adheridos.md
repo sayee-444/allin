@@ -41,5 +41,7 @@ Sus métodos los llaman el LLM y también un humano, con `/call`, y los recibe l
 - **El canal.** Cada llamada lleva su id, y también su progreso, los Command sessions que pide y la cancelación. Un Command session desde un hilo de la fproc que no atiende ninguna llamada da error: entre llamadas, el proceso aún no actúa por su cuenta (ADR-0026).
 - **Cancelar.** El que llamó sale enseguida. La llamada sigue ocupando su sitio entre las que el proceso atiende a la vez hasta que el método acaba, y los Command sessions que pida mientras tanto no corren. Si no acaba dentro de lo que le quedaba de su timeout y del Ajuste `attached.release` (5 s por defecto, para los que se adhieren desde entonces), Main lo mata.
 - **El avance.** Sale en la Ventana de la Sesión que llamó o en el Chat de Main, como una línea `<nombre>.<método>: <texto>`.
+- **Un método no llama a su propio proceso**, ni con `@concurrent`: con una llamada a la vez se esperaría a sí mismo, y la regla es la misma para todos (`attached_calls_itself`).
+- **Dónde se apunta lo visto.** El hilo del Turno apunta la revisión en cuanto vuelve la llamada, sin pasar por el despachador de Main: su siguiente llamada, en el mismo Paso o en el siguiente, ya la comprueba.
 - **El Aviso.** Uno que Main mató sale como caído, con «AllIn killed it, its call to <método> did not end after its timeout». También lo mata una línea que Main no sabe leer.
 
