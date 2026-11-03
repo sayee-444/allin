@@ -102,6 +102,9 @@ class Conversation(BaseModel, frozen=True):
     summary: str | None = None
     summarized: int = 0  # how many first Turns the summary replaced: the number of turns[0]
     turns: list[Turn] = []
+    # How many of its first Turns the LLM reads pruned: their long tool outputs, one line each.
+    # They stay whole here, for the Window and a Rewind (ADR-0017, #119).
+    pruned: int = 0
 
     @property
     def next_turn(self) -> int:
@@ -129,8 +132,8 @@ class Conversation(BaseModel, frozen=True):
         items: list[Item] = [{"role": "developer", "content": self.sysprompt}, *self.history]
         if self.summary is not None:
             items.append(summary_item(self.summary, self.summarized))
-        for turn in self.turns:
-            items += turn_items(turn, reader)
+        for index, turn in enumerate(self.turns):
+            items += turn_items(turn, reader, pruned=index < self.pruned)
         items.append(user_item(with_notifications(prompt, notifications), attachments, reader))
         return items
 
@@ -150,11 +153,38 @@ class AttachmentParts(Protocol):
     def parts(self, attachments: Sequence[Attachment]) -> list[Item]: ...
 
 
-def turn_items(turn: Turn, reader: AttachmentParts | None = None) -> list[Item]:
-    """A Turn as ``input`` items: its Prompt, then what each of its Steps produced."""
+def turn_items(
+    turn: Turn, reader: AttachmentParts | None = None, *, pruned: bool = False
+) -> list[Item]:
+    """A Turn as ``input`` items: its Prompt, then what each of its Steps produced; if
+    ``pruned``, each long tool output as one line instead (ADR-0017)."""
     text = with_notifications(turn.prompt, turn.notifications)
     prompt = user_item(text, turn.attachments, reader)
-    return [prompt, *(item for step in turn.steps for item in step.items)]
+    items = (item for step in turn.steps for item in step.items)
+    return [prompt, *((_pruned(item) if pruned else item) for item in items)]
+
+
+# A tool output at most this many characters costs about what its line would: never pruned.
+_PRUNE_ABOVE = 400
+# The line says about how many tokens it left out, at about this many characters each: it is
+# shown to the LLM, so no Server is asked.
+_CHARS_PER_TOKEN = 4
+PRUNED_LINE = "[tool output omitted: ~{tokens} tokens; archived]"
+
+
+def _pruned(item: Item) -> Item:
+    output = item.get("output")
+    if item.get("type") != "function_call_output" or not isinstance(output, str):
+        return item
+    if len(output) <= _PRUNE_ABOVE:
+        return item
+    tokens = _about(len(output) // _CHARS_PER_TOKEN)
+    return {**item, "output": PRUNED_LINE.format(tokens=tokens)}
+
+
+def _about(tokens: int) -> str:
+    """Roughly, as a person says it: 250, 3k, 12k."""
+    return f"{round(tokens / 1000)}k" if tokens >= 1000 else str(tokens)
 
 
 def with_notifications(prompt: str, notifications: Sequence[str]) -> str:

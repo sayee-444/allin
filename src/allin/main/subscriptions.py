@@ -52,6 +52,7 @@ from allin.core.ids import (
 )
 from allin.core.origin import Link, Origin, from_session
 from allin.core.settings import SubscriptionSettings
+from allin.main.compactions import CompactionDone
 from allin.main.conversation import Turn
 from allin.main.errands import (
     OnErrand,
@@ -395,18 +396,17 @@ class Subscriptions:
         text = f"Session {session_id} rewound Prompt{numbers}" + (f" (ids {ids})" if ids else "")
         self._session_changed("rewind", session_id, text, origin)
 
-    def compacted(
-        self,
-        session_id: SessionId,
-        summarized: int,
-        ids: Sequence[PromptId],
-        origin: Origin,
-    ) -> None:
-        """``ids``: those of the Prompts it summarized now; earlier ones already were."""
-        shown = ", ".join(i for i in ids if i)
-        text = f"Session {session_id} compacted: Prompt{_numbers(1, summarized)} summarized"
+    def compacted(self, done: CompactionDone) -> None:
+        """Its ids: those of the Prompts it summarized, or pruned, now."""
+        shown = ", ".join(i for i in done.ids if i)
+        session_id = done.session_id
+        if done.kind == "pruned":
+            numbers = _numbers(done.first, done.last)
+            text = f"Session {session_id} compacted: the tool outputs of Prompt{numbers} pruned"
+        else:
+            text = f"Session {session_id} compacted: Prompt{_numbers(1, done.last)} summarized"
         text += f" (ids {shown})" if shown else ""
-        self._session_changed("compact", session_id, text, origin)
+        self._session_changed("compact", session_id, text, done.origin)
 
     def tick(self) -> None:
         """A second or so went by: timers run, and what came wakes Sessions with no Turn."""

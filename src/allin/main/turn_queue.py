@@ -35,6 +35,7 @@ from allin.core.errors import (
     StepStalled,
     TurnCancelled,
     TurnCrashed,
+    TurnYielded,
 )
 from allin.core.ids import (
     BoxId,
@@ -46,7 +47,7 @@ from allin.core.ids import (
     SupervisorName,
     new_prompt_id,
 )
-from allin.core.origin import from_session
+from allin.core.origin import HUMAN, Origin, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -64,7 +65,7 @@ from allin.main.chat_rebuild import (
     tools_entry,
 )
 from allin.main.compaction import summary_text, wants_compaction
-from allin.main.compactions import Compacted, Compactions
+from allin.main.compactions import Compacted, CompactionDone, Compactions
 from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
@@ -217,6 +218,7 @@ class _RunningTurn:
     output_cap: int  # the most each of its Steps may generate, sent with each
     need: int  # what its Step reserves of the pool: measured input plus Output cap
     context_before: int | None  # its Session's Context when it started
+    grown: int = 0  # what its tools added to ``need`` since it started
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
     interrupted: bool = False
@@ -337,6 +339,8 @@ class TurnQueue:
         self._watched: dict[ServerKey, Link] = {}
         self._told: dict[ServerKey, str] = {}  # why it waits, as Main's Chat was last told
         self._stopping = False  # nor once Main is shutting down
+        # The Prompt whose Turn each Session stopped mid-Turn to compact, until that served.
+        self._yielded: dict[SessionId, PromptId] = {}
         self._paused = False  # nor while Main leaves its Profile (``/profile switch``)
         self._prompts = PromptQueue()
         self._running: dict[SessionId, _RunningTurn] = {}
@@ -360,7 +364,15 @@ class TurnQueue:
         """Who hears each Prompt's answer, and each Compactación done, from now on: the
         Suscripciones (#116)."""
         self._answers = answers
-        self._compactions.on_compacted = compacted
+
+        def heard(done: CompactionDone) -> None:
+            if self._yielded.pop(done.session_id, None) is not None:
+                # Its Turn goes on reading the new summary, so it reads what is pending now
+                # too, the live state among it: its next Step's input changed anyway.
+                self._notifications.not_saved(done.session_id)
+            compacted(done)
+
+        self._compactions.on_compacted = heard
 
     def push(self, session: Session, prompt: Prompt) -> None:
         """Queue a Prompt the user sent, show it in its Window and start it if there is room.
@@ -397,10 +409,11 @@ class TurnQueue:
                 self._wake(link.supervisor)
         self._start_turns()
 
-    def compact(self, session: Session, instructions: str) -> None:
-        """Queue a Compaction of the Session's Conversation (``/session compact``): it waits
-        its turn after the Session's queued Prompts, and none of them starts while it lasts."""
-        self._prompts.push(Prompt(session.id, instructions, "compact"))
+    def compact(self, session: Session, instructions: str, origin: Origin = HUMAN) -> None:
+        """Queue a Compaction of the Session's Conversation (``/session compact``, or its own
+        ``@compact``, with ``origin``): it waits its turn after the Session's queued Prompts,
+        and none of them starts while it lasts."""
+        self._prompts.push(Prompt(session.id, instructions, "compact", origin=origin))
         shown = "compaction queued"
         self._reporter.record(session.id, "compaction_asked", shown, instructions=instructions)
         self.send_turn_state(session.id)
@@ -521,6 +534,12 @@ class TurnQueue:
         running = self._running.pop(session_id, None)
         if running is None:
             return
+        if isinstance(error, TurnYielded) and running.cancellation.reason is not None:
+            error = TurnCancelled(reason=running.cancellation.reason)  # it lands first
+        if not isinstance(error, TurnYielded) and self._yielded.get(session_id) == (
+            running.prompt.prompt_id
+        ):
+            del self._yielded[session_id]  # its Turn is over
         self._release(running)
         self._measures.pop(session_id, None)  # its Conversation changed
         self._withdraw(running)
@@ -541,6 +560,8 @@ class TurnQueue:
             if _reason(failure) == STALLED:
                 self._untold(running)
                 self._stalled(running)
+            elif isinstance(failure, TurnYielded):
+                self._yield(running)
             elif not self._suspend(running, failure):
                 self._untold(running)
                 self._falls.pop(session_id, None)
@@ -690,6 +711,7 @@ class TurnQueue:
         if running is None or running.cancellation.reason is not None:
             return
         running.need += grows
+        running.grown += grows
         running.resume = running.job.tools.resume
         running.ready_at = self._wall()
         self._reporter.log_session(session_id, "tools_returned", grows=grows)
@@ -697,7 +719,29 @@ class TurnQueue:
             entry = tool_failed_entry(name, error)
             self._reporter.record(session_id, "tool_failed", entry.text, tool=name, error=error)
             self._windows.send(session_id, entry)
+        if self._compacts_between_steps(running):
+            self._yielded[session_id] = running.prompt.prompt_id
+            running.resume = None  # it ends instead; its Steps go on once it compacted
+            running.job.tools.yield_turn()
         self._start_turns()
+
+    def _compacts_between_steps(self, running: _RunningTurn) -> bool:
+        """Whether the Turn's next Step may pass ``compact.threshold`` of its slot, and its
+        Session's saved Turns may take more than ``compact.keep``, so some could be compacted:
+        it stops after its tools and compacts first. Never twice in a Turn without a
+        Compaction that served in between (ADR-0017)."""
+        session = running.session
+        compact = session.settings.compact
+        if self._yielded.get(session.id) == running.prompt.prompt_id:
+            return False
+        if not wants_compaction(compact, running.need, running.slot_context):
+            return False
+        # What it read when it started holds its saved Turns, and more: at most this much.
+        schemas = len(json.dumps(running.job.tools.schemas))  # counted a character each
+        saved = running.need - running.grown - running.output_cap - schemas
+        return saved > compact.keep * running.slot_context and bool(
+            self._conversation(session).turns
+        )
 
     def server_changed(self, server: ServerKey, state: ServerState) -> None:
         """What a watched Server says of itself changed (ADR-0004, ADR-0022)."""
@@ -921,6 +965,7 @@ class TurnQueue:
             return None
         if self._compacts_first(prompt, session, need, slot_context):
             # It makes room for that Prompt, so it goes, or stays, with it.
+            self._compactions.wanted(session_id, need)
             entry = Prompt(session_id, "", "auto_compact", origin=prompt.origin)
             self._prompts.insert_before(prompt, entry)
             return self._prompt_candidate(entry, waiting)
@@ -928,6 +973,8 @@ class TurnQueue:
             raise PromptTooBig(need=need, limit=slot_context)
         repeats = (
             session_id in self._falls
+            or prompt.suspended  # a Turn under way: a fall, or one that compacts mid-Turn
+            or session_id in self._yielded  # its Compaction, for that Turn
             or self._compactions.continuing(session_id)
             or bool(prompt.woke_by)  # a Suscripción's: its Session goes on (ADR-0004)
         )
@@ -1268,6 +1315,19 @@ class TurnQueue:
             title = f"{link.describe()}: context limit lowered to {limit} tokens"
             text = f"over the limit: {', '.join(over)}"
             self._boxes.notify(None, title, text, "context_limit")
+
+    def _yield(self, running: _RunningTurn) -> None:
+        """The Turn stopped after its tools for its Session to compact: it goes back first in
+        the queue with the Steps it ended, whose tools do not run again, and its next Step
+        measures the compacted Conversation first (ADR-0017, ADR-0023)."""
+        session_id = running.session.id
+        shown = "its next Step may not fit: measured again first, it compacts if it must"
+        self._reporter.record(session_id, "turn_yielded", shown, steps=len(running.streamed.steps))
+        self._windows.send(session_id, ChatAppend(role="info", label="context", text=shown))
+        steps = tuple(running.streamed.steps)
+        self._prompts.push_front(
+            replace(running.prompt, suspended=True, steps=steps, answered_by=running.auto_confirm)
+        )
 
     def _suspend(self, running: _RunningTurn, failure: AllInError) -> bool:
         """Suspend the Turn whose Step a fall or a restart of its Server left half-done: it goes
@@ -1680,6 +1740,9 @@ class TurnQueue:
             self._since.pop(session_id, None)
         if not left or any(prompt.kind != "prompt" for prompt in dropped):
             self._compactions.drop(session_id)  # one it was doing, or would have done
+        if any(prompt.suspended for prompt in dropped):  # what its Turn told waits again
+            self._yielded.pop(session_id, None)
+            self._notifications.not_saved(session_id)
         for prompt in dropped:
             if prompt.kind == "prompt":
                 self._answers.dropped(prompt, f"it left the queue: {reason}")

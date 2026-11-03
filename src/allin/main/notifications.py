@@ -33,8 +33,10 @@ FUNC = NotificationSource("/func")  # functions and Command sessions given or ta
 CALL = NotificationSource("call")  # a human's @call of a Proceso adherido's method (#114)
 SUBSCRIPTION = NotificationSource("subscription")  # a Suscripción's chain cut (#116)
 ERRAND = NotificationSource("errand")  # how an Encargo goes: "2 of 3 answered" (#117)
+# What a Session still has open after a Compactación, which its summary may have lost (#119).
+COMPACT = NotificationSource("compact")
 # The sources Main itself leaves Notificaciones from, listed even before any did.
-SOURCES = (FUNC, CALL, INTERRUPTED, SUBSCRIPTION, ERRAND)
+SOURCES = (FUNC, CALL, INTERRUPTED, SUBSCRIPTION, ERRAND, COMPACT)
 USAGE = "/conversation_logs <sid> on|off|list [source]"
 _ACTION = TypeAdapter[Literal["on", "off", "list"]](Literal["on", "off", "list"])
 

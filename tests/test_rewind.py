@@ -240,3 +240,10 @@ def test_the_window_empties_its_chat_when_main_asks(tmp_path: Path):
     listener = MainListener(shown.append, WindowRecord(tmp_path / "window.jsonl"))
     listener.on_message(ChatClear())
     assert shown == [ClearChat()]
+
+
+def test_rewinding_into_pruned_turns_reads_fewer_of_them_pruned():
+    turns = [Turn(prompt=f"p{n}", steps=[Step(output=[])]) for n in range(4)]
+    conversation = Conversation(sysprompt="s", turns=turns, pruned=3)
+    assert rewind(conversation, [], 2).conversation.pruned == 2
+    assert rewind(conversation, [], 1).conversation.pruned == 3

@@ -11,7 +11,7 @@ import queue
 import threading
 import urllib.request
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 
 from allin.core.ids import ServerKey, SessionId
 from allin.main.conversation import Item
@@ -19,15 +19,21 @@ from allin.main.events import InputMeasured, MainEvent
 from allin.main.slots import server_root
 
 _TIMEOUT = 30.0  # a long Conversation takes a moment to tokenize
-type ChatMessage = dict[str, str]
+type ChatMessage = dict[str, JsonValue]
 
 
 def chat_messages(items: list[Item]) -> list[ChatMessage]:
     """The Responses API ``input`` as the chat messages llama's template takes: the
     reasoning goes with the answer that follows it, or alone if none does (a Step cut while it
-    reasoned), and an item of another kind is measured as its JSON."""
+    reasoned); a Step's tool calls go in its assistant message and their outputs are ``tool``
+    messages, as llama reads them when it runs (its template refuses two assistant messages at
+    the end, which a Turn going on from its Steps has); an item of another kind is measured as
+    its JSON."""
     messages: list[ChatMessage] = []
     reasoning = ""
+    # The assistant message its Step's tool calls go in while it is the last, and those calls.
+    answer: ChatMessage | None = None
+    calls: list[JsonValue] | None = None
 
     def flush_reasoning() -> None:
         nonlocal reasoning
@@ -35,23 +41,56 @@ def chat_messages(items: list[Item]) -> list[ChatMessage]:
             messages.append({"role": "assistant", "content": "", "reasoning_content": reasoning})
             reasoning = ""
 
+    def assistant(content: str) -> ChatMessage:
+        nonlocal reasoning
+        message: ChatMessage = {"role": "assistant", "content": content}
+        if reasoning:
+            message["reasoning_content"] = reasoning
+            reasoning = ""
+        return message
+
     for item in items:
         kind = item.get("type")
+        if kind == "function_call":
+            if answer is None or reasoning:
+                answer, calls = assistant(""), None
+                messages.append(answer)
+            if calls is None:
+                calls = answer["tool_calls"] = []
+            calls.append(_tool_call(item))
+            continue
+        answer, calls = None, None
         if kind == "reasoning":
             reasoning += _text(item.get("content"))
         elif kind in {None, "message"} and "role" in item:
             role = "system" if item["role"] == "developer" else str(item["role"])
-            message = {"role": role, "content": _text(item.get("content"))}
-            if role == "assistant" and reasoning:
-                message["reasoning_content"] = reasoning
-                reasoning = ""
+            if role == "assistant":
+                answer = assistant(_text(item.get("content")))
+                messages.append(answer)
+            else:
+                flush_reasoning()
+                messages.append({"role": role, "content": _text(item.get("content"))})
+        elif kind == "function_call_output":
             flush_reasoning()
-            messages.append(message)
+            output = item.get("output")
+            content = output if isinstance(output, str) else json.dumps(output)
+            messages.append(
+                {"role": "tool", "tool_call_id": str(item.get("call_id")), "content": content}
+            )
         else:
             flush_reasoning()
             messages.append({"role": "assistant", "content": json.dumps(item)})
     flush_reasoning()
     return messages
+
+
+def _tool_call(item: Item) -> JsonValue:
+    name, arguments = str(item.get("name")), str(item.get("arguments"))
+    return {
+        "type": "function",
+        "id": str(item.get("call_id")),
+        "function": {"name": name, "arguments": arguments},
+    }
 
 
 class _Part(BaseModel):

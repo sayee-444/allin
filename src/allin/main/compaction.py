@@ -72,13 +72,13 @@ def summary_request(
     sysprompt: str, summary: str | None, prompts: int, turns: Sequence[Turn], instructions: str
 ) -> list[Item]:
     """The ``input`` of a summary Step: the compaction Sysprompt, the summary so far of the
-    first ``prompts`` Prompts, the part's Turns and the closing request, which alone carries
-    the human's ``instructions``."""
+    first ``prompts`` Prompts, the part's Turns, pruned, and the closing request, which alone
+    carries the human's ``instructions``."""
     items: list[Item] = [{"role": "developer", "content": sysprompt}]
     if summary is not None:
         items.append(summary_item(summary, prompts))
-    for turn in turns:
-        items += turn_items(turn)
+    for turn in turns:  # its tool outputs pruned: what the summary needs of them is their gist
+        items += turn_items(turn, pruned=True)
     closing = (
         CLOSING if not instructions else f"{CLOSING}\n\n{_ASKED.format(instructions=instructions)}"
     )
@@ -107,5 +107,6 @@ def compacted(conversation: Conversation, summary: str, replaced: int) -> Conver
             "summary": summary,
             "summarized": conversation.summarized + replaced,
             "turns": conversation.turns[replaced:],
+            "pruned": max(0, conversation.pruned - replaced),
         }
     )

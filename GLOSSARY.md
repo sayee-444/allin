@@ -212,7 +212,7 @@ Ajuste de Sesión: lo más que el LLM puede generar en un Paso. Es también la r
 _Avoid_: max tokens, límite de salida
 
 **Compactación** (`Compaction`):
-Reemplazar la parte vieja de la Conversación de una Sesión por un resumen que escribe el LLM, archivando lo reemplazado, para que siga cabiendo en su Contexto. Se hace a mano (`/session compact`, `@compact`) o sola, al pasar un umbral del límite del slot (`compact.auto`, encendida por defecto). Quedan literales el Sysprompt, el historial inicial, el Prompt actual y los Turnos recientes. El resumen entra como `user`, nunca como `developer`, y un Rewind a antes del corte recupera lo archivado. Nunca se trunca en silencio (ADR-0017).
+Reemplazar la parte vieja de la Conversación de una Sesión por un resumen que escribe el LLM, archivando lo reemplazado, para que siga cabiendo en su Contexto. Se hace a mano (`/session compact`, `@compact`) o sola, al pasar un umbral del límite del slot (`compact.auto`, encendida por defecto). Quedan literales el Sysprompt, el historial inicial, el Prompt actual y los Turnos recientes. El resumen entra como `user`, nunca como `developer`, y un Rewind a antes del corte recupera lo archivado. Antes de resumir se **poda**: las salidas largas de tools de los Turnos viejos se leen como una línea, sin LLM, y siguen enteras en la Conversación; si con eso la automática ya cabe, no se resume. Con tools, también se compacta entre los Pasos de un Turno: el Turno **cede** tras sus tools, se compactan los Turnos guardados y sigue desde sus Pasos. Nunca se trunca en silencio (ADR-0017).
 _Avoid_: truncar, context shift, resumen (es lo que produce)
 
 **Paso de resumen** (`summary step`):

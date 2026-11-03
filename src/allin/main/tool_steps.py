@@ -279,6 +279,7 @@ class ToolGate:
         self._prompt_id = prompt_id
         self._turn: _Turn | None = None
         self._resumed: queue.Queue[None] = queue.Queue()
+        self._yielded = False
 
     @property
     def schemas(self) -> list[Item]:
@@ -346,6 +347,17 @@ class ToolGate:
     def resume(self) -> None:
         """From Main: the Turn holds a slot again, so its next Step may start."""
         self._resumed.put(None)
+
+    def yield_turn(self) -> None:
+        """From Main: the Turn stops after these tools, for its Session to compact first; it
+        goes on from its Steps once that is done (ADR-0017)."""
+        self._yielded = True
+        self._resumed.put(None)
+
+    @property
+    def yielded(self) -> bool:
+        """Whether Main stopped the Turn after its tools, to compact before its next Step."""
+        return self._yielded
 
     def _ask_main(self, turn: _Turn, text: str, process: AttachedName | None) -> JsonValue:
         """From the call's thread: Main runs the Command session with the Turn's Origin, after

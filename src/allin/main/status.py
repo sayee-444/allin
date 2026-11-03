@@ -2,7 +2,7 @@
 Profile alone: the queue, the Subscriptions and Encargos, the Procesos adheridos, the Servers
 its Enlaces watch and the Supervisors with their capacity. The tree of Mains comes with F3."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal, get_args
 
@@ -10,6 +10,7 @@ from pydantic import BaseModel, JsonValue
 
 from allin.core.errors import InvalidArguments
 from allin.core.ids import AttachedName, ServerKey, SessionId, SubscriptionId, SupervisorName
+from allin.main.sessions import Session
 
 type StatusPart = Literal["queue", "subscriptions", "attached", "servers", "supervisors"]
 type ServerStateName = Literal["ready", "down", "loading", "asleep", "failed", "restarting"]
@@ -182,3 +183,29 @@ def _supervisor(supervisor: SupervisorView) -> str:
     default = " (default Enlace)" if supervisor.default else ""
     capacity = f"; its Server {_capacity(supervisor.server)}" if supervisor.server else ""
     return f"{supervisor.name}{default}: {supervisor.status}{capacity}"
+
+
+def live_state(
+    session: Session, subscriptions: Sequence[SubscriptionView], attached: Sequence[AttachedView]
+) -> str | None:
+    """What the Session still has open after a Compactación, which its summary may have lost
+    (ADR-0017): its Encargos and Suscripciones and the Procesos adheridos whose methods it
+    has; ``None`` if nothing, since then there is nothing it could forget."""
+    own = [s for s in subscriptions if s.session == session.id]
+    held = {method.name for method in session.attached_methods}
+    procesos = [a for a in attached if a.name in held]
+    if not own and not procesos:
+        return None
+    errands = [f"{s.id} ({s.event}, {s.progress})" for s in own if s.progress is not None]
+    others = [f"{s.id} ({s.event})" for s in own if s.progress is None]
+    methods = [f"{a.name} ({', '.join(a.methods) or 'no methods'})" for a in procesos]
+    parts = (
+        _open("Encargos", errands),
+        _open("Suscripciones", others),
+        _open("Procesos adheridos", methods),
+    )
+    return "after compacting, still open: " + ", ".join(parts)
+
+
+def _open(name: str, items: list[str]) -> str:
+    return f"{name}: " + "; ".join(items) if items else f"no {name}"

@@ -25,7 +25,7 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
-from allin.core.errors import LlmRequestFailed, LlmUnavailable, TurnCancelled
+from allin.core.errors import LlmRequestFailed, LlmUnavailable, TurnCancelled, TurnYielded
 from allin.main.conversation import Item, Step
 
 type OutputKind = Literal["reasoning", "answer"]
@@ -44,6 +44,10 @@ class Tools(Protocol):
     @property
     def schemas(self) -> list[Item]: ...
     def run(self, step: Step) -> list[Item]: ...
+    @property
+    def yielded(self) -> bool:
+        """Whether Main stopped the Turn after its tools, to compact before its next Step."""
+        ...
 
 
 class Llm(Protocol):
@@ -184,6 +188,8 @@ def run_turn(
         steps.append(step)
         if not step.calls or tools is None:
             return steps
+        if tools.yielded:  # its Session compacts first; it goes on from ``steps`` after
+            raise TurnYielded
         step_request = replace(step_request, input=[*step_request.input, *step.items])
 
 
