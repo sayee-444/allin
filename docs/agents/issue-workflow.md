@@ -43,7 +43,7 @@ Never edit the body of a closed issue. If a decision changes during an issue, up
 
 - Edit files with the Edit tool: it fails when the old text isn't there. A script's `str.replace` changes nothing and says nothing when the text doesn't match; if a script must edit, have it check the match count first.
 - `gh` on this machine is 2.46 and several of its forms fail: use the ones in **gh 2.46** of `docs/agents/issue-tracker.md`.
-- Never wait with a bare `sleep N`; Claude Code blocks it. Wait on the condition itself with a bounded loop (below for a Server), or run the command in the background and get notified when it ends.
+- Never wait with a bare `sleep N`; Claude Code blocks it. Wait on the condition itself with a bounded loop (for a Server, see **Testing with llama serve**), or run the command in the background and get notified when it ends.
 
 ## Metrics
 
@@ -77,6 +77,5 @@ The binary is `llama` (`llama serve …`). Models are in `models/` (gitignored);
 - **Two Servers at once**: `Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf` (12.3 GB) with `mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf`, `-ctk q4_0 -ctv q4_0`, e.g. `-c 64000` and `-c 32000`.
 - **Three Servers, or testing only the mechanics** (queues, slot locks, several brains): `Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf` (8.9 GB), two comfortably, three only with a small `-c` and no `--mmproj` (measure with `nvidia-smi`). It reasons noticeably worse: never judge a coordinator Session's behaviour with it.
 - Common flags: `-ngl all -fa on --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp`. Change `-np`, `-c` and `--kv-unified` as the test needs.
-- Port 9931 is usually the user's own Server: use it only when it is free; for raw `llama serve` probes use 9932+.
+- Port 9931 is usually the user's own Server: use it only when it is free; for raw `llama serve` probes use 9932+. Shut down every Server you started when done.
 - Wait for a Server with one bounded loop on its `/health`: `timeout 300 sh -c 'until curl -sf http://127.0.0.1:9932/health >/dev/null; do sleep 2; done'`.
-- Keep a Server up between issues when the next issue in the roadmap needs the same model: write its port, model and pid in **Dónde vamos**, and the next conversation checks `/health` and reuses it. Shut down every Server you started when the next issue doesn't need it, before starting one with another model, and when the user stops the roadmap.
