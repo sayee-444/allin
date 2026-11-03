@@ -22,19 +22,19 @@ Al entrar a su Perfil se adhiere su fproc y despiertan sus Supervisores: el 9B y
 
 Su Subperfil tiene un tope de 2 Turnos a la vez, uno para la Charla y otro para su Reposo; el de ADR-0026 es 1 por defecto.
 
-Faltan dos cosas que hoy no existen:
-- ese Ajuste del Perfil;
-- que `/profile export` copie también los Subperfiles y las Carpetas de trabajo, donde vive lo suyo (#217).
-
 ## La Charla
 
 Cada encuentro es una Sesión de su Subperfil, la Charla. Empieza cuando alguien toma la palabra y termina cuando el Personaje se va del lugar o tras una pausa sin que nadie hable (un Ajuste, 30 minutos por defecto). La continuidad entre Charlas viene de su memoria, con las Pistas y sus Relaciones: si el usuario le habla a las 10:00 y vuelve a las 11:00, son dos Charlas, y en la segunda una Pista le recuerda la primera. Se descartó una Sesión eterna, que perdería detalle en cada Compactación (ADR-0017).
+
+Su Ventana es la de la Charla en curso. Las Sesiones de su Subperfil nacen en segundo plano (ADR-0026): el usuario abre la Charla en curso desde el Organizador y escribe con Origen humano, así que su teclado conserva la autoridad. Su fproc abre y cierra las Charlas con su Iniciativa. Cuando la pausa cierra una, deja abierta la siguiente; si nadie ha escrito en ella cuando termina su reflexión, la cambia por una con el Autorretrato nuevo. Para eso Main le avisa a su fproc cuando termina cada Turno de las Sesiones de su Subperfil, también los que escribe el usuario: hoy las Suscripciones solo despiertan Sesiones. Se descartó que el usuario le escribiera a su fproc como un Externo, porque perdería la autoridad del teclado en su Ventana.
 
 Cada Charla es también la unidad que el usuario marca, o no, para entrenar al modelo de voz. La marca o la desmarca un comando de Main, solo de un humano. Se exporta como JSONL, una Charla por línea, en mensajes `system`, `user` y `assistant`, que leen Unsloth y LLaMA-Factory. Cada una va con su Sysprompt, su Autorretrato y sus líneas de voz interior, tal como las vio el 9B, para que aprenda a hablar con ellos delante. Una Charla con una Confidencia nunca se exporta (ADR-0029).
 
 Está en un solo lugar a la vez. De otro lugar solo le llega una línea, sin el texto («Marx te escribió por mensaje directo»), y el Personaje decide si va. Lo que escribe un Externo no entra en su contexto hasta que el Personaje lo elige.
 
 Su voz interior va dentro de la propia Charla. Cuando lo interrumpen, su fproc corta lo que estaba diciendo y le pasa lo que oye. El Personaje anota en una línea, sin decirla, si cede, insiste o retoma después. Se descartó una Sesión aparte que pensara en paralelo, por lo medido en «La GPU».
+
+Esa línea va marcada al principio de su respuesta, como «(pienso: cedo; lo del viaje lo retomo después)», y sale en la misma generación. Se descartó una tool `pensar`, que costaría una vuelta más por cada pensamiento, y en AllIn cada llamada lanza un proceso (ADR-0005). También se descartó el razonamiento propio del modelo, que piensa demasiado antes de hablar. El formato vive en su Sysprompt y en su fproc, no en Main. En su Ventana el usuario la ve; en Discord y en la voz, su fproc la quita.
 
 ## La voz del usuario no da autoridad
 
@@ -58,6 +58,20 @@ Solo se entrena el modelo de voz, nunca el de razonamiento, con un LoRA sobre es
 El usuario pidió que el código fije lo menos posible y que sea el Personaje, el LLM o el conjunto de modelos que forma AllIn en modo diálogo, quien le dé forma. Main pone primitivas genéricas, como el Ajuste de los Supervisores del Perfil o la exportación de Charlas. Lo propio del Personaje vive en su fproc y en sus piezas: su Sysprompt, sus Moldes y sus functions.
 
 Lo que hace lo decide el LLM: si cede la palabra, qué concluye en su Reposo y qué marca como Confidencia. Los números son Ajustes con un valor por defecto, como la pausa que cierra una Charla o el largo del Autorretrato. Solo queda fijo en el código lo que protege: el Origen, el filtro de las Confidencias y el Encierro.
+
+Ella cambia sola los Ajustes de su fproc, como la pausa o el largo del Autorretrato, pero nunca lo que protege. Sus piezas (su Sysprompt, sus Moldes y sus functions) viajan en el package de su fproc (ADR-0026). Ella propone versiones nuevas, que quedan en cuarentena hasta que el usuario las aprueba (ADR-0013). Eso llega con los packages de «Después»; hasta entonces solo cambia sus Ajustes. Su Iniciativa sigue dentro de su Subperfil.
+
+Se descartó que maneje AllIn por el usuario desde la Charla, creando Sesiones o functions en su Perfil. Cruzaría la frontera del Subperfil, que solo cruza un humano, y le daría poder sobre el Perfil a lo que entra por voz y por Discord, también a un clon de la voz del usuario. Podría venir más adelante, si el usuario confirma en el teclado cada acción fuera de su Subperfil.
+
+## Lo que falta en Main
+
+Son primitivas genéricas, que puede usar cualquier fproc:
+- un Ajuste del Perfil que adhiera fprocs y despierte y duerma sus Supervisores al entrar y al salir (enmienda de ADR-0022);
+- que Main le avise a una fproc cuando termina cada Turno de las Sesiones de su Subperfil;
+- que una fproc declare sus Ajustes y que las Sesiones de su Subperfil puedan cambiarlos;
+- marcar Sesiones para entrenar y exportarlas en JSONL, nunca las que tengan una Confidencia;
+- la tool que marca una Confidencia, con su filtro (ADR-0029);
+- que `/profile export` copie los Subperfiles y las Carpetas de trabajo (#217).
 
 ## El orden
 

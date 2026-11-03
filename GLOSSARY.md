@@ -124,7 +124,7 @@ Lo que Main reúne al arrancar cuando su apagado anterior no fue limpio o cortó
 _Avoid_: crash report, volcado
 
 **Ajustes** (`Settings`):
-Parámetros que gobiernan a Main o a una Sesión. Se heredan por copia: lo ya creado no cambia cuando cambia el origen. La excepción es el Tema, del que se copia el nombre y que se lee en vivo (ADR-0018).
+Parámetros que gobiernan a Main, a una Sesión o a un Proceso adherido, cuyos Ajustes declara su fproc. Se heredan por copia: lo ya creado no cambia cuando cambia el origen. La excepción es el Tema, del que se copia el nombre y que se lee en vivo (ADR-0018).
 _Avoid_: settings, config
 
 **Clave** (`SettingName`, `SettingKey`):

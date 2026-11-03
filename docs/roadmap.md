@@ -289,7 +289,7 @@ Va después del RAG, que es su memoria, y antes de F3, que no necesita (ADR-0027
 3. «Personaje · Voz».
 4. «Personaje · Vista».
 
-Cada milestone se trabaja con un `/goal`, y el usuario lo revisa antes de pasar al siguiente. Lo que necesita su voz o su cara, como registrarlo o las Charlas largas, va en issues `ready-for-human`. Antes hacen falta el Ajuste del Perfil que adhiere su fproc y despierta y duerme sus Supervisores (enmienda de ADR-0022) y #217. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
+Cada milestone se trabaja con un `/goal`, y el usuario lo revisa antes de pasar al siguiente. Lo que necesita su voz o su cara, como registrarlo o las Charlas largas, va en issues `ready-for-human`. Antes hacen falta las primitivas genéricas de «Lo que falta en Main» (ADR-0027), entre ellas #217. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
 
 ## F3 · Submains y Traspaso
 

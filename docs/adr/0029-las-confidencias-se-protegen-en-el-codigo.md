@@ -16,6 +16,8 @@ El Log nunca se apaga, y el usuario cura las Charlas para entrenar, así que él
 
 Solo el Personaje entiende un «no se lo digas a nadie», así que la marca con una tool en el momento. Si no la marca, queda como Privado.
 
+La tool la da Main, no su fproc, y la marca queda en el Turno, donde la lee el RAG, igual que el Origen. Su fproc y sus piezas pueden cambiar (ADR-0027). Si el filtro viviera ahí, cualquier cambio podría apagarlo, incluso uno que alguien le pidiera por Discord.
+
 Su Reposo nunca recibe una Confidencia. Si el 27B la viera, podría escribir «perdió su trabajo» en la Relación con Marx, y esa frase saldría en un grupo. Lo confidencial no puede depender de que el 27B no lo repita. El Personaje la recuerda solo a solas con quien se la confió, por el RAG.
 
 ## Quién está presente
@@ -26,6 +28,8 @@ Lo dice el código de su fproc, nunca el LLM:
 - en un canal de voz, los conectados;
 - en su Ventana, el usuario;
 - por el micrófono, el usuario y cualquier otra voz que haya oído en esa Charla.
+
+Esas reglas son código de su fproc, nunca Ajustes que ella pueda cambiar.
 
 Si alguien llega a una Charla que contiene una Confidencia, esa Charla se cierra y empieza otra: la Confidencia ya está en su contexto y no se puede sacar de ahí.
 
