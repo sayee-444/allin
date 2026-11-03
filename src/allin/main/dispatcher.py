@@ -18,6 +18,7 @@ from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
 from allin.main.attached import AttachedProcesses
+from allin.main.attached_methods import AttachedMethods
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.commands import MainCommands
@@ -34,6 +35,7 @@ from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     MainEvent,
+    MethodAnswered,
     OrganizerActed,
     OrganizerClosed,
     OrganizerConnected,
@@ -63,6 +65,7 @@ from allin.main.kit_commands import KitCommands
 from allin.main.kits import Kits
 from allin.main.links import Link, LinkResolver
 from allin.main.log import Log
+from allin.main.method_calls import MethodCalls
 from allin.main.notices import LoadedNotices
 from allin.main.notifications import Notifications
 from allin.main.open_windows import OpenWindow, OpenWindows
@@ -252,6 +255,24 @@ class Dispatcher:
             inbox.put,
             data_dir,
         )
+        self._methods = AttachedMethods(
+            self._attached,
+            sessions,
+            self._profile_commands.in_active,
+            self._turns.busy,
+            self._notifications,
+            self._reporter,
+        )
+        calls = MethodCalls(
+            self._attached,
+            sessions,
+            self._notifications,
+            self._windows,
+            self._reporter,
+            inbox.put,
+            lambda sid: _tools_timeout(sessions, sid),
+        )
+        self._attached.listen(self._methods.given, self._methods.taken)
         self._pieces = PieceCommands(self._reporter, self._quarantine, self._attached.reach_changed)
         self._functions = FuncCommands(
             self._reporter,
@@ -263,6 +284,7 @@ class Dispatcher:
             self._notifications,
             self._windows,
             self._profile_commands.in_active,
+            self._methods.change,
         )
         self._commands = MainCommands(
             self._reporter,
@@ -293,6 +315,8 @@ class Dispatcher:
             self._notifications,
             PieceCreator(self._quarantine, self._boxes, self._devastation, self._reporter),
             self._attached,
+            self._methods,
+            calls,
         )
         self._session_commands = SessionCommands(
             command_types,
@@ -355,6 +379,8 @@ class Dispatcher:
         if launcher is None:
             return None
         tools = session_tools(self._quarantine().offered(), session.functions)
+        taken = {tool.name for tool in tools}
+        tools += [tool for tool in self._methods.tools(session) if tool.name not in taken]
         workspace = sessions.workspace(session.id)
         return SessionTools(tools, launcher, workspace, session.settings.tools.timeout)
 
@@ -485,6 +511,8 @@ class Dispatcher:
                 self._turns.slot_freed(server)
             case SupervisorAdopted(name):
                 self._server_commands.adopted(name)
+            case MethodAnswered(report):
+                report()
             case AttachedProcessEnded(name, pid):
                 self._attached.ended(name, pid)
             case ConfirmationRequested(session_id, title, text):
@@ -512,6 +540,14 @@ class Dispatcher:
             case Shutdown():
                 return False
         return True
+
+
+def _tools_timeout(sessions: SessionStore, session_id: SessionId | None) -> float:
+    """How long a human's ``/call`` may run: its Session's ``tools.timeout``, typed in its
+    Window, else the default one."""
+    if session_id is None or session_id not in sessions.ids():
+        return SessionSettings().tools.timeout
+    return sessions.load(session_id).settings.tools.timeout
 
 
 def _default_link(links: LinkResolver, settings: LoadedSettings) -> Link:

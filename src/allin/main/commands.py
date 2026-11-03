@@ -23,6 +23,7 @@ from allin.core.ids import CommandName, MainId, SessionId, new_prompt_id
 from allin.core.origin import HUMAN, Origin
 from allin.ipc.messages import OrganizerRow
 from allin.main.attached import ATTACH_USAGE, DETACH_USAGE, AttachedProcesses
+from allin.main.attached_methods import AttachedMethods
 from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
@@ -38,6 +39,7 @@ from allin.main.key_commands import USAGE as KEY_USAGE
 from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
+from allin.main.method_calls import CALL_USAGE, MethodCalls
 from allin.main.notifications import USAGE as CONVERSATION_LOGS_USAGE
 from allin.main.notifications import Notifications
 from allin.main.open_windows import OpenWindows
@@ -75,6 +77,8 @@ _COMMANDS_OPTION = "-cs="  # /new with these Command sessions instead of the roo
 _MOLD_OPTION = "--mold="  # /new from a Molde (#112)
 _MOLD_USAGE = "--mold=<name>"
 _COMMANDS_USAGE = f"{_COMMANDS_OPTION}<names>"
+_METHODS_OPTION = "-am="  # /new with the methods of these Procesos adheridos (#114)
+_METHODS_USAGE = f"{_METHODS_OPTION}<names>"
 CLOSED = "closed with /close"
 
 # Whether a command, by its arguments, is delicate or only a human's.
@@ -144,8 +148,11 @@ class MainCommands:
         notifications: Notifications,
         creator: PieceCreator,
         attached: AttachedProcesses,
+        methods: AttachedMethods,
+        calls: MethodCalls,
     ) -> None:
         self._functions = functions
+        self._methods = methods
         self._creator = creator
         self._boxes = boxes
         self._devastation = devastation
@@ -173,6 +180,7 @@ class MainCommands:
                     _AGENTS_USAGE: "the fagents it gets, by package, comma separated",
                     _COMMANDS_USAGE: "its Command sessions instead of the root's, comma separated",
                     _MOLD_USAGE: "the Molde (molds/<name>.toml) it is born from",
+                    _METHODS_USAGE: "the Procesos adheridos whose methods it gets, comma separated",
                 },
                 optional=(
                     "--id=<id>",
@@ -181,6 +189,7 @@ class MainCommands:
                     _AGENTS_USAGE,
                     _COMMANDS_USAGE,
                     _MOLD_USAGE,
+                    _METHODS_USAGE,
                 ),
                 takes_origin=True,
             ),
@@ -344,6 +353,7 @@ class MainCommands:
                 optional=("action…",),
                 human_only=func_only_human,
                 session_of=func_session_of,
+                takes_origin=True,
             ),
             "/grant": CommandSpec(
                 ("sid", "what"),
@@ -403,6 +413,24 @@ class MainCommands:
                 args={"name": "its name"},
                 usage_text=DETACH_USAGE,
                 human_only=True,
+            ),
+            # The one Command main of every fproc's methods: a piece adds none (ADR-0021).
+            "/call": CommandSpec(
+                (),
+                calls.run,
+                "list a Proceso adherido's methods, or call one",
+                args={
+                    "name …": "the Proceso adherido's name; then one of its public methods,"
+                    " without which they are listed, and its arguments as key=value, a value"
+                    " that reads as JSON being JSON",
+                },
+                usage_text=CALL_USAGE,
+                optional=("name …",),
+                rest=True,
+                session_of=calls.session_of,
+                confirm=calls.delicate,
+                takes_origin=True,
+                takes_answer=True,
             ),
             # Built from this registry, so a new Command main shows by itself (#23).
             "/help": CommandSpec(
@@ -570,6 +598,7 @@ class MainCommands:
         chosen, background, sources, agents = None, False, True, list[str]()
         commands: list[str] | None = None
         mold_name: str | None = None
+        methods: str | None = None
         for option in options:
             if option == _BG_OPTION and not background:
                 background = True
@@ -583,6 +612,8 @@ class MainCommands:
                 commands = [c for c in option.removeprefix(_COMMANDS_OPTION).split(",") if c]
             elif option.startswith(_MOLD_OPTION) and mold_name is None:
                 mold_name = option.removeprefix(_MOLD_OPTION)
+            elif option.startswith(_METHODS_OPTION) and methods is None:
+                methods = option.removeprefix(_METHODS_OPTION)
             else:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
         template = self._settings.current.session  # copied: later changes never reach it
@@ -601,6 +632,7 @@ class MainCommands:
         if commands is None and mold is not None and mold.recipe.commands is not None:
             commands = list(mold.recipe.commands)
         listed = self._functions.commands_born_with(commands, origin)
+        attached = self._methods.born_with(methods or "", chain)
         history = [] if mold is None else [message.item() for message in mold.recipe.history]
         version = None if mold is None else mold.version
         session = self._sessions.create(
@@ -614,6 +646,7 @@ class MainCommands:
             mold=None if version is None else version.piece,
         )
         self._profiles.created(session.id)
+        self._methods.given_at_birth(session, attached)
         self._place(session, background, origin)
         if task is not None:
             self._send_task(session, task, origin)
@@ -799,6 +832,7 @@ class MainCommands:
             return True
         result = rewind(conversation, self._sessions.load_archived(session), n)
         self._sessions.save_conversation(session, result.conversation)
+        self._methods.rewound(session, result.conversation.next_turn)
         undone = len(result.undone)
         shown = f"rewound {undone} prompt(s)"
         if undone < n:

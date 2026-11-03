@@ -150,6 +150,27 @@ def _attach(call: SessionCommandCall) -> str:
     return " ".join(["/attach", *words, f"{TO}{call.session_id}"])
 
 
+IN = "--in="  # @call's /call: the Session whose Window it was typed in
+_CALL_USAGE = "@call <name> [<method> [key=value…]]"
+
+
+def _call(call: SessionCommandCall) -> str:
+    """What it gives back shows in this Window and stays in this Session's Log, with a
+    Notificación (ADR-0021)."""
+    words = call.args.split()
+    if not words or any(word.startswith(IN) for word in words):
+        raise ValueError(_CALL_USAGE)
+    return f"/call {call.args.strip()} {IN}{call.session_id}"
+
+
+CALL = SessionCommandType(
+    "call",
+    _CALL_USAGE,
+    "call a method of a Proceso adherido, or list them; this Window shows what it gives back",
+    _call,
+)
+
+
 ATTACH = SessionCommandType(
     "attach",
     _ATTACH_USAGE,
@@ -178,9 +199,9 @@ class LoadedSessionCommands:
 BUILT_IN = LoadedSessionCommands(
     {
         CommandName(kind.name): kind
-        for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT, ATTACH)
+        for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT, ATTACH, CALL)
     },
-    # @create and @attach widen what Sessions do: given by name, never by default.
+    # @create, @attach and @call widen what Sessions do: given by name, never by default.
     tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
 )
 

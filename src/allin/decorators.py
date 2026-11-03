@@ -17,6 +17,8 @@ REACH_MARK = "__allin_reach__"  # where ``@reach`` leaves the Alcance on its tar
 CONFIRM = "confirm"  # the mark ``@confirm`` leaves, as a description reads it
 CONFIRM_MARK = f"__allin_{CONFIRM}__"  # where ``@confirm`` marks its target delicate
 GRANT = "grant"  # Otorgar's Command session (ADR-0025)
+HUMAN_ONLY = "human"  # the mark ``@human`` leaves, as a description reads it
+HUMAN_ONLY_MARK = f"__allin_{HUMAN_ONLY}__"  # where ``@human`` marks an fproc's method
 # Writing under these, outside a dotted or ``bin`` folder, is not where the user runs things.
 _HARMLESS_WRITES = (PurePosixPath("/dev/shm"),)  # noqa: S108 - a path an Alcance names
 
@@ -111,6 +113,13 @@ def confirm[T](target: T) -> T:
     """Mark a function, or an fproc's method, as delicate: Main asks the human yes or no
     before each call, and a no gives the LLM the refusal instead of running it (ADR-0009)."""
     setattr(target, CONFIRM_MARK, True)
+    return target
+
+
+def human[T](target: T) -> T:
+    """Mark an fproc's method as a human's alone: ``/call`` reaches it, and it never goes in
+    ``tools=[...]`` (ADR-0021)."""
+    setattr(target, HUMAN_ONLY_MARK, True)
     return target
 
 

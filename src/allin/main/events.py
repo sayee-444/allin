@@ -234,6 +234,14 @@ class AttachedProcessEnded:
 
 
 @dataclass(frozen=True)
+class MethodAnswered:
+    """A ``/call`` or ``@call`` to a Proceso adherido's method, answered in its own thread;
+    ``report`` tells how it went, in Main's thread (#114)."""
+
+    report: Callable[[], None]
+
+
+@dataclass(frozen=True)
 class SlotFreed:
     """A slot lock another Main held is free, while Prompts here waited for one."""
 
@@ -338,6 +346,7 @@ type MainEvent = (
     | SlotFreed
     | SupervisorAdopted
     | AttachedProcessEnded
+    | MethodAnswered
     | ServerProgress
     | InputMeasured
     | Tick

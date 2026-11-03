@@ -34,7 +34,7 @@ from allin.confinement.launcher import (
 from allin.confinement.reach import install_root
 from allin.core.errors import (
     AllInError,
-    AttachedEnded,
+    AttachedMethodNotFound,
     AttachedNameInvalid,
     AttachedNameTaken,
     AttachedNotFound,
@@ -57,8 +57,9 @@ from allin.core.ids import (
     parse_session_id,
 )
 from allin.core.origin import HUMAN, Origin
-from allin.decorators import Reach
+from allin.decorators import CONFIRM, HUMAN_ONLY
 from allin.main.boxes import MainBoxes
+from allin.main.descriptions import ToolSchema
 from allin.main.events import AttachedProcessEnded, CommandOutcome, MainEvent, OnOutcome
 from allin.main.profiles import Profile
 from allin.main.quarantine import OfferedFunction, Quarantine
@@ -78,6 +79,10 @@ type DetachReason = Literal["main stopped", "profile switched"]
 
 
 def _ignored(_: CommandOutcome) -> None:
+    pass
+
+
+def _nobody(*_: object) -> None:
     pass
 
 
@@ -103,11 +108,46 @@ class _Asked:
     origin: Origin
 
 
+@dataclass(frozen=True)
+class AttachedFproc:
+    """A Proceso adherido of the active Profile, attached or crashed, as its methods see it."""
+
+    name: AttachedName
+    offered: OfferedFunction  # its fproc, as it was approved when it started
+    process: AttachedProcess
+
+    @property
+    def methods(self) -> tuple[ToolSchema, ...]:
+        """Its fproc's public methods, as its description read them."""
+        return self.offered.description.tools
+
+    def method(self, name: str) -> ToolSchema:
+        """Raises ``AttachedMethodNotFound``."""
+        for schema in self.methods:
+            if schema.name == name:
+                return schema
+        raise AttachedMethodNotFound(name=self.name, method=name)
+
+    def confirms(self, method: ToolSchema) -> bool:
+        """Whether a call to ``method`` asks a Confirmation: ``@confirm``, or its Approval."""
+        return method.name in self.offered.confirm or method.marks.get(CONFIRM) is True
+
+    def tool_name(self, method: ToolSchema) -> str:
+        """``<name>_<method>``, as ``tools=[...]`` names it: a Session may have two Procesos
+        adheridos of one fproc, and a tool's name takes no dot (ADR-0021)."""
+        return f"{self.name}_{method.name}"
+
+
+def human_only(method: ToolSchema) -> bool:
+    """Whether ``method`` is marked ``@human``: a human's alone, never a tool."""
+    return method.marks.get(HUMAN_ONLY) is True
+
+
 @dataclass
 class _Instance:
     asked: _Asked
     profile: ProfileName
-    reach: Reach  # what it was confined with when it started
+    offered: OfferedFunction  # its fproc as it started: its Alcance and its methods
     process: AttachedProcess
     ended: bool = False  # it crashed, or was detached
 
@@ -141,7 +181,19 @@ class AttachedProcesses:
         self._emit = emit
         self._data_dir = data_dir
         self._start_timeout = start_timeout
+        self._given: Callable[[AttachedName, tuple[SessionId, ...]], None] = _nobody
+        self._taken: Callable[[AttachedName], None] = _nobody
         self._instances: dict[AttachedName, _Instance] = {}
+
+    def listen(
+        self,
+        given: Callable[[AttachedName, tuple[SessionId, ...]], None],
+        taken: Callable[[AttachedName], None],
+    ) -> None:
+        """``given`` hears the Sessions that get a new one's methods, and ``taken`` that one was
+        detached, so no Session keeps them (#114)."""
+        self._given = given
+        self._taken = taken
 
     def run(self, *options: str, origin: Origin = HUMAN, answer: OnOutcome = _ignored) -> bool:
         """``/attach``: list them, or attach one; ``answer`` hears how it went, maybe once a
@@ -185,10 +237,12 @@ class AttachedProcesses:
         self._stop(instance)
         self._save()
         self._reporter.report(None, "detached", f"{name} detached", name=name)
+        self._taken(instance.asked.name)
         return True
 
     def detach_all(self, reason: DetachReason) -> None:
         """Let every one go: Main stops, or leaves their Profile."""
+        names = list(self._instances)
         for name, instance in list(self._instances.items()):
             if not instance.ended:
                 self._stop(instance)
@@ -196,16 +250,16 @@ class AttachedProcesses:
                 self._reporter.report(None, "detached", shown, name=name, reason=reason)
         self._instances.clear()
         self._save()
+        for name in names:
+            self._taken(name)
 
-    def process(self, name: str) -> AttachedProcess:
-        """The process its methods are called on. Raises ``AttachedNotFound`` and, for one
-        that crashed, ``AttachedEnded``."""
+    def attached_fproc(self, name: str) -> AttachedFproc:
+        """The Proceso adherido ``name``, attached or crashed: a crashed one's calls raise
+        ``AttachedEnded``. Raises ``AttachedNotFound``."""
         instance = self._instances.get(_name(name))
         if instance is None:
             raise AttachedNotFound(name=name)
-        if instance.ended:
-            raise AttachedEnded(exit_code=instance.process.wait())
-        return instance.process
+        return AttachedFproc(instance.asked.name, instance.offered, instance.process)
 
     def ended(self, name: AttachedName, pid: int) -> None:
         """Its process ended: one that was not detached crashed, and is not started again."""
@@ -245,7 +299,7 @@ class AttachedProcesses:
                 offered = self._offered(instance.asked.fproc)
             except FprocNotOffered:
                 continue  # its approved code runs on, as it was approved
-            if offered.description.reach == instance.reach:
+            if offered.description.reach == instance.offered.description.reach:
                 continue
             self._stop(instance)
             del self._instances[name]
@@ -399,8 +453,9 @@ class AttachedProcesses:
             self._start_timeout,
             lambda ended: self._emit(AttachedProcessEnded(name, ended.pid)),
         )
-        self._instances[name] = _Instance(asked, profile, described.reach, process)
+        self._instances[name] = _Instance(asked, profile, offered, process)
         self._save()
+        self._given(name, asked.to)
         verb = "started again: its fproc's Alcance changed" if restarted else "attached"
         file = "" if asked.file is None else f" with {asked.file}"
         self._reporter.report(
