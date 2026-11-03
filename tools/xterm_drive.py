@@ -9,6 +9,7 @@ Commands:
     shot <title> <out.png>          a pixel capture of the xterm with that title
     type <title> <text>             type ``text`` into it; ``\\n`` is Enter
     shiftenter <title>              Shift+Enter (interrupt the Session's Turn)
+    key <title> <keysym>...         press keys by their X name: ``Down``, ``Up``, ``Return``
     wait <log.jsonl> <event> <n> [seconds]
                                     wait until the Log has ``n`` lines of ``event`` (default 60 s);
                                     a Session's Log is ``<data-dir>/sessions/<sid>/log.jsonl``
@@ -112,6 +113,15 @@ def shift_enter(title: str) -> None:
     _press(_vt100(title), XK.string_to_keysym("Return"), shift=True)
 
 
+def keys(title: str, names: list[str]) -> None:
+    widget = _vt100(title)
+    for name in names:
+        keysym = XK.string_to_keysym(name)
+        if keysym == X.NoSymbol:
+            raise SystemExit(f"no keysym named {name!r}")
+        _press(widget, keysym, shift=False)
+
+
 def wait(log: str, name: str, count: int, seconds: float = 60) -> None:
     deadline = time.monotonic() + seconds
     path = Path(log)
@@ -133,6 +143,8 @@ def main(argv: list[str]) -> None:
             type_text(title, text)
         case ["shiftenter", title]:
             shift_enter(title)
+        case ["key", title, *names] if names:
+            keys(title, names)
         case ["wait", log, name, count]:
             wait(log, name, int(count))
         case ["wait", log, name, count, seconds]:
