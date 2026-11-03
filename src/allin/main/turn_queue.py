@@ -60,6 +60,7 @@ from allin.main.chat_rebuild import (
     cut_entry,
     dropped_entry,
     error_entry,
+    prompt_entry,
     tokens_entry,
     tool_failed_entry,
     tools_entry,
@@ -1231,7 +1232,10 @@ class TurnQueue:
         compacting = prompt.kind != "prompt"
         if prompt.queued:  # it waited behind a Turn: its Chat shows it now (ADR-0024)
             prompt = replace(prompt, queued=False)  # a Step run again never shows it twice
-            self._reporter.log_session(session.id, "prompt_started", text=prompt.text)
+            origin = list[JsonValue](prompt.origin.labels)  # its label when the Chat is rebuilt
+            self._reporter.log_session(
+                session.id, "prompt_started", text=prompt.text, origin=origin
+            )
             self._show_prompt(session, prompt)
             self.send_turn_state(session.id)  # it no longer waits below the Chat
         if not prompt.steps:  # a new Turn: what waits was typed before it
@@ -1769,8 +1773,8 @@ class TurnQueue:
         )
 
     def _show_prompt(self, session: Session, prompt: Prompt) -> None:
-        label = session.settings.username
-        self._windows.send(session.id, ChatAppend(role="user", label=label, text=prompt.text))
+        entry = prompt_entry(prompt.text, prompt.origin, session.settings)
+        self._windows.send(session.id, entry)
 
     def _waiting_entry(self, link: Link) -> ChatAppend:
         text = _waiting_text(link, self._states.get(link.key))
