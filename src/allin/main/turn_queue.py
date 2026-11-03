@@ -274,6 +274,10 @@ class _RunningTurn:
     measuring: int | None = None
     measured: bool = False
     too_big: PromptTooBig | None = None
+    # Its estimated ``need``, while it reserves the whole pool instead because its Server,
+    # ready, could not measure it: it may have fallen as it measured, before its watch heard,
+    # so if its state changes, the estimate holds again and is measured once back (#208).
+    unmeasured: int | None = None
 
     def release_slot(self) -> None:
         if self.slot is not None:
@@ -615,7 +619,9 @@ class TurnQueue:
                 self._compactions.step_done(session_id, steps, running.cut)
                 self._prompts.push_front(running.prompt)
             else:
-                turn = self._save_turn(running, steps)
+                turn = self._save_turn(
+                    running.session, running.prompt, steps, running.cut, running.notifications
+                )
                 self._notifications.saved(session_id, running.told)
         except AllInError as failure:
             # A suspended Turn keeps what it told: its Steps already read it (ADR-0023).
@@ -626,10 +632,12 @@ class TurnQueue:
             elif not self._suspend(running, failure):
                 self._fail_turn(running, failure)
         else:
-            self._falls.pop(session_id, None)
-            if turn is not None:
+            if turn is None:  # a summary Step: its Compaction goes on in the queue
+                self._falls.pop(session_id, None)
+            else:
+                self._leave(session_id, [Leaving(running.prompt, ran=True)], "saved", "")
                 self._tell_context_left(running)
-                self._turn_finished(running, turn, steps)
+                self._turn_finished(session_id, running.cut, turn, steps)
                 self._answers.answered(running.prompt, turn, summary_text(steps))
         if fell:
             key = running.link.key
@@ -641,9 +649,10 @@ class TurnQueue:
         self.send_turn_state(session_id)
         self._start_turns()
 
-    def _turn_finished(self, running: _RunningTurn, turn: int, steps: list[Step]) -> None:
+    def _turn_finished(
+        self, session_id: SessionId, cut: CutReason | None, turn: int, steps: list[Step]
+    ) -> None:
         """Tell the Turn ended and what it cost; a cut one also with its mark (ADR-0004)."""
-        session_id, cut = running.session.id, running.cut
         if (tokens := tokens_entry(steps)) is not None:
             self._windows.send(session_id, tokens)
         if cut is None:
@@ -689,12 +698,15 @@ class TurnQueue:
 
     def interrupt(self, session_id: SessionId) -> None:
         """Shift+Enter: cut the Session's running Turn now. Once its executor stops it is saved
-        with what it streamed, as a Turn cut by ``interrupted`` (ADR-0024)."""
+        with what it streamed, as a Turn cut by ``interrupted`` (ADR-0024). One suspended or
+        yielded, waiting in the queue, is saved cut with the Steps it ended, as soon as the
+        Compaction it yielded to, if any, is over (#208)."""
         running = self._running.get(session_id)
-        if running is None or _compacting(running):
-            return
-        running.interrupted = True
-        self._stop(running, INTERRUPTED)
+        if running is not None and not _compacting(running):
+            running.interrupted = True
+            self._stop(running, INTERRUPTED)
+        elif self._prompts.interrupt(session_id):
+            self._start_turns()
 
     def queued_count(self, session_id: SessionId) -> int:
         return len(self._prompts.of(session_id))
@@ -796,6 +808,7 @@ class TurnQueue:
         running.need += grows
         running.grown += grows
         running.measuring, running.measured = None, False  # a new estimate, of another Step
+        running.unmeasured = None
         running.resume = functools.partial(self._next_step, running)
         running.ready_at = self._wall()
         self._reporter.log_session(session_id, "tools_returned", grows=grows)
@@ -1016,6 +1029,8 @@ class TurnQueue:
         Session's next Prompt in queue order, unless Main is leaving its Profile; ``None`` if
         one failed on the way. ``waiting`` gets why the others cannot even wait for a slot
         yet."""
+        if self._cut_interrupted():
+            return None
         candidates: list[_Candidate] = []
         for running in self._continuations():
             if not self._ready(running.link.key):
@@ -1047,6 +1062,43 @@ class TurnQueue:
                 candidates.append(candidate)
         return candidates
 
+    def _cut_interrupted(self) -> bool:
+        """Save cut the first Turn Shift+Enter interrupted as it waited in the queue whose
+        Session has nothing before it any more, neither running nor queued; whether one left."""
+        for session_id in self._prompts.session_ids():
+            first = self._prompts.of(session_id)[0]
+            if first.interrupted and session_id not in self._running:
+                self._save_cut(first)
+                return True
+        return False
+
+    def _save_cut(self, prompt: Prompt) -> None:
+        """Save the Turn Shift+Enter cut as it waited, suspended or yielded, with the Steps it
+        ended: what its half-done Step gave was already dropped (ADR-0023, ADR-0024). Its
+        Session's next Turn is a new one, with its own two tries. One that cannot be saved
+        fails instead."""
+        session_id = prompt.session_id
+        steps = list(prompt.steps) or [Step(output=[])]
+        told = self._notifications.told(session_id)
+        try:
+            session = self._sessions.load(session_id)
+            opening = self._notifications.opening(session, self._conversation(session), told)
+            turn = self._save_turn(session, prompt, steps, "interrupted", opening)
+        except AllInError as error:
+            self._drop_prompt(prompt, error)
+            return
+        self._prompts.remove(prompt)
+        self._measures.pop(session_id, None)
+        self._since.pop(session_id, None)
+        self._compactions.forget(session_id)
+        if self._yielded.get(session_id) == prompt.prompt_id:
+            del self._yielded[session_id]
+        self._leave(session_id, [Leaving(prompt, ran=True)], "saved", "")
+        self._notifications.saved(session_id, told)
+        self._turn_finished(session_id, "interrupted", turn, steps)
+        self._answers.answered(prompt, turn, summary_text(steps))
+        self.send_turn_state(session_id)
+
     def _may_fit(self, running: _RunningTurn) -> bool:
         """Whether the Continuation's next Step fits in its Server's empty pool, so it may
         wait for room. One estimated bigger is measured on the Server first, and one measured
@@ -1075,7 +1127,8 @@ class TurnQueue:
         """The Server measured the input of the Continuation's next Step (#188): it needs that,
         its tools' schemas and its Output cap. One it could not measure reserves the whole
         pool, so it starts once no other Step is in course; one it could not reach, as it fell
-        or restarts, is measured again once it is back (#197)."""
+        or restarts, is measured again once it is back (#197), even if its watch hears that
+        only after this (#208)."""
         running.measuring = None
         if tokens is None and not self._ready(running.link.key):
             shown = "the Server could not measure the input: measured again once it is back"
@@ -1086,6 +1139,7 @@ class TurnQueue:
         if tokens is None:
             shown = "the Server could not measure the input: it waits for the whole pool"
             self._reporter.log_session(running.session.id, "input_unmeasured", text=shown)
+            running.unmeasured = running.need
             need = min(running.need, self._pool(running.link.key) or running.need)
         else:
             need = tokens + _schema_chars(running.job.tools.schemas) + running.output_cap
@@ -1122,7 +1176,13 @@ class TurnQueue:
                 initiative=prompt.initiative,
             )
             self._prompts.insert_before(prompt, entry)
-            return self._prompt_candidate(entry, waiting)
+            try:
+                return self._prompt_candidate(entry, waiting)
+            except AllInError as error:
+                # It could not start: the Prompt goes on if it still fits, with a Notice, and
+                # is not compacted for again (ADR-0017).
+                self._drop_prompt(entry, error)
+                return self._prompt_candidate(prompt, waiting)
         if need > slot_context:
             raise PromptTooBig(need=need, limit=slot_context)
         repeats = (
@@ -1280,14 +1340,21 @@ class TurnQueue:
         if candidate.running is not None:
             self._resume_turn(candidate.running, slot)
             return
-        assert candidate.prompt is not None and candidate.session is not None
-        self._prompts.remove(candidate.prompt)
-        self._measures.pop(candidate.waiter.session, None)
-        if candidate.prompt.kind == "prompt":  # a Compaction keeps its Turn's place
-            self._since.pop(candidate.waiter.session, None)
-            self._compactions.forget(candidate.waiter.session)
+        prompt, session = candidate.prompt, candidate.session
+        assert prompt is not None and session is not None
+        try:  # read before it leaves the queue: one that cannot start leaves as such (#208)
+            conversation = self._conversation(session)
+        except AllInError as error:
+            slot.release()
+            self._drop_prompt(prompt, error)
+            return
+        self._prompts.remove(prompt)
+        self._measures.pop(session.id, None)
+        if prompt.kind == "prompt":  # a Compaction keeps its Turn's place
+            self._since.pop(session.id, None)
+            self._compactions.forget(session.id)
         self._start_prompt(
-            candidate.prompt, candidate.session, candidate.link, slot, candidate.waiter.need
+            prompt, session, conversation, candidate.link, slot, candidate.waiter.need
         )
 
     def _reserve(self, running: _RunningTurn) -> None:
@@ -1331,15 +1398,14 @@ class TurnQueue:
             self._windows.set_in_course(server, in_course)
 
     def _start_prompt(
-        self, prompt: Prompt, session: Session, link: Link, slot: SlotLock, need: int
+        self,
+        prompt: Prompt,
+        session: Session,
+        conversation: Conversation,
+        link: Link,
+        slot: SlotLock,
+        need: int,
     ) -> None:
-        try:
-            conversation = self._conversation(session)
-        except AllInError as error:
-            slot.release()
-            self._windows.show_error(error, prompt.session_id)
-            self.send_turn_state(prompt.session_id)
-            return
         state = self._states.get(link.key)
         assert isinstance(state, ServerReady)  # a slot is only taken on a ready Server
         slot_context = state.props.slot_context
@@ -1416,6 +1482,8 @@ class TurnQueue:
         link = self._watched[server]
         before = self._states.get(server)
         self._states[server] = state
+        if state != before:
+            self._measure_again(server)
         if isinstance(state, ServerReady):
             self._server_ready(link, state.props, state.fallback, before)
             return
@@ -1442,6 +1510,18 @@ class TurnQueue:
             and self._has_work(server)
         ):
             self._wake(link.supervisor)
+
+    def _measure_again(self, server: ServerKey) -> None:
+        """The Server changed: each Continuation waiting on it with the whole pool, as it could
+        not measure its input, goes back to its estimate, which is measured once it is ready
+        (#208): it may have fallen as it measured, before its watch heard."""
+        for running in self._running.values():
+            waits = running.slot is None  # one whose Step started reads its input already
+            if running.link.key != server or running.unmeasured is None or not waits:
+                continue
+            running.grown += running.unmeasured - running.need
+            running.need, running.unmeasured = running.unmeasured, None
+            running.measured = False
 
     def _server_ready(
         self,
@@ -1908,21 +1988,19 @@ class TurnQueue:
 
     def _compaction_measured(self, session_id: SessionId, ticket: int, tokens: int | None) -> None:
         """The Server measured something a Compaction asked; once it ends, saved or not, its
-        entry leaves the queue."""
+        entry leaves the queue, with the falls of its summary Step if one fell (#208)."""
         entry = self._compactions.entry(session_id)
         try:
             over = self._compactions.measured(session_id, ticket, tokens)
         except AllInError as error:
-            self._prompts.remove(entry)
-            self._compactions.failed(entry, error)
-            over = True
+            self._drop_prompt(entry, error)
         else:
             if over:
                 self._prompts.remove(entry)
+                self._leave(session_id, [Leaving.queued(entry)], "saved", "")
                 self._used.pop(session_id, None)  # the Context Notice may show again
-        if over:
-            self._measures.pop(session_id, None)
-            self.send_turn_state(session_id)
+                self._measures.pop(session_id, None)
+                self.send_turn_state(session_id)
         self._start_turns()
 
     def _fail_turn(self, running: _RunningTurn, error: AllInError) -> None:
@@ -1970,16 +2048,16 @@ class TurnQueue:
         self, session_id: SessionId, left: Sequence[Leaving], ending: Ending, why: str
     ) -> None:
         """The one way out of the queue, for a running Turn, a queued Prompt and one that never
-        started alike (#196). Each takes the falls of its Step with it, so its Session's next
-        Turn gets its two tries (ADR-0023). Unless ``kept``: one whose Turn ran cancels what
-        it opened and leaves what it told for the next Prompt; who sent each hears ``why``;
-        what a human typed goes back to the input, once and in order, to the Draft if
-        cancelled (ADR-0024), else as a failed Turn's (``_give_back``), with the Prompts queued
-        behind a failed Turn, which fall with it (#16)."""
+        started alike (#196), saved or not (#208). Each takes the falls of its Step with it, so
+        its Session's next Turn gets its two tries (ADR-0023). Unless ``kept`` or ``saved``:
+        one whose Turn ran cancels what it opened and leaves what it told for the next Prompt;
+        who sent each hears ``why``; what a human typed goes back to the input, once and in
+        order, to the Draft if cancelled (ADR-0024), else as a failed Turn's (``_give_back``),
+        with the Prompts queued behind a failed Turn, which fall with it (#16)."""
         for leaving in left:
             if leaving.ran:
                 self._falls.pop(session_id, None)
-        if ending == "kept":
+        if ending in ("kept", "saved"):
             return
         if any(leaving.unsaved for leaving in left):
             self._notifications.not_saved(session_id)  # what its Turn told waits again
@@ -2045,23 +2123,30 @@ class TurnQueue:
             self._windows.put_back(session_id, text)
         self._reporter.log_session(session_id, "prompt_returned", texts=list[JsonValue](texts))
 
-    def _save_turn(self, running: _RunningTurn, steps: list[Step]) -> int:
-        """Save the finished Turn and return its index in the Conversation."""
+    def _save_turn(
+        self,
+        session: Session,
+        prompt: Prompt,
+        steps: list[Step],
+        cut: CutReason | None,
+        notifications: list[str],
+    ) -> int:
+        """Save the Prompt's finished Turn, which opened with ``notifications``, and return its
+        index in the Conversation."""
         # Saved only now, whole, so a Turn that fails half-way never reaches the disk.
-        conversation = self._conversation(running.session)
-        attachments = list(running.prompt.attachments)
+        conversation = self._conversation(session)
         turn = Turn(
-            prompt=running.prompt.text,
+            prompt=prompt.text,
             steps=steps,
-            cut=running.cut,
-            attachments=attachments,
-            notifications=running.notifications,
-            typed=running.prompt.typed,
-            origin=running.prompt.origin,
-            outsider=running.prompt.outsider,
-            prompt_id=running.prompt.prompt_id,
+            cut=cut,
+            attachments=list(prompt.attachments),
+            notifications=notifications,
+            typed=prompt.typed,
+            origin=prompt.origin,
+            outsider=prompt.outsider,
+            prompt_id=prompt.prompt_id,
         )
-        self._sessions.save_conversation(running.session, conversation.with_turn(turn))
+        self._sessions.save_conversation(session, conversation.with_turn(turn))
         return conversation.next_turn
 
 

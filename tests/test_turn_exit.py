@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import LlmUnavailable, TurnCancelled, TurnCrashed
-from allin.core.ids import SessionId
+from allin.core.ids import ServerKey, SessionId
 from allin.core.origin import HUMAN
 from allin.core.origin import from_session as chained
 from allin.main.chat_rebuild import FAILED_BEFORE, returned_prompts
@@ -347,6 +347,87 @@ def test_one_of_another_origin_gives_back_its_texts_and_its_queue_as_the_window_
     )
     assert len(main.held) == 1
     assert restored(main.windows(session.id)[-1]) == ["y luego esto", "a2"]
+
+
+# Shift+Enter on a Turn under way that waits in the queue (#208)
+
+
+def test_shift_enter_on_a_suspended_turn_saves_it_cut_and_its_text_goes_after_it(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        ToolsStarted(session.id, ("nap",), CALLED),
+        ToolsEnded(session.id, RETURNED, 10),
+        StepEnded(session.id, RETURNED),
+        TurnEnded(session.id, error=FELL),  # suspended: it waits first in the queue
+        InputReceived(session.id, "otra", interrupt=True),
+        lambda: _saved_cut(main, session),  # at once: it needs no Server to be saved
+        server_ready(server()),
+        TurnEnded(session.id, error=FELL),  # «otra»'s first fall: its own first
+        settle=True,
+    )
+    _, otra = main.held
+    assert otra.request.done == [] and otra.request.input[-1]["content"].endswith("otra")
+    assert "The human interrupted your last answer" in otra.request.input[-1]["content"]
+    assert otra.request.input[2:4] == RETURNED.items, "it reads the Turn saved cut"
+    assert events(main, session).count("turn_suspended") == 2, "«otra» inherited its falls"
+    assert "turn_failed" not in events(main, session)
+
+
+def _saved_cut(main: MainHarness, session: Session) -> None:
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None
+    [turn] = conversation.turns
+    assert (turn.prompt, turn.cut, turn.steps) == ("duerme", "interrupted", [RETURNED])
+    [window] = main.windows(session.id)
+    assert restored(window) == [], "a Turn saved cut gives nothing back"
+
+
+def test_shift_enter_on_a_turn_suspended_before_any_step_ended_saves_it_cut_empty(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "duerme"),
+        TurnEnded(session.id, error=FELL),
+        InputReceived(session.id, "", interrupt=True),
+        settle=True,
+    )
+    conversation = main.sessions.load_conversation(session)
+    assert conversation is not None
+    [turn] = conversation.turns
+    assert turn.cut == "interrupted" and [step.output for step in turn.steps] == [[]]
+    assert "turn_finished" in events(main, session)
+    assert not main.state.load().queue
+
+
+# A Prompt whose Conversation cannot be read as it starts (#208)
+
+
+def test_a_prompt_whose_conversation_cannot_be_read_as_it_starts_goes_back(main: MainHarness):
+    session = main.create_session()
+    measure = main.servers.measure
+
+    def measure_then_break(
+        server: ServerKey, session_id: SessionId, ticket: int, items: list[Item]
+    ) -> None:
+        measure(server, session_id, ticket, items)
+        (main.root / session.id / "conversation.json").write_text("{not json")
+
+    main.servers.measure = measure_then_break
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        settle=True,
+    )
+    assert not main.held
+    assert restored(main.windows(session.id)[0]) == ["hola"]
+    assert "prompt_not_started" in events(main, session)
+    assert not main.state.load().queue
 
 
 def test_a_human_prompt_that_cannot_start_goes_back_as_its_window_opens(main: MainHarness):

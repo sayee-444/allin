@@ -130,6 +130,10 @@ class Notifications:
         pending = self._sessions.load(session_id).notifications
         return Told(tuple(n.id for n in pending), tuple(n.text for n in pending))
 
+    def told(self, session_id: SessionId) -> Told:
+        """What its running or suspended Turn told; nothing if none told anything yet."""
+        return self._told.get(session_id, NOTHING_TOLD)
+
     def tell(self, session_id: SessionId) -> Told:
         """What its Turn starting now opens its Prompt with: those no longer cancel out. A
         suspended Turn going on gets what it told before."""

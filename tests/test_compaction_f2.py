@@ -10,7 +10,7 @@ import pytest
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
-from allin.core.errors import TurnYielded
+from allin.core.errors import TurnCancelled, TurnYielded
 from allin.core.ids import CommandName, PieceId
 from allin.ipc.messages import ContextUsage
 from allin.main.compaction import CLOSING
@@ -19,10 +19,13 @@ from allin.main.descriptions import Descriptions
 from allin.main.events import (
     InputReceived,
     MainCommandEntered,
+    MainEvent,
+    StepEnded,
     Tick,
     ToolsEnded,
     ToolsStarted,
     TurnEnded,
+    WindowClosed,
 )
 from allin.main.quarantine import PieceRef, Quarantine
 from allin.main.sessions import Session
@@ -280,6 +283,84 @@ def test_a_turn_cut_as_it_stops_to_compact_is_cut_and_does_not_come_back(main: M
     assert "turn_yielded" not in logged and "compaction_started" not in logged
     assert [turn.prompt for turn in conversation(main, session).turns][-1] == "lee"
     assert len(main.held) == 1, "it was not taken up again"
+
+
+CALLED_X = Step(output=[{"type": "function_call", "call_id": "c1", "name": "x", "arguments": ""}])
+# What it reads next passes the threshold: it compacts before it goes on.
+RETURNED_X = CALLED_X.model_copy(
+    update={"results": [{"type": "function_call_output", "call_id": "c1", "output": LONG}]}
+)
+SUMMARY = Step(
+    output=[
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "We talked."}],
+        }
+    ]
+)
+
+
+def yielded_and_cut(main: MainHarness) -> tuple[Session, list[MainEvent]]:
+    """A Turn «lee» yields to compact after its tools, and its summary Step runs when the
+    human cuts it with Shift+Enter and sends «otra» (#208)."""
+    session = main.create_session()
+    seed(main, session, [talked(n) for n in range(5)])
+    main.threaded_turns, main.hold_turns = False, True
+    return session, [
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "lee"),
+        ToolsStarted(session.id, ("x",), CALLED_X),
+        ToolsEnded(session.id, RETURNED_X, 600),  # its next Step would pass the threshold
+        StepEnded(session.id, RETURNED_X),
+        TurnEnded(session.id, error=TurnYielded()),  # it yields: its summary Step starts
+        InputReceived(session.id, "otra", interrupt=True),
+    ]
+
+
+def test_shift_enter_on_a_turn_yielded_to_compact_saves_it_cut_once_its_compaction_ends(
+    main: MainHarness,
+):
+    session, cut = yielded_and_cut(main)
+    main.run(*cut, TurnEnded(session.id, steps=[SUMMARY]), settle=True)
+    after = conversation(main, session)
+    assert after.summary == "We talked.", "the Compaction it yielded to ends first"
+    assert [turn.prompt for turn in after.turns][-1] == "lee"
+    assert after.turns[-1].cut == "interrupted" and after.turns[-1].steps == [RETURNED_X]
+    _, _, otra = main.held  # «lee», its summary Step, then «otra», behind it
+    assert otra.request.done == [] and otra.request.input[-1]["content"].endswith("otra")
+
+
+def test_a_turn_cut_as_it_waits_for_its_compaction_is_saved_cut_after_a_restart(
+    main: MainHarness,
+):
+    session, cut = yielded_and_cut(main)
+    main.run(*cut, MainCommandEntered("/exit"), settle=True)
+    held = len(main.held)
+    main.llm = FakeLlm(reply("We talked."))
+    main.hold_turns = False
+    main.run(MainCommandEntered("/exit"), settle=True)  # it starts again, and stops once idle
+    after = conversation(main, session)
+    assert after.summary == "We talked.", "its Compaction ran again first"
+    assert [turn.prompt for turn in after.turns][-1] == "lee"
+    assert after.turns[-1].cut == "interrupted"
+    assert len(main.held) == held
+
+
+def test_closing_the_window_as_a_cut_turn_waits_for_its_compaction_cancels_both(
+    main: MainHarness,
+):
+    session, cut = yielded_and_cut(main)
+    main.run(
+        *cut,
+        WindowClosed(session.id, returncode=0),
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    after = conversation(main, session)
+    assert after.summary is None and [turn.prompt for turn in after.turns][-1] == "p4"
+    assert main.state.load().drafts == {session.id: ["lee", "otra"]}
 
 
 COMPACT = '''

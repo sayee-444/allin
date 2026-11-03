@@ -43,6 +43,9 @@ class Prompt:
     # (ADR-0023), with what it had when it started (ADR-0013).
     suspended: bool = False
     steps: tuple[Step, ...] = ()
+    # Shift+Enter cut its Turn while it waited so: it is saved cut with ``steps`` instead of
+    # going on, once nothing of its Session goes before it (ADR-0024, #208).
+    interrupted: bool = False
     # How many of ``steps`` read the Conversation of before the Compactación its Turn yielded
     # to: their Context no longer holds (#177).
     context_from: int = 0
@@ -131,13 +134,23 @@ class PromptQueue:
         return [prompt for prompt in self._prompts if prompt.session_id == session_id]
 
     def jump_last(self, session_id: SessionId) -> None:
-        """Put a Session's last queued Prompt before its other Prompts (Shift+Enter)."""
-        typed = [p for p in self.of(session_id) if p.kind == "prompt"]
+        """Put a Session's last queued Prompt before its other Prompts (Shift+Enter), but
+        behind its Turn under way, suspended or yielded: that one goes first (#208)."""
+        typed = [p for p in self.of(session_id) if p.kind == "prompt" and not p.suspended]
         if len(typed) < 2:
             return
         last = typed[-1]
         self._prompts.remove(last)
         self._prompts.insert(self._prompts.index(typed[0]), last)
+
+    def interrupt(self, session_id: SessionId) -> bool:
+        """Shift+Enter: mark the Session's Turn under way that waits in the queue, suspended
+        or yielded, to be saved cut instead of going on (ADR-0024); whether it has one."""
+        for index, prompt in enumerate(self._prompts):
+            if prompt.session_id == session_id and prompt.kind == "prompt" and prompt.suspended:
+                self._prompts[index] = replace(prompt, interrupted=True)
+                return True
+        return False
 
     def take_last(self, session_id: SessionId) -> Prompt | None:
         """Take out a Session's last queued Prompt that a human typed, if any (Up)."""

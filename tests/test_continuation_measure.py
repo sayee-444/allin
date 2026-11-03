@@ -256,6 +256,31 @@ def _asked_count(asked: list[int], count: int) -> None:
     assert len(asked) == count
 
 
+@pytest.mark.parametrize("context", [POOL, 8_000], ids=["same-pool", "smaller-pool"])
+def test_a_continuation_whose_measurer_hears_the_fall_first_is_measured_again_once_back(
+    main: MainHarness, context: int
+):
+    """The measure is refused at once, while the Server watch, which looks once a second,
+    still has it ready: that need was never measured (#208)."""
+    session = main.create_session(sampling=CAP)
+    asked = _continuations_measured_later(main)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "lee"),
+        lambda: other_main_reserves(main, "x", 500),  # another Main's Step in course
+        *tool_gave(session, 2_000),  # estimated past the pool, truly ~ 4 000
+        lambda: _measure_arrives(main, session, asked, None),  # refused: the Server just died
+        ServerChanged(KEY, ServerDown()),  # the watch sees it a moment later
+        ServerChanged(KEY, ServerReady(server(slots=2, context=context))),
+        lambda: _asked_count(asked, 2),
+        lambda: _measure_arrives(main, session, asked, 2_000),
+        lambda: _reserved_now(main, [500, words(next_input(main, 2_000)) + 1_000]),
+        settle=True,
+    )
+    assert "turn_failed" not in events(main, session), "never measured, yet it failed too big"
+    assert len(main.servers.taken) == 2, "its next Step started beside the other Main's"
+
+
 def test_closing_the_window_while_its_next_step_is_measured_cancels_the_turn_as_ever(
     main: MainHarness,
 ):

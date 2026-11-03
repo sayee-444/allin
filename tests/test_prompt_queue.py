@@ -150,3 +150,25 @@ def test_a_compaction_leaves_out_of_the_context_the_steps_its_session_had_ended(
     queue.push(Prompt(B, "other", suspended=True, steps=(step,)))
     queue.compacted(A)
     assert [p.context_from for p in queue.all()] == [2, 0, 0]
+
+
+def test_shift_enter_puts_the_last_prompt_ahead_of_the_others_but_not_of_a_turn_under_way():
+    queue = PromptQueue()
+    queue.push(Prompt(A, "auto", "auto_compact"))
+    queue.push(Prompt(A, "duerme", suspended=True))
+    queue.push(Prompt(A, "a2"))
+    queue.push(Prompt(B, "b1"))
+    queue.push(Prompt(A, "a3"))
+    queue.push(Prompt(A, "otra"))
+    queue.jump_last(A)
+    assert [p.text for p in queue.all()] == ["auto", "duerme", "otra", "a2", "b1", "a3"]
+
+
+def test_shift_enter_marks_the_sessions_turn_waiting_in_the_queue_to_be_cut():
+    queue = PromptQueue()
+    queue.push(Prompt(A, "a1"))
+    assert not queue.interrupt(A), "a Prompt whose Turn never started is not cut"
+    queue.push_front(Prompt(A, "duerme", suspended=True))
+    queue.push_front(Prompt(A, "auto", "auto_compact", suspended=True))
+    assert queue.interrupt(A)
+    assert [p.interrupted for p in queue.all()] == [False, True, False]

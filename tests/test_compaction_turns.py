@@ -259,6 +259,55 @@ def test_an_automatic_compaction_that_fails_lets_a_turn_that_still_fits_go_on_wi
     assert len(main.llm.requests) == 8  # and was not compacted for again
 
 
+def test_an_automatic_compaction_that_cannot_start_lets_a_turn_that_still_fits_go_on(
+    main: MainHarness,
+):
+    (main.sysprompts / "compact.txt").write_text("Summarize, never approved.")  # in quarantine
+    session = main.create_session()
+    main.llm = FakeLlm(*answers(6), reply("done"))
+    main.run(MainCommandEntered(f"/open {session.id}"), *talk(session, 7), settle=True)
+    assert "prompt_not_started" not in events(main, session), "p6 left with its Compaction"
+    assert len(conversation(main, session).turns) == 7
+    titles = [m.title for m in sent(main, session) if isinstance(m, BoxShow)]
+    assert "Compaction failed" in titles
+
+
+def test_a_compaction_a_fall_suspended_that_then_fails_takes_its_falls_with_it(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.llm = FakeLlm(
+        *answers(6),
+        DroppedStream([answer("We ch")]),  # its summary Step falls: suspended, one fall
+        DroppedStream([answer("hal")]),  # the next summary Step's first fall: its own first
+        reply("We chose mango."),
+        reply("done"),
+    )
+
+    def unmeasurable() -> None:  # back, but it cannot measure: the Compaction fails
+        main.servers.tokens_of = lambda items: None
+
+    def measurable() -> None:
+        main.servers.tokens_of = words
+
+    main.run(
+        *talk(session, 6),
+        compact(session),
+        unmeasurable,
+        server_ready(main.server),
+        measurable,
+        *talk(session, 1, first=6),  # it compacts first, and that Step falls once
+        server_ready(main.server),
+        settle=True,
+    )
+    failed = [
+        e.fields["error"] for e in main.session_log(session) if e.event == "compaction_failed"
+    ]
+    assert len(failed) == 1 and "could not measure" in str(failed[0])
+    assert events(main, session).count("turn_suspended") == 2
+    assert len(conversation(main, session).turns) == 3  # compacted, and p6 saved
+
+
 def test_a_conversation_bigger_than_a_lowered_slot_is_compacted_in_parts_and_its_turn_goes_on(
     main: MainHarness,
 ):
