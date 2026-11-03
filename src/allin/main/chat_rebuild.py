@@ -27,25 +27,31 @@ FAILED_BEFORE = "the turn before failed"
 def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
     """What goes back to a Window's input as it opens: the Prompt of the Session's last failed
     Turn and those dropped with it, in the order they were sent (#15), as they were typed
-    (#166). Nothing once a later Prompt was sent, a later Turn ended, or they were given back
-    to an open Window already."""
+    (#166), and only a human's: the others failed towards whoever sent them (#171). Nothing
+    once a later Prompt was sent, a later Turn ended, or they were given back to an open Window
+    already."""
     texts: list[str] = []
+    failed = False  # the last Turn failed, and nothing since says its Prompts are told
     for entry in log:
         fields = entry.fields
         match entry.event:
             case "turn_failed":
                 prompt = fields.get("typed") or fields.get("prompt")
-                texts = [prompt] if isinstance(prompt, str) else []
-            case "prompts_dropped" if texts and fields.get("reason") == FAILED_BEFORE:
+                failed = isinstance(prompt, str)
+                human = _by_human(fields.get("origin"))
+                texts = [prompt] if isinstance(prompt, str) and human else []
+            case "prompts_dropped" if failed and fields.get("reason") == FAILED_BEFORE:
                 dropped: list[object] = fields.get("typed") or fields.get("texts", [])
                 kinds: list[object] = fields.get("kinds", ["prompt"] * len(dropped))
+                origins: list[object] = fields.get("origins", [None] * len(dropped))
                 texts += [
                     text
-                    for text, kind in zip(dropped, kinds, strict=False)
-                    if isinstance(text, str) and kind == "prompt"  # never a queued Compaction
+                    for text, kind, origin in zip(dropped, kinds, origins, strict=False)
+                    # never a queued Compaction
+                    if isinstance(text, str) and kind == "prompt" and _by_human(origin)
                 ]
             case "prompt" | "prompt_returned" | "turn_finished" | "turn_cancelled" | "rewound":
-                texts = []
+                texts, failed = [], False
             case _:
                 pass
     return texts
@@ -157,6 +163,15 @@ def _logged_origin(fields: dict[str, object]) -> Origin | None:
         return Origin.model_validate(fields.get("origin"))
     except ValidationError:
         return None
+
+
+def _by_human(labels: object) -> bool:
+    """Whether the Origin a Log entry names for a Prompt is a human's; ``None``, logged before
+    #171, names none, and its Prompt goes back as it did then."""
+    if labels is None:
+        return True
+    origin = _logged_origin({"origin": labels})
+    return origin is not None and origin.is_human
 
 
 def _turn_output(turn: Turn, settings: SessionSettings) -> list[ChatAppend]:
