@@ -1,0 +1,7 @@
+{"ts": "2026-11-03T09:26:58.961960-06:00", "event": "command", "command": "/new --id=caja", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T09:27:05.758543-06:00", "event": "command", "sid": "caja", "command": "/close caja", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T09:27:09.611827-06:00", "event": "command", "sid": "caja", "command": "/send caja @secret set bot token …", "result": "error secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T09:27:20.614877-06:00", "event": "command", "sid": "caja", "command": "/open caja", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T09:27:49.006019-06:00", "event": "command", "sid": "caja", "command": "/send caja @secret set bot token …", "result": "error secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T09:27:56.556823-06:00", "event": "command", "command": "@secret set bot token …", "result": "error secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'", "origin": ["human"]}
+{"ts": "2026-11-03T09:28:03.533923-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
