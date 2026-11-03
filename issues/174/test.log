@@ -1,0 +1,69 @@
+# #174 — Al reabrir la Ventana vuelven también los Textos intercalados de un Turno fallido y el Prompt humano que no cupo (2026-11-03)
+
+Código: rama fix/174-reabrir-devuelve-intercalados-y-no-cupo, commit e56ff72 (el final, tras la revisión). El criterio 1
+se probó con el código de antes del último ajuste de la revisión, que solo toca el Prompt que no cupo (que un Prompt
+posterior de otro Origen no lo borre); el criterio 2, con Main reiniciado sobre e56ff72.
+Servidor (Swift IQ3_XXS con -c 32000, para caber junto al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/171, sin cambios, 19932 → 9932): solo cae el POST de generación cuyo cuerpo
+contiene lo escrito en <scratch>/fall, y cada caída crea <scratch>/down (/health 503) hasta que se borra.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m174, en el xterm allin-main-174, con /set base_url=http://127.0.0.1:19932/v1.
+Functions en <data-dir>/profiles/default/functions/: teller/tell.py (tell.py.txt, la de #171: «@send <sid> <text>»)
+y napper/nap.py (nap.py.txt: una tool que espera N segundos, para escribir en la Ventana mientras corre).
+/piece approve --all; /new --id=lider174; /func add lider174 function:teller; /new --id=cerrada174; /func add cerrada174 function:napper.
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Al reabrir la Ventana tras un Turno fallido con ella cerrada, sus Textos intercalados vuelven al input tras su Prompt
+   y delante de los de la cola, una sola vez
+   - Con la Ventana cerrada, un Turno humano se cancela (ADR-0024); el que sigue es el de otro Origen, para el que la
+     Ventana es una mirilla (ADR-0013). Así que el Turno es de lider174 y el Texto intercalado, del humano.
+   - fall = «Ademas di un color»: cae solo el Paso que lleva ese Texto intercalado.
+   - En lider174: «Llama a la tool tell una vez con sid=cerrada174 y text=Llama a la tool nap con seconds=40 y luego di
+     listo.» El Turno de cerrada174 (origin ["human","session:lider174"]) llama a nap. Mientras corre, en su Ventana, con
+     Enter: «Ademas di un color en una palabra.» (01-cerrada-durante-la-tool.png: [queued]).
+   - Al acabar nap, el texto entra en el Turno (prompt_joined, [sayee] en el Chat) y el Paso siguiente cae: turn
+     suspended (02-cerrada-tras-la-caida.png).
+   - Se cierra la Ventana (kill del xterm «AllIn · cerrada174», por su pid): window_closed; el Turno sigue.
+     Desde Main: /send cerrada174 Y ahora una fruta. @top_k=5 (humano, en cola).
+   - rm down dos veces: el Paso cae otra vez y otra más, y el Turno falla (turn_failed con joined=["Ademas di un color en
+     una palabra."]); «Y ahora una fruta.» sale de la cola (prompts_dropped, the turn before failed). Sin Ventana, nada
+     vuelve aún. (Hicieron falta tres caídas y no dos: cerrar la Ventana borra la cuenta de caídas del Turno que sigue.
+     Es #181.)
+   - rm fall; /open cerrada174 (03-cerrada-al-reabrir.png): el Chat reconstruido con el Prompt de lider174, el Texto
+     intercalado, el error y [dropped] 1; el input trae «Ademas di un color en una palabra.» y «+1 waiting». El Log suma
+       prompt_returned  texts=["Ademas di un color en una palabra.", "Y ahora una fruta. @top_k=5"]
+     El Prompt de lider174 no vuelve (no es humano, #171); el Texto intercalado va delante del de la cola.
+   - Se cierra la Ventana y se reabre (04-cerrada-reabierta-otra-vez.png): el mismo input, «+1 waiting», desde el
+     Borrador; el Log sigue con un solo prompt_returned. Log completo: 08-log-de-cerrada174.jsonl.
+2. El Prompt humano que no cabe en el slot, enviado con la Ventana cerrada, vuelve al input al reabrirla, tal como se
+   tecleó y una sola vez; uno de otro Origen no
+   - /new --id=grande174; /session set grande174 sampling.max_output_tokens=50000 (más que los 32000 del slot);
+     /close grande174.
+   - Desde Main: /send grande174 Di hola. @top_k=5 → error prompt_too_big: need=50626, limit=32000
+     (05-main-no-cabe.png). El Log suma
+       prompt_too_big  typed="Di hola. @top_k=5"  origin=["human"]
+   - En lider174: «Llama a la tool tell una vez con sid=grande174 y text=Di adios en una palabra.» → prompt_too_big:
+     need=50637, limit=32000; el Log suma prompt (origin ["human","session:lider174"]) y
+       prompt_too_big  typed="[from Session lider174]\nDi adios en una palabra."  origin=["human","session:lider174"]
+     Ese Prompt posterior de otro Origen no borra el del humano.
+   - /open grande174 (06-grande-al-reabrir.png): el input trae «Di hola. @top_k=5», tal como se tecleó, sin «+N
+     waiting»: el de lider174 no entra. El Log suma prompt_returned texts=["Di hola. @top_k=5"].
+   - /close grande174 y /open grande174 (07-grande-reabierta-otra-vez.png): el mismo input, desde el Borrador; un solo
+     prompt_returned. Log completo: 09-log-de-grande174.jsonl.
+3. Tests: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+
+## Tests de #174
+tests/test_failed_turns.py::test_what_goes_back_to_the_input_is_read_from_the_log (18 casos nuevos: joined tras el
+  Prompt y delante de la cola, también con un Prompt de otro Origen; prompt_too_big humano y de otro Origen, borrado
+  por un Prompt humano posterior o por prompt_returned y no por uno de otro Origen, ni por un Turno posterior ni un
+  Rewind; el último que no cupo, primero) PASSED
+tests/test_failed_turns.py::test_with_its_window_closed_a_failed_turns_joined_texts_go_back_on_open_once PASSED
+tests/test_failed_turns.py::test_with_its_window_open_a_failed_turns_joined_texts_go_back_once PASSED
+tests/test_pool_admission.py::test_a_human_prompt_that_did_not_fit_with_its_window_closed_goes_back_as_it_opens PASSED
+tests/test_pool_admission.py::test_a_prompt_that_did_not_fit_with_its_window_open_does_not_come_back_on_reopen PASSED
+tests/test_pool_admission.py::test_a_prompt_of_another_origin_that_did_not_fit_never_goes_back_as_its_window_opens PASSED
+Suite completa: 1793 pasan (antes de fusionar #178); basedpyright y ruff limpios.

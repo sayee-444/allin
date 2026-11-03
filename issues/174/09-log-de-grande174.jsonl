@@ -1,0 +1,16 @@
+{"ts": "2026-11-03T09:35:51.584746-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T09:35:51.589895-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:35:51.676157-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T09:35:53.975205-06:00", "event": "window_closed", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T09:36:01.614710-06:00", "event": "prompt", "text": "Di hola.", "overrides": {"top_k": 5}, "typed": "Di hola. @top_k=5", "prompt_id": "jnpem1", "origin": ["human"]}
+{"ts": "2026-11-03T09:36:01.619072-06:00", "event": "error", "error": "prompt_too_big: need=50626, limit=32000"}
+{"ts": "2026-11-03T09:36:01.619141-06:00", "event": "prompt_too_big", "typed": "Di hola. @top_k=5", "origin": ["human"]}
+{"ts": "2026-11-03T09:36:15.844531-06:00", "event": "prompt", "text": "[from Session lider174]\nDi adios en una palabra.", "prompt_id": "f86i8d", "origin": ["human", "session:lider174"]}
+{"ts": "2026-11-03T09:36:15.850975-06:00", "event": "error", "error": "prompt_too_big: need=50637, limit=32000"}
+{"ts": "2026-11-03T09:36:15.851073-06:00", "event": "prompt_too_big", "typed": "[from Session lider174]\nDi adios en una palabra.", "origin": ["human", "session:lider174"]}
+{"ts": "2026-11-03T09:36:16.537129-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:36:16.537551-06:00", "event": "prompt_returned", "texts": ["Di hola. @top_k=5"]}
+{"ts": "2026-11-03T09:36:16.622212-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T09:36:35.293541-06:00", "event": "window_closed", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T09:36:35.889543-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:36:35.976714-06:00", "event": "window_connected"}

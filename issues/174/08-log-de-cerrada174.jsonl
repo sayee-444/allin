@@ -1,0 +1,27 @@
+{"ts": "2026-11-03T09:30:12.691494-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T09:30:12.696445-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:30:12.782293-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T09:30:13.870971-06:00", "event": "functions_added", "pieces": ["function:napper"], "origin": ["human"]}
+{"ts": "2026-11-03T09:30:32.999672-06:00", "event": "prompt", "text": "[from Session lider174]\nLlama a la tool nap con seconds=40 y luego di listo.", "prompt_id": "wh1w9v", "origin": ["human", "session:lider174"]}
+{"ts": "2026-11-03T09:30:33.006086-06:00", "event": "turn_started", "need": 8646}
+{"ts": "2026-11-03T09:30:34.162784-06:00", "event": "tools_called", "tools": ["nap"]}
+{"ts": "2026-11-03T09:30:39.748728-06:00", "event": "prompt", "text": "Ademas di un color en una palabra.", "prompt_id": "tz1fe1", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T09:31:14.188268-06:00", "event": "tools_returned", "grows": 91}
+{"ts": "2026-11-03T09:31:14.188581-06:00", "event": "prompt_joined", "text": "Ademas di un color en una palabra.", "prompt_id": "tz1fe1"}
+{"ts": "2026-11-03T09:31:14.191236-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "We need answer in Spanish likely. User: \"[from Session lider174] Llama a la tool nap con seconds=40 y luego di listo.\" Means call nap with seconds=40 then say listo. Need use tool.\n", "answer": ""}
+{"ts": "2026-11-03T09:31:26.816588-06:00", "event": "window_closed", "returncode": 15}
+{"ts": "2026-11-03T09:31:28.249442-06:00", "event": "prompt", "text": "Y ahora una fruta.", "overrides": {"top_k": 5}, "typed": "Y ahora una fruta. @top_k=5", "prompt_id": "e9c1z5", "queued": true, "origin": ["human"]}
+{"ts": "2026-11-03T09:31:34.711138-06:00", "event": "turn_started", "need": 8762}
+{"ts": "2026-11-03T09:31:34.713544-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T09:33:12.792110-06:00", "event": "turn_started", "need": 8762}
+{"ts": "2026-11-03T09:33:12.794490-06:00", "event": "turn_failed", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": "", "joined": ["Ademas di un color en una palabra."], "origin": ["human", "session:lider174"], "prompt": "[from Session lider174]\nLlama a la tool nap con seconds=40 y luego di listo."}
+{"ts": "2026-11-03T09:33:12.794620-06:00", "event": "prompts_dropped", "reason": "the turn before failed", "texts": ["Y ahora una fruta."], "kinds": ["prompt"], "typed": ["Y ahora una fruta. @top_k=5"], "origins": [["human"]]}
+{"ts": "2026-11-03T09:33:20.573059-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:33:20.573459-06:00", "event": "prompt_returned", "texts": ["Ademas di un color en una palabra.", "Y ahora una fruta. @top_k=5"]}
+{"ts": "2026-11-03T09:33:20.660552-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T09:34:51.024661-06:00", "event": "window_closed", "returncode": 15}
+{"ts": "2026-11-03T09:34:51.617169-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:34:51.704077-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T09:35:33.654796-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T09:35:42.811772-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T09:35:42.904807-06:00", "event": "window_connected"}
