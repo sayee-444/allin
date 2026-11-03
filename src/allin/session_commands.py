@@ -39,6 +39,10 @@ class SessionCommandType:
     usage: str
     summary: str
     translate: Translate
+    # What it becomes when a Proceso adherido asks for it on its own, from its arguments alone,
+    # since it has no Session of its own; ``None``: it never may. Only Main's own set it: those
+    # that act on its Sessions (ADR-0026).
+    initiative: Callable[[str], str] | None = None
 
 
 # Filled while Main loads the modules; read by ``allin.main.session_commands``.

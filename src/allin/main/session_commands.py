@@ -3,7 +3,9 @@
 A Command session, ``@name …``, becomes exactly one Command main, which runs with the Origin it
 came with: a human's from a Window, or the chain of the Turn whose tool asked for it. A human
 may use any; a Session's LLM only one that every Session of its chain has in its list, the
-weakest link (ADR-0013). Each one leaves its Command main in its Session's Log.
+weakest link (ADR-0013). Each one leaves its Command main in its Session's Log. A Proceso
+adherido runs, on its own, those that act on its Sessions the same way, and leaves them in
+Main's Log (ADR-0026).
 
 ``@send`` and ``@server`` are Main's own; the modules in ``<data-dir>/comsession/`` add theirs,
 those at the folder's root being what a new Session gets by default.
@@ -20,13 +22,14 @@ from pydantic import JsonValue
 from allin import session_commands
 from allin.core.errors import (
     AllInError,
+    InitiativeRefused,
     InvalidSessionCommand,
     SecretInMainChatOnly,
     SessionCommandFailed,
     SessionCommandNotListed,
     UnknownSessionCommand,
 )
-from allin.core.ids import CommandName, NotificationSource, ServerKey, SessionId
+from allin.core.ids import AttachedName, CommandName, NotificationSource, ServerKey, SessionId
 from allin.core.origin import Origin
 from allin.decorators import GRANT as GRANT_NAME
 from allin.main.attached import TO
@@ -57,8 +60,9 @@ type Answer = Callable[[SessionCommandResult], bool]
 type RunMain = Callable[[str, Origin, OnOutcome], bool]
 
 
-def _send(call: SessionCommandCall) -> str:
-    sid, _, text = call.args.partition(" ")
+def _send(args: str) -> str:
+    """The same from a Session as from an fproc's Iniciativa."""
+    sid, _, text = args.partition(" ")
     if not sid or not text.strip():
         msg = f"a Session and a text: {_SEND_USAGE}"
         raise ValueError(msg)
@@ -99,7 +103,8 @@ SEND = SessionCommandType(
     _SEND_USAGE,
     "send a Prompt to a Session of this Profile, maybe with files and Turn parameters;"
     " with --reply-to=me its answer comes back to you as a Prompt",
-    _send,
+    lambda call: _send(call.args),
+    initiative=_send,
 )
 
 _SUBSCRIBE_USAGE = "@subscribe [process:<name>|timer:<seconds>|rewind:<sid>|compact:<sid>]"
@@ -245,7 +250,7 @@ CREATE = SessionCommandType(
 NEW_USAGE = "@new <mold> [--id=<id>]"
 
 
-def new_command(args: str) -> str:
+def _new(args: str) -> str:
     """``@new``'s Command main: a Session from a Molde, born in the background; for a Session's
     LLM a Molde of the Profile, for an fproc one of its package, in its Subperfil (ADR-0026)."""
     words = args.split()
@@ -256,16 +261,13 @@ def new_command(args: str) -> str:
     return " ".join(["/new", f"--mold={words[0]}", "--bg", *words[1:]])
 
 
-def _new(call: SessionCommandCall) -> str:
-    return new_command(call.args)
-
-
 NEW = SessionCommandType(
     "new",
     NEW_USAGE,
     "create a Session from a Molde, in the background, and hear its id; an fproc's come from"
     " its package, in its Subperfil",
-    _new,
+    lambda call: _new(call.args),
+    initiative=_new,
 )
 
 
@@ -330,15 +332,25 @@ def _close(call: SessionCommandCall) -> str:
     return f"/close {call.session_id}"
 
 
+def _close_named(args: str) -> str:
+    """An fproc has no Window of its own: it names the Session of its Subperfil it closes."""
+    return f"/close {_one_session(args, '@close <sid>')}"
+
+
 _OPEN_USAGE = "@open <sid>"
 
 
-def _open(call: SessionCommandCall) -> str:
-    """Never ``--bg``: sending a Session to the background is ``@bg``'s, with its check."""
-    words = call.args.split()
+def _open(args: str) -> str:
+    """Never ``--bg``: sending a Session to the background is ``@bg``'s, with its check. The
+    same from a Session as from an fproc's Iniciativa."""
+    return f"/open {_one_session(args, _OPEN_USAGE)}"
+
+
+def _one_session(args: str, usage: str) -> str:
+    words = args.split()
     if len(words) != 1 or words[0].startswith("-"):
-        raise ValueError(_OPEN_USAGE)
-    return f"/open {words[0]}"
+        raise ValueError(usage)
+    return words[0]
 
 
 _WINDOWS_USAGE = "@windows"
@@ -363,13 +375,15 @@ CLOSE = SessionCommandType(
     _CLOSE_USAGE,
     "close this Session's Window, as its X does; only a human",
     _close,
+    initiative=_close_named,
 )
 OPEN = SessionCommandType(
     "open",
     _OPEN_USAGE,
     "open a Session's Window, or bring it from the background, displacing nobody; without room"
     " it asks the human for attention",
-    _open,
+    lambda call: _open(call.args),
+    initiative=_open,
 )
 WINDOWS = SessionCommandType(
     "windows",
@@ -540,15 +554,12 @@ class SessionCommands:
             session = self._load(session_id)
             name, kind = self._kind(text)
             self._check_listed(name, origin)
-            args = text.strip().removeprefix(f"@{name}").strip()
+            args = _args(name, text)
             server = session.settings.server
-            command = _translate(kind, SessionCommandCall(session.id, args, server))
+            call = SessionCommandCall(session.id, args, server)
+            command = _translate(name, lambda: kind.translate(call), kind.usage)
         except AllInError as error:
-            kept = kept_of_session_command(text)
-            shown = f"[{session_id}] {kept.strip()[:60]}: error {error}"
-            self._reporter.report(None, "session_command", shown, command=kept, result=str(error))
-            answer(SessionCommandResult(error=str(error)))
-            return True
+            return self._refused(session_id, "session_command", text, error, answer)
         self._reporter.log_session(
             session.id,
             "session_command",
@@ -567,19 +578,45 @@ class SessionCommands:
             return True
 
         def done(outcome: CommandOutcome) -> None:
-            match outcome:
-                case "ok" if restarts is not None:  # it answers once its Server is back, or not
-                    self._restarting.setdefault(ServerKey(restarts), []).append(reply)
-                case "ok":
-                    reply(SessionCommandResult())
-                case Queried(state=state):
-                    reply(SessionCommandResult(state=state))
-                case "rejected":
-                    reply(SessionCommandResult(error="rejected"))
-                case AllInError() as error:
-                    reply(SessionCommandResult(error=str(error)))
+            if outcome == "ok" and restarts is not None:  # it answers once its Server is back
+                self._restarting.setdefault(ServerKey(restarts), []).append(reply)
+            else:
+                reply(_result(outcome))
 
         return self._run_main(command, origin, done)
+
+    def run_initiative(
+        self,
+        name: AttachedName,
+        text: str,
+        checked: Callable[[], Origin],
+        answer: Answer,
+        run_main: RunMain,
+    ) -> bool:
+        """Run ``text``, ``@name …``, that the Proceso adherido ``name`` asks for on its own,
+        as a Session's runs (ADR-0026): ``checked`` gives the Origin it runs with, or raises
+        why the process may not ask, and ``run_main`` runs its Command main by its Iniciativa.
+        Only those that act on its own Sessions run. Returns whether Main keeps running."""
+        try:
+            origin = checked()
+            command, translate = self._on_its_own(text)
+            self._check_listed(command, origin)
+            args = _args(command, text)
+            main_text = _translate(command, lambda: translate(args))
+        except AllInError as error:
+            return self._refused(name, "initiative", text, error, answer, name=name)
+        self._reporter.log_main(
+            "initiative",
+            name=name,
+            command=text,
+            runs=main_text,
+            origin=list[JsonValue](origin.labels),
+        )
+
+        def done(outcome: CommandOutcome) -> None:
+            answer(_result(outcome))
+
+        return run_main(main_text, origin, done)
 
     def server_changed(self, server: ServerKey, state: ServerState) -> None:
         """A Server a tool restarted is ready again, or failed: the tool hears which."""
@@ -601,6 +638,33 @@ class SessionCommands:
             raise UnknownSessionCommand(command=name)
         return name, kind
 
+    def _on_its_own(self, text: str) -> tuple[CommandName, Callable[[str], str]]:
+        """The Command session ``text`` asks for and what it becomes when an fproc asks for it
+        on its own; raises ``InitiativeRefused`` for one that never may."""
+        name = CommandName(session_command_name(text) or "")
+        kind = self._types.get(name)
+        if kind is None or kind.initiative is None:
+            allowed = [str(n) for n, k in self._types.items() if k.initiative is not None]
+            raise InitiativeRefused(command=name, allowed=list[JsonValue](allowed))
+        return name, kind.initiative
+
+    def _refused(
+        self,
+        asker: str,
+        event: str,
+        text: str,
+        error: AllInError,
+        answer: Answer,
+        **fields: JsonValue,
+    ) -> bool:
+        """Whoever asked hears why its Command session did not run, and Main's Chat shows it;
+        of an ``@secret …`` line, never its value (#155)."""
+        kept = kept_of_session_command(text)
+        shown = f"[{asker}] {kept.strip()[:60]}: error {error}"
+        self._reporter.report(None, event, shown, **fields, command=kept, result=str(error))
+        answer(SessionCommandResult(error=str(error)))
+        return True
+
     def _check_listed(self, name: CommandName, origin: Origin) -> None:
         """A human may run any; anyone else only one every Session of its chain has."""
         missing = lacking(self._sessions, origin, name)
@@ -621,14 +685,32 @@ def _refuse_secret(text: str) -> None:
         raise SecretInMainChatOnly(usage=SECRET_USAGE)
 
 
-def _translate(kind: SessionCommandType, call: SessionCommandCall) -> str:
+def _args(name: CommandName, text: str) -> str:
+    """What follows a Command session's name, as written."""
+    return text.strip().removeprefix(f"@{name}").strip()
+
+
+def _translate(name: CommandName, translate: Callable[[], str], usage: str | None = None) -> str:
+    """The Command main a Command session becomes; raises ``InvalidSessionCommand`` saying why
+    its arguments make none."""
     try:
-        command = kind.translate(call)
+        return translate()
     except ValueError as error:
-        raise InvalidSessionCommand(
-            command=kind.name, reason=str(error), usage=kind.usage
-        ) from error
-    return command
+        shown: dict[str, JsonValue] = {} if usage is None else {"usage": usage}
+        raise InvalidSessionCommand(command=name, reason=str(error), **shown) from error
+
+
+def _result(outcome: CommandOutcome) -> SessionCommandResult:
+    """How a Command main went, as whoever asked for its Command session hears it."""
+    match outcome:
+        case "ok":
+            return SessionCommandResult()
+        case Queried(state=state):
+            return SessionCommandResult(state=state)
+        case "rejected":
+            return SessionCommandResult(error="rejected")
+        case AllInError() as error:
+            return SessionCommandResult(error=str(error))
 
 
 def _ignored(_: SessionCommandResult) -> bool:

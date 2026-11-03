@@ -30,6 +30,7 @@ from allin.core.ids import (
     AttachedName,
     CommandName,
     MainId,
+    PieceId,
     SessionId,
     new_prompt_id,
     parse_subscription_id,
@@ -127,6 +128,16 @@ class _NewAsked:
     commands: tuple[str, ...] | None = None
     mold: str | None = None
     methods: str | None = None
+
+
+@dataclass(frozen=True)
+class _Birth:
+    """What a new Session is born with, and where (ADR-0011, ADR-0026)."""
+
+    asked: _NewAsked  # its Command sessions already its Molde's if ``/new`` named none
+    mold: LoadedMold | None
+    functions: tuple[PieceId, ...] | None  # those its Molde names; ``None``: as ``/new`` gives
+    subprofile: AttachedName | None = None  # the Proceso adherido whose Subperfil it is born in
 
 
 @dataclass(frozen=True)
@@ -796,11 +807,8 @@ class MainCommands:
         ``initiative``."""
         asked = self._parse_new(options)
         process = acting_process(origin)
-        if process is None:
-            session, in_view = self._new_session(asked, origin)
-        else:
-            session = self._new_of_process(process, asked, origin, initiative)
-            in_view = False
+        birth = self._in_profile(asked) if process is None else self._in_subprofile(process, asked)
+        session, in_view = self._born(birth, origin, initiative)
         place: Place = "view" if in_view else "background"
         answer(Queried({"session_id": session.id, "place": place}))
         return True
@@ -828,26 +836,46 @@ class MainCommands:
                 raise InvalidArguments(usage=self._commands["/new"].usage("/new"))
         return asked
 
-    def _new_session(self, asked: _NewAsked, origin: Origin) -> tuple[Session, bool]:
-        """A Session of the active Profile: the new Session and whether it is in view."""
-        template = self._settings.current.session  # copied: later changes never reach it
+    def _in_profile(self, asked: _NewAsked) -> _Birth:
+        """A Session of the active Profile, maybe from one of its Moldes, whose Command sessions
+        it gets if ``/new`` named none."""
         mold = None if asked.mold is None else self._creator.mold(asked.mold)
+        if asked.commands is None and mold is not None and mold.recipe.commands is not None:
+            asked = replace(asked, commands=tuple(str(name) for name in mold.recipe.commands))
+        return _Birth(asked, mold, None if mold is None else mold.recipe.functions)
+
+    def _in_subprofile(self, name: AttachedName, asked: _NewAsked) -> _Birth:
+        """A Session the Proceso adherido ``name`` creates: only in its Subperfil, from a Molde
+        of its package its Alcance names, born in the background with the Molde's functions
+        and Command sessions alone (ADR-0026)."""
+        mold = self._package_mold(name, asked)
+        commands = tuple(str(command) for command in mold.recipe.commands or ())
+        alone = replace(asked, background=True, sources=True, commands=commands)
+        return _Birth(alone, mold, mold.recipe.functions or (), name)
+
+    def _born(self, birth: _Birth, origin: Origin, initiative: bool) -> tuple[Session, bool]:
+        """Create the Session ``birth`` describes, never with more than every Session of
+        ``origin``'s chain has, and never Otorgar (ADR-0025): the new Session and whether it is
+        in view. Its Molde's task, asked on its own, goes by its ``initiative``."""
+        asked, mold = birth.asked, birth.mold
         task = None if mold is None else mold.recipe.task
         if task is not None:
             self._check_may_send(origin)  # before anything is created
         chain = None if origin.is_human else self._chain(origin)
-        settings = self._born_exempt(template if mold is None else mold.settings(template), chain)
+        template = self._settings.current.session  # copied: later changes never reach it
+        settings = template if mold is None else mold.settings(template)
+        settings = self._born_exempt(settings, chain, birth.subprofile)
         sysprompt = render_sysprompt(self._sysprompts, settings)
-        named = None if mold is None else mold.recipe.functions
-        functions = self._functions.born_with(asked.sources, list(asked.agents), named, chain)
-        commands: list[str] | None = None if asked.commands is None else list(asked.commands)
-        if commands is None and mold is not None and mold.recipe.commands is not None:
-            commands = [str(name) for name in mold.recipe.commands]
+        functions = self._functions.born_with(
+            asked.sources, list(asked.agents), birth.functions, chain
+        )
+        commands = None if asked.commands is None else list(asked.commands)
         listed = self._functions.commands_born_with(commands, origin)
         attached = self._methods.born_with(asked.methods or "", chain)
         history = [] if mold is None else [message.item() for message in mold.recipe.history]
         version = None if mold is None else mold.version
-        creator = None if origin.sender is None else SessionId(origin.sender)
+        # A Session's LLM asked for it; one an fproc creates, its code did.
+        sender = None if birth.subprofile is not None else origin.sender
         session = self._sessions.create(
             self._main_id,
             settings,
@@ -857,66 +885,38 @@ class MainCommands:
             listed,
             history,
             version,
-            creator,
+            None if sender is None else SessionId(sender),
         )
-        self._reporter.record(
-            session.id,
-            "session_created",
-            "session created",
-            owner=self._main_id,
-            mold=None if version is None else version.piece,
-        )
-        self._profiles.created(session.id)
+        self._record_birth(session, birth)
         self._methods.given_at_birth(session, attached)
         in_view = self._place(session, asked.background, origin)
         if task is not None:
-            self._send_task(session, task, origin)
+            self._send_task(session, task, origin, initiative)
         return session, in_view
 
-    def _new_of_process(
-        self, name: AttachedName, asked: _NewAsked, origin: Origin, initiative: bool
-    ) -> Session:
-        """A Session the Proceso adherido ``name`` creates: only in its Subperfil, from a Molde
-        of its package its Alcance names, born in the background with the Molde's functions
-        and Command sessions alone, never more than every Session of ``origin``'s chain has,
-        and never Otorgar (ADR-0026)."""
-        mold = self._package_mold(name, asked)
-        task = mold.recipe.task
-        if task is not None:
-            self._check_may_send(origin)
-        chain = self._chain(origin)
-        # Only its Subperfil's Exención, a human's, covers it (ADR-0026).
-        settings = mold.settings(self._settings.current.session).model_copy(
-            update={"exempt": False}
-        )
-        sysprompt = render_sysprompt(self._sysprompts, settings)
-        functions = self._functions.born_with(True, [], mold.recipe.functions or (), chain)
-        named = [str(name) for name in mold.recipe.commands or ()]
-        listed = self._functions.commands_born_with(named, origin)
-        history = [message.item() for message in mold.recipe.history]
-        session = self._sessions.create(
-            self._main_id,
-            settings,
-            sysprompt,
-            asked.chosen,
-            functions,
-            listed,
-            history,
-            mold.version,
-        )
+    def _record_birth(self, session: Session, birth: _Birth) -> None:
+        """The new Session enters the list of its space: the Profile's, or its Subperfil."""
+        name = birth.subprofile
+        if name is None:
+            version = None if birth.mold is None else birth.mold.version
+            self._reporter.record(
+                session.id,
+                "session_created",
+                "session created",
+                owner=self._main_id,
+                mold=None if version is None else version.piece,
+            )
+            self._profiles.created(session.id)
+            return
         self._reporter.record(
             session.id,
             "session_created",
             f"session created by {name}, in its Subperfil",
             owner=self._main_id,
-            mold=asked.mold,
+            mold=birth.asked.mold,
             subprofile=name,
         )
         self._subprofiles.add_session(name, session.id)
-        self._windows.to_background(session.id)
-        if task is not None:
-            self._send_task(session, task, origin, initiative)
-        return session
 
     def _package_mold(self, name: AttachedName, asked: _NewAsked) -> LoadedMold:
         """The Molde of its package ``@new`` asks the Proceso adherido ``name`` for: one its
@@ -932,10 +932,15 @@ class MainCommands:
         return self._creator.package_mold(fproc.offered.piece, asked.mold)
 
     def _born_exempt(
-        self, settings: SessionSettings, chain: list[Session | None] | None
+        self,
+        settings: SessionSettings,
+        chain: list[Session | None] | None,
+        subprofile: AttachedName | None,
     ) -> SessionSettings:
-        """A Session never leaves covered what was not (ADR-0013)."""
-        if chain is not None and not all(s is not None and s.settings.exempt for s in chain):
+        """A Session never leaves covered what was not (ADR-0013); one in a Subperfil, only
+        its Subperfil's Exención, a human's, covers (ADR-0026)."""
+        inherits = chain is None or all(s is not None and s.settings.exempt for s in chain)
+        if subprofile is not None or not inherits:
             return settings.model_copy(update={"exempt": False})
         return settings
 
