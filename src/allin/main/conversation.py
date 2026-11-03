@@ -135,6 +135,9 @@ class Conversation(BaseModel, frozen=True):
     # Its last Turn's cut when a Compaction replaced every Turn: the next Prompt still tells
     # the LLM, which sees no last Turn (#120).
     summarized_cut: CutNote | None = None
+    # A Compaction saved it after its last Turn, whose Steps no longer tell its Context: the
+    # Window's border shows what the Server measured of it, or that it is unknown (#157).
+    compacted_since_turn: bool = False
 
     @property
     def next_turn(self) -> int:
@@ -147,7 +150,8 @@ class Conversation(BaseModel, frozen=True):
         return self.next_turn > 0
 
     def with_turn(self, turn: Turn) -> "Conversation":
-        return self.model_copy(update={"turns": [*self.turns, turn]})
+        update = {"turns": [*self.turns, turn], "compacted_since_turn": False}
+        return self.model_copy(update=update)
 
     def request_input(
         self,
@@ -159,12 +163,18 @@ class Conversation(BaseModel, frozen=True):
         """The ``input`` for the first Step of a Turn that answers ``prompt``; ``reader``
         gives what the LLM gets of each attachment, this Prompt's and earlier ones', and
         ``notifications`` go ahead of the Prompt."""
+        items = self.read_items(reader)
+        items.append(user_item(with_notifications(prompt, notifications), attachments, reader))
+        return items
+
+    def read_items(self, reader: "AttachmentParts | None" = None) -> list[Item]:
+        """The Conversation as its LLM reads it now: Sysprompt, initial history, summary and
+        Turns, the first ``pruned`` of them pruned."""
         items: list[Item] = [{"role": "developer", "content": self.sysprompt}, *self.history]
         if self.summary is not None:
             items.append(summary_item(self.summary, self.summarized))
         for index, turn in enumerate(self.turns):
             items += turn_items(turn, reader, pruned=index < self.pruned)
-        items.append(user_item(with_notifications(prompt, notifications), attachments, reader))
         return items
 
 
