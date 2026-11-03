@@ -172,7 +172,7 @@ _Avoid_: truncado (es lo que hace `--context-shift`), incompleto
 Trabajo que retoma algo ya empezado: un Turno suspendido, el Paso siguiente de un Turno cuyas tools terminaron, o una Sesión que despierta de una Suscripción. Dentro de su Main va antes que los Prompts nuevos, salvo cuando ya pasaron varias seguidas y toca dejar pasar uno nuevo.
 
 **Suscripción** (`Subscription`):
-Petición de una Sesión de que un evento la despierte: cuando ocurre (responden otras Sesiones, un Proceso adherido dice algo que le interesa, pasa un tiempo…), Main le encola un Prompt con lo ocurrido. Mientras espera no tiene Turno activo ni ocupa slot, y no bloquea a su Sesión: esta atiende sus Prompts con normalidad, y el del evento entra como Continuación en cuanto la Sesión no tenga Turno activo.
+Petición de una Sesión de que un evento la despierte: cuando ocurre (responden otras Sesiones, un Proceso adherido dice algo que le interesa, pasa un tiempo…), Main le encola un Prompt con lo ocurrido. Mientras espera no tiene Turno activo ni ocupa slot, y no bloquea a su Sesión: esta atiende sus Prompts con normalidad, y el del evento entra como Continuación en cuanto la Sesión no tenga Turno activo. Se abre con `@subscribe` (un humano, `/subscribe`) para `process:<nombre>`, `timer:<segundos>`, `rewind:<sid>` o `compact:<sid>`, o con `--reply-to` al enviar; los eventos que llegan seguidos van en un solo Prompt.
 _Avoid_: listener, hook, trigger
 
 **Encargo** (`Errand`):
