@@ -38,3 +38,14 @@ CONTEXT = NoticeType(
     params={"threshold": _THRESHOLD},
     check=_check,
 )
+
+
+def context_left(event: NoticeEvent) -> str | None:
+    """The line the LLM is told when the Context Notice shows: how much is left, which it
+    cannot see (#120)."""
+    if event.used is None or not event.limit:
+        return None
+    what = "The shared pool" if event.shared else "Your Context"
+    pct = 100 * event.used // event.limit
+    left = max(0, event.limit - event.used)
+    return f"{what} is at {pct}% of {event.limit} tokens: about {left} tokens are left."

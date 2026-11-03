@@ -54,12 +54,26 @@ def cut_mark(reason: CutReason) -> str:
             return "turn cut: interrupted with Shift+Enter"
 
 
-def pending_notifications(conversation: Conversation) -> list[str]:
-    """What the next Prompt of the Conversation tells the LLM first: that its last Turn was
-    interrupted, if it was."""
-    if conversation.turns and conversation.turns[-1].cut == "interrupted":
-        return [INTERRUPTED_LINE]
-    return []
+def cut_line(conversation: Conversation) -> tuple[CutReason, str] | None:
+    """What the next Prompt of the Conversation tells the LLM first if its last Turn was cut,
+    and why it was: the LLM cannot see its own tokens (#120)."""
+    if not conversation.turns:
+        return None
+    last = conversation.turns[-1]
+    usage = last.steps[-1].usage if last.steps else None
+    input_tokens = int((usage or {}).get("input_tokens") or 0)
+    output_tokens = int((usage or {}).get("output_tokens") or 0)
+    match last.cut:
+        case None:
+            return None
+        case "interrupted":
+            return "interrupted", INTERRUPTED_LINE
+        case "output_cap":
+            why = f"it reached its output cap of {output_tokens} tokens"
+        case "slot_limit":
+            used = input_tokens + output_tokens
+            why = f"the Conversation filled its slot's context ({used} tokens)"
+    return last.cut, f"Your last answer was cut: {why}."
 
 
 def _check(event: NoticeEvent, params: dict[str, JsonValue]) -> Mapping[str, object] | None:

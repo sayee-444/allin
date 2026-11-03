@@ -66,6 +66,8 @@ from allin.main.chat_rebuild import (
 )
 from allin.main.compaction import summary_text, wants_compaction
 from allin.main.compactions import Compacted, CompactionDone, Compactions
+from allin.main.context_notice import CONTEXT as CONTEXT_NOTICE
+from allin.main.context_notice import context_left
 from allin.main.conversation import Conversation, Item, Step, Turn
 from allin.main.cut_turns import cut_mark, cut_reason, output_cap
 from allin.main.devastation import Devastation
@@ -82,7 +84,7 @@ from allin.main.executors import SHUTTING_DOWN, TurnJob
 from allin.main.link_changes import LinkChange, failure_text, judge
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
-from allin.main.notifications import NOTHING_TOLD, Notifications, Told
+from allin.main.notifications import CONTEXT, NOTHING_TOLD, Notifications, Told
 from allin.main.open_windows import OpenWindows, Streamed
 from allin.main.prompts import AutoConfirm, Prompt, PromptQueue
 from allin.main.reporting import Reporter
@@ -1519,6 +1521,9 @@ class TurnQueue:
             fields = {"kind": kind, "title": title, "text": text}
             self._reporter.record(session_id, "notice", f"notice: {title}", **fields)
             self._boxes.notify(session_id, title, text, kind)
+            left = context_left(event) if kind == CONTEXT_NOTICE.name else None
+            if left is not None:  # its LLM cannot see its tokens (#120)
+                self._notifications.leave(session_id, CONTEXT, left)
 
         for failure in self._notices.happened(event, running.session.settings, notify):
             self._reporter.error(failure, session_id)

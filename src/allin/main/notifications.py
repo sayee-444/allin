@@ -22,7 +22,7 @@ from allin.core.ids import NotificationSource, SessionId
 from allin.core.settings import ConversationLogs
 from allin.main.chat_rebuild import logs_entry
 from allin.main.conversation import Conversation
-from allin.main.cut_turns import pending_notifications
+from allin.main.cut_turns import cut_line
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import Change, Notification, Session, SessionStore
@@ -35,8 +35,12 @@ SUBSCRIPTION = NotificationSource("subscription")  # a Suscripción's chain cut 
 ERRAND = NotificationSource("errand")  # how an Encargo goes: "2 of 3 answered" (#117)
 # What a Session still has open after a Compactación, which its summary may have lost (#119).
 COMPACT = NotificationSource("compact")
+# That its last answer reached its Output cap or filled the slot (#120).
+CUT = NotificationSource("cut")
+# How much Context is left, once its Notice shows (#120).
+CONTEXT = NotificationSource("context")
 # The sources Main itself leaves Notificaciones from, listed even before any did.
-SOURCES = (FUNC, CALL, INTERRUPTED, SUBSCRIPTION, ERRAND, COMPACT)
+SOURCES = (FUNC, CALL, INTERRUPTED, CUT, CONTEXT, SUBSCRIPTION, ERRAND, COMPACT)
 USAGE = "/conversation_logs <sid> on|off|list [source]"
 _ACTION = TypeAdapter[Literal["on", "off", "list"]](Literal["on", "off", "list"])
 
@@ -110,11 +114,15 @@ class Notifications:
         return next((n for n in pending if n.change == opposite and n.id not in told), None)
 
     def opening(self, session: Session, conversation: Conversation, told: Told) -> list[str]:
-        """What a Prompt of the Session opens with: that its last Turn was interrupted, then
-        ``told``, as far as its Conversation logs let each in."""
+        """What a Prompt of the Session opens with: that its last Turn was cut, then ``told``,
+        as far as its Conversation logs let each in."""
         logs = session.settings.conversation_logs
-        cut = pending_notifications(conversation) if logs.enters(INTERRUPTED) else []
-        return [*cut, *told.lines]
+        cut = cut_line(conversation)
+        if cut is None:
+            return list(told.lines)
+        reason, line = cut
+        source = INTERRUPTED if reason == "interrupted" else CUT
+        return [line, *told.lines] if logs.enters(source) else list(told.lines)
 
     def pending(self, session_id: SessionId) -> Told:
         """What its next Prompt would open with now; nothing is marked told."""
