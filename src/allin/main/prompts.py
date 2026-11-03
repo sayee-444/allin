@@ -141,7 +141,9 @@ class PromptQueue:
 
     def take_last(self, session_id: SessionId) -> Prompt | None:
         """Take out a Session's last queued Prompt that a human typed, if any (Up)."""
-        typed = [p for p in self.of(session_id) if p.kind == "prompt" and p.queued]
+        typed = [
+            p for p in self.of(session_id) if p.kind == "prompt" and p.queued and p.origin.is_human
+        ]
         if not typed:
             return None
         self._prompts.remove(typed[-1])

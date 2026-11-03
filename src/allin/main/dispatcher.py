@@ -471,7 +471,6 @@ class Dispatcher:
         self._organizer.close("main stopped")
         self._turns.stop()
         self._take_turn_events()
-        self._turns.keep_interjected()
         # Windows, queue and running Turns as they are: a restart restores them.
         self._recovery.save()
         self._turns.cancel_running()

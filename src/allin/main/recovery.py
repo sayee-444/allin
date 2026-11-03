@@ -136,10 +136,16 @@ class Recovery:
             self._windows.show_error(error)
         saved = self._saved
         drafts = dict(saved.drafts)
-        for prompt in saved.running:  # only a human's goes back to the input, as typed (#156)
+        for prompt in saved.running:  # in no Conversation: back to the input (#156, #176)
+            draft = drafts.get(prompt.session_id, [])
+            # Its Textos intercalados, a human's whatever its Origin, behind it; it, only a
+            # human's, as typed.
+            for text in reversed(saved.interjected.get(prompt.session_id, [])):
+                draft = put_back(draft, text)
             if prompt.origin.is_human:
-                draft = drafts.get(prompt.session_id, [])
-                drafts[prompt.session_id] = put_back(draft, prompt.as_typed)
+                draft = put_back(draft, prompt.as_typed)
+            if draft:
+                drafts[prompt.session_id] = draft
         self._windows.replace_drafts(drafts)
         self._subscriptions.restore(saved.subscriptions)
         self._turns.requeue(saved.queue)  # first: an Encargo the lost settle cancels some
@@ -197,6 +203,7 @@ class Recovery:
             drafts=self._windows.drafts(),
             queue=self._turns.queued(),
             running=self._turns.running_prompts(),
+            interjected=self._turns.running_interjected(),
             background=self._windows.background_ids(),
             subscriptions=self._subscriptions.state(),
         )

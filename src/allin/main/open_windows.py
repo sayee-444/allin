@@ -1,6 +1,7 @@
 """The Windows Main has open, what it sends them and the Draft each one last sent."""
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 
@@ -231,7 +232,7 @@ class OpenWindows:
         if not texts:
             return
         for text in reversed(texts):
-            self.put_back(session.id, text)
+            self._to_input(session.id, text)
         fields: list[JsonValue] = list(texts)
         self._reporter.log_session(session.id, "prompt_returned", texts=fields)
 
@@ -434,7 +435,15 @@ class OpenWindows:
             self._used[new] = self._used.pop(old)
 
     def put_back(self, session_id: SessionId, text: str) -> None:
-        """A Prompt that did not run goes back to its input, ahead of the Draft."""
+        """A Prompt that did not run goes back to its input, ahead of the Draft. With its
+        Window closed, ahead of what a failed Turn left to give back too, which an open Window
+        would hold already, so both come back in the order they would have with it open."""
+        if session_id not in self._links:
+            with suppress(AllInError):  # no such Session any more: nothing of it to give back
+                self._give_back_failed(self._sessions.load(session_id))
+        self._to_input(session_id, text)
+
+    def _to_input(self, session_id: SessionId, text: str) -> None:
         self._drafts[session_id] = put_back(self._drafts.get(session_id, []), text)
         self.send(session_id, InputRestore(text=text))
 

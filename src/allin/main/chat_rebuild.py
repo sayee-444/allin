@@ -30,8 +30,9 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
     sent them (#171).
 
     What each failed Turn gave back, its Prompt, its Textos intercalados and the Prompts
-    dropped with it, in the order they were sent (#15, #174); and a human's Prompts that did
-    not fit even in the empty slot (#174). Each one goes ahead of those given back before it,
+    dropped with it, in the order they were sent (#15, #174); a Prompt that could not start,
+    or whose suspended Turn could not go on, such as one that did not fit even in the empty
+    slot, gives back the same (#174, #196). Each one goes ahead of those given back before it,
     as with the Window open, and stays until the human sends a later Prompt, whatever comes
     from another Origin or ends meanwhile (#182). None of them once given back to an open
     Window already."""
@@ -41,7 +42,7 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
     for entry in log:
         fields = entry.fields
         match entry.event:
-            case "turn_failed":
+            case "turn_failed" | "prompt_too_big" | "prompt_not_started":
                 prompt = fields.get("typed") or fields.get("prompt")
                 failed = isinstance(prompt, str)
                 human = _by_human(fields.get("origin"))
@@ -62,10 +63,6 @@ def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
                 ]
                 returned[latest:latest] = given
                 latest += len(given)
-            case "prompt_too_big":
-                typed = fields.get("typed")
-                if isinstance(typed, str) and _by_human(fields.get("origin")):
-                    returned.insert(0, typed)
             case "prompt" if _by_human(fields.get("origin")):  # another's says nothing of it
                 returned, failed = [], False
             case "prompt_returned":
@@ -138,6 +135,8 @@ def rebuild_chat(
                 starts = {number: start for number, start in starts.items() if number < first}
             case "prompts_dropped":
                 chat.append(dropped_entry(len(fields["texts"]), fields["reason"]))
+            case "prompt_too_big" | "prompt_not_started":  # its suspended Turn's, if it ran
+                chat += [_prompt(text, settings) for text in fields.get("joined", [])]
             case "turn_failed" | "turn_cancelled":
                 chat += _output(fields["reasoning"], fields["answer"], settings)
                 chat += [_prompt(text, settings) for text in fields.get("joined", [])]

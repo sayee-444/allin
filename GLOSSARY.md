@@ -90,7 +90,7 @@ Registro con fecha y hora de los eventos de una Sesión o de Main; siempre activ
 _Avoid_: historial
 
 **Estado de Main** (`MainState`):
-Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json` (el del Main raíz, en `state.json` de la carpeta de su Perfil), para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Sesiones en segundo plano, Borradores, cola de Prompts y Prompts de los Turnos en curso. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
+Lo que Main guarda de sí mismo tras cada cambio, en `state/<main_id>.json` (el del Main raíz, en `state.json` de la carpeta de su Perfil), para que al reiniciarse (tras `/exit`, una señal o un `kill -9`) el usuario vuelva a estar donde estaba: Ventanas abiertas (con el pid de su xterm, para cerrarlas si Main muere y quedan huérfanas, ADR-0007), Sesiones en segundo plano, Borradores, cola de Prompts y Prompts de los Turnos en curso, con sus Textos intercalados. Lo de cada Sesión (Conversación, Log, Ajustes) no va aquí.
 _Avoid_: snapshot, sesión de Main
 
 **Borrador** (`draft`):
@@ -166,10 +166,10 @@ La atención completa de un Prompt: empieza cuando Main lo saca de la cola y ter
 _Avoid_: request, petición (para el ciclo completo)
 
 **Turno suspendido** (`suspended turn`):
-Turno que espera porque una caída o un reinicio de su Servidor le dejó un Paso a medias: conserva su Conversación hasta antes de ese Paso y lo repite, como Continuación, cuando el Servidor vuelve a estar listo. Si el mismo Paso queda a medias en dos caídas seguidas, el Turno falla. No es un Turno cortado, que se guarda con lo que generó.
+Turno que espera porque una caída o un reinicio de su Servidor le dejó un Paso a medias: conserva su Conversación hasta antes de ese Paso y lo repite, como Continuación, cuando el Servidor vuelve a estar listo. Si el mismo Paso queda a medias en dos caídas seguidas, el Turno falla. Un Turno cancelado (cerrar su Ventana, `/close`, Shift+Enter, un Encargo que ya no lo espera) nunca se suspende, aunque su caída o el reinicio llegue antes que la cancelación; y uno suspendido que sale de la cola sale como uno fallido o cancelado: lo que abrió se cancela y lo que tecleó un humano vuelve al input (#196). No es un Turno cortado, que se guarda con lo que generó.
 
 **Texto intercalado** (`interjected`):
-Texto llano que el humano envía desde la Ventana de una Sesión mientras corre un Turno de esa Sesión y que entra en ese Turno: lo lee el siguiente Paso, después de las salidas de las tools, como un mensaje del usuario. No es un Prompt nuevo ni cambia el Origen del Turno. Lo que lleva Command prompts o `-y`, lo que no cabe en el slot, lo que llega por `/send` y lo escrito antes de que el Turno empezara esperan su propio Turno. Se guarda en el Paso tras cuyas tools entró; si el Turno falla, se cancela, o Main se para (`/exit` o una señal) antes de que acabe, vuelve al input, tras su Prompt si es humano (ADR-0024).
+Texto llano que el humano envía desde la Ventana de una Sesión mientras corre un Turno de esa Sesión y que entra en ese Turno: lo lee el siguiente Paso, después de las salidas de las tools, como un mensaje del usuario. No es un Prompt nuevo ni cambia el Origen del Turno. Lo que lleva Command prompts o `-y`, lo que no cabe en el slot, lo que llega por `/send` y lo escrito antes de que el Turno empezara esperan su propio Turno. Se guarda en el Paso tras cuyas tools entró; si el Turno falla, se cancela, o Main se para (`/exit`, una señal o un `kill -9`) antes de que acabe, vuelve al input, tras su Prompt si es humano (ADR-0024).
 _Avoid_: interrupción (es Shift+Enter), mensaje en cola (es lo que aún espera)
 
 **Turno cortado** (`cut turn`):

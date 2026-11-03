@@ -23,6 +23,9 @@ class MainState(BaseModel, frozen=True):
     drafts: dict[SessionId, list[str]] = Field(default_factory=dict[SessionId, list[str]])
     queue: list[Prompt] = Field(default_factory=list[Prompt])  # waiting, in queue order
     running: list[Prompt] = Field(default_factory=list[Prompt])  # their Turns had started
+    # The Textos intercalados each of those Turns took, by Session: given back behind its
+    # Prompt, so a Main killed outright loses none of them either (#196).
+    interjected: dict[SessionId, list[str]] = Field(default_factory=dict[SessionId, list[str]])
     # Sessions open in the background, without a Window (#52), in the order they went there.
     background: list[SessionId] = Field(default_factory=list[SessionId])
     # Its Suscripciones: frozen while its Profile is inactive (#116, ADR-0011).
@@ -42,6 +45,7 @@ class MainState(BaseModel, frozen=True):
             drafts={key(sid): blocks for sid, blocks in self.drafts.items()},
             queue=prompts(self.queue),
             running=prompts(self.running),
+            interjected={key(sid): texts for sid, texts in self.interjected.items()},
             background=[key(sid) for sid in self.background],
             subscriptions=self.subscriptions.renamed(old, new),
         )
