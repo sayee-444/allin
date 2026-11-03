@@ -1,0 +1,30 @@
+# Prueba a mano de #113 (2026-11-02)
+
+Main: ./venv/bin/python -m allin --data-dir e113/var (carpeta de datos desechable dentro del repo, ignorada por git).
+Servidor: llama serve -m Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 128000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+
+Piezas: functions/file (la fproc instalada) y opener (una fsource con @reach(commands=["attach"]) que hace @attach shared_file notas --file=<path>), aprobadas con /piece.
+Sesiones: autora (/new --id=autora -cs=send,attach) y otra (/new --id=otra --bg).
+
+## Proceso adherido encerrado (primer /attach)
+NoNewPrivs: 1, Seccomp: 2 en el proceso de la fproc; su directorio actual: e113/var/attached/default/notas
+
+## Log de Main (desde el arranque con el código de la caída corregido, 19:04): adherir, caída, Aprobación, perdidos, cambio de Perfil y soltar
+{"ts": "2026-11-02T19:04:17.312040-06:00", "event": "attached", "name": "notas", "fproc": "shared_file", "pid": 246639, "file": "e113/var/workspaces/autora/notas.txt", "to": ["autora"], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T19:04:18.881717-06:00", "event": "attached_crashed", "name": "notas", "fproc": "shared_file", "exit_code": -9, "stderr": ""}
+{"ts": "2026-11-02T19:06:48.544192-06:00", "event": "command", "command": "/attach shared_file notas --file=../otra/ajeno.txt --to=autora", "result": "error shared_file_not_approved: path='e113/var/workspaces/otra/ajeno.txt'", "origin": ["human", "session:autora"]}
+{"ts": "2026-11-02T19:07:09.626398-06:00", "event": "attached", "name": "notas", "fproc": "shared_file", "pid": 247255, "file": "e113/var/workspaces/otra/ajeno.txt", "to": ["autora"], "origin": ["human", "session:autora"], "restarted": false}
+{"ts": "2026-11-02T19:07:09.626465-06:00", "event": "command", "command": "/attach shared_file notas --file=../otra/ajeno.txt --to=autora", "result": "ok", "origin": ["human", "session:autora"]}
+{"ts": "2026-11-02T19:07:35.250087-06:00", "event": "attached_lost", "name": "notas", "profile": "default", "pid": 247255, "closed": false}
+{"ts": "2026-11-02T19:07:56.188187-06:00", "event": "attached", "name": "notas", "fproc": "shared_file", "pid": 247487, "file": "e113/var/workspaces/autora/notas.txt", "to": ["autora"], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T19:08:01.487946-06:00", "event": "attached_lost", "name": "notas", "profile": "default", "pid": 247487, "closed": true}
+{"ts": "2026-11-02T19:08:21.528324-06:00", "event": "attached", "name": "notas", "fproc": "shared_file", "pid": 247584, "file": "e113/var/workspaces/autora/notas.txt", "to": ["autora"], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T19:08:24.601298-06:00", "event": "detached", "name": "notas", "reason": "profile switched"}
+{"ts": "2026-11-02T19:08:41.415494-06:00", "event": "attached", "name": "notas", "fproc": "shared_file", "pid": 247767, "file": "e113/var/workspaces/autora/notas.txt", "to": ["autora"], "origin": ["human"], "restarted": false}
+{"ts": "2026-11-02T19:08:43.140288-06:00", "event": "detached", "name": "notas"}
+
+## Log de la Sesión autora: lo que pidió su tool y cómo fue
+{"ts": "2026-11-02T19:04:38.989091-06:00", "event": "session_command", "command": "@attach shared_file notas --file=../otra/ajeno.txt", "runs": "/attach shared_file notas --file=../otra/ajeno.txt --to=autora", "origin": ["human", "session:autora"]}
+{"ts": "2026-11-02T19:06:48.544513-06:00", "event": "command", "command": "/attach shared_file notas --file=../otra/ajeno.txt --to=autora", "result": "error shared_file_not_approved: path='e113/var/workspaces/otra/ajeno.txt'", "origin": ["human", "session:autora"]}
+{"ts": "2026-11-02T19:07:06.227826-06:00", "event": "session_command", "command": "@attach shared_file notas --file=../otra/ajeno.txt", "runs": "/attach shared_file notas --file=../otra/ajeno.txt --to=autora", "origin": ["human", "session:autora"]}
+{"ts": "2026-11-02T19:07:09.626531-06:00", "event": "command", "command": "/attach shared_file notas --file=../otra/ajeno.txt --to=autora", "result": "ok", "origin": ["human", "session:autora"]}

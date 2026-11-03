@@ -1,0 +1,11 @@
+Vigilante 247487 y proceso de la fproc 247492 detenidos con SIGSTOP; kill -9 a Main. 1,5 s después siguen vivos:
+PID  PGID STAT COMMAND
+247487  247487 Ts python
+247492  247487 T python
+
+Tras arrancar un Main nuevo:
+PID  PGID STAT COMMAND
+(ninguno vive)
+
+Log del Main nuevo:
+{"ts": "2026-11-02T19:08:01.487946-06:00", "event": "attached_lost", "name": "notas", "profile": "default", "pid": 247487, "closed": true}

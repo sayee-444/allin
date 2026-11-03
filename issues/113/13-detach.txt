@@ -1,0 +1,11 @@
+Tras /detach notas (vigilante 247767, proceso de la fproc 247772):
+    PID    PGID STAT COMMAND
+(ninguno vive)
+
+Su Carpeta de trabajo sigue ahí:
+drwxrwxr-x 2 sayee sayee 4096 Nov  2 19:02 e113/var/attached/default/notas
+
+state/attached.json:
+{
+  "processes": []
+}

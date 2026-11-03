@@ -1,0 +1,21 @@
+Main 246599, vigilante 247255, proceso de la fproc 247261 antes de matar a Main:
+PID  PGID STAT COMMAND
+246599  246599 Ssl+ python
+247255  247255 Ss python
+247261  247255 S python
+
+1,5 s después de kill -9 246599:
+PID  PGID STAT COMMAND
+(ninguno vive)
+
+state/attached.json que dejó el Main muerto:
+{
+  "processes": [
+    {
+      "name": "notas",
+      "profile": "default",
+      "pid": 247255,
+      "main_pid": 246599
+    }
+  ]
+}
