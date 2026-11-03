@@ -255,6 +255,7 @@ class Dispatcher:
             profile,
             self._enter,
             lambda: self._attached.detach_all("profile switched"),  # made below
+            self._boxes.drop_attention,
         )
         self._profile_commands = ProfileCommands(
             self._reporter, profiles, self._switch, sessions, main_id, self._boxes

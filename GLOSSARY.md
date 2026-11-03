@@ -47,6 +47,10 @@ Ajuste de Main: cuántas Sesiones pueden estar a la vista a la vez en ese Main. 
 Pantalla temporal de Main que lista las Sesiones abiertas del Perfil, a la vista o en segundo plano, para traer una, mandarla a segundo plano o cerrar su Ventana con un clic. Es parte de Main, no una pieza, así que sus clics tienen Origen humano. No es la Ventana de ninguna Sesión, no cuenta para el Máximo de Ventanas y no vuelve al reiniciar Main.
 _Avoid_: fsource organizadora, barra de tareas, Lanzador (es el que abre las Ventanas)
 
+**Pide atención** (`attention`):
+Marca de una Sesión que un LLM, con la fsource `windows`, quiso traer a la vista cuando no cabían más Ventanas: no desplaza a nadie, así que sigue en segundo plano, y la marca sale como Aviso en el Chat de Main y en su fila del Organizador hasta que el humano la trae o descarta el Aviso (ADR-0020). Al dejar su Perfil, se va.
+_Avoid_: urgente, notificación (es otra cosa)
+
 **Servidor** (`Server`):
 El proceso `llama serve` que atiende los Pasos de las Sesiones enlazadas a su Supervisor. Lo lanza un Supervisor, o el usuario a mano; en ese caso Main solo lo observa. Los de los modelos del RAG no atienden Pasos: calculan embeddings o reordenan para él.
 _Avoid_: deploy, LLM (como nombre del proceso)
@@ -66,7 +70,7 @@ _Avoid_: adherir (es lo que se hace con un Proceso adherido), url, servidor de M
 ## Sesiones y registros
 
 **Sesión** (`Session`):
-Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana. Un humano puede cambiarle el id, y el viejo sigue valiendo como alias.
+Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana. Un humano puede cambiarle el id, y el viejo sigue valiendo como alias. Guarda qué Sesión la creó, si la creó el LLM de una (`creator`): esa puede mandarla a segundo plano (ADR-0020).
 _Avoid_: ventana, chat
 
 **Carpeta de trabajo** (`workspace`):
@@ -228,7 +232,7 @@ Paso aparte con que una Compactación pide al modelo del Enlace de la Sesión el
 Comando de Main, escrito con `/`. Es la única vía para modificar el estado; se carga al arrancar Main y no se recarga en caliente. Una pieza no puede añadir los suyos: a los métodos de un Proceso adherido, un humano los llama con `/call`.
 
 **Command session** (`SessionCommand`):
-Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016). Main trae `@send` y `@server`; los demás, los módulos de `comsession/`. Cada Sesión tiene su lista, que se hereda como sus functions (por defecto, los de la raíz de su carpeta; `/new -cs=` nombra otros) y que limita a su LLM, no al humano; una function solo ejecuta los que declara en su Alcance, por su canal de vuelta (`allin.channel.command`), y su resultado le vuelve por el mismo canal (ADR-0025).
+Comando de una Ventana, escrito con `@` al inicio de un input que no contiene nada más; no lanza Turno y se traduce a exactamente un Command main. Sus módulos son parte de Main, comunes a todos los Perfiles, como los de Avisos (ADR-0016). Main trae los suyos (`@send`, `@server`, `@windows`, `@open`, `@bg`, `@close`…); los demás, los módulos de `comsession/`. Cada Sesión tiene su lista, que se hereda como sus functions (por defecto, los de la raíz de su carpeta; `/new -cs=` nombra otros) y que limita a su LLM, no al humano; una function solo ejecuta los que declara en su Alcance, por su canal de vuelta (`allin.channel.command`), y su resultado le vuelve por el mismo canal (ADR-0025).
 _Avoid_: comsession (salvo como nombre de carpeta)
 
 **Command prompt** (`PromptCommand`):

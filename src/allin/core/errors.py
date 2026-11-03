@@ -375,6 +375,13 @@ class OutsideProfile(AllInError):
     code: ClassVar[str] = "outside_profile"
 
 
+class NotItsSession(AllInError):
+    """A Session's LLM acts only on its own Session and on those it created: sending another
+    to the background could take from a human the Window they are using (ADR-0020)."""
+
+    code: ClassVar[str] = "not_its_session"
+
+
 class SessionCommandFailed(AllInError):
     """A Command session module failed to load; the other Command sessions go on."""
 

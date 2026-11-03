@@ -18,6 +18,11 @@ from allin.ui.screen import HideBox, ShowBox
 type MainScreenBox = Callable[[ShowBox | HideBox], None]
 type OnAnswer = Callable[[bool], None]
 
+# A Session a Session's LLM asked to bring into view, with no room for it (ADR-0020): its mark
+# is this Notice, until the human brings it or dismisses it.
+ATTENTION = "attention"
+ATTENTION_TITLE = "Asks for attention"
+
 
 @dataclass(frozen=True)
 class _Pending:
@@ -48,11 +53,31 @@ class MainBoxes:
         )
 
     def noticing(self, session_id: SessionId) -> bool:
-        """Whether a Notice of the Session is on screen (#53)."""
+        """Whether a Notice of the Session is on screen (#53), besides its mark asking for
+        attention."""
         return any(
-            pending.session_id == session_id and pending.box.kind == "notice"
+            pending.session_id == session_id
+            and pending.box.kind == "notice"
+            and pending.kind != ATTENTION
             for pending in self._pending.values()
         )
+
+    def ask_attention(self, session_id: SessionId, text: str) -> None:
+        """Mark a Session as asking the human for attention (ADR-0020); asked again, the
+        mark is the same one."""
+        self.notify(session_id, ATTENTION_TITLE, text, ATTENTION)
+
+    def wants_attention(self, session_id: SessionId) -> bool:
+        return any(
+            pending.session_id == session_id and pending.kind == ATTENTION
+            for pending in self._pending.values()
+        )
+
+    def drop_attention(self, session_id: SessionId) -> None:
+        """The human brought the Session into view, or closed it: its mark goes."""
+        for box_id, pending in list(self._pending.items()):
+            if pending.session_id == session_id and pending.kind == ATTENTION:
+                self.withdraw(box_id)
 
     def notify(
         self, session_id: SessionId | None, title: str, text: str, kind: str | None = None
@@ -85,7 +110,9 @@ class MainBoxes:
             self._hide(pending)
 
     def window_opened(self, session_id: SessionId) -> None:
-        """Show a Window that just opened the boxes of its Session still waiting."""
+        """Show a Window that just opened the boxes of its Session still waiting; it is in
+        view now, so it no longer asks for attention."""
+        self.drop_attention(session_id)
         for pending in self._pending.values():
             if pending.session_id == session_id:
                 self._windows.send(session_id, _show_message(pending.box))

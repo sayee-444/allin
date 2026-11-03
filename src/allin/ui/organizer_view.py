@@ -29,6 +29,8 @@ def row_state(row: OrganizerRow) -> str:
         parts.append("asks a confirmation")
     if row.notice:
         parts.append("notice")
+    if row.attention:
+        parts.append("asks for attention")
     if row.context is not None:
         limit = "?" if row.limit is None else f"{row.limit // 1000}k"
         parts.append(f"context {row.context} / {limit}")

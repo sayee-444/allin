@@ -12,6 +12,7 @@ from allin.core.errors import (
     AllInError,
     HumanOnly,
     InvalidArguments,
+    NotItsSession,
     OutsideProfile,
     SessionCommandNotListed,
     SessionNotOpen,
@@ -241,13 +242,14 @@ class MainCommands:
                 args={"sid": "the Session's id", _BG_OPTION: "open it in the background"},
                 optional=(_BG_OPTION,),
                 takes_origin=True,
+                takes_answer=True,
             ),
             "/bg": CommandSpec(
                 ("sid",),
                 self._background,
                 "send a Session to the background: its Window closes, its Turns go on",
-                args={"sid": "the Session's id"},
-                human_only=True,
+                args={"sid": "the Session's id: a Session's LLM, its own or one it created"},
+                takes_origin=True,
             ),
             "/windows": CommandSpec(
                 (),
@@ -256,6 +258,7 @@ class MainCommands:
                 args={"list": "write its list in Main's Chat instead"},
                 optional=("list",),
                 human_only=lambda args: not args,  # it is a screen for the human (ADR-0020)
+                takes_answer=True,
             ),
             # Like the Window's X: cancels a running Turn, so only a human closes (ADR-0020).
             "/close": CommandSpec(
@@ -728,8 +731,9 @@ class MainCommands:
         attached = self._methods.born_with(methods or "", chain)
         history = [] if mold is None else [message.item() for message in mold.recipe.history]
         version = None if mold is None else mold.version
+        creator = None if origin.sender is None else SessionId(origin.sender)
         session = self._sessions.create(
-            self._main_id, settings, sysprompt, chosen, functions, listed, history, version
+            self._main_id, settings, sysprompt, chosen, functions, listed, history, version, creator
         )
         self._reporter.record(
             session.id,
@@ -774,12 +778,13 @@ class MainCommands:
         else:
             self._sends.send(session, SendOptions((), TurnOverrides(), task), origin, _ignored)
 
-    def _place(self, session: Session, background: bool, origin: Origin) -> None:
-        """Open a Session in view, under the Máximo de Ventanas, or in the background."""
+    def _place(self, session: Session, background: bool, origin: Origin) -> bool:
+        """Open a Session in view, under the Máximo de Ventanas, or in the background; whether
+        it is in view."""
         if background:
             self._windows.to_background(session.id)
-        else:
-            self._windows.show(session, self._turns.streamed(session.id), origin.is_human)
+            return False
+        return self._windows.show(session, self._turns.streamed(session.id), origin.is_human)
 
     def _session(self, first: str, rest: str = "", origin: Origin = HUMAN) -> bool:
         target = parse_session_command([first, rest] if rest else [first])
@@ -810,40 +815,99 @@ class MainCommands:
             self._windows.open(renamed, self._turns.streamed(renamed.id))
         return True
 
-    def _open(self, session_id: str, option: str | None = None, origin: Origin = HUMAN) -> bool:
+    def _open(
+        self,
+        session_id: str,
+        option: str | None = None,
+        origin: Origin = HUMAN,
+        *,
+        answer: OnOutcome,
+    ) -> bool:
+        """What a Session's LLM opens displaces nobody: without room it stays in the
+        background, asking the human for attention (ADR-0020). Whoever asked hears where it
+        is."""
         if option not in (None, _BG_OPTION):
             raise InvalidArguments(usage=self._commands["/open"].usage("/open"))
         session = self._sessions.load_owned(session_id, self._main_id)
         background = option == _BG_OPTION
+        if not origin.is_human:
+            if not self._profiles.in_active(session.id):  # only a human shares it (ADR-0010)
+                raise OutsideProfile(session_id=session.id)
+            if background and self._windows.is_open(session.id):
+                self._check_may_background(session, origin)
         if self._windows.is_open(session.id) and not background:
             raise WindowAlreadyOpen(session_id=session.id)
         self._profiles.opened(session.id)  # opening another Profile's Session shares it
-        self._place(session, background, origin)
+        in_view = self._place(session, background, origin)
+        attention = not in_view and not background  # it did not fit: only another Origin's
+        if in_view:
+            self._boxes.drop_attention(session.id)
+        elif attention:
+            self._boxes.ask_attention(session.id, self._no_room(session.id, origin))
+        place = "view" if in_view else "background"
+        answer(Queried({"place": place, "attention": attention}))
         return True
+
+    def _no_room(self, session_id: SessionId, origin: Origin) -> str:
+        return (
+            f"{origin} asked to bring it into view, but the {self._windows.maximum} Windows"
+            f" that fit are in use (windows.max). Bring it with /open {session_id} or from"
+            " /windows; dismiss this and it stays in the background."
+        )
 
     def use_organizer(self, organizer: Organizer, rows: Callable[[], list[OrganizerRow]]) -> None:
         """What ``/windows`` opens and lists (#53)."""
         self._organizer, self._organizer_rows = organizer, rows
 
-    def _organize(self, option: str | None = None) -> bool:
+    def _organize(self, option: str | None = None, *, answer: OnOutcome) -> bool:
+        """``/windows list`` writes the Organizer's rows in Main's Chat, and gives them to a
+        tool that asked: what the fsource ``windows`` lists (#122)."""
         if option is None:
             if self._organizer is None:
                 raise WindowLaunchFailed(session_id="organizer", reason="no Organizer here")
             self._organizer.open()
+            answer("ok")
             return True
         if option != "list":
             raise InvalidArguments(usage=self._commands["/windows"].usage("/windows"))
-        for line in windows_list(self._organizer_rows()):
+        rows = self._organizer_rows()
+        for line in windows_list(rows):
             self._reporter.show(None, line)
+        listed: list[JsonValue] = [row.model_dump(mode="json") for row in rows]
+        answer(Queried({"sessions": listed}))
         return True
 
-    def _background(self, session_id: str) -> bool:
+    def _background(self, session_id: str, origin: Origin = HUMAN) -> bool:
         """``/bg``: the Session's xterm closes and nothing else changes (ADR-0020)."""
         session = self._sessions.load_owned(session_id, self._main_id)
+        self._check_may_background(session, origin)
         if not (self._windows.is_open(session.id) or self._windows.is_background(session.id)):
             raise SessionNotOpen(session_id=session.id)
         self._windows.to_background(session.id)
         return True
+
+    def _check_may_background(self, session: Session, origin: Origin) -> None:
+        """A human sends any Session to the background; a Session's LLM only its own and those
+        it created, of the active Profile, so it never takes from a human the Window they are
+        using (ADR-0020)."""
+        if origin.is_human:
+            return
+        sender = origin.sender
+        if sender is None or not self._made_by(session, SessionId(sender)):
+            raise NotItsSession(session_id=session.id, asked_by=sender)
+        if not self._profiles.in_active(session.id):
+            raise OutsideProfile(session_id=session.id)
+
+    def _made_by(self, session: Session, sender: SessionId) -> bool:
+        """Whether ``session`` is ``sender``'s own or one it created, under any id it had."""
+        if session.id == sender:
+            return True
+        if session.creator is None:
+            return False
+        try:
+            return self._sessions.resolve(session.creator) == self._sessions.resolve(sender)
+        except AllInError:  # its creator is gone
+            return False
 
     def _close(self, session_id: str) -> bool:
         """``/close``: as the Window's X, its running Turn and queue are cancelled, also in
@@ -853,6 +917,7 @@ class MainCommands:
             self._windows.close(session.id, CLOSED)
         elif self._windows.is_background(session.id):
             self._windows.forget(session.id)
+            self._boxes.drop_attention(session.id)
             self._reporter.record(session.id, "window_closed", f"window closed: {CLOSED}")
         else:
             raise SessionNotOpen(session_id=session.id)

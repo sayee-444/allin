@@ -123,6 +123,9 @@ class Session(BaseModel, frozen=True):
     notifications: tuple[Notification, ...] = ()
     # The Procesos adheridos whose methods its LLM gets as tools (#114).
     attached_methods: tuple[HeldMethods, ...] = ()
+    # The Session whose LLM created it, by the id it had then: that one may send it to the
+    # background (ADR-0020). ``None`` if a human created it, or one saved before #122.
+    creator: SessionId | None = None
 
 
 class SessionStore:
@@ -180,10 +183,12 @@ class SessionStore:
         commands: tuple[CommandName, ...] = (),
         history: Sequence[Item] = (),
         mold: MoldVersion | None = None,
+        creator: SessionId | None = None,
     ) -> Session:
         """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
-        ``sysprompt`` is already rendered, and ``history`` opens its Conversation. Its birth
-        recipe is written before it exists: no Session is ever without one."""
+        ``sysprompt`` is already rendered, and ``history`` opens its Conversation. ``creator``
+        is the Session whose LLM asked for it. Its birth recipe is written before it exists: no
+        Session is ever without one."""
         wanted = None if chosen is None else self.check_new_id(chosen)
         try:
             self._root.mkdir(parents=True, exist_ok=True)
@@ -197,6 +202,7 @@ class SessionStore:
                 border_color=pick_border_color(self._border_colors(but=session_id)),
                 functions=functions,
                 commands=commands,
+                creator=creator,
             )
             recipe = BirthRecipe(
                 mold=mold,
