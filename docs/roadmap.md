@@ -289,7 +289,11 @@ Va después del RAG, que es su memoria, y antes de F3, que no necesita (ADR-0027
 3. «Personaje · Voz».
 4. «Personaje · Vista».
 
-Cada milestone se trabaja con un `/goal`, y el usuario lo revisa antes de pasar al siguiente. Lo que necesita su voz o su cara, como registrarlo o las Charlas largas, va en issues `ready-for-human`. Antes hacen falta las primitivas genéricas de «Lo que falta en Main» (ADR-0027), entre ellas #217. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
+Cada milestone se trabaja con un `/goal`, y el usuario lo revisa antes de pasar al siguiente. Lo que necesita su voz o su cara, como registrarlo o las Charlas largas, va en issues `ready-for-human`.
+
+«Personaje · Texto» se prueba en dos capas. Sin modelo, en cada `pytest`, su fproc corre con un `llama` falso y un reloj falso. Se comprueba que abra y cierre las Charlas por la pausa, que deje lista la siguiente y la cambie al terminar la reflexión, que mande el Autorretrato y la Relación al abrir, las versiones y la vuelta atrás, la despedida y el tope para escribir primero. Con la GPU, aparte, el 27B hace del usuario con un guion de carácter y conversa con ella varias Charlas, con Reposos entre medio. Se comprueba que cada frase del Autorretrato cite Turnos que existen y que no se aleje de su Núcleo, que un LLM juez puntúa en cada Charla, y se mide cuánto tarda su primer token. El usuario solo entra en las Charlas largas y naturales.
+
+Antes hacen falta las primitivas genéricas de «Lo que falta en Main» (ADR-0027), entre ellas #217. Los informes de medición y la investigación están en `docs/research/personaje/`, sin seguimiento.
 
 ## F3 · Submains y Traspaso
 

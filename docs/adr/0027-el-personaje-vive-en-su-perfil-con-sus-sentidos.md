@@ -12,7 +12,9 @@ No es la fproc `discord` genérica de «Después», que tiene una instancia por 
 
 ## Su casa y el interruptor
 
-Al cambiar de Perfil, Main ya cierra los Procesos adheridos del Perfil que se deja, así que apagar al Personaje es salir de su Perfil. Apagado no existe, no piensa y no carga nada. Antes de apagarse se despide, y al volver sabe cuánto tiempo estuvo apagado.
+Al cambiar de Perfil, Main ya cierra los Procesos adheridos del Perfil que se deja, así que apagar al Personaje es salir de su Perfil. Apagado no existe, no piensa y no carga nada.
+
+Antes de apagarse se despide. Main le avisa a su fproc antes de soltarla y la espera hasta un tope, un Ajuste de 10 segundos por defecto. Si hay alguien en una Charla, el Personaje se despide ahí; si no, su fproc solo anota la hora. Después Main suelta su fproc y duerme sus Supervisores. Al volver, su fproc le dice cuánto tiempo estuvo apagado, junto con el Autorretrato.
 
 Mientras el Personaje está encendido, el usuario puede trabajar con agentes en su Perfil. Para usar AllIn como herramienta pura, con el 27B más grande, cambia a un Perfil de trabajo.
 
@@ -27,6 +29,8 @@ Su Subperfil tiene un tope de 2 Turnos a la vez, uno para la Charla y otro para 
 Cada encuentro es una Sesión de su Subperfil, la Charla. Empieza cuando alguien toma la palabra y termina cuando el Personaje se va del lugar o tras una pausa sin que nadie hable (un Ajuste, 30 minutos por defecto). La continuidad entre Charlas viene de su memoria, con las Pistas y sus Relaciones: si el usuario le habla a las 10:00 y vuelve a las 11:00, son dos Charlas, y en la segunda una Pista le recuerda la primera. Se descartó una Sesión eterna, que perdería detalle en cada Compactación (ADR-0017).
 
 Su Ventana es la de la Charla en curso. Las Sesiones de su Subperfil nacen en segundo plano (ADR-0026): el usuario abre la Charla en curso desde el Organizador y escribe con Origen humano, así que su teclado conserva la autoridad. Su fproc abre y cierra las Charlas con su Iniciativa. Cuando la pausa cierra una, deja abierta la siguiente; si nadie ha escrito en ella cuando termina su reflexión, la cambia por una con el Autorretrato nuevo. Para eso Main le avisa a su fproc cuando termina cada Turno de las Sesiones de su Subperfil, también los que escribe el usuario: hoy las Suscripciones solo despiertan Sesiones. Se descartó que el usuario le escribiera a su fproc como un Externo, porque perdería la autoridad del teclado en su Ventana.
+
+Puede escribirle primero al usuario. Al terminar un Reposo, si concluyó algo que quiere contarle, le escribe en la Charla que dejó lista. Si escribe o no lo decide el Personaje, con un tope que es un Ajuste de su fproc: una vez por Reposo, por defecto. Su fproc muestra entonces un Aviso «te escribió», sin el texto, que sale en el Chat de Main si su Ventana está cerrada. No lo interrumpe: que le hable en el momento, sin que le hablen, queda para el tramo de la voz.
 
 Cada Charla es también la unidad que el usuario marca, o no, para entrenar al modelo de voz. La marca o la desmarca un comando de Main, solo de un humano. Se exporta como JSONL, una Charla por línea, en mensajes `system`, `user` y `assistant`, que leen Unsloth y LLaMA-Factory. Cada una va con su Sysprompt, su Autorretrato y sus líneas de voz interior, tal como las vio el 9B, para que aprenda a hablar con ellos delante. Una Charla con una Confidencia nunca se exporta (ADR-0029).
 
@@ -68,6 +72,8 @@ Se descartó que maneje AllIn por el usuario desde la Charla, creando Sesiones o
 Son primitivas genéricas, que puede usar cualquier fproc:
 - un Ajuste del Perfil que adhiera fprocs y despierte y duerma sus Supervisores al entrar y al salir (enmienda de ADR-0022);
 - que Main le avise a una fproc cuando termina cada Turno de las Sesiones de su Subperfil;
+- que Main le avise a una fproc antes de soltarla y la espere hasta un tope;
+- que una fproc muestre un Aviso;
 - que una fproc declare sus Ajustes y que las Sesiones de su Subperfil puedan cambiarlos;
 - marcar Sesiones para entrenar y exportarlas en JSONL, nunca las que tengan una Confidencia;
 - la tool que marca una Confidencia, con su filtro (ADR-0029);
