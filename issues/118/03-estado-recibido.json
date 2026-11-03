@@ -1,0 +1,50 @@
+{
+  "result": "ok",
+  "state": {
+    "queue": [
+      {
+        "session": "obra",
+        "running": true,
+        "queued": 0
+      },
+      {
+        "session": "jefa",
+        "running": true,
+        "queued": 0
+      }
+    ],
+    "subscriptions": [
+      {
+        "id": "s5rcbgb",
+        "session": "jefa",
+        "event": "timer:592",
+        "progress": null
+      },
+      {
+        "id": "e7tdwhu",
+        "session": "jefa",
+        "event": "errand:obra",
+        "progress": "0 of 1 answered"
+      }
+    ],
+    "attached": [],
+    "servers": [
+      {
+        "key": "9931",
+        "server": "the Server",
+        "state": "ready",
+        "slots": 2,
+        "busy": 2,
+        "model": "Qwen3.8-27B-Uncensored-Q6_K.gguf"
+      }
+    ],
+    "supervisors": [
+      {
+        "name": "reserva",
+        "status": "asleep; work for it wakes it",
+        "default": false,
+        "server": null
+      }
+    ]
+  }
+}

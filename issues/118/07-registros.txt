@@ -1,0 +1,21 @@
+== Log de Main: /status y Command sessions ==
+{"ts": "2026-11-02T23:02:41.056578-06:00", "event": "subscribed", "sid": "otra", "subscription": "srexm7b", "watching": "timer:900", "origin": ["human"]}
+{"ts": "2026-11-02T23:08:48.060901-06:00", "event": "supervisor_created", "server": "reserva"}
+{"ts": "2026-11-02T23:08:59.172944-06:00", "event": "subscribed", "sid": "jefa", "subscription": "s5rcbgb", "watching": "timer:600", "origin": ["human"]}
+{"ts": "2026-11-02T23:09:02.039641-06:00", "event": "subscribed", "sid": "jefa", "subscription": "e7tdwhu", "watching": "errand:obra", "origin": ["human"]}
+{"ts": "2026-11-02T23:09:07.095678-06:00", "event": "command", "sid": "jefa", "command": "/status jefa", "result": "ok", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T23:11:12.479820-06:00", "event": "subscription_cancelled", "sid": "jefa", "subscription": "s5rcbgb", "reason": "unsubscribed"}
+{"ts": "2026-11-02T23:11:28.516880-06:00", "event": "command", "sid": "jefa", "command": "/status jefa", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T23:11:30.796156-06:00", "event": "command", "sid": "obra", "command": "/status obra queue", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T23:11:33.135652-06:00", "event": "command", "sid": "jefa", "command": "/status jefa supervisors", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T23:11:51.334266-06:00", "event": "command", "sid": "otra", "command": "/status otra subscriptions", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T23:11:55.613982-06:00", "event": "command", "sid": "otra", "command": "/status otra queue", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T23:12:04.299465-06:00", "event": "command", "sid": "jefa", "command": "/status jefa subscriptions", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-02T23:12:08.515779-06:00", "event": "command", "sid": "otra", "command": "/status otra", "result": "error outside_profile: session_id='otra'", "origin": ["human"]}
+
+== Log de jefa ==
+{"ts": "2026-11-02T23:09:05.952097-06:00", "event": "prompt", "text": "Usa tu tool consultar sin parte y dime en una lista corta que hay en la cola, que Suscripciones y Encargos ves, que Servidores y Supervisores hay y cuantos slots tienen.", "prompt_id": "3tfwf8", "origin": ["human"]}
+{"ts": "2026-11-02T23:09:07.069243-06:00", "event": "tools_called", "tools": ["consultar"]}
+{"ts": "2026-11-02T23:09:07.095304-06:00", "event": "session_command", "command": "@status", "runs": "/status jefa", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T23:09:07.095727-06:00", "event": "command", "command": "/status jefa", "result": "ok", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-02T23:10:25.690317-06:00", "event": "prompt", "text": "[from Subscription e7tdwhu]\nerrand:obra (e7tdwhu): 1 of 1 answered\n- Session obra answered:\nEl faro de la marea salada\n\nEl faro de la Marea Salada no estaba en un acantilado famoso, sino en un promontorio olvidado, donde las
