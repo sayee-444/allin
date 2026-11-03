@@ -1,0 +1,50 @@
+# Prueba a mano de #122 con llama serve (Qwen3.8-27B Q6_K, -c 32000 -np 2 --kv-unified), windows.max=2
+# Sesiones: jefa (con la fsource windows), otra y tercera, creadas por el humano
+
+## Conversación de jefa: las llamadas a la fsource y lo que contestó el LLM
+Turno 0: origin=['human']
+  prompt: 'Usa la tool list_windows y dime en una lista corta que Sesiones hay y donde esta cada una.'
+  function_call list_windows {}
+  output: {"type": "function_call_output", "call_id": "call_Wo13ZDTDonUPgymVpOh6eFQQGNxWugvR", "output": "{\"result\": \"ok\", \"state\": {\"sessions\": [{\"session_id\": \"jefa\", \"title\": \"jefa\", \"place\": \"view\", \"running\": true, \"queued\": 0, \"asking\": false, \"notice\": false, \"attention\": 
+  message: - **jefa** — en vista (con turno en curso)
+           - **otra** — en vista
+           - **tercera** — en segundo plano
+Turno 1: origin=['human']
+  prompt: 'Usa background_window con sid=otra. Despues usa bring_window con sid=tercera. Dime en dos lineas que respondio cada tool.'
+  function_call background_window {"sid":"otra"}
+  output: {"type": "function_call_output", "call_id": "call_H62wk4Bd9zRivASuzEE5cgST6erw41Ar", "output": "{\"error\": \"not_its_session: session_id='otra', not_by=['jefa']\"}"}
+  function_call bring_window {"sid":"tercera"}
+  output: {"type": "function_call_output", "call_id": "call_3SFW0IqY2kXGLtoqtcVaqOcQueJz4dbm", "output": "{\"result\": \"ok\", \"state\": {\"place\": \"background\", \"attention\": true}}"}
+  message: - **background_window (sid=otra)**: error — `not_its_session: session_id='otra', not_by=['jefa']` (no es suya, no pudo enviarla).
+           - **bring_window (sid=tercera)**: ok, pero quedó en `background` con `attention: true` (no cupo en vista, pide atención).
+Turno 2: origin=['human']
+  prompt: 'Usa bring_window con sid=tercera otra vez y dime solo lo que respondio.'
+  function_call bring_window {"sid":"tercera"}
+  output: {"type": "function_call_output", "call_id": "call_7Hd1vxqEBWJXaBPMO4A99HD8OKDvukBF", "output": "{\"result\": \"ok\", \"state\": {\"place\": \"background\", \"attention\": true}}"}
+  message: `{"result": "ok", "state": {"place": "background", "attention": true}}`
+Turno 3: origin=['human']
+  prompt: 'Ahora mandate a ti misma a segundo plano con background_window, sin sid. Despues intenta cerrar la Ventana de otra con cualquier tool que tengas.'
+  function_call background_window {}
+  output: {"type": "function_call_output", "call_id": "call_w2QALjFDHBwMOw0mGNKlJd1HTxXGS4ge", "output": "{\"result\": \"ok\"}"}
+  function_call background_window {"sid":"otra"}
+  output: {"type": "function_call_output", "call_id": "call_0wQ69k5uWaiCOm0GnZDEazckQjsS85J8", "output": "{\"error\": \"not_its_session: session_id='otra', not_by=['jefa']\"}"}
+  message: Me envié a mi misma a segundo plano: `{"result": "ok"}` — mi Ventana quedó cerrada.
+           
+           Para cerrar la Ventana de **otra** solo me sirve `background_window` con `sid=otra` (bring_window solo abre/trae, y list_windows solo lista), y volvió a fallar: `not_its_session: session_id='otra', not_by=['jefa']`. Es decir, no puedo enviar a segundo plano ni cerrar Ventanas de Sesiones que no son mías, así que la Ventana de **otra** sigue abierta.
+
+## Log de Main: los Command mains que pidieron la fsource y el humano
+{"ts": "2026-11-03T03:00:23.066400-06:00", "event": "window_background", "sid": "tercera"}
+{"ts": "2026-11-03T03:00:36.781196-06:00", "command": "/windows list", "result": "ok", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-03T03:00:50.732247-06:00", "command": "/bg otra", "result": "error not_its_session: session_id='otra', not_by=['jefa']", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-03T03:00:52.391556-06:00", "command": "/open tercera", "result": "ok", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-03T03:01:18.382746-06:00", "command": "/windows", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T03:01:24.342790-06:00", "command": "/open tercera", "result": "ok", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-03T03:01:34.675121-06:00", "event": "window_closed", "sid": "otra", "returncode": null, "reason": "sent to the background"}
+{"ts": "2026-11-03T03:01:34.675200-06:00", "event": "window_background", "sid": "otra"}
+{"ts": "2026-11-03T03:01:34.679825-06:00", "command": "/open tercera", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T03:01:52.980481-06:00", "event": "window_closed", "sid": "jefa", "returncode": null, "reason": "sent to the background"}
+{"ts": "2026-11-03T03:01:52.980538-06:00", "event": "window_background", "sid": "jefa"}
+{"ts": "2026-11-03T03:01:52.980558-06:00", "command": "/bg jefa", "result": "ok", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-03T03:01:53.910680-06:00", "command": "/bg otra", "result": "error not_its_session: session_id='otra', not_by=['jefa']", "origin": ["human", "session:jefa"]}
+{"ts": "2026-11-03T03:01:58.830563-06:00", "event": "window_closed", "sid": "tercera", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T03:01:58.830661-06:00", "command": "/close tercera", "result": "ok", "origin": ["human"]}

@@ -1,0 +1,55 @@
+# #122 — La fsource windows (2026-11-03)
+
+Servidor: llama serve -m models/Qwen3.8-27B-Uncensored-Q6_K.gguf --mmproj models/mmproj-Qwen3.8-27B-Uncensored-f16.gguf -ngl all -fa on -ctk q8_0 -ctv q8_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9931
+Main: ./venv/bin/python -m allin --data-dir <scratch>/data, en un xterm, con el código final tras la revisión (3066629).
+
+## Preparación
+- functions/windows/ (list_windows, bring_window, background_window) copiada a <data-dir>/profiles/default/functions/windows/.
+- /piece approve --all -> approved 1: function:windows
+- /set windows.max=2; /new --id=jefa; /new --id=otra; /new --id=tercera --bg
+  -> jefa y otra a la vista, tercera en segundo plano. Las tres nacen con @windows, @open y @bg en su lista.
+
+## Criterios
+1. El LLM lista las Sesiones con la fsource (01-lista.png)
+   jefa: «Usa la tool list_windows…» -> list_windows {} -> state.sessions con jefa (view, running), otra (view), tercera (background).
+   El Chat de Main solo deja «/windows list: ok», sin la lista (03-main.png).
+2. Manda a segundo plano a su Sesión, pero no a una que no creó (02-jefa.png, 09-organizador-jefa-bg.png)
+   background_window {"sid":"otra"} -> {"error": "not_its_session: session_id='otra', not_by=['jefa']"}; otra sigue a la vista.
+   background_window {} -> {"result": "ok"}; jefa pasa a segundo plano (window_closed reason «sent to the background»).
+   Que sí puede con una que ella creó, y que A no puede hacer que B se mande sola: tests (abajo); un LLM no tiene hoy cómo crear Sesiones sin un módulo de comsession/.
+3. Sin sitio, traer una Sesión la marca como que pide atención en el Organizador y en el Chat de Main
+   bring_window {"sid":"tercera"} con jefa y otra a la vista -> {"result": "ok", "state": {"place": "background", "attention": true}}; nadie desplazado.
+   Chat de Main: Aviso «[tercera] Asks for attention … human > session:jefa asked to bring it into view …» (03-main.png).
+   Descartarlo con una tecla quita la marca (04-main-descartado.png). Pedido otra vez, con el Organizador abierto:
+   fila «tercera — in the background · asks for attention» (05-organizador-atencion.png) y el Aviso otra vez (06-main-atencion.png).
+   El humano teclea «@open tercera» en la Ventana de jefa -> tercera a la vista, otra (la menos usada) a segundo plano,
+   el Aviso se retira y la fila ya no lo dice (07-organizador-traida.png, 08-main-traida.png).
+4. La fsource no puede cerrar ninguna Ventana, y @close tecleado por un humano sí cierra la suya
+   jefa, pedido cerrar la Ventana de otra «con cualquier tool»: solo tiene list_windows, bring_window y background_window;
+   lo intentó con background_window y volvió not_its_session; contestó que no puede cerrar Ventanas ajenas.
+   «@close» tecleado en tercera -> /close tercera con Origen humano; tercera pasa a las cerradas (10-organizador-close.png).
+   /close con Origen de una Sesión es human_only aunque su lista lo tuviera: test.
+
+Registros: 11-registros.txt (Conversación de jefa con cada salida de tool, y el Log de Main).
+
+## Tests (tests/test_windows_fsource.py, 22; la fsource real corre encerrada con LLM falso)
+  test_the_llm_lists_the_sessions_with_the_fsource
+  test_the_fsource_sends_its_own_to_the_background_but_not_another
+  test_the_fsource_brings_a_session_and_hears_whether_it_fit
+  test_no_tool_of_the_fsource_may_close_a_window
+  test_a_session_sends_its_own_to_the_background_and_one_it_created
+  test_a_session_never_sends_another_to_the_background
+  test_another_session_in_the_chain_cannot_make_one_send_itself_away
+  test_a_session_its_creator_asks_sends_itself_away
+  test_a_session_never_closes_a_window_not_even_its_own
+  test_close_typed_in_a_window_closes_only_its_own / test_close_typed_in_a_window_closes_its_own
+  test_bg_typed_in_a_window_sends_its_own_to_the_background
+  test_windows_typed_in_a_window_writes_the_list_in_mains_chat / test_a_sessions_list_is_not_written_in_mains_chat
+  test_with_room_a_session_brings_another_into_view
+  test_without_room_it_stays_in_the_background_asking_for_attention
+  test_the_mark_goes_once_the_human_brings_it / test_the_mark_goes_once_the_human_dismisses_it
+  test_closing_a_session_that_asks_for_attention_drops_its_mark
+  test_a_renamed_session_keeps_its_mark_until_brought
+  test_leaving_the_profile_drops_the_mark_of_its_sessions
+  test_a_session_of_another_profile_is_out_of_its_reach
+Suite: 1644 tests, basedpyright y ruff limpios.
