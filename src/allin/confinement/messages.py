@@ -39,6 +39,38 @@ class DescribeModule(BaseModel, frozen=True):
     read: list[str]
 
 
+class AttachFproc(BaseModel, frozen=True):
+    """Main to the warden: start this fproc as a Proceso adherido named ``name``, confined for
+    good to these folders, with ``file`` as its shared file (ADR-0012, ADR-0016)."""
+
+    type: Literal["attach"] = "attach"
+    package: str
+    module: str
+    name: str
+    file: str | None
+    workspace: str
+    read: list[str]
+    write: list[str]
+    connect: list[int] | None
+    net_layer: int | None
+    ip: bool
+    unix: bool
+
+
+class CallMethod(BaseModel, frozen=True):
+    """Main to a Proceso adherido's warden: call this public method of its fproc."""
+
+    type: Literal["method"] = "method"
+    method: str
+    arguments: dict[str, JsonValue]
+
+
+class Detach(BaseModel, frozen=True):
+    """Main to a Proceso adherido's warden: take it down now, with every process it started."""
+
+    type: Literal["detach"] = "detach"
+
+
 class Cancel(BaseModel, frozen=True):
     """Main to the warden: take the call down now, with every process it started."""
 
@@ -61,6 +93,12 @@ class CommandResult(BaseModel, frozen=True):
 
     type: Literal["command_result"] = "command_result"
     result: JsonValue
+
+
+class Attached(BaseModel, frozen=True):
+    """The fproc's class was made: the Proceso adherido takes calls to its methods."""
+
+    type: Literal["attached"] = "attached"
 
 
 class Returned(BaseModel, frozen=True):
@@ -92,7 +130,7 @@ class Unconfined(BaseModel, frozen=True):
     errno: int
 
 
-type ToMain = Returned | Raised | Died | Unconfined | RunCommand
+type ToMain = Returned | Raised | Died | Unconfined | RunCommand | Attached
 
 _to_main: TypeAdapter[ToMain] = TypeAdapter(Annotated[ToMain, Field(discriminator="type")])
 

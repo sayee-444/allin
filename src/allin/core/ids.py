@@ -56,6 +56,17 @@ def new_profile_name() -> ProfileName:
     return ProfileName("".join(secrets.choice(_ALPHABET) for _ in range(_GENERATED_PROFILE_LENGTH)))
 
 
+# A Proceso adherido's name, also its Carpeta de trabajo's folder: a letter, then letters,
+# digits or _, up to 24. Its methods go to the LLM as ``<name>_<method>`` (ADR-0021).
+AttachedName = NewType("AttachedName", str)
+_ATTACHED_NAME = re.compile(r"[a-z][a-z0-9_]{0,23}")
+
+
+def parse_attached_name(text: str) -> AttachedName | None:
+    """``text`` as a Proceso adherido's name if it has the shape of one."""
+    return AttachedName(text) if _ATTACHED_NAME.fullmatch(text) is not None else None
+
+
 # A Notice or Confirmation on screen, made by Main; its Window answers by it.
 BoxId = NewType("BoxId", str)
 

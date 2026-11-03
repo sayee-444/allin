@@ -35,10 +35,18 @@ _STATES = {"approved": "approved", "quarantined": "in quarantine", "rejected": "
 
 
 class PieceCommands:
-    def __init__(self, reporter: Reporter, quarantine: Callable[[], Quarantine]) -> None:
-        """``quarantine`` gives the active Profile's, which changes with ``/profile switch``."""
+    def __init__(
+        self,
+        reporter: Reporter,
+        quarantine: Callable[[], Quarantine],
+        approved: Callable[[], None] = lambda: None,
+    ) -> None:
+        """``quarantine`` gives the active Profile's, which changes with ``/profile switch``;
+        ``approved`` hears that pieces were approved (a Proceso adherido's Alcance may have
+        changed)."""
         self._reporter = reporter
         self._quarantine = quarantine
+        self._approved = approved
         self._shown: dict[tuple[Path, str], str] = {}  # (Profile, piece) -> the hash shown
 
     def run(self, text: str = "") -> bool:
@@ -107,11 +115,14 @@ class PieceCommands:
             hash=approval.hash,
             confirm=list(approval.confirm),
         )
+        self._approved()
 
     def _approve_own(self) -> None:
         done = self._quarantine().approve_own()
         shown = f"approved {len(done.approved)}: {', '.join(done.approved) or 'none'}"
         self._reporter.report(None, "pieces_approved", shown, pieces=list(done.approved))
+        if done.approved:
+            self._approved()
         for piece, why in done.left_out.items():
             self._reporter.show(None, f"  left out {piece}: {why}; /piece show {piece}")
 

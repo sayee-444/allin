@@ -17,6 +17,7 @@ from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_n
 from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
+from allin.main.attached import AttachedProcesses
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
 from allin.main.commands import MainCommands
@@ -24,6 +25,7 @@ from allin.main.creations import PieceCreator
 from allin.main.descriptions import Descriptions
 from allin.main.devastation import Devastation
 from allin.main.events import (
+    AttachedProcessEnded,
     BoxAnswered,
     ConfirmationRequested,
     DraftReceived,
@@ -229,6 +231,7 @@ class Dispatcher:
             self._recovery,
             profile,
             self._enter,
+            lambda reason: self._attached.detach_all(reason),  # noqa: PLW0108 - made below
         )
         self._profile_commands = ProfileCommands(
             self._reporter, profiles, self._switch, sessions, main_id, self._boxes
@@ -238,7 +241,18 @@ class Dispatcher:
         settings_commands.windows_max_changed = self._windows.set_maximum
         settings_commands.looks_changed = self._looks_changed
         self._quarantine = lambda: Quarantine(self._switch.active.folder, descriptions)
-        self._pieces = PieceCommands(self._reporter, self._quarantine)
+        self._attached = AttachedProcesses(
+            describer,
+            self._quarantine,
+            lambda: self._switch.active,
+            sessions,
+            self._profile_commands.in_active,
+            self._boxes,
+            self._reporter,
+            inbox.put,
+            data_dir,
+        )
+        self._pieces = PieceCommands(self._reporter, self._quarantine, self._attached.reach_changed)
         self._functions = FuncCommands(
             self._reporter,
             sessions,
@@ -278,6 +292,7 @@ class Dispatcher:
             self._functions,
             self._notifications,
             PieceCreator(self._quarantine, self._boxes, self._devastation, self._reporter),
+            self._attached,
         )
         self._session_commands = SessionCommands(
             command_types,
@@ -309,6 +324,11 @@ class Dispatcher:
     def _looks_changed(self) -> None:
         self._themes.main(self._settings_commands.current)
         self._themes.refresh()
+
+    @property
+    def attached(self) -> AttachedProcesses:
+        """The Procesos adheridos of the active Profile, whose methods are called on them."""
+        return self._attached
 
     @property
     def commands(self) -> MainCommands:
@@ -348,6 +368,7 @@ class Dispatcher:
         self._pieces.tell_quarantined()
         self._turns.watch(self._default_link)  # Main tells how its Server is from the start
         self._recovery.close_left_open()
+        self._attached.close_left_alive()
         self._recovery.restore()
         while self._handle(event := self._inbox.get()):
             self._switch.check()  # once the last Turn it waited for ended
@@ -360,6 +381,7 @@ class Dispatcher:
         # Windows, queue and running Turns as they are: a restart restores them.
         self._recovery.save()
         self._turns.cancel_running()
+        self._attached.detach_all("main stopped")  # they die with Main (ADR-0012)
         self._windows.close_all()
         self._reporter.log_main("main_stopped", main_id=self._main_id)
 
@@ -463,6 +485,8 @@ class Dispatcher:
                 self._turns.slot_freed(server)
             case SupervisorAdopted(name):
                 self._server_commands.adopted(name)
+            case AttachedProcessEnded(name, pid):
+                self._attached.ended(name, pid)
             case ConfirmationRequested(session_id, title, text):
                 self._turns.confirmation_requested(session_id, title, text)
             case ToolsStarted(session_id, names):

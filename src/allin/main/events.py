@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import JsonValue
 
 from allin.core.errors import AllInError
-from allin.core.ids import BoxId, ServerKey, SessionId, SupervisorName
+from allin.core.ids import AttachedName, BoxId, ServerKey, SessionId, SupervisorName
 from allin.core.origin import HUMAN, Origin
 from allin.ipc.messages import OrganizerAction
 from allin.main.conversation import Step
@@ -225,6 +225,15 @@ class SupervisorAdopted:
 
 
 @dataclass(frozen=True)
+class AttachedProcessEnded:
+    """The process of the Proceso adherido ``name`` whose warden was ``pid`` ended, detached or
+    by itself."""
+
+    name: AttachedName
+    pid: int
+
+
+@dataclass(frozen=True)
 class SlotFreed:
     """A slot lock another Main held is free, while Prompts here waited for one."""
 
@@ -328,6 +337,7 @@ type MainEvent = (
     | ServerChanged
     | SlotFreed
     | SupervisorAdopted
+    | AttachedProcessEnded
     | ServerProgress
     | InputMeasured
     | Tick

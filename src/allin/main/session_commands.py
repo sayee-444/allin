@@ -137,6 +137,26 @@ CREATE = SessionCommandType(
 )
 
 
+_ATTACH_USAGE = "@attach <fproc> [name] [--file=<path>]"
+
+
+def _attach(call: SessionCommandCall) -> str:
+    """Its methods go to its own Session (ADR-0021); a relative ``--file`` is from its Carpeta
+    de trabajo, and one from outside waits for a human's Approval (#113)."""
+    words = call.args.split()
+    if not words or any(word.startswith("--to=") for word in words):
+        raise ValueError(_ATTACH_USAGE)
+    return " ".join(["/attach", *words, f"--to={call.session_id}"])
+
+
+ATTACH = SessionCommandType(
+    "attach",
+    _ATTACH_USAGE,
+    "attach a Proceso adherido from an approved fproc, whose methods this Session gets",
+    _attach,
+)
+
+
 # Otorgar (ADR-0025): never in the default list, since only a human gives it.
 GRANT = SessionCommandType(
     GRANT_NAME,
@@ -155,8 +175,11 @@ class LoadedSessionCommands:
 
 # Main's own, when no folder is loaded (a Main in tests).
 BUILT_IN = LoadedSessionCommands(
-    {CommandName(kind.name): kind for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT)},
-    # @create widens what Sessions do: given by name, never by default.
+    {
+        CommandName(kind.name): kind
+        for kind in (SEND, SERVER, CONVERSATION_LOGS, CREATE, GRANT, ATTACH)
+    },
+    # @create and @attach widen what Sessions do: given by name, never by default.
     tuple(CommandName(kind.name) for kind in (SEND, SERVER, CONVERSATION_LOGS)),
 )
 
