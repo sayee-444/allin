@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from allin.core.errors import TurnCancelled
+from allin.core.origin import HUMAN, from_session
 from allin.core.settings import MainSettings, SessionSettings
 from allin.ipc.messages import Close, InputRestore
 from allin.main.events import (
@@ -19,7 +20,7 @@ from allin.main.profiles import Profile
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.state import MainStateStore
 from tests.pieces import approve_sysprompt
-from tests.test_dispatcher import SETTINGS, MainHarness, ended, restored
+from tests.test_dispatcher import SETTINGS, MainHarness, ended, restored, server
 
 GPU_TOML = 'model = "m.gguf"\ncontext = 8192\nport = 9101\n'
 
@@ -226,6 +227,27 @@ def test_with_now_a_running_turn_is_cancelled_and_its_prompt_goes_back_to_the_in
     main.hold_turns = False
     main.run(switch("default"), settle=True)
     assert restored(main.windows(a.id)[-1]) == ["a1", "typing"]
+
+
+def test_with_now_only_a_human_prompt_goes_back_and_as_it_was_typed(main: MainHarness):
+    a, b, sender = main.create_session(), main.create_session(), main.create_session()
+    for session in (b, sender):  # a Session sends only within its Profile
+        main.profiles.add_session(main.profile, session.id)
+    other_profile(main)
+    main.server = server(slots=2)
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1 @top_k=5"),
+        MainCommandEntered(f"/send {b.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        switch("tesis", now=True),
+        TurnEnded(a.id, error=TurnCancelled(reason="profile switched")),
+        TurnEnded(b.id, error=TurnCancelled(reason="profile switched")),
+        settle=True,
+    )
+    assert [job.cancellation.reason for job in main.held] == ["profile switched"] * 2
+    assert main.profiles.open(None).name == "tesis"
+    assert MainStateStore(main.profile.state).load().drafts == {a.id: ["a1 @top_k=5"]}
 
 
 def test_with_now_a_shared_sessions_cancelled_prompt_goes_back_to_its_open_window(
