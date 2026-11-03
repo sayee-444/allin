@@ -1,0 +1,11 @@
+{"ts": "2026-11-03T06:28:24.236097-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T06:28:43.910689-06:00", "event": "prompt", "text": "[from attached process board]\nnota del tablero", "prompt_id": "xm3zj7", "origin": ["human", "session:jefa", "process:board"]}
+{"ts": "2026-11-03T06:28:45.944672-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T06:37:21.676599-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T06:37:23.013672-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T06:38:22.569545-06:00", "event": "prompt", "text": "[from Session lider]\nhola obra, soy lider. Nada mas.", "prompt_id": "vuc7zv", "origin": ["human", "session:lider"]}
+{"ts": "2026-11-03T06:38:24.064833-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-03T06:38:49.729199-06:00", "event": "prompt", "text": "Y esto lo escribo yo. Contesta solo: ok.", "prompt_id": "tdngty", "origin": ["human"]}
+{"ts": "2026-11-03T06:38:50.277117-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-03T06:38:59.192206-06:00", "event": "window_closed", "returncode": null, "reason": "closed with /close"}
+{"ts": "2026-11-03T06:39:06.938758-06:00", "event": "window_opened"}

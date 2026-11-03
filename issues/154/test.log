@@ -1,0 +1,45 @@
+# #154 — La Ventana rotula cada Prompt por su Origen (2026-11-03)
+
+Servidor: llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m154, en un xterm, con el código final tras la revisión.
+Usuario de las Sesiones: sayee.
+
+## Preparación
+- /set base_url=http://127.0.0.1:9932/v1, /exit y otra vez Main.
+- <data-dir>/profiles/default/functions/:
+  - boards/board.py: fproc `board`, `@reach(commands=["send"])`, con el método `tell(sid, text)` que hace «@send <sid> <text>».
+  - teller/tell.py: function `tell(sid, text)`, `@reach(commands=["send"])`, que hace «@send <sid> <text>».
+- /piece approve --all; /new --id=jefa; /new --id=obra; /attach board --to=jefa.
+
+## Criterios
+1. Un Prompt que manda otra Sesión sale rotulado con ella, y uno de una fproc con su proceso
+   (01-obra-prompt-de-la-fproc.png, 02-obra-antes-de-cerrar.png)
+   - En la Ventana de jefa: «Usa ... board_tell con sid=obra y text=nota del tablero». El LLM llama a board_tell; obra recibe
+     el Prompt con origin ["human", "session:jefa", "process:board"] y su Ventana lo muestra como
+     «[process:board] [from attached process board] / nota del tablero».
+   - /new --id=lider; /func add lider function:teller. En la Ventana de lider: «Llama a la tool tell con sid=obra ...».
+     obra recibe origin ["human", "session:lider"] y lo muestra como «[session:lider] [from Session lider] / hola obra, soy lider. Nada mas.».
+2. Un Prompt humano sigue rotulado con el nombre del usuario (02-obra-antes-de-cerrar.png, 04-lider-prompt-humano.png)
+   - Tecleado en la Ventana de obra: «[sayee] Y esto lo escribo yo. Contesta solo: ok.»; en lider, «[sayee] Llama a la tool tell ...».
+3. Al reabrir la Ventana, el Chat reconstruido lleva las mismas etiquetas (02-obra-antes-de-cerrar.png, 03-obra-reabierta.png)
+   - Entre el criterio 1 (fproc) y la function, Main se reinició (/exit y otra vez): la Ventana de obra volvió reconstruida, ya con [process:board].
+   - /close obra y /open obra: 03 es idéntica a 02, línea por línea: [process:board], [session:lider], [sayee].
+   - 05-log-de-obra.txt: los eventos del Log de obra de los que sale el Chat reconstruido.
+4. Tests: abajo.
+
+Nota: jefa, tras recibir function:teller y perder board al reiniciar Main, siguió diciendo que solo tenía board_tell
+(el IQ3_XXS se apoyó en su propio historial); un script de depuración confirmó que Main le ofrecía `tell`.
+Por eso el Prompt de Sesión se hizo con una Sesión nueva, lider, que llamó a `tell` a la primera.
+
+## Tests de #154
+  tests/test_chat_rebuild.py::test_a_prompt_is_labelled_with_the_last_link_of_its_origin_unless_a_human_sent_it[origin0-session:ab12] PASSED
+  tests/test_chat_rebuild.py::test_a_prompt_is_labelled_with_the_last_link_of_its_origin_unless_a_human_sent_it[origin1-process:bot] PASSED
+  tests/test_chat_rebuild.py::test_a_prompt_is_labelled_with_the_last_link_of_its_origin_unless_a_human_sent_it[origin2-subscription:s1] PASSED
+  tests/test_chat_rebuild.py::test_a_prompt_is_labelled_with_the_last_link_of_its_origin_unless_a_human_sent_it[origin3-main] PASSED
+  tests/test_chat_rebuild.py::test_a_prompt_is_labelled_with_the_last_link_of_its_origin_unless_a_human_sent_it[origin4-ana] PASSED
+  tests/test_chat_rebuild.py::test_a_prompt_logged_without_an_origin_it_can_read_is_the_users PASSED
+  tests/test_chat_rebuild.py::test_a_queued_prompt_keeps_its_label_where_its_turn_starts PASSED
+  tests/test_chat_rebuild.py::test_a_queued_prompt_started_before_its_origin_was_logged_there_takes_it_from_the_queue PASSED
+  tests/test_chat_rebuild.py::test_a_session_without_a_log_labels_each_prompt_by_its_turns_origin PASSED
+  tests/test_chat_rebuild.py::test_what_the_human_wrote_during_a_turn_is_the_users_whatever_the_turns_origin PASSED
+  tests/test_sends.py::test_its_window_labels_each_prompt_by_who_sent_it_and_so_does_its_chat_reopened PASSED
