@@ -89,7 +89,7 @@ from allin.main.events import (
     ServerState,
 )
 from allin.main.executors import SHUTTING_DOWN, TurnJob
-from allin.main.link_changes import LinkChange, failure_text, judge
+from allin.main.link_changes import LinkChange, failure_text, judge, missing_model
 from allin.main.links import Link, LinkResolver
 from allin.main.notices import NoticeTypes
 from allin.main.notifications import CONTEXT_LEFT, NOTHING_TOLD, Notifications, Told
@@ -188,10 +188,19 @@ def _waiting_text(link: Link, state: ServerState | None) -> str:
             return f"queue paused: {server} is asleep; work for it wakes it"
         case ServerFailed(failure="vram", gpu_holders=holders):
             return f"queue paused: {server} does not fit in VRAM; {_gpu_holders(holders)}"
+        case ServerFailed(failure="model_missing", reason=model):
+            return f"queue paused: {server} has no model: {missing_model(link.supervisor, model)}"
         case ServerFailed(failure=failure, reason=reason):
             return f"queue paused: {server} failed ({failure}): {reason}"
         case _:
             return f"queue paused: {server} cannot be reached, waiting for its /health"
+
+
+def _failed_notice(link: Link, state: ServerFailed) -> tuple[str, str]:
+    """The title and text of the Notice of a Supervisor that gave up, other than for VRAM."""
+    if state.failure == "model_missing":  # it was never launched (#158)
+        return f"{link.describe()} has no model", missing_model(link.supervisor, state.reason)
+    return f"Supervisor {link.supervisor} failed ({state.failure})", state.reason
 
 
 def _gpu_holders(holders: tuple[SupervisorName, ...]) -> str:
@@ -1317,8 +1326,8 @@ class TurnQueue:
         if isinstance(state, ServerFailed) and state.failure == "vram":
             self._vram_failed(link, state, before)
         elif isinstance(state, ServerFailed) and state != before:
-            title = f"Supervisor {link.supervisor} failed ({state.failure})"
-            self._boxes.notify(None, title, state.reason, "supervisor_failed")
+            title, text = _failed_notice(link, state)
+            self._boxes.notify(None, title, text, "supervisor_failed")
         elif (
             isinstance(state, ServerAsleep)
             and not state.slept_by_human

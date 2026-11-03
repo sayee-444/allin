@@ -140,6 +140,16 @@ def test_saved_settings_load_back_the_same(tmp_path: Path):
     assert "mmproj = " in path.read_text()
 
 
+def test_the_model_file_starts_from_the_settings_folder_or_else_where_the_server_runs():
+    start = Path("/run/here")
+    relative = ServerSettings(model="m.gguf", port=9931)
+    assert relative.model_file(start) == Path("/run/here/m.gguf")
+    in_folder = relative.model_copy(update={"cwd": "/srv/models"})
+    assert in_folder.model_file(start) == Path("/srv/models/m.gguf")
+    absolute = in_folder.model_copy(update={"model": "/data/m.gguf"})
+    assert absolute.model_file(start) == Path("/data/m.gguf")
+
+
 def test_a_unified_cache_follows_the_slots_unless_the_settings_say_so():
     one = ServerSettings(model="m.gguf", port=9931)
     two = one.model_copy(update={"parallel": 2})

@@ -13,9 +13,9 @@ from allin.core.files import write_atomically
 from allin.core.ids import SupervisorName
 
 type SupervisorStatus = Literal["starting", "ready", "crashed", "failed", "draining", "asleep"]
-# Why it failed: the Server did not fit in VRAM, its port was taken, it crashed too often, or
-# its Settings are invalid.
-type FailureKind = Literal["vram", "port_in_use", "crashes", "settings"]
+# Why it failed: the Server did not fit in VRAM, its port was taken, it crashed too often, its
+# Settings are invalid, or its model file is not there (then ``reason`` is the file's path).
+type FailureKind = Literal["vram", "port_in_use", "crashes", "settings", "model_missing"]
 # A restart asked for: once every Step on the Server ends, or cutting them short now.
 type RestartKind = Literal["drain", "now"]
 

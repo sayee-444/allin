@@ -31,9 +31,16 @@ def write_settings(data_dir: Path, name: str, port: int, *extra: str, parallel: 
     servers.mkdir(parents=True, exist_ok=True)
     flags = ", ".join(f'"{flag}"' for flag in extra)
     (servers / f"{name}.toml").write_text(
-        f'model = "m.gguf"\ncontext = 8192\nparallel = {parallel}\nport = {port}\n'
+        f'model = "{a_model(data_dir)}"\ncontext = 8192\nparallel = {parallel}\nport = {port}\n'
         f'command = ["{sys.executable}", "{FAKE}"]\nextra = [{flags}]\n'
     )
+
+
+def a_model(data_dir: Path) -> Path:
+    """A model file there is: the Supervisor launches no Server whose model is missing."""
+    model = data_dir / "m.gguf"
+    model.touch()
+    return model
 
 
 def wait_for(check: Callable[[], bool], timeout: float = 10.0) -> None:
@@ -183,6 +190,52 @@ def test_a_port_already_taken_fails_naming_who_has_it(running: Callable[..., Run
     assert f"pid {os.getpid()}" in (state.reason or "")
 
 
+def test_a_model_that_is_not_there_fails_naming_it_without_launching_the_server(
+    tmp_path: Path,
+):
+    write_settings(tmp_path, "gpu", free_port())
+    (tmp_path / "m.gguf").unlink()
+    supervisor = Running(tmp_path).start()
+    wait_for(supervisor.ended)
+    state = supervisor.state()
+    assert state is not None and state.status == "failed" and state.failure == "model_missing"
+    assert state.reason == str(tmp_path / "m.gguf") and supervisor.exit_code == 1
+    assert not (tmp_path / "logs" / "servers" / "gpu" / "server.log").exists()
+
+
+def test_a_relative_model_is_looked_for_in_the_settings_folder(tmp_path: Path):
+    folder = tmp_path / "models"
+    folder.mkdir()
+    servers = tmp_path / "servers"
+    servers.mkdir()
+    (servers / "gpu.toml").write_text(
+        f'model = "m.gguf"\nport = {free_port()}\ncwd = "{folder}"\n'
+        f'command = ["{sys.executable}", "{FAKE}"]\n'
+    )
+    supervisor = Running(tmp_path).start()
+    wait_for(supervisor.ended)
+    state = supervisor.state()
+    assert state is not None and state.reason == str(folder / "m.gguf")
+
+
+def test_pending_settings_whose_model_is_not_there_fall_back_to_the_last_that_started(
+    running: Callable[..., Running],
+):
+    supervisor = running()
+    wait_for(supervisor.status_is("ready"))
+    first = supervisor.state()
+    assert first is not None
+    toml = supervisor.data_dir / "servers" / "gpu.toml"
+    missing = supervisor.data_dir / "other.gguf"
+    toml.write_text(toml.read_text().replace(str(supervisor.data_dir / "m.gguf"), str(missing)))
+    supervisor.supervisor.restart(now=True)
+    wait_for(lambda: (s := supervisor.state()) is not None and s.fallback_reason is not None)
+    wait_for(supervisor.status_is("ready"))
+    state = supervisor.state()
+    assert state is not None and str(missing) not in state.arguments
+    assert str(missing) in (state.fallback_reason or "")
+
+
 def test_a_second_supervisor_with_the_same_name_leaves_without_touching_anything(
     running: Callable[..., Running],
 ):
@@ -307,7 +360,7 @@ def test_slots_left_to_llama_are_read_from_its_props_to_drain_them_all(
     servers = tmp_path / "servers"
     servers.mkdir()
     (servers / "gpu.toml").write_text(
-        f'model = "m.gguf"\nport = {port}\ncommand = ["{sys.executable}", "{FAKE}"]\n'
+        f'model = "{a_model(tmp_path)}"\nport = {port}\ncommand = ["{sys.executable}", "{FAKE}"]\n'
         'extra = ["-np", "2"]\n'  # llama chose them: the Settings do not say
     )
     supervisor = Running(tmp_path).start()
@@ -347,6 +400,7 @@ def test_the_server_runs_in_its_settings_folder_without_context_shift_from_the_e
     monkeypatch.setenv("LLAMA_ARG_CONTEXT_SHIFT", "1")
     folder = tmp_path / "models"
     folder.mkdir()
+    a_model(folder)
     port = free_port()
     servers = tmp_path / "servers"
     servers.mkdir()

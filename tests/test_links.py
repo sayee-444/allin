@@ -185,6 +185,25 @@ def test_a_supervisor_that_failed_otherwise_is_a_notice_saying_why(main: MainHar
     assert "port_in_use" in box.title and box.text == reason
 
 
+def test_a_supervisor_whose_model_is_missing_is_a_notice_naming_the_file_and_the_command(
+    main: MainHarness,
+):
+    session = main.create_session(server="gpu")
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hi"),
+        ServerChanged(GPU, ServerFailed("model_missing", "/models/m.gguf")),
+        settle=True,
+    )
+    [box] = [update.box for update in main.main_screen if isinstance(update, ShowBox)]
+    assert box.title == "Supervisor gpu has no model"
+    assert box.text == "/models/m.gguf is not there; give it one with /server set gpu model=<path>"
+    assert told(main, session.id)[-1] == (
+        "queue paused: Supervisor gpu has no model: /models/m.gguf is not there; give it one"
+        " with /server set gpu model=<path>"
+    )
+
+
 def change(session_id: str, name: str) -> MainCommandEntered:
     return MainCommandEntered(f"/session set {session_id} server={name}")
 
