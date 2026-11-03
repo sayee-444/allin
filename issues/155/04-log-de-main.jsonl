@@ -1,0 +1,11 @@
+{"ts": "2026-11-03T06:56:19.963928-06:00", "event": "main_started", "main_id": "root"}
+{"ts": "2026-11-03T06:56:19.965038-06:00", "event": "queue_paused", "server": "9931", "state": "None"}
+{"ts": "2026-11-03T06:56:19.968764-06:00", "event": "queue_paused", "server": "9931", "state": "ServerDown"}
+{"ts": "2026-11-03T06:57:13.457485-06:00", "event": "session_created", "sid": "caja", "owner": "root", "mold": null}
+{"ts": "2026-11-03T06:57:13.462631-06:00", "event": "window_opened", "sid": "caja"}
+{"ts": "2026-11-03T06:57:13.462868-06:00", "event": "command", "command": "/new --id=caja", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T06:57:13.550134-06:00", "event": "window_connected", "sid": "caja"}
+{"ts": "2026-11-03T06:57:35.967438-06:00", "event": "session_command", "command": "@secret set bot token …", "result": "secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'"}
+{"ts": "2026-11-03T06:57:56.816160-06:00", "event": "command", "command": "/exit", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T06:57:56.880160-06:00", "event": "window_closed", "sid": "caja", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T06:57:56.880191-06:00", "event": "main_stopped", "main_id": "root"}

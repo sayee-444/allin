@@ -1,0 +1,38 @@
+# #155 — @secret tecleado en una Ventana no deja su valor en el Log (2026-11-03)
+
+Servidor: ninguno (rechazar @secret no pide LLM; Main corrió con su Enlace sin Servidor, «queue paused»).
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m155, en un xterm, con el código final tras la revisión.
+Valor de prueba tecleado: xoxb-155-valor-de-prueba (inventado).
+
+## Pasos
+1. En Main: /new --id=caja (abre su Ventana).
+2. En la Ventana de caja se teclea «@secret set bot token xoxb-155-valor-de-prueba» SIN Enter y se deja
+   unos segundos, para que la Ventana mande su Borrador a Main (01-caja-antes.png).
+   - <data-dir>/profiles/default/state.json en ese momento: "drafts": {} (el bloque @secret no se guarda).
+   - grep -rl xoxb-155 <data-dir>: nada.
+3. Enter. La Ventana muestra
+   «[error] @secret set bot token …: secret_in_main_chat_only: usage='/secret [list [<instance>]] | /secret set <instance> <name> | /secret remove <instance> <name>'»
+   y su entrada queda vacía: la línea no vuelve al Borrador (02-caja-despues.png).
+   El Chat de Main: «[caja] @secret set bot token …: error secret_in_main_chat_only: usage=…» (03-main-despues.png).
+4. Log de Main (04-log-de-main.jsonl):
+   {"event": "session_command", "command": "@secret set bot token …", "result": "secret_in_main_chat_only: usage='/secret …'"}
+5. grep -rl xoxb-155 <data-dir> tras el error: nada. /exit en Main (guarda MainState por última vez) y otra vez
+   grep -rl xoxb-155 <data-dir>: nada. Main y la Ventana cerrados.
+
+## Criterios
+1. @secret … en una Ventana da un error que remite a /secret en el Chat de Main: pasos 3 y 4 (código
+   secret_in_main_chat_only, con el uso de /secret). También si lo pide una herramienta, o si un módulo de
+   comsession/ declara «secret»: tests.
+2. Ni el Log ni la Ventana guardan más que sus cuatro primeras palabras: pasos 2–5 (error de la Ventana,
+   Chat y Log de Main con «@secret set bot token …»; ni Borrador ni línea devuelta a la entrada; ningún
+   archivo del data dir con el valor).
+3. Tests: abajo.
+
+## Tests de #155
+  tests/test_secrets.py::test_typed_as_at_secret_in_a_window_it_points_to_main_chat_and_keeps_four_words PASSED
+  tests/test_secrets.py::test_asked_as_at_secret_by_a_tool_it_is_refused_and_logs_four_words PASSED
+  tests/test_secrets.py::test_a_draft_that_starts_with_at_secret_is_not_kept PASSED
+  tests/test_secrets.py::test_at_secret_with_no_value_is_refused_too_and_kept_whole PASSED
+  tests/test_session_commands.py::test_a_module_that_declares_secret_never_runs_it PASSED
+
+Suite completa: 1716 passed; basedpyright 0 errores; ruff limpio.
