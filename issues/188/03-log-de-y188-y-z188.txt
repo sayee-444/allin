@@ -1,0 +1,14 @@
+## y188
+{"ts": "2026-11-03T11:10:37.963067-06:00", "event": "prompt", "text": "Llama a la funcion informe con tema \"faros\" y luego dime en una frase de que trata."}
+{"ts": "2026-11-03T11:10:37.966846-06:00", "event": "turn_started", "need": 8664}
+{"ts": "2026-11-03T11:10:38.724277-06:00", "event": "tools_called", "tools": ["informe"]}
+{"ts": "2026-11-03T11:10:38.749816-06:00", "event": "tools_returned", "grows": 38754}
+{"ts": "2026-11-03T11:10:38.758172-06:00", "event": "continuation_measured", "need": 19433}
+{"ts": "2026-11-03T11:10:42.849039-06:00", "event": "turn_finished", "turn": 0}
+## z188
+{"ts": "2026-11-03T11:10:56.456341-06:00", "event": "prompt", "text": "Llama a la funcion enorme con tema \"faros\" y luego dime en una frase de que trata."}
+{"ts": "2026-11-03T11:10:56.459397-06:00", "event": "turn_started", "need": 8664}
+{"ts": "2026-11-03T11:10:57.379022-06:00", "event": "tools_called", "tools": ["enorme"]}
+{"ts": "2026-11-03T11:10:57.405231-06:00", "event": "tools_returned", "grows": 155762}
+{"ts": "2026-11-03T11:10:57.431592-06:00", "event": "continuation_measured", "need": 52441}
+{"ts": "2026-11-03T11:10:57.505343-06:00", "event": "turn_failed", "error": "prompt_too_big: need=52441, limit=32000"}

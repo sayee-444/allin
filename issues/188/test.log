@@ -1,0 +1,44 @@
+# #188 — Una Continuación que se estima mayor que el pool ya no espera sitio para siempre (2026-11-03)
+
+Servidor (Swift IQ3_XXS con -c 32000, como en la prueba de #177 donde salió el fallo):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9933
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m188, en un xterm, con el código del commit 9ea1225.
+Ajustes: /set base_url=http://127.0.0.1:9933/v1, /exit y otra vez Main. Pool compartido de 32000 tokens, Tope de
+salida 8000 (un cuarto del slot).
+Dos functions de prueba en el Perfil, aprobadas con /piece show y /piece approve:
+  informe(tema): 400 líneas numeradas, unos 38 750 caracteres (unos 11 000 tokens), dada a y188 con /grant.
+  enorme(tema): 1600 líneas, unos 155 760 caracteres (unos 44 000 tokens), dada a z188 con /grant.
+Las dos Sesiones son nuevas: sin Turnos guardados, no pueden ceder para compactar entre Pasos (ADR-0017),
+como la y177 de #177.
+
+## Criterios
+
+1. Una Continuación cuya estimación pasa del slot, pero cuyo input medido cabe, empieza su Paso
+   - y188: «Llama a la funcion informe con tema "faros" y luego dime en una frase de que trata.»
+     turn_started need 8664; tools_returned grows 38754: estimado 8664 + 38754 = 47 418, más que el pool (32 000).
+     Antes de #188 esperaba «waiting for room in the pool» para siempre (lo que vio #177, con 47 199).
+   - continuation_measured need 19433 (medido con /apply-template y /tokenize, más esquemas y Tope de salida):
+     cabe, y el Paso siguiente empezó y respondió en 4 s. turn_finished.
+   - El usage de ese Paso dice input_tokens 11233; lo medido (19433 - 8000 del Tope = 11433) solo le suma los
+     esquemas de la tool, contados un carácter por token.
+   - 01-y188-turno-terminado.png: el Turno entero, con «context 11326 / 32k» en el borde.
+
+2. Una que de verdad no cabe en el slot vacío falla con un error claro, no espera «waiting for room in the pool» sin fin
+   - z188: el mismo Prompt con enorme. tools_returned grows 155762; continuation_measured need 52441, más que el
+     pool vacío: el Turno falla en 0,1 s con «prompt_too_big: need=52441, limit=32000», su Prompt vuelve al input
+     y el borde no dice que espere (02-z188-falla-sin-esperar.png).
+
+03-log-de-y188-y-z188.txt: los eventos del Log de las dos Sesiones.
+
+## Tests de #188 (tests/test_continuation_measure.py)
+  test_a_continuation_estimated_past_the_pool_that_measures_less_starts_its_step PASSED
+  test_a_continuation_that_does_not_fit_in_the_empty_pool_fails_with_a_clear_error PASSED
+  test_a_continuation_that_does_not_fit_ends_its_executor_and_fails PASSED (con el executor de verdad)
+  test_a_continuation_the_server_cannot_measure_reserves_the_whole_pool PASSED
+  test_a_continuation_measured_to_fit_fails_once_its_pool_shrinks_below_it PASSED
+  test_shift_enter_while_its_next_step_is_measured_cuts_the_turn_as_ever PASSED
+  test_closing_the_window_while_its_next_step_is_measured_cancels_the_turn_as_ever PASSED
+  test_a_continuation_estimated_within_the_pool_is_not_measured PASSED
+Con el código de antes fallan seis de los siete que no necesitan executor; pasa el último, que comprueba que una
+Continuación que ya cabe no cambia (el del executor no se corrió así: su hilo se quedaría esperando).
+Suite completa: 1846 passed; basedpyright 0 errores; ruff limpio.
