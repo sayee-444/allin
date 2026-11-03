@@ -1,9 +1,10 @@
 """What leaves Main's queue with a Prompt, whatever takes it out (#196).
 
 A Prompt leaves ``TurnQueue`` with its Turn running or waiting in the queue (suspended by a
-fall or yielded to compact, ADR-0023, ADR-0017), or before any Turn of it started. Every way out
-goes through ``TurnQueue._leave`` with a ``Leaving`` and its ``Ending``, so each applies the
-same rule; this module holds what of that rule needs only the Prompt.
+fall or yielded to compact, ADR-0023, ADR-0017), or before any Turn of it started, and saved in
+its Conversation or not. Every way out goes through ``TurnQueue._leave`` with a ``Leaving`` and
+its ``Ending``, so each applies the same rule; this module holds what of that rule needs only
+the Prompt.
 """
 
 from dataclasses import dataclass
@@ -12,9 +13,10 @@ from typing import Literal
 from allin.main.conversation import interjected_in
 from allin.main.prompts import Prompt
 
-# How it left: its Turn failed, or it could not start; it was cancelled, or taken back; or it
-# is kept as it was, in the MainState Main stops with or the Profile it leaves takes with it.
-type Ending = Literal["failed", "cancelled", "kept"]
+# How it left: its Turn failed, or it could not start; it was cancelled, or taken back; it is
+# kept as it was, in the MainState Main stops with or the Profile it leaves takes with it; or
+# its Turn, or its Compaction, was saved in its Conversation (#208).
+type Ending = Literal["failed", "cancelled", "kept", "saved"]
 
 
 @dataclass(frozen=True)
