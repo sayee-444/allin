@@ -1,0 +1,37 @@
+# lectora: Log de la Sesión (eventos de la Compactación)
+{"ts": "2026-11-02T23:46:29.297519-06:00", "event": "prompt", "text": "Usa la tool leer con capitulo=1 y dime solo su primera palabra.", "prompt_id": "nhmafv", "origin": ["human"]}
+{"ts": "2026-11-02T23:46:32.009975-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-02T23:46:38.935885-06:00", "event": "prompt", "text": "Ahora usa leer con capitulo=2 y dime solo su primera palabra.", "prompt_id": "amuxdf", "origin": ["human"]}
+{"ts": "2026-11-02T23:46:39.627637-06:00", "event": "turn_yielded", "steps": 1}
+{"ts": "2026-11-02T23:46:41.279109-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-02T23:46:52.904784-06:00", "event": "prompt", "text": "Usa leer con capitulo=3, y despu", "prompt_id": "1gfx7z", "origin": ["human"]}
+{"ts": "2026-11-02T23:46:55.548483-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-02T23:47:03.006511-06:00", "event": "prompt", "text": "Usa leer con capitulo=3, y luego, en otra llamada aparte, leer con capitulo=4. Dime la primera palabra de cada uno.", "prompt_id": "o9suta", "origin": ["human"]}
+{"ts": "2026-11-02T23:47:04.543524-06:00", "event": "turn_yielded", "steps": 1}
+{"ts": "2026-11-02T23:47:04.556210-06:00", "event": "compaction_started", "kind": "auto_compact"}
+{"ts": "2026-11-02T23:47:04.570615-06:00", "event": "pruned", "first": 1, "last": 2, "saved": 7695}
+{"ts": "2026-11-02T23:47:04.570873-06:00", "event": "notification", "source": "compact", "text": "after compacting, still open: no Encargos, Suscripciones: sp5tm6b (timer:2957), no Procesos adheridos", "conversation": true}
+{"ts": "2026-11-02T23:47:07.361692-06:00", "event": "turn_yielded", "steps": 2}
+{"ts": "2026-11-02T23:47:11.263420-06:00", "event": "turn_finished", "turn": 3}
+{"ts": "2026-11-02T23:47:40.552336-06:00", "event": "session_command", "command": "@compact conserva la fruta de cada capitulo", "runs": "/session compact lectora conserva la fruta de cada capitulo", "origin": ["human"]}
+{"ts": "2026-11-02T23:47:40.552552-06:00", "event": "compaction_asked", "instructions": "conserva la fruta de cada capitulo"}
+{"ts": "2026-11-02T23:47:40.552975-06:00", "event": "compaction_started", "kind": "compact"}
+{"ts": "2026-11-02T23:47:45.808295-06:00", "event": "compacted", "summarized": 4, "summary": "Se usó la tool leer (de la función lector) para leer capítulos y reportar solo la primera palabra de cada uno. Fruta de cada capítulo: cap. 1: pera, cap. 2: kiwi, cap. 3: uva, cap. 4: higo. El cap. 3 y el cap. 4 se pidieron en llamadas separadas (ya cumplido). Sin tareas ni preguntas abiertas; es probable que el usuario pida más capítulos.", "archive": "compacted/1.json", "replaced": 8809, "tokens": 167}
+{"ts": "2026-11-02T23:47:45.808553-06:00", "event": "notification", "source": "compact", "text": "after compacting, still open: no Encargos, Suscripciones: sp5tm6b (timer:2916), no Procesos adheridos", "conversation": true}
+{"ts": "2026-11-02T23:47:58.811032-06:00", "event": "prompt", "text": "Sin usar tools: que fruta tenia el capitulo 2?", "prompt_id": "bx3oud", "origin": ["human"]}
+{"ts": "2026-11-02T23:47:59.939856-06:00", "event": "turn_finished", "turn": 4}
+{"ts": "2026-11-02T23:48:01.612823-06:00", "event": "prompt", "text": "Usa leer con capitulo=5 y dime solo su primera palabra.", "prompt_id": "ffexjr", "origin": ["human"]}
+{"ts": "2026-11-02T23:48:03.815592-06:00", "event": "turn_finished", "turn": 5}
+{"ts": "2026-11-02T23:48:06.705360-06:00", "event": "prompt", "text": "Usa la tool compactar con instrucciones='conserva la lista de frutas por capitulo'.", "prompt_id": "1dwijs", "origin": ["human"]}
+{"ts": "2026-11-02T23:48:07.599382-06:00", "event": "session_command", "command": "@compact conserva la lista de frutas por capitulo", "runs": "/session compact lectora conserva la lista de frutas por capitulo", "origin": ["human", "session:lectora"]}
+{"ts": "2026-11-02T23:48:07.599496-06:00", "event": "compaction_asked", "instructions": "conserva la lista de frutas por capitulo"}
+{"ts": "2026-11-02T23:48:07.599635-06:00", "event": "command", "command": "/session compact lectora conserva la lista de frutas por capitulo", "result": "ok", "origin": ["human", "session:lectora"]}
+{"ts": "2026-11-02T23:48:08.040484-06:00", "event": "turn_finished", "turn": 6}
+{"ts": "2026-11-02T23:48:08.040830-06:00", "event": "compaction_started", "kind": "compact"}
+{"ts": "2026-11-02T23:48:11.109931-06:00", "event": "compacted", "summarized": 6, "summary": "Se usó la tool leer (de la función lector) para leer capítulos y reportar solo la primera palabra de cada uno. Lista de fruta por capítulo: cap. 1: pera, cap. 2: kiwi, cap. 3: uva, cap. 4: higo, cap. 5: lima. El cap. 3 y el cap. 4 se pidieron en llamadas separadas (ya cumplido). Sin tareas ni preguntas abiertas; es probable que el usuario pida más capítulos.", "archive": "compacted/2.json", "replaced": 4330, "tokens": 174}
+{"ts": "2026-11-02T23:48:11.110181-06:00", "event": "notification", "source": "compact", "text": "after compacting, still open: no Encargos, Suscripciones: sp5tm6b (timer:2890), no Procesos adheridos", "conversation": true}
+
+# vigia: Prompts con que la despertó compact:lectora
+{"ts": "2026-11-02T23:47:04.808833-06:00", "event": "prompt", "text": "[from Subscription stux8i5]\ncompact:lectora (stux8i5): Session lectora compacted: the tool outputs of Prompts 1–2 pruned (ids nhmafv, amuxdf)", "woke_by": ["stux8i5"], "prompt_id": "sof8b9", "origin": ["human", "subscription:stux8i5"]}
+{"ts": "2026-11-02T23:47:45.812617-06:00", "event": "prompt", "text": "[from Subscription stux8i5]\ncompact:lectora (stux8i5): Session lectora compacted: Prompts 1–4 summarized (ids nhmafv, amuxdf, 1gfx7z, o9suta)", "woke_by": ["stux8i5"], "prompt_id": "b0lipf", "origin": ["human", "subscription:stux8i5"]}
+{"ts": "2026-11-02T23:48:11.815276-06:00", "event": "prompt", "text": "[from Subscription stux8i5]\ncompact:lectora (stux8i5): Session lectora compacted: Prompts 1–6 summarized (ids bx3oud, ffexjr)", "woke_by": ["stux8i5"], "prompt_id": "er3fqb", "origin": ["human", "session:lectora", "subscription:stux8i5"]}
