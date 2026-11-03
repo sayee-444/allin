@@ -120,18 +120,22 @@ class SessionSends:
         )
         self._boxes.confirm(None, "Approve files", f"{text}\nCopy them?", on_approval)
 
+    def check_room_for_new(self, name: AttachedName) -> None:
+        """A Session about to be born in the Subperfil ``name``, which has no Turn yet, may get
+        one only while fewer of its Sessions than its ``turns`` have one (ADR-0026)."""
+        record = self._subprofiles.record(name)
+        if sum(1 for sid in record.sessions if self._taken(sid)) >= record.turns:
+            raise SubprofileBusy(name=name, turns=record.turns)
+
     def _check_room(self, name: AttachedName, target: SessionId) -> None:
         """No more of a Subperfil's Sessions than its ``turns`` have a Turn running or queued
         at once; one that already has gets more (ADR-0026)."""
+        if not self._taken(target):
+            self.check_room_for_new(name)
 
-        def taken(session_id: SessionId) -> bool:
-            return self._turns.busy(session_id) or self._turns.queued_count(session_id) > 0
-
-        if taken(target):
-            return
-        record = self._subprofiles.record(name)
-        if sum(1 for sid in record.sessions if taken(sid)) >= record.turns:
-            raise SubprofileBusy(name=name, turns=record.turns)
+    def _taken(self, session_id: SessionId) -> bool:
+        """Whether the Session has a Turn running or queued: one of its Subperfil's ``turns``."""
+        return self._turns.busy(session_id) or self._turns.queued_count(session_id) > 0
 
     def _push(
         self,

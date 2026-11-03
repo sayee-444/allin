@@ -626,6 +626,52 @@ def test_the_task_of_a_molde_it_creates_on_its_own_waits_behind_a_humans(main: M
     assert started["initiative"] is True
 
 
+def test_past_its_cap_a_molde_with_a_task_creates_no_session_and_it_hears_busy(
+    main: MainHarness,
+):
+    main.hold_turns = True  # its first Session's Turn stays running: the cap (1) is taken
+    heard: list[JsonValue] = []
+    main.run(
+        MainCommandEntered("/attach relay"),
+        act(main, "@new helper", "relay"),
+        hearing(main, 1, "relay"),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main, "relay")),
+        act(main, lambda: f"@send {heard_state(heard, 0)} hola", "relay"),
+        hearing(main, 2, "relay"),
+        TURNS_ENDED,
+        act(main, "@new tasked", "relay"),
+        hearing(main, 3, "relay"),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main, "relay")[1:]),
+        settle=True,
+    )
+    assert heard[1] == {"result": "ok"}
+    assert "subprofile_busy" in str(heard[2]), heard[2]
+    assert subprofile_sessions(main, "relay") == [heard_state(heard, 0)], "no orphan Session"
+
+
+def test_a_session_of_its_subprofile_without_a_turn_leaves_room_for_a_moldes_task(
+    main: MainHarness,
+):
+    main.hold_turns = True
+    heard: list[JsonValue] = []
+    chat = main.run(
+        MainCommandEntered("/attach relay"),
+        act(main, "@new helper", "relay"),
+        hearing(main, 1, "relay"),
+        TURNS_ENDED,
+        act(main, "@new tasked", "relay"),
+        hearing(main, 2, "relay"),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main, "relay")),
+        settle=True,
+    )
+    idle, tasked = heard_state(heard, 0), heard_state(heard, 1)
+    assert subprofile_sessions(main, "relay") == [idle, tasked]
+    assert started_sessions(chat) == [tasked], "its task runs"
+
+
 def test_a_prompt_a_method_sends_during_a_call_is_admitted_by_arrival(main: MainHarness):
     x, b = main.create_session(), main.create_session()
     a = main.sessions.save_commands(main.create_session(), (CommandName("send"),))

@@ -875,7 +875,7 @@ class MainCommands:
         asked, mold = birth.asked, birth.mold
         task = None if mold is None else mold.recipe.task
         if task is not None:
-            self._check_may_send(origin)  # before anything is created
+            self._check_task_may_go(birth, origin)
         chain = None if origin.is_human else self._chain(origin)
         template = self._settings.current.session  # copied: later changes never reach it
         settings = template if mold is None else mold.settings(template)
@@ -967,6 +967,14 @@ class MainCommands:
             self._sessions.load(sid) if sid in ids else None for sid in chain_sessions(origin)
         ]
         return [s if s is not None and s.owner == self._main_id else None for s in loaded]
+
+    def _check_task_may_go(self, birth: _Birth, origin: Origin) -> None:
+        """A Molde's task is refused before anything is created: a refusal after would leave a
+        Session that whoever asked never hears of. It goes as ``/send`` asks, and in a
+        Subperfil only below its ``turns`` (ADR-0026)."""
+        self._check_may_send(origin)
+        if birth.subprofile is not None:  # only a Proceso adherido creates one there
+            self._sends.check_room_for_new(birth.subprofile)
 
     def _check_may_send(self, origin: Origin) -> None:
         """A Molde's task goes as a ``/send`` of whoever creates the Session: a Session sends it
