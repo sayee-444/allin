@@ -127,6 +127,13 @@ class Supervisor:
             if self._stopping or self._human_sleep:  # asked before the model was loaded
                 self._write("asleep", settings)
                 return 0
+            model = settings.model_file(Path.cwd())
+            if not model.is_file():  # llama would only fail: it is never launched (#158)
+                if self._good is not None and settings != self._good:
+                    self._fell_back(settings, f"model file not found: {model}")
+                    settings = self._good
+                    continue
+                return self._fail("model_missing", str(model), settings)
             if not port_free(settings.port):
                 holder = port_holder(settings.port)
                 return self._fail(

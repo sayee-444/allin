@@ -1,5 +1,6 @@
 """``/kit``: export a Kit from the active Profile and load one into it (ADR-0014)."""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -104,30 +105,59 @@ class KitCommands:
 
     def _suggest(self, kit: str, name: str, values: dict[str, JsonValue]) -> None:
         """A Supervisor the Kit suggests is made only if a human accepts: new and asleep,
-        never changing one there is or any Enlace (ADR-0014)."""
+        never changing one there is or any Enlace (ADR-0014). Its model, which the Kit names
+        by its file's name, it gets by its path if it is next to another Supervisor's (#158)."""
+        model = str(values["model"])
+        found = self._find_model(model)
 
         def on_answer(answer: bool) -> None:
             if not answer or (self._servers / f"{name}.toml").exists():
                 return
-            settings = ServerSettings.model_validate({**values, "port": self._free_port()})
+            given = str(found or model)
+            settings = ServerSettings.model_validate(
+                {**values, "model": given, "port": self._free_port()}
+            )
             save_server_settings(self._servers / f"{name}.toml", settings)
             shown = f"Supervisor {name} created from kit {kit}, asleep"
-            self._reporter.report(None, "kit_server_created", shown, server=name, kit=kit)
+            fields: dict[str, JsonValue] = {"server": name, "kit": kit, "model": given}
+            self._reporter.report(None, "kit_server_created", shown, **fields)
 
-        text = f"Create Supervisor {name} from kit {kit} (model {values.get('model')}), asleep?"
-        self._boxes.confirm(None, "Kit Supervisor", text, on_answer)
+        self._boxes.confirm(None, "Kit Supervisor", _offer(kit, name, model, found), on_answer)
+
+    def _find_model(self, model: str) -> Path | None:
+        """The file named ``model`` in the folder of some Supervisor's model, if there is one."""
+        for settings in self._supervisors():
+            candidate = settings.model_file(Path.cwd()).parent / model
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def _supervisors(self) -> Iterator[ServerSettings]:
+        """The Settings of each Supervisor on this machine, in the order of their names."""
+        for path in sorted(self._servers.glob("*.toml")):
+            try:
+                yield load_server_settings(path)
+            except AllInError:  # a broken toml names no model nor any port worth avoiding
+                continue
 
     def _free_port(self) -> int:
-        taken = set[int]()
-        for path in self._servers.glob("*.toml"):
-            try:
-                taken.add(load_server_settings(path).port)
-            except AllInError:  # a broken toml holds no port worth avoiding
-                continue
+        taken = {settings.port for settings in self._supervisors()}
         for port in range(_FIRST_PORT, _LAST_PORT + 1):
             if port not in taken and port_free(port):
                 return port
         raise InvalidArguments(usage=f"no free port in {_FIRST_PORT}-{_LAST_PORT}")
+
+
+def _offer(kit: str, name: str, model: str, found: Path | None) -> str:
+    """What the box asks of a Supervisor the Kit suggests: the path of its model, or that it
+    is not next to any Supervisor's (#158)."""
+    if found is not None:
+        return f"Create Supervisor {name} from kit {kit} with model {found}, asleep?"
+    return (
+        f"Create Supervisor {name} from kit {kit}, asleep? Its model {model} is not next to the"
+        f" model of any Supervisor on this machine; give it one with /server set {name}"
+        " model=<path>"
+    )
 
 
 def _choices(words: list[str]) -> dict[str, Choice]:
