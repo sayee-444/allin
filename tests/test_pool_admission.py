@@ -222,7 +222,9 @@ def test_a_prompt_that_did_not_fit_with_its_window_open_does_not_come_back_on_re
     main.run(*open_all(session), InputReceived(session.id, "too much"), settle=True)
     assert restored(main.windows(session.id)[0]) == ["too much"]
     main.run(WindowClosed(session.id, returncode=0), *open_all(session), settle=True)
-    assert restored(main.windows(session.id)[1]) == []
+    # From the Draft Main keeps for it (#176), and not a second time from the Log.
+    second = main.windows(session.id)[1]
+    assert [m.text for m in second.sent if isinstance(m, InputRestore)] == ["too much"]
 
 
 def test_a_prompt_of_another_origin_that_did_not_fit_never_goes_back_as_its_window_opens(
