@@ -1,0 +1,29 @@
+{"ts": "2026-11-03T10:55:39.452439-06:00", "event": "session_created", "owner": "root", "mold": null}
+{"ts": "2026-11-03T10:55:39.457318-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:55:39.544660-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T10:55:40.564085-06:00", "event": "functions_added", "pieces": ["function:napper"], "origin": ["human"]}
+{"ts": "2026-11-03T10:55:51.361776-06:00", "event": "window_closed", "returncode": null, "reason": "main is shutting down"}
+{"ts": "2026-11-03T10:55:58.971609-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T10:55:59.062963-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T10:59:54.456776-06:00", "event": "prompt", "text": "[from Session lider181]\nDi hola en una palabra.", "prompt_id": "oq6j0f", "origin": ["human", "session:lider181"]}
+{"ts": "2026-11-03T10:59:54.462410-06:00", "event": "turn_started", "need": 8637}
+{"ts": "2026-11-03T10:59:54.463923-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T10:59:56.960066-06:00", "event": "prompt", "text": "[from Session lider181]\nDi hola en una palabra.", "prompt_id": "81k7rm", "queued": true, "origin": ["human", "session:lider181"]}
+{"ts": "2026-11-03T11:04:19.630725-06:00", "event": "window_closed", "returncode": 15}
+{"ts": "2026-11-03T11:04:25.529894-06:00", "event": "turn_started", "need": 8637}
+{"ts": "2026-11-03T11:04:25.531319-06:00", "event": "turn_failed", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": "", "joined": [], "origin": ["human", "session:lider181"], "prompt": "[from Session lider181]\nDi hola en una palabra."}
+{"ts": "2026-11-03T11:04:25.531456-06:00", "event": "prompts_dropped", "reason": "the turn before failed", "texts": ["[from Session lider181]\nDi hola en una palabra."], "kinds": ["prompt"], "origins": [["human", "session:lider181"]]}
+{"ts": "2026-11-03T11:04:39.715816-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:04:39.803866-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:04:47.817793-06:00", "event": "prompt", "text": "Di manzana en una palabra.", "prompt_id": "48zrz2", "origin": ["human"]}
+{"ts": "2026-11-03T11:04:47.821960-06:00", "event": "turn_started", "need": 8629}
+{"ts": "2026-11-03T11:04:47.823449-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T11:04:52.468389-06:00", "event": "window_closed", "returncode": 15}
+{"ts": "2026-11-03T11:04:52.468599-06:00", "event": "prompts_dropped", "reason": "window closed", "texts": ["Di manzana en una palabra."], "kinds": ["prompt"], "origins": [["human"]]}
+{"ts": "2026-11-03T11:05:00.002492-06:00", "event": "window_opened"}
+{"ts": "2026-11-03T11:05:00.088127-06:00", "event": "window_connected"}
+{"ts": "2026-11-03T11:05:08.468617-06:00", "event": "prompt", "text": "Di manzana en una palabra.", "prompt_id": "ybe53w", "origin": ["human"]}
+{"ts": "2026-11-03T11:05:08.585768-06:00", "event": "turn_started", "need": 8629}
+{"ts": "2026-11-03T11:05:08.587177-06:00", "event": "turn_suspended", "error": "llm_unavailable: reason='Connection error.', reached=True", "reasoning": "", "answer": ""}
+{"ts": "2026-11-03T11:05:23.600659-06:00", "event": "turn_started", "need": 8629}
+{"ts": "2026-11-03T11:05:24.395092-06:00", "event": "turn_finished", "turn": 0}

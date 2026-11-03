@@ -1,0 +1,54 @@
+# #181 — Cerrar la Ventana de un Turno de otro Origen no le da un intento más tras caer el Servidor (2026-11-03)
+
+Código: rama fix/181-cerrar-ventana-no-olvida-caidas, commit 982a625.
+Servidor (Swift IQ3_XXS con -c 32000, para dejar sitio al de la otra sesión):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9932
+Delante, fallproxy.py.txt (el de issues/176, sin cambios, 19932 → 9932): cae el POST de generación cuyo cuerpo contiene
+lo escrito en <scratch>/fall (lo apunta en falls.log), y cada caída crea <scratch>/down (/health 503) hasta que se borra.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m181, en el xterm allin-main-181, con /set base_url=http://127.0.0.1:19932/v1
+(y reiniciado, para que valga). Functions: teller/tell.py (tell.py.txt, «@send <sid> <text>») y napper/nap.py (nap.py.txt).
+/piece approve --all; /new --id=lider181; /func add lider181 function:teller; /new --id=caida181; /func add caida181 function:napper.
+(El driver de X no escribe tildes, así que los textos van sin ellas.)
+
+## Criterios
+
+1. Un Turno de otro Origen que ya cayó una vez en un Paso falla a la segunda caída de ese Paso aunque entre las dos se
+   cierre su Ventana
+   - fall = «[from Session lider181]»: solo cae el Paso del Prompt que lider181 manda a caida181.
+   - En lider181: «Llama a la tool tell una vez con sid=caida181 y text=Di hola en una palabra. No hagas nada mas.»
+     (llamó a tell dos veces: un segundo Prompt igual queda en cola detrás.)
+   - El Turno de caida181 (origin ["human","session:lider181"]) cae: turn_suspended, reached=True; falls.log: 1 línea
+     (01-caida-suspendido.png: turn suspended, queue paused, y el segundo Prompt [queued]).
+   - Se cierra la Ventana (kill del xterm «AllIn · caida181», por su pid): window_closed; nada sale de la cola, el Turno
+     sigue (es una mirilla, ADR-0013).
+   - rm down: el Paso se repite y cae otra vez: turn_failed (llm_unavailable, reached=True) y el Prompt de detrás sale
+     de la cola (prompts_dropped, the turn before failed). falls.log: 2 líneas. Antes de #181 hacían falta tres (lo
+     visto en la prueba de #174).
+   - Log de caida181 (04-log-de-caida181.jsonl), en orden:
+       prompt (origin human, session:lider181), turn_started, turn_suspended, prompt (el segundo), window_closed,
+       turn_started, turn_failed, prompts_dropped
+   - /open caida181 (02-caida-fallido-al-reabrir.png): el Prompt de lider181, el error y [dropped] 1.
+2. Un Turno humano que se cancela al cerrar la Ventana sigue olvidando su cuenta, como hoy
+   - fall = «manzana». En caida181: «Di manzana en una palabra.» → cae: turn_suspended (falls.log: 1 línea).
+   - Se cierra la Ventana (kill por pid): window_closed y prompts_dropped (window closed, texts=["Di manzana en una
+     palabra."]): el Turno suspendido sale con ella.
+   - /open caida181: el Prompt vuelve al input (#176). Enter, rm down: el Turno nuevo cae una vez y queda suspendido,
+     no falla (falls.log: 2 líneas, una por Turno). Si la cuenta del anterior siguiera viva, fallaría aquí.
+   - rm fall, rm down: turn_finished, «manzana» (03-caida-humano-cuenta-olvidada.png: [dropped] window closed, el
+     Prompt otra vez, turn suspended y la respuesta).
+3. Tests: abajo.
+
+Al final: /exit en Main (cierra sus Ventanas), se paran el proxy y el Servidor.
+
+## Tests de #181 (tests/test_dispatcher.py)
+test_closing_the_window_of_another_origins_suspended_turn_keeps_the_falls_of_its_step PASSED
+  (con el código de antes fallaba: el Turno terminaba al tercer intento)
+test_closing_the_window_of_another_origins_turn_repeating_its_step_keeps_its_falls PASSED
+  (con el código de antes fallaba: un tercer Paso)
+test_a_human_turn_cancelled_by_closing_its_window_forgets_the_falls_of_its_step PASSED
+test_a_human_turn_cancelled_as_it_repeats_its_step_forgets_the_falls_of_that_step PASSED
+Suite completa: 1829 pasan; basedpyright y ruff (src, tests) limpios.
+
+## Fuera de alcance
+#190: TurnQueue.cancel_prompt (Encargo, Suscripción) saca de la cola un Turno suspendido sin olvidar su cuenta de
+caídas; el siguiente Turno de la Sesión falla a su primera caída (comprobado con una prueba de usar y tirar).
