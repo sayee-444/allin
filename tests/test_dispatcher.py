@@ -13,6 +13,7 @@ from allin.confinement.support import FULL_SUPPORT
 from allin.core.drafts import put_back
 from allin.core.errors import LlmUnavailable, MalformedMessage, TurnCancelled
 from allin.core.ids import MainId, ServerKey, SessionId, SupervisorName
+from allin.core.origin import HUMAN, from_session
 from allin.core.settings import MainSettings, Sampling, SessionSettings
 from allin.core.slot_locks import SlotLock, SlotLocks
 from allin.core.themes import Theme
@@ -962,6 +963,93 @@ def test_falls_before_the_step_reached_the_server_never_fail_its_turn(main: Main
     )
     assert not any(entry.event == "turn_failed" for entry in main.session_log(session))
     assert any(entry.event == "turn_finished" for entry in main.session_log(session))
+
+
+def test_closing_the_window_of_another_origins_suspended_turn_keeps_the_falls_of_its_step(
+    main: MainHarness,
+):
+    # Its Window was a peephole: the Turn goes on, and so does its count (ADR-0013, ADR-0023).
+    session, sender = main.create_session(), main.create_session()
+    main.llm = FakeLlm(
+        DroppedStream([answer("half")]), DroppedStream([answer("half")]), full_reply("", "never")
+    )
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/send {session.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        WindowClosed(session.id, returncode=0),  # while it waits for its Server, suspended
+        server_ready(main.server),
+        settle=True,
+    )
+    events = [entry.event for entry in main.session_log(session)]
+    assert events.count("turn_suspended") == 1
+    assert "turn_failed" in events and "turn_finished" not in events
+
+
+def test_closing_the_window_of_another_origins_turn_repeating_its_step_keeps_its_falls(
+    main: MainHarness,
+):
+    session, sender = main.create_session(), main.create_session()
+    main.hold_turns = True
+    fell = LlmUnavailable(reason="Connection error.", reached=True)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        MainCommandEntered(f"/send {session.id} trabajo", origin=from_session(HUMAN, sender.id)),
+        TurnEnded(session.id, error=fell),
+        server_ready(main.server),
+        WindowClosed(session.id, returncode=0),  # as its Step runs again
+        TurnEnded(session.id, error=fell),
+        server_ready(main.server),
+        settle=True,
+    )
+    assert [job.cancellation.reason for job in main.held] == [None, None]
+    events = [entry.event for entry in main.session_log(session)]
+    assert events.count("turn_suspended") == 1 and "turn_failed" in events
+
+
+def test_a_human_turn_cancelled_by_closing_its_window_forgets_the_falls_of_its_step(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.llm = FakeLlm(
+        DroppedStream([answer("half")]), DroppedStream([answer("half")]), full_reply("", "ok")
+    )
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        WindowClosed(session.id, returncode=0),  # its suspended Turn leaves with it
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "otra"),
+        server_ready(main.server),  # its first fall: suspended, not failed
+        server_ready(main.server),
+        settle=True,
+    )
+    events = [entry.event for entry in main.session_log(session)]
+    assert events.count("turn_suspended") == 2
+    assert "turn_failed" not in events and "turn_finished" in events
+
+
+def test_a_human_turn_cancelled_as_it_repeats_its_step_forgets_the_falls_of_that_step(
+    main: MainHarness,
+):
+    session = main.create_session()
+    main.hold_turns = True
+    fell = LlmUnavailable(reason="Connection error.", reached=True)
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        TurnEnded(session.id, error=fell),
+        server_ready(main.server),
+        WindowClosed(session.id, returncode=0),  # as its Step runs again
+        TurnEnded(session.id, error=TurnCancelled(reason="window closed")),
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "otra"),
+        TurnEnded(session.id, error=fell),  # its first fall: suspended, not failed
+        server_ready(main.server),
+        settle=True,
+    )
+    assert len(main.held) == 4
+    events = [entry.event for entry in main.session_log(session)]
+    assert events.count("turn_suspended") == 2 and "turn_failed" not in events
 
 
 def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
