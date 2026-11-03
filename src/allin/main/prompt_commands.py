@@ -21,7 +21,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
 from allin.core.errors import ParamOverrideInvalid, SessionCommandInPrompt
-from allin.core.ids import CommandName
 from allin.core.settings import Sampling
 
 _OVERRIDE = re.compile(r"@([a-z_]+)=(\S*)")
@@ -29,7 +28,12 @@ _REFERENCE = re.compile(r"@((?:/|~|\./)\S*)")
 _COMMAND_SESSION = re.compile(r"\s*@([a-z][a-z0-9_]*)(?:\s|$)")
 _SPACE = re.compile(r"(\s+)")
 # Never a Command session: ``/secret`` is Main's Chat's alone (#155).
-_SECRET = CommandName("secret")
+_SECRET = ["@secret"]
+_SENDS = [["@send"], ["/send"]]
+# What no Log or Chat keeps more than three words after (``/secret set <instance> <name>``),
+# also inside a quote, as in an Encargo's JSON; never part of a path or of another word.
+_SECRET_WORD = re.compile(r"(?<![\w@/.-])[@/]secret(?![\w-])")
+_KEPT_AFTER = 3
 # One option of ``/send``'s structured form, with the one space after it; ``--`` alone ends them.
 _SEND_OPTION = re.compile(r'\s*--(?:(?P<key>[a-z_-]+)=(?P<value>"(?:[^"\\]|\\.)*"|\S+))?(?:\s|$)')
 # Sent as arguments of the SDK, as the Session's Sampling settings are.
@@ -101,10 +105,48 @@ def session_command_name(text: str) -> str | None:
     return command.group(1) if command is not None else None
 
 
-def is_secret_command(text: str) -> bool:
-    """Whether ``text`` is ``@secret …``, which may hold a Secreto's value typed by mistake:
-    no Log, Chat or Draft keeps more than its first four words (#155)."""
-    return session_command_name(text) == _SECRET
+def sends_secret(text: str) -> bool:
+    """Whether ``text`` is ``@secret …``, or an ``@send`` or ``/send`` whose text is, after its
+    ``<sid>`` and options, however many deep (#155, #178, #195). It may hold a Secreto's value
+    typed by mistake: it never runs, goes back to an input or stays in a Draft."""
+    words = text.split()
+    while words[:1] in _SENDS:
+        words = _sent_words(words[1:])
+    return words[:1] == _SECRET
+
+
+def kept_of_command(text: str) -> str:
+    """What a Log or a Chat keeps of a command's line: cut three words after its first
+    ``@secret`` or ``/secret``, wherever it is, with ``…`` for the rest, such as a value typed
+    there by mistake (ADR-0026); any other as typed."""
+    secret = _SECRET_WORD.search(text)
+    if secret is None:
+        return text
+    after = text[secret.end() :].split()
+    if len(after) <= _KEPT_AFTER:
+        return text
+    return " ".join([*text[: secret.end()].split(), *after[:_KEPT_AFTER]]) + " …"
+
+
+def holds_secret(text: str) -> bool:
+    """Whether a line no input or Draft may get back: one that sends ``@secret …``, or a
+    Command session that names it anywhere a Log would cut, such as an Encargo's task (#195).
+    A Prompt that only names it is the human's text, and stays."""
+    named = session_command_name(text) is not None and kept_of_command(text) != text
+    return named or sends_secret(text)
+
+
+def _sent_words(words: list[str]) -> list[str]:
+    """The words of the text a send sends, after its ``-y``, its ``<sid>`` and its options
+    (``--reply-to=<sid>``, or a Session's structured form up to a lone ``--``)."""
+    if words[:1] == ["-y"]:
+        words = words[1:]
+    words = words[1:]
+    while words and words[0].startswith("--"):
+        option, *words = words
+        if option == "--":
+            break
+    return words
 
 
 def parse_prompt(text: str) -> ParsedPrompt:

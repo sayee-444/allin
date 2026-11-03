@@ -279,7 +279,14 @@ def _tasks(rest: str, usage: str) -> list[str]:
 def _json[T](adapter: TypeAdapter[T], text: str, usage: str) -> T:
     try:
         return adapter.validate_python(json.loads(text))
-    except (ValueError, ValidationError) as error:
+    except ValidationError as error:
+        # Where and why, never the value: a task may hold a Secreto typed by mistake (#195).
+        wrong = "; ".join(
+            f"{'.'.join(map(str, each['loc']))}: {each['msg']}"
+            for each in error.errors(include_url=False, include_input=False)
+        )
+        raise ErrandInvalid(reason=f"not JSON as it should be: {wrong}", usage=usage) from error
+    except ValueError as error:
         raise ErrandInvalid(reason=f"not JSON as it should be: {error}", usage=usage) from error
 
 
