@@ -946,11 +946,15 @@ class MainCommands:
         self._reporter.record(
             session.id, "rewound", shown, turn=result.turn, asked=n, texts=texts, origins=origins
         )
-        # A human's texts go back to its input, the first one undone shown first; anyone
-        # else's stay in the Log only.
-        for turn in reversed(result.undone):
-            if turn.origin.is_human:
-                self._windows.put_back(session.id, turn.as_typed)
+        # A human's texts go back to its input, the first one undone shown first, with what
+        # a human sent into each Turn while it ran (ADR-0024); anyone else's stay in the Log.
+        human = [
+            text
+            for turn in result.undone
+            for text in ([turn.as_typed] if turn.origin.is_human else []) + turn.interjected
+        ]
+        for text in reversed(human):
+            self._windows.put_back(session.id, text)
         self._windows.rebuild_chat(session)
         return True
 

@@ -1,5 +1,13 @@
-from allin.core.ids import SessionId
+from dataclasses import replace
+from typing import Any
+
+import pytest
+
+from allin.core.ids import SessionId, SubscriptionId
+from allin.main.conversation import Attachment
+from allin.main.prompt_commands import TurnOverrides
 from allin.main.prompts import Prompt, PromptQueue
+from tests.origins import A_SESSION
 
 A = SessionId("aaaaaa")
 B = SessionId("bbbbbb")
@@ -59,3 +67,68 @@ def test_an_entry_can_go_just_before_a_queued_prompt():
     queue.insert_before(Prompt(A, "a"), compact)
     assert queue.all() == [Prompt(B, "b"), compact, Prompt(A, "a")]
     assert compact != Prompt(A, "")  # a Compaction is no Prompt of the same text
+
+
+# What a human typed in a Session's Window during its Turn enters it (#121, ADR-0024).
+
+TYPED = Prompt(A, "typed", queued=True, in_window=True)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"kind": "compact"},
+        {"queued": False},
+        {"in_window": False},
+        {"origin": A_SESSION},
+        {"attachments": (Attachment(path="a.txt", kind="text"),)},
+        {"overrides": TurnOverrides(temperature=0.2)},
+        {"answered_by": "-y"},
+        {"owed": (SubscriptionId("s1"),)},
+        {"woke_by": (SubscriptionId("s1"),)},
+        {"suspended": True},
+    ],
+)
+def test_only_plain_text_typed_in_the_window_and_queued_may_join(change: dict[str, Any]):
+    assert TYPED.may_join
+    assert not replace(TYPED, **change).may_join
+
+
+def test_typed_in_window_marks_only_the_sessions_last_prompt_if_it_is_queued():
+    queue = PromptQueue()
+    queue.push(Prompt(A, "a1", queued=True))
+    queue.push(Prompt(A, "a2", queued=True))
+    queue.push(Prompt(B, "b1"))
+    queue.typed_in_window(A)
+    queue.typed_in_window(B)  # it waits for no Turn: nothing to join
+    queue.typed_in_window(SessionId("cccccc"))  # none queued: nothing
+    assert [p.in_window for p in queue.all()] == [False, True, False]
+
+
+def test_take_joining_takes_in_order_what_fits_and_leaves_the_rest():
+    queue = PromptQueue()
+    for text in ("uno", "dos", "trescientos"):
+        queue.push(replace(TYPED, text=text))
+    queue.push(replace(TYPED, session_id=B, text="otra"))
+    assert [p.text for p in queue.take_joining(A, room=6)] == ["uno", "dos"]
+    assert [p.text for p in queue.all()] == ["trescientos", "otra"]
+    assert queue.take_joining(A, room=10) == []  # 11 characters: it waits its own Turn
+    assert [p.text for p in queue.take_joining(A, room=11)] == ["trescientos"]
+
+
+def test_take_joining_skips_what_others_sent_and_stops_at_what_the_human_typed_for_a_turn():
+    queue = PromptQueue()
+    queue.push(replace(TYPED, text="1"))
+    queue.push(Prompt(A, "from a session", queued=True, origin=A_SESSION))
+    queue.push(replace(TYPED, text="2"))
+    queue.push(replace(TYPED, text="3", overrides=TurnOverrides(temperature=0.2)))
+    queue.push(replace(TYPED, text="4"))
+    assert [p.text for p in queue.take_joining(A, room=100)] == ["1", "2"]
+    assert [p.text for p in queue.all()] == ["from a session", "3", "4"]
+
+
+def test_take_joining_stops_at_a_compaction():
+    queue = PromptQueue()
+    queue.push(Prompt(A, "", "compact"))
+    queue.push(replace(TYPED, text="1"))
+    assert queue.take_joining(A, room=100) == []

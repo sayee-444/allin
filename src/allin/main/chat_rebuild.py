@@ -139,6 +139,7 @@ def _turn_output(turn: Turn, settings: SessionSettings) -> list[ChatAppend]:
                 case _:
                     pass
         chat += _tool_entries(step)
+        chat += [_prompt(text, settings) for text in step.interjected]  # ADR-0024
     if (tokens := tokens_entry(turn.steps)) is not None:
         chat.append(tokens)
     if turn.cut is not None:

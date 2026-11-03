@@ -4,7 +4,7 @@ Only the dispatcher touches it, so it needs no locking.
 """
 
 from collections.abc import Callable, Container
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from allin.core.ids import NO_PROMPT_ID, PromptId, SessionId, SubscriptionId
@@ -46,10 +46,31 @@ class Prompt:
     owed: tuple[SubscriptionId, ...] = ()
     # A Suscripción's Prompt: those that woke its Session with it, a Continuation (#116).
     woke_by: tuple[SubscriptionId, ...] = ()
+    # Typed in its Session's Window, not sent with ``/send``: queued so, it may enter the
+    # Session's running Turn before its next Step instead (ADR-0024).
+    in_window: bool = False
 
     @property
     def as_typed(self) -> str:
         return self.typed or self.text
+
+    @property
+    def may_join(self) -> bool:
+        """Whether, queued, it may enter its Session's running Turn: plain text a human typed in
+        its Window, with nothing that is for a whole Turn of its own (Command prompts,
+        attachments, ``-y``) and nobody waiting for its own answer."""
+        return (
+            self.kind == "prompt"
+            and self.queued
+            and self.in_window
+            and self.origin.is_human
+            and not self.attachments
+            and self.overrides == TurnOverrides()
+            and self.answered_by is None
+            and not self.owed
+            and not self.woke_by
+            and not self.suspended
+        )
 
 
 class PromptQueue:
@@ -115,6 +136,33 @@ class PromptQueue:
             return None
         self._prompts.remove(typed[-1])
         return typed[-1]
+
+    def typed_in_window(self, session_id: SessionId) -> None:
+        """The Session's last Prompt was typed in its Window: marked so if it waits behind a
+        Turn, the only time it matters (ADR-0024)."""
+        mine = self.of(session_id)
+        if mine and mine[-1].queued:
+            index = self._prompts.index(mine[-1])
+            self._prompts[index] = replace(mine[-1], in_window=True)
+
+    def take_joining(self, session_id: SessionId, room: int) -> list[Prompt]:
+        """Take out, in order, the Session's queued Prompts that may enter its running Turn
+        (``Prompt.may_join``) and fit in ``room`` characters. The first of its Prompts typed in
+        its Window that may not, or a Compaction, stops it, so what the human typed keeps its
+        order; the Prompts others sent wait for their own Turn and stop nothing."""
+        taken: list[Prompt] = []
+        for prompt in self.of(session_id):
+            if prompt.kind != "prompt" or (prompt.in_window and not prompt.may_join):
+                break
+            if not prompt.may_join:
+                continue
+            room -= len(prompt.text)
+            if room < 0:
+                break
+            taken.append(prompt)
+        for prompt in taken:
+            self._prompts.remove(prompt)
+        return taken
 
     def session_ids(self) -> list[SessionId]:
         """The Sessions with queued Prompts, each once, in the order of their first one."""

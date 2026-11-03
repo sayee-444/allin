@@ -33,11 +33,15 @@ class Step(BaseModel, frozen=True):
     usage: dict[str, Any] | None = None
     timings: dict[str, Any] | None = None
     results: list[Item] = []
+    # What the human sent from its Session's Window while its tools ran: it entered the Turn
+    # right before the next Step, as ``user`` messages (ADR-0024).
+    interjected: list[str] = []
 
     @property
     def items(self) -> list[Item]:
-        """What the next Step reads of it: what it produced, then its tools' outputs."""
-        return [*self.output, *self.results]
+        """What the next Step reads of it: what it produced, its tools' outputs, then what the
+        human sent meanwhile."""
+        return [*self.output, *self.results, *(user_item(text) for text in self.interjected)]
 
     @property
     def calls(self) -> list[Item]:
@@ -92,6 +96,11 @@ class Turn(BaseModel, frozen=True):
     @property
     def as_typed(self) -> str:
         return self.typed or self.prompt
+
+    @property
+    def interjected(self) -> list[str]:
+        """What the human sent from the Window while it ran, which entered it (ADR-0024)."""
+        return [text for step in self.steps for text in step.interjected]
 
 
 class CutNote(BaseModel, frozen=True):

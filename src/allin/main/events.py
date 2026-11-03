@@ -273,6 +273,8 @@ class ToolsStarted:
 
     session_id: SessionId
     names: tuple[str, ...]
+    # The Step that called them, which an interrupted Turn keeps with its calls (ADR-0024).
+    step: Step | None = None
 
 
 @dataclass(frozen=True)
