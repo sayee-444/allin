@@ -8,11 +8,15 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #154 La Ventana rotula cada Prompt por su Origen (2026-11-03), en paralelo con #153.
+- **Último hecho:** #153 La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026 (2026-11-03), y en paralelo #154.
+  - #153: el LLM lee el Prompt de un Externo con la cabecera del proceso (`[from attached process bot]`); su identidad queda en el Turno guardado y en `turn_started`. El Prompt recuerda que lo trajo la Iniciativa (`initiative`, también en el Estado de Main y en `turn_started`), y solo ese va detrás de los humanos y de las Sesiones en la Lista de espera (la clase pasa de `fproc` a `initiative`), con la Compactación que lo precede y con la tarea del Molde de un `@new` por su cuenta. El que manda un método durante una llamada va por orden de llegada, aunque su cadena sea la misma.
+  - **Probado a mano** con el Swift IQ3_XXS y una fproc `bot` que lee un buzón: el LLM de la Sesión de Juan no supo quién le escribía; con un Turno largo en marcha, el Prompt de la Iniciativa esperó detrás de uno humano posterior y el de `@call bot tell` no; y la marca siguió en la cola del Perfil tras `/profile switch` ida y vuelta.
+  - Métricas: 1716 tests, cobertura 85 %, mutación 93 %, 41 escapes.
+- #154 La Ventana rotula cada Prompt por su Origen (2026-11-03).
   - Un Prompt que no es de Origen humano sale en el Chat de la Ventana con el último eslabón de su cadena (`session:lider`, `process:board`, `subscription:…`, `main`); solo el humano lleva el nombre del usuario, y lo que el humano escribe durante un Turno ajeno también. Lo mismo al reabrir la Ventana y al reiniciar Main: `prompt_started` guarda ahora el Origen en el Log, y un Log de antes lo toma del Prompt en cola con el mismo texto.
   - **Probado a mano** con el Swift IQ3_XXS: la fproc `board`, llamada por el LLM de una Sesión, y la function `tell` de otra le mandaron un Prompt a `obra`, que salió rotulado `process:board` y `session:lider`; uno tecleado allí salió con `sayee`. Tras reiniciar Main y tras cerrar y reabrir la Ventana, las mismas etiquetas.
   - Métricas: 1711 tests, cobertura 85 %, mutación 93 %, 41 escapes. Antes: #124 Secretos, que completó F2.
-- **Siguiente:** #155, en «Pre-RAG · Pendientes de F2» (#153–#159), si #153 ya está cerrado o en curso en otra sesión. Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
+- **Siguiente:** #155, en «Pre-RAG · Pendientes de F2» (#153–#159); #159 ya no espera a #153. Después, la fase del RAG, que aún no tiene issues y empieza con su prototipo (ADR-0019), o el grilling de F3. #18 sigue en `needs-triage`, para F3.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -89,6 +93,10 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
   Sobre #154:
   - ¿Le vale que el rótulo de un Prompt que trae una fproc sea solo `process:<nombre>`, sin la identidad del Externo? Esa identidad queda en el Turno y en el Log, y con #153 ya no va en la cabecera del texto, así que en la Ventana no se ve quién escribió.
+
+  Sobre #153:
+  - ¿Le vale que la tarea del Molde de una Sesión que la fproc crea por su cuenta (`@new` de la Iniciativa) también vaya detrás, como un Prompt de la Iniciativa, y la de un `@new` que pide un método durante una llamada vaya por orden de llegada?
+  - La clase de espera se llama ahora `initiative` en `servers/<puerto>.waits.json`, que comparten los Mains de un Servidor. Un Main de antes de #153 que use el mismo Servidor a la vez leería esa lista como vacía hasta reiniciarse. ¿Le vale, o prefiere conservar el nombre `fproc`?
 - **Queda pendiente, menor:** la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`. Lo demás que estaba aquí pasó a issues (#154–#159).
 - **Respuestas sobre #123 y #124 (2026-11-03):** ante cada pregunta, lo que más se apega a los ADR y a la lógica del proyecto.
   - Quedan como estaban, de #123:
@@ -207,7 +215,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 
 Lo que quedó de F2, antes de la fase del RAG: dos decisiones de #123 que vuelven a ceñirse a ADR-0026 y los pendientes menores.
 
-1. #153 La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026
+1. ✅ #153 La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026
 2. ✅ #154 La Ventana rotula cada Prompt por su Origen
 3. #155 `@secret` tecleado en una Ventana no deja su valor en el Log
 4. #156 El Prompt humano de un Turno cancelado al cerrar la Ventana vuelve al Borrador
