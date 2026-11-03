@@ -12,6 +12,8 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      UV_PROJECT_ENVIRONMENT: venv  # where basedpyright's config looks for it, as in a clone
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
