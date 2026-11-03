@@ -11,8 +11,8 @@ it. A Turn that waits for a Confirmation's answer holds no slot; once answered i
 Continuation and takes the next free slot before any new Prompt (``_next_continuation``);
 letting a new Prompt through after several Continuations in a row comes with F2's. Among the
 new Prompts, the first in the queue whose Session is idle and whose Server has room starts. What depends on the Origin is
-in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_fail_turn`` (the
-Prompt back to the input, only for a human one).
+in ``push`` (the ``prompt`` event and the user's line in the Window) and ``_leave``, the one way
+out of the queue (``turn_exit``): what goes back to the input, only a human's.
 """
 
 import functools
@@ -20,7 +20,7 @@ import itertools
 import json
 import os
 import time
-from collections.abc import Callable, Container, Iterable
+from collections.abc import Callable, Container, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
@@ -102,6 +102,7 @@ from allin.main.status import InActive, QueuedSession, QueueView, ServerStateNam
 from allin.main.sysprompt import render_sysprompt
 from allin.main.tool_steps import SessionTools, ToolGate, call_output
 from allin.main.turn import Cancellation, OutputKind, TurnRequest
+from allin.main.turn_exit import Ending, Leaving
 from allin.main.usage import context_tokens
 from allin.notices import NoticeEvent
 
@@ -250,6 +251,9 @@ class _RunningTurn:
     cut: CutReason | None = None  # why its last Step was cut, if it was (ADR-0004)
     # Shift+Enter cut it: once its executor stops, it is saved with what it streamed.
     interrupted: bool = False
+    # Why it was cancelled for good (a human, ``cancel``, an Encargo, Shift+Enter): it ends so
+    # whatever stops its executor, a fall or a restart that came first included (ADR-0013).
+    cancelled: str | None = None
     # The Step whose tools run, then with what they gave back and the Textos intercalados
     # that entered after them, until its executor says that Step ended (ADR-0024).
     tools_step: Step | None = None
@@ -582,8 +586,13 @@ class TurnQueue:
         running = self._running.pop(session_id, None)
         if running is None:
             return
+        fell = isinstance(error, LlmUnavailable)  # its Server's watch hears it, however it ends
         if isinstance(error, TurnYielded) and running.cancellation.reason is not None:
             error = TurnCancelled(reason=running.cancellation.reason)  # it lands first
+        if running.cancelled is not None and isinstance(error, LlmUnavailable | TurnCancelled):
+            # Cancelled for good: a fall or a restart that came first never suspends it
+            # (ADR-0013), nor an interrupted one, which is saved cut (ADR-0024).
+            error = TurnCancelled(reason=running.cancelled)
         if isinstance(error, TurnCancelled) and _reason(error) == TOO_BIG and running.too_big:
             error = running.too_big  # Main stopped it: it fails as a Prompt that does not fit
         if not isinstance(error, TurnYielded) and self._yielded.get(session_id) == (
@@ -611,27 +620,24 @@ class TurnQueue:
         except AllInError as failure:
             # A suspended Turn keeps what it told: its Steps already read it (ADR-0023).
             if _reason(failure) == STALLED:
-                self._untold(running)
                 self._stalled(running)
             elif isinstance(failure, TurnYielded):
                 self._yield(running)
             elif not self._suspend(running, failure):
-                self._untold(running)
-                self._falls.pop(session_id, None)
                 self._fail_turn(running, failure)
-            if isinstance(failure, LlmUnavailable):
-                key = running.link.key
-                if self._ready(key):  # Turns running at once all fail when the server dies
-                    self._server_changed(key, ServerDown())
-                self._servers.recheck(key)  # it may have looked ready to the watch all along
-                if not self._prompts.has(session_id):  # else the change or ``push`` told it
-                    self._windows.send(session_id, self._waiting_entry(running.link))
         else:
             self._falls.pop(session_id, None)
             if turn is not None:
                 self._tell_context_left(running)
                 self._turn_finished(running, turn, steps)
                 self._answers.answered(running.prompt, turn, summary_text(steps))
+        if fell:
+            key = running.link.key
+            if self._ready(key):  # Turns running at once all fail when the server dies
+                self._server_changed(key, ServerDown())
+            self._servers.recheck(key)  # it may have looked ready to the watch all along
+            if not self._prompts.has(session_id):  # else the change or ``push`` told it
+                self._windows.send(session_id, self._waiting_entry(running.link))
         self.send_turn_state(session_id)
         self._start_turns()
 
@@ -667,13 +673,19 @@ class TurnQueue:
         those of a human Origin. The falls of its Turn's Step are forgotten only with that
         Turn: one that goes on still fails at its second (ADR-0023, #181)."""
         dropped = self._drop_queued(session_id, reason, by_human)
-        for text in reversed(_back_to_input(dropped)):  # each one goes ahead of the one after it
-            self._windows.put_back(session_id, text)
-        self._forget_falls(dropped)  # a running one's go as it ends
-        running = self._running.get(session_id)
+        left = [Leaving.queued(prompt) for prompt in dropped]
+        self._leave(session_id, left, "cancelled", f"it left the queue: {reason}")
+        running = self._running.get(session_id)  # its falls go as it ends
         if running is not None and (not by_human or running.prompt.origin.is_human):
-            running.cancellation.cancel(reason)
-            self._withdraw(running)
+            self._stop(running, reason)
+
+    def _stop(self, running: _RunningTurn, reason: str) -> None:
+        """Cancel the running Turn for good: once its executor stops it ends cancelled for
+        the first such ``reason``, even if a fall or a restart stopped it first (ADR-0013)."""
+        if running.cancelled is None:
+            running.cancelled = reason
+        running.cancellation.cancel(reason)
+        self._withdraw(running)
 
     def interrupt(self, session_id: SessionId) -> None:
         """Shift+Enter: cut the Session's running Turn now. Once its executor stops it is saved
@@ -682,8 +694,7 @@ class TurnQueue:
         if running is None or _compacting(running):
             return
         running.interrupted = True
-        running.cancellation.cancel(INTERRUPTED)
-        self._withdraw(running)
+        self._stop(running, INTERRUPTED)
 
     def queued_count(self, session_id: SessionId) -> int:
         return len(self._prompts.of(session_id))
@@ -710,7 +721,7 @@ class TurnQueue:
         if not self._prompts.has(session_id):
             self._since.pop(session_id, None)
         self._reporter.log_session(session_id, "prompt_withdrawn", text=prompt.text)
-        self._windows.put_back(session_id, prompt.as_typed)
+        self._leave(session_id, [Leaving(prompt)], "cancelled", "it was taken back to the input")
         self.send_turn_state(session_id)
         self._start_turns()
 
@@ -874,16 +885,15 @@ class TurnQueue:
         Each Turn stays active until its executor reports it ended, as with ``cancel``.
         """
         for running in self._running.values():
-            if running.cancellation.reason is not None:
-                continue
-            running.cancellation.cancel(reason)
-            self._withdraw(running)
+            if running.cancelled is None:  # one cancelled for good already ends so
+                self._stop(running, reason)
 
     def take_queue(self, keep: Container[SessionId]) -> list[Prompt]:
         """Take out the waiting Prompts of every Session but those in ``keep``, as they are:
         the Profile Main leaves keeps them, and a Session both Profiles share goes on."""
         taken = [prompt for prompt in self._prompts.all() if prompt.session_id not in keep]
-        self._forget_falls(taken)  # as on shutdown: its Turn comes back with its two tries
+        for prompt in taken:  # as on shutdown: its Turn comes back with its two tries
+            self._leave(prompt.session_id, [Leaving.queued(prompt)], "kept", "")
         for session_id in dict.fromkeys(prompt.session_id for prompt in taken):
             self._prompts.drop(session_id)
             self._measures.pop(session_id, None)
@@ -898,21 +908,12 @@ class TurnQueue:
         self._sysprompts = sysprompts
         self._compactions.use_sysprompts(sysprompts)
 
-    def keep_interjected(self) -> None:
-        """On shutdown, before MainState is saved last: the Textos intercalados of each running
-        Turn go to its Draft, behind which the next start puts its Prompt back (#176)."""
-        for running in self._running.values():
-            if _compacting(running):
-                continue
-            for text in reversed(_interjected(running)):
-                self._windows.put_back(running.session.id, text)
-
     def cancel_running(self) -> None:
         """On shutdown: cancel every running Turn.
 
         The Turns are ended here, as cancelled, since no event is handled after this. Their
-        Prompts and the queue stay in the saved MainState, and their Textos intercalados in its
-        Drafts (``keep_interjected``), for the next start to give back.
+        Prompts, with their Textos intercalados, and the queue stay in the saved MainState, for
+        the next start to give back (``running_prompts``, ``running_interjected``).
         """
         for running in self._running.values():
             running.cancellation.cancel(SHUTTING_DOWN)
@@ -951,6 +952,15 @@ class TurnQueue:
         """The Prompts of the running Turns that a restart should give back: a cancelled one
         too until its executor says it ended, since only then is it put back (#176)."""
         return [running.prompt for running in self._running.values() if not _compacting(running)]
+
+    def running_interjected(self) -> dict[SessionId, list[str]]:
+        """The Textos intercalados each of those Turns took, which a restart gives back behind
+        its Prompt, also after a Main killed outright (#176, #196)."""
+        return {
+            session_id: joined
+            for session_id, running in self._running.items()
+            if not _compacting(running) and (joined := _interjected(running))
+        }
 
     def _start_turns(self) -> None:
         """Hand Turns to executors while there is room (ADR-0004, ADR-0022).
@@ -1182,28 +1192,35 @@ class TurnQueue:
         )
 
     def _drop_prompt(self, prompt: Prompt, error: AllInError) -> None:
-        """A Prompt that cannot start: it leaves the queue, and back to its input if it never
-        waited for its Server, since it is in no Conversation."""
+        """A Prompt that cannot start, or whose suspended Turn cannot go on: it leaves the
+        queue as one that failed, since it is in no Conversation."""
         session_id = prompt.session_id
         self._prompts.remove(prompt)
-        self._forget_falls([prompt])
         self._measures.pop(session_id, None)
+        leaving = Leaving.queued(prompt)
         if prompt.kind != "prompt":  # its Prompt, if it compacted for one, goes on
             self._compactions.failed(prompt, error)
+            self._leave(session_id, [leaving], "failed", "")
             self.send_turn_state(session_id)
             return
         self._since.pop(session_id, None)
         self._compactions.forget(session_id)
+        # As typed, with the Textos intercalados of its Turn if it ran, for its input as the
+        # Window opens if it is closed, and for its rebuilt Chat (#174, #196).
+        fields: dict[str, JsonValue] = {
+            "typed": prompt.as_typed,
+            "origin": list[JsonValue](prompt.origin.labels),
+        }
+        if leaving.joined:
+            fields["joined"] = list[JsonValue](leaving.joined)
+        event = "prompt_too_big" if isinstance(error, PromptTooBig) else "prompt_not_started"
+        self._reporter.log_session(session_id, event, **fields)
         self._windows.show_error(error, session_id)
-        self._answers.dropped(prompt, f"it could not start: {error}")
-        if isinstance(error, PromptTooBig):
-            # As typed, for its input as the Window opens if it is closed (#174).
-            typed, origin = prompt.as_typed, list[JsonValue](prompt.origin.labels)
-            self._reporter.log_session(session_id, "prompt_too_big", typed=typed, origin=origin)
-            self._give_back(session_id, _typed_by_human([prompt]))  # a human's, as typed (#171)
-            if not self._compacts_alone(session_id):
-                hint = f"/session compact {session_id} may make room for it"
-                self._windows.send(session_id, ChatAppend(role="info", label="context", text=hint))
+        why = f"its Turn failed: {error}" if leaving.ran else f"it could not start: {error}"
+        self._leave(session_id, [leaving], "failed", why)
+        if isinstance(error, PromptTooBig) and not self._compacts_alone(session_id):
+            hint = f"/session compact {session_id} may make room for it"
+            self._windows.send(session_id, ChatAppend(role="info", label="context", text=hint))
         self.send_turn_state(session_id)
 
     def _publish(self, candidates: list[_Candidate]) -> dict[ServerKey, WaitListView]:
@@ -1512,18 +1529,10 @@ class TurnQueue:
         )
         return True
 
-    def _forget_falls(self, left: Iterable[Prompt]) -> None:
-        """Prompts that left the queue: a suspended Turn among them takes the falls of its
-        Step with it, so its Session's next Turn gets its two tries (ADR-0023, #190)."""
-        for prompt in left:
-            if prompt.suspended:
-                self._falls.pop(prompt.session_id, None)
-
     def _stalled(self, running: _RunningTurn) -> None:
         """No progress for ``step.stall`` seconds: the Step fails, without repeating, since it
         would stall again on the same Server (ADR-0023)."""
         session_id = running.session.id
-        self._falls.pop(session_id, None)
         self._fail_turn(running, StepStalled(seconds=self._stall))
         title = "Step stalled"  # Main names the Session in front, the Window is its own
         text = f"no progress for {self._stall:g} s on {running.link.describe()}: cancelled"
@@ -1774,14 +1783,12 @@ class TurnQueue:
         saved in no Conversation, as any cancelled Turn."""
         running = self._running.get(session_id)
         if running is not None and running.prompt.prompt_id == prompt_id:
-            running.cancellation.cancel(reason)
-            self._withdraw(running)
+            self._stop(running, reason)
             return
         for prompt in self._prompts.of(session_id):
             if prompt.prompt_id != prompt_id or prompt.kind != "prompt":
                 continue
             self._prompts.remove(prompt)
-            self._forget_falls([prompt])
             self._measures.pop(session_id, None)
             if not self._prompts.has(session_id):
                 self._since.pop(session_id, None)
@@ -1790,7 +1797,8 @@ class TurnQueue:
             self._reporter.record(
                 session_id, "prompts_dropped", shown, reason=reason, texts=texts, kinds=["prompt"]
             )
-            self._answers.dropped(prompt, f"it left the queue: {reason}")
+            leaving = Leaving.queued(prompt)
+            self._leave(session_id, [leaving], "cancelled", f"it left the queue: {reason}")
             self.send_turn_state(session_id)
             self._start_turns()
             return
@@ -1905,58 +1913,96 @@ class TurnQueue:
         self._start_turns()
 
     def _fail_turn(self, running: _RunningTurn, error: AllInError) -> None:
-        session_id = running.session.id
+        """The running Turn ended unsaved: it failed, or was cancelled."""
+        leaving = Leaving(running.prompt, tuple(_interjected(running)), ran=True)
         if _compacting(running):  # nothing changed: its Prompt, if any, waits in the queue
             self._compactions.failed(running.prompt, error)
-            return
-        # What it streamed is in no Conversation, so the Log keeps it for the rebuilt Chat.
-        streamed = running.streamed
-        joined = _interjected(running)  # in no Conversation either (ADR-0024)
+        else:
+            self._record_unsaved(leaving, error, running.streamed)
+        # A Turn ``cancel_running`` cuts as Main stops stays running in the saved MainState,
+        # for the next start to give back and tell as lost (#176); any other end, even one
+        # handled behind the stop, leaves no trace of the Turn there, so it leaves now (#185).
+        cancelled = isinstance(error, TurnCancelled)
+        ending: Ending = "cancelled" if cancelled else "failed"
+        if _reason(error) == SHUTTING_DOWN:
+            ending = "kept"
+        why = f"its Turn {'cancelled' if cancelled else 'failed'}: {error}"
+        self._leave(running.session.id, [leaving], ending, why)
+
+    def _record_unsaved(self, leaving: Leaving, error: AllInError, streamed: Streamed) -> None:
+        """Tell a Turn ended unsaved. What it ``streamed`` and the Textos intercalados it took
+        are in no Conversation, so the Log keeps them for the rebuilt Chat (ADR-0024), with
+        what goes back to the input as the Window opens (``returned_prompts``)."""
+        prompt = leaving.prompt
         fields: dict[str, JsonValue] = {
             "error": str(error),
             "reasoning": streamed.reasoning,
             "answer": streamed.answer,
-            "joined": list[JsonValue](joined),
+            "joined": list[JsonValue](leaving.joined),
         }
-        if running.prompt.typed:  # apart from what its LLM read, for its input (#166)
-            fields["typed"] = running.prompt.typed
-        fields["origin"] = list[JsonValue](running.prompt.origin.labels)  # whose input (#171)
-        cancelled = isinstance(error, TurnCancelled)
-        ending = "cancelled" if cancelled else "failed"
-        prompt = running.prompt.text
+        if prompt.typed:  # apart from what its LLM read, for its input (#166)
+            fields["typed"] = prompt.typed
+        fields["origin"] = list[JsonValue](prompt.origin.labels)  # whose input (#171)
+        ending = "cancelled" if isinstance(error, TurnCancelled) else "failed"
         self._reporter.record(
-            session_id, f"turn_{ending}", f"turn {ending}: {error}", **fields, prompt=prompt
+            prompt.session_id,
+            f"turn_{ending}",
+            f"turn {ending}: {error}",
+            **fields,
+            prompt=prompt.text,
         )
-        self._windows.send(session_id, error_entry(str(error)))
-        # A Turn ``cancel_running`` cuts as Main stops stays running in the saved MainState,
-        # for the next start to tell as lost (#176); any other end, even one handled behind
-        # the stop, leaves no trace of the Turn there, so who waits hears it now (#185).
-        stopped = _reason(error) == SHUTTING_DOWN
-        if not stopped:
-            self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
-        if cancelled:  # back to its Draft, as what still waited in the queue (ADR-0024)
-            # A human's Prompt as typed, ahead of its Textos intercalados (#156); not as Main
-            # stops, since MainState keeps it running and them in the Draft already (#176).
-            back = [] if stopped else [*_typed_by_human([running.prompt]), *joined]
-            for text in reversed(back):
+        self._windows.send(prompt.session_id, error_entry(str(error)))
+
+    def _leave(
+        self, session_id: SessionId, left: Sequence[Leaving], ending: Ending, why: str
+    ) -> None:
+        """The one way out of the queue, for a running Turn, a queued Prompt and one that never
+        started alike (#196). Each takes the falls of its Step with it, so its Session's next
+        Turn gets its two tries (ADR-0023). Unless ``kept``: one whose Turn ran cancels what
+        it opened and leaves what it told for the next Prompt; who sent each hears ``why``;
+        what a human typed goes back to the input, once and in order, to the Draft if
+        cancelled (ADR-0024), else as a failed Turn's (``_give_back``), with the Prompts queued
+        behind a failed Turn, which fall with it (#16)."""
+        for leaving in left:
+            if leaving.ran:
+                self._falls.pop(session_id, None)
+        if ending == "kept":
+            return
+        if any(leaving.unsaved for leaving in left):
+            self._notifications.not_saved(session_id)  # what its Turn told waits again
+            self._yielded.pop(session_id, None)  # it no longer goes on after a Compaction
+        for leaving in left:
+            if leaving.unsaved:
+                self._answers.failed(leaving.prompt, why)
+            elif leaving.told:
+                self._answers.dropped(leaving.prompt, why)
+        back = [text for leaving in left for text in leaving.back]
+        if ending == "cancelled":
+            for text in reversed(back):  # each one goes ahead of the one after it
                 self._windows.put_back(session_id, text)
-        else:  # its Prompt is in no Conversation, so the user may send it again
-            # The Session's queued Prompts leave with it: without it in the Conversation they
-            # would run out of the order they were written in (#16).
-            behind = self._drop_queued(session_id, FAILED_BEFORE)
-            if behind:
-                self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
-            # A human's only, as they were typed, with their Command prompts (#166, #171); the
-            # others failed towards whoever sent them. Its Textos intercalados are a human's.
-            self._give_back(
-                session_id, [*_typed_by_human([running.prompt]), *joined, *_typed_by_human(behind)]
-            )
+            return
+        if any(leaving.unsaved for leaving in left):
+            back += self._drop_behind(session_id)
+        self._give_back(session_id, back)
+
+    def _drop_behind(self, session_id: SessionId) -> list[str]:
+        """The Session's queued Prompts fall with the Turn before them, which failed: without
+        it in the Conversation they would run out of the order they were written in (#16).
+        Who sent each hears it; what goes back of them to the input is returned."""
+        behind = [Leaving.queued(prompt) for prompt in self._drop_queued(session_id, FAILED_BEFORE)]
+        if behind:
+            self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
+        for leaving in behind:
+            if leaving.told:
+                self._answers.dropped(leaving.prompt, f"it left the queue: {FAILED_BEFORE}")
+        return [text for leaving in behind for text in leaving.back]
 
     def _drop_queued(
         self, session_id: SessionId, reason: str, by_human: bool = False
     ) -> list[Prompt]:
         """Take a Session's queued Prompts out of the queue, as ``prompts_dropped`` in its Log;
-        ``by_human``, only those of a human Origin, and the others keep their place."""
+        ``by_human``, only those of a human Origin, and the others keep their place. What
+        leaves with them is up to ``_leave``."""
         dropped = self._prompts.drop(session_id, _not_human if by_human else None)
         left = by_human and bool(self._prompts.of(session_id))
         if dropped or not left:
@@ -1965,12 +2011,6 @@ class TurnQueue:
             self._since.pop(session_id, None)
         if not left or any(prompt.kind != "prompt" for prompt in dropped):
             self._compactions.drop(session_id)  # one it was doing, or would have done
-        if any(prompt.suspended for prompt in dropped):  # what its Turn told waits again
-            self._yielded.pop(session_id, None)
-            self._notifications.not_saved(session_id)
-        for prompt in dropped:
-            if prompt.kind == "prompt":
-                self._answers.dropped(prompt, f"it left the queue: {reason}")
         if dropped:
             shown = dropped_entry(len(dropped), reason).text
             texts: list[JsonValue] = [prompt.text for prompt in dropped]
@@ -1991,12 +2031,6 @@ class TurnQueue:
         for text in reversed(texts):  # each one shown pushes the one before it back
             self._windows.put_back(session_id, text)
         self._reporter.log_session(session_id, "prompt_returned", texts=list[JsonValue](texts))
-
-    def _untold(self, running: _RunningTurn) -> None:
-        """A Turn that ends unsaved leaves its Notificaciones for the next Prompt; a summary
-        Step told none, so it leaves alone what a suspended Turn told."""
-        if not _compacting(running):
-            self._notifications.not_saved(running.session.id)
 
     def _save_turn(self, running: _RunningTurn, steps: list[Step]) -> int:
         """Save the finished Turn and return its index in the Conversation."""
@@ -2021,26 +2055,6 @@ class TurnQueue:
 def _interjected(running: _RunningTurn) -> list[str]:
     """The Textos intercalados of a running Turn, those of the Step whose tools run too."""
     return interjected_in([*running.streamed.steps, *filter(None, [running.tools_step])])
-
-
-def _back_to_input(prompts: Iterable[Prompt]) -> list[str]:
-    """What of queued ``prompts`` goes back to an input, in order: a human's Prompt as it was
-    typed, and the Textos intercalados of a Turn suspended or yielded to compact, which are a
-    human's whatever its Origin (#176); never a Prompt of another Origin."""
-    return [
-        text
-        for prompt in prompts
-        if prompt.kind == "prompt"
-        for text in [*_typed_by_human([prompt]), *interjected_in(prompt.steps)]
-    ]
-
-
-def _typed_by_human(prompts: Iterable[Prompt]) -> list[str]:
-    """What of ``prompts`` goes back to an input, as it was typed: a human's Prompts, never a
-    queued Compaction (GLOSSARY: Prompt)."""
-    return [
-        prompt.as_typed for prompt in prompts if prompt.kind == "prompt" and prompt.origin.is_human
-    ]
 
 
 def _not_human(prompt: Prompt) -> bool:
