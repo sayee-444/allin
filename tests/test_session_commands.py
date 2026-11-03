@@ -401,3 +401,11 @@ def notifications_of(main: MainHarness) -> tuple[Reporter, Notifications]:
 
 def _created(main: MainHarness) -> Callable[[str], datetime]:
     return lambda sid: main.sessions.load(sid).created_at
+
+
+def test_an_fprocs_initiative_runs_only_mains_own_that_act_on_its_sessions():
+    on_its_own = {name for name, kind in BUILT_IN.types.items() if kind.initiative is not None}
+    assert on_its_own == {"new", "send", "open", "close"}
+    close = BUILT_IN.types[CommandName("close")].initiative
+    assert close is not None
+    assert close("ab12") == "/close ab12", "it has no Window of its own: it names the Session"

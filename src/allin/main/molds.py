@@ -23,6 +23,7 @@ would give it::
 
 import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
@@ -101,18 +102,22 @@ def parse_mold(name: str, text: str) -> Mold:
         raise MoldInvalid(mold=name, reason=_problem(error)) from error
 
 
-def load_mold(quarantine: Quarantine, ref: PieceRef) -> LoadedMold:
-    """The approved Molde ``ref`` as its approved version says; one in quarantine is never
-    used (ADR-0013)."""
-    name = ref.name
+def load_mold(quarantine: Quarantine, ref: PieceRef, file: Path | None = None) -> LoadedMold:
+    """The approved Molde ``ref`` as its approved version says, or, with ``file``, the one at
+    that path within the approved package ``ref``; one in quarantine is never used
+    (ADR-0013)."""
+    name = ref.name if file is None else file.stem
     piece = quarantine.piece(ref)
     if piece.state != "approved":
         raise PieceInQuarantine(piece=ref.id)
     try:
-        data = piece.path.read_bytes()
+        data = (piece.path if file is None else piece.path / file).read_bytes()
     except OSError as error:
         raise MoldInvalid(mold=name, reason=str(error)) from error
-    if content_hash(data) != piece.hash:  # changed since it was approved: not this one
+    # Changed since it was approved, or while it was read: not this one. A package's hash is
+    # its whole folder's, taken again.
+    read = content_hash(data) if file is None else quarantine.piece(ref).hash
+    if read != piece.hash:
         raise PieceInQuarantine(piece=ref.id)
     return LoadedMold(ref, parse_mold(name, _text(name, data)), piece.hash)
 
@@ -125,16 +130,7 @@ def load_package_mold(quarantine: Quarantine, package: PieceRef, name: str) -> L
     with the package (ADR-0026): one whose package is in quarantine is never used."""
     if parse_piece_ref(f"mold:{name}") is None:
         raise MoldInvalid(mold=name, reason="not a Molde's name")
-    piece = quarantine.piece(package)
-    if piece.state != "approved":
-        raise PieceInQuarantine(piece=package.id)
-    try:
-        data = (piece.path / PACKAGE_MOLDS / f"{name}.toml").read_bytes()
-    except OSError as error:
-        raise MoldInvalid(mold=name, reason=str(error)) from error
-    if quarantine.piece(package).hash != piece.hash:  # changed while it was read
-        raise PieceInQuarantine(piece=package.id)
-    return LoadedMold(package, parse_mold(name, _text(name, data)), piece.hash)
+    return load_mold(quarantine, package, Path(PACKAGE_MOLDS, f"{name}.toml"))
 
 
 def _text(name: str, data: bytes) -> str:

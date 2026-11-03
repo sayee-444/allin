@@ -370,8 +370,6 @@ class Dispatcher:
             self._subprofiles,
             SecretCommands(self._secrets, self._boxes, self._reporter),
         )
-        self._initiative = FprocInitiative(self._attached, sessions, self._reporter, self._commands)
-        self._attached.act_through(lambda name: asker(inbox.put, name), self._subprofiles.ensure)
         self._session_commands = SessionCommands(
             command_types,
             sessions,
@@ -380,6 +378,8 @@ class Dispatcher:
             self._reporter,
             self._notifications,
         )
+        self._initiative = FprocInitiative(self._attached, self._session_commands, self._commands)
+        self._attached.act_through(lambda name: asker(inbox.put, name), self._subprofiles.ensure)
         self._rows = RowSource(
             sessions,
             self._windows,
