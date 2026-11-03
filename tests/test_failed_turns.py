@@ -70,6 +70,26 @@ def failed(prompt: str) -> LogEntry:
             ],
             ["a1", "a2"],
         ),
+        (  # as typed, with its Command prompts (#166)
+            [
+                entry(
+                    "turn_failed",
+                    error="llm_unavailable",
+                    reasoning="",
+                    answer="",
+                    prompt="a1",
+                    typed="a1 @top_k=5",
+                ),
+                entry(
+                    "prompts_dropped",
+                    reason=FAILED_BEFORE,
+                    texts=["keep names", "a2", "a3"],
+                    kinds=["compact", "prompt", "prompt"],
+                    typed=["keep names", "a2 @top_k=3", "a3"],
+                ),
+            ],
+            ["a1 @top_k=5", "a2 @top_k=3", "a3"],
+        ),
     ],
 )
 def test_what_goes_back_to_the_input_is_read_from_the_log(log: list[LogEntry], texts: list[str]):
@@ -206,3 +226,40 @@ def test_a_compaction_queued_behind_a_failed_turn_leaves_but_never_goes_to_the_i
     [dropped] = [e for e in main.session_log(a) if e.event == "prompts_dropped"]
     assert dropped.fields["kinds"] == ["compact"]
     assert returned_prompts(main.session_log(a)) == []
+
+
+def test_a_failed_turn_gives_back_what_was_typed_with_its_window_open(main: MainHarness):
+    a = main.create_session()
+    main.server_up = False  # both wait, so a2 is queued behind a1
+    main.llm = failing_twice()
+    main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        InputReceived(a.id, "a1 @top_k=5"),
+        InputReceived(a.id, "a2 @top_k=3"),
+        server_ready(main.server),
+        server_ready(main.server),
+        settle=True,
+    )
+    # As typed (#166), while the Log keeps what the LLM read and the typed text apart.
+    assert restored(main.windows(a.id)[0]) == ["a1 @top_k=5", "a2 @top_k=3"]
+    log = main.session_log(a)
+    [failed_turn] = [e for e in log if e.event == "turn_failed"]
+    assert (failed_turn.fields["prompt"], failed_turn.fields["typed"]) == ("a1", "a1 @top_k=5")
+    [dropped] = [e for e in log if e.event == "prompts_dropped"]
+    assert (dropped.fields["texts"], dropped.fields["typed"]) == (["a2"], ["a2 @top_k=3"])
+
+
+def test_a_failed_turn_gives_back_what_was_typed_as_its_window_opens(main: MainHarness):
+    a = main.create_session()
+    main.server_up = False
+    main.llm = failing_twice()
+    main.run(
+        MainCommandEntered(f"/send {a.id} a1 @top_k=5"),
+        MainCommandEntered(f"/send {a.id} a2 @top_k=3"),
+        MainCommandEntered(f"/send {a.id} a3"),
+        server_ready(main.server),
+        server_ready(main.server),
+        settle=True,
+    )
+    main.run(MainCommandEntered(f"/open {a.id}"), settle=True)
+    assert restored(main.windows(a.id)[0]) == ["a1 @top_k=5", "a2 @top_k=3", "a3"]

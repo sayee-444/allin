@@ -1834,6 +1834,8 @@ class TurnQueue:
             "answer": streamed.answer,
             "joined": list[JsonValue](joined),
         }
+        if running.prompt.typed:  # apart from what its LLM read, for its input (#166)
+            fields["typed"] = running.prompt.typed
         cancelled = isinstance(error, TurnCancelled)
         ending = "cancelled" if cancelled else "failed"
         prompt = running.prompt.text
@@ -1852,8 +1854,9 @@ class TurnQueue:
             behind = self._drop_queued(session_id, FAILED_BEFORE)
             if behind:
                 self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
-            typed = [queued.text for queued in behind if queued.kind == "prompt"]
-            self._give_back(session_id, [prompt, *joined, *typed])
+            # As they were typed, with their Command prompts (#166).
+            typed = [queued.as_typed for queued in behind if queued.kind == "prompt"]
+            self._give_back(session_id, [running.prompt.as_typed, *joined, *typed])
 
     def _cancelled_prompt(self, running: _RunningTurn) -> list[str]:
         """What of a cancelled Turn's Prompt goes back to its Draft, ahead of its Textos
@@ -1885,9 +1888,10 @@ class TurnQueue:
             shown = dropped_entry(len(dropped), reason).text
             texts: list[JsonValue] = [prompt.text for prompt in dropped]
             kinds: list[JsonValue] = [prompt.kind for prompt in dropped]
-            self._reporter.record(
-                session_id, "prompts_dropped", shown, reason=reason, texts=texts, kinds=kinds
-            )
+            fields: dict[str, JsonValue] = {"texts": texts, "kinds": kinds}
+            if any(prompt.typed for prompt in dropped):  # apart, for the input (#166)
+                fields["typed"] = [prompt.as_typed for prompt in dropped]
+            self._reporter.record(session_id, "prompts_dropped", shown, reason=reason, **fields)
         return dropped
 
     def _give_back(self, session_id: SessionId, texts: list[str]) -> None:
