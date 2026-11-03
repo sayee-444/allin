@@ -4,7 +4,8 @@ No Turn starts once a switch is asked. When the running ones end (``--now`` canc
 Prompt cancelled so goes back to its input), the outgoing Profile keeps its MainState with its
 queue, the Windows of Sessions the incoming Profile does not have close, and the incoming
 Profile's Settings, Sysprompts and MainState take over. Windows of Sessions both share stay
-open, and no Session's Enlace changes (ADR-0022).
+open, and no Session's Enlace changes (ADR-0022). The outgoing Profile's Procesos adheridos are
+detached (ADR-0012).
 """
 
 from collections.abc import Callable, Container
@@ -41,7 +42,9 @@ class ProfileSwitch:
         recovery: Recovery,
         active: Profile,
         enter: EnterProfile,
+        detach_all: Callable[[], None] = lambda: None,
     ) -> None:
+        """``detach_all`` lets the outgoing Profile's Procesos adheridos go (ADR-0012)."""
         self._reporter = reporter
         self._profiles = profiles
         self._windows = windows
@@ -49,6 +52,7 @@ class ProfileSwitch:
         self._recovery = recovery
         self._active = active
         self._enter = enter
+        self._detach_all = detach_all
         self._asked: _Asked | None = None
 
     @property
@@ -103,6 +107,7 @@ class ProfileSwitch:
         """The outgoing Profile keeps its MainState with the queue of its Sessions, and the
         Windows of those ``kept`` does not have close; a Session both share goes on as it is."""
         self._recovery.leave(self._turns.take_queue(kept))
+        self._detach_all()
         for session_id in self._windows.pids():
             if session_id not in kept:
                 self._windows.close(session_id, SWITCHED)

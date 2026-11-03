@@ -16,6 +16,7 @@ pydantic what comes back, so the boundary that matters is still parsed there.
 
 import contextlib
 import ctypes
+import dataclasses
 import importlib
 import importlib.machinery
 import json
@@ -28,8 +29,8 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from types import CodeType
-from typing import cast
+from types import CodeType, FunctionType, ModuleType
+from typing import IO, cast
 
 from allin.confinement import landlock, seccomp
 from allin.core.errors import ConfinementFailed
@@ -44,13 +45,22 @@ type _Json = bool | int | float | str | list["_Json"] | dict[str, "_Json"] | Non
 
 
 @dataclass(frozen=True)
+class _Fproc:
+    """What ``messages.AttachFproc`` adds to a call: the Proceso adherido's name and file."""
+
+    name: str
+    file: str | None
+
+
+@dataclass(frozen=True)
 class _Call:
-    """``messages.CallTool`` or ``messages.DescribeModule``, as Main wrote it: a description
-    has no ``function``, runs in its package and gets nothing but reading."""
+    """``messages.CallTool``, ``messages.DescribeModule`` or ``messages.AttachFproc``, as Main
+    wrote it: a description has no ``function``, runs in its package and gets nothing but
+    reading; an attachment has no ``function`` either, but its ``fproc``."""
 
     package: str
     module: str
-    function: str | None  # None: describe the module (the encierro de descripción)
+    function: str | None  # None: describe the module, or attach its fproc
     arguments: dict[str, _Json]
     workspace: str
     read: tuple[Path, ...]
@@ -59,6 +69,7 @@ class _Call:
     net_layer: int | None
     ip: bool
     unix: bool
+    fproc: _Fproc | None = None  # a Proceso adherido's: it serves its methods until detached
 
 
 @dataclass(frozen=True)
@@ -81,6 +92,8 @@ def main() -> None:
         channel.sendall(_line({"type": "unconfined", **error.fields}))
         os._exit(0)
     warden = os.getpid()
+    if call.fproc is not None:
+        _attach(call, channel, warden, scoped)
     reply_out, reply_in = os.pipe()
     asks_out, asks_in = os.pipe()  # the runner's Command sessions, to relay to Main
     results_out, results_in = os.pipe()  # Main's results, for the runner
@@ -130,6 +143,8 @@ def _parse_call(message: object) -> _Call | None:
             return _parse_tool_call(fields)
         case "describe":
             return _parse_description(fields)
+        case "attach":
+            return _parse_attachment(fields)
         case _:
             return None
 
@@ -189,6 +204,17 @@ def _parse_tool_call(fields: dict[object, object]) -> _Call | None:
         ip=ip,
         unix=unix,
     )
+
+
+def _parse_attachment(fields: dict[object, object]) -> _Call | None:
+    """An attachment is a tool call without a function or arguments, plus its fproc."""
+    name, file = fields.get("name"), fields.get("file")
+    if not (isinstance(name, str) and (file is None or isinstance(file, str))):
+        return None
+    call = _parse_tool_call({**fields, "function": "", "arguments": {}})
+    if call is None:
+        return None
+    return dataclasses.replace(call, function=None, fproc=_Fproc(name, file))
 
 
 def _ports(raw: object) -> tuple[int, ...] | None:
@@ -344,9 +370,9 @@ def _take_down_and_exit(runner: _Runner) -> None:
     os._exit(0)
 
 
-def _run_function(call: _Call, reply_in: int, warden: int) -> None:
-    """The runner: import the function from its package, run it in the Carpeta de trabajo and
-    write its answer. It never returns."""
+def _prepare_runner(call: _Call, warden: int) -> None:
+    """What a runner does before it imports its module: die with the warden, stand in the
+    Carpeta de trabajo, and import only the package's sources after everything else."""
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     _die_with(warden, signal.SIGKILL)
     os.chdir(call.workspace)
@@ -356,6 +382,12 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     sys.path.append(call.package)
     # forkserver, the default since 3.14, needs a unix socket the filter refuses (#99).
     multiprocessing.set_start_method("spawn", force=True)
+
+
+def _run_function(call: _Call, reply_in: int, warden: int) -> None:
+    """The runner: import the function from its package, run it in the Carpeta de trabajo and
+    write its answer. It never returns."""
+    _prepare_runner(call, warden)
     try:
         module = importlib.import_module(call.module)
         if call.function is None:  # imported only here: pydantic costs nothing to a call
@@ -372,6 +404,133 @@ def _run_function(call: _Call, reply_in: int, warden: int) -> None:
     with os.fdopen(reply_in, "wb") as out:  # writes it whole, however long
         out.write(answer)
     os._exit(0)
+
+
+def _attach(call: _Call, channel: socket.socket, warden: int, scoped: bool) -> None:
+    """A Proceso adherido: fork the runner that makes the fproc's class and serves its methods,
+    and pass Main's calls to it and its answers back until Main detaches it, Main dies or the
+    runner ends. It never returns."""
+    replies_out, replies_in = os.pipe()
+    calls_out, calls_in = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        for end in (replies_out, calls_in):
+            os.close(end)
+        channel.close()
+        _serve_fproc(call, calls_out, replies_in, warden)
+    for end in (replies_in, calls_out):
+        os.close(end)
+    runner = _Runner(pid=pid, scoped=scoped)
+    signal.signal(signal.SIGTERM, lambda _signum, _frame: _take_down_and_exit(runner))
+    if _relay_methods(channel, replies_out, calls_in):  # it ended by itself: Main hears how
+        _, status = os.waitpid(runner.pid, 0)
+        with contextlib.suppress(OSError):  # Main is gone too
+            channel.sendall(_line({"type": "died", "exit_code": os.waitstatus_to_exitcode(status)}))
+    _take_down(runner)
+    os._exit(0)
+
+
+def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> bool:
+    """Pass each method call from Main to the runner and each answer back, whole lines only.
+    Whether the runner ended by itself; not when Main detached it, closed its end or sent
+    something that is no call."""
+    selector = selectors.DefaultSelector()
+    selector.register(channel, selectors.EVENT_READ)
+    selector.register(replies_out, selectors.EVENT_READ)
+    from_main, from_runner = b"", b""
+    while True:
+        for key, _ in selector.select():
+            if key.fileobj is channel:
+                chunk = channel.recv(1 << 16)
+                if not chunk:
+                    return False
+                from_main += chunk
+                while b"\n" in from_main:
+                    line, _, from_main = from_main.partition(b"\n")
+                    method = _method_call(line)
+                    if method is None:
+                        return False  # a detach, or anything else: Main is done with it
+                    _write_all(calls_in, method)
+                continue
+            chunk = os.read(replies_out, 1 << 16)
+            if not chunk or len(from_runner) > _ANSWER_MAX:
+                return True
+            from_runner += chunk
+            while b"\n" in from_runner:
+                line, _, from_runner = from_runner.partition(b"\n")
+                channel.sendall(line + b"\n")  # Main parses it
+
+
+def _method_call(line: bytes) -> bytes | None:
+    """A method call from Main, as the runner reads it; ``None`` for anything else."""
+    fields = _typed(line, "method")
+    if fields is None:
+        return None
+    method, arguments = fields.get("method"), fields.get("arguments")
+    if not isinstance(method, str) or not isinstance(arguments, dict):
+        return None
+    return _line({"method": method, "arguments": arguments})
+
+
+def _serve_fproc(call: _Call, calls_out: int, replies_in: int, warden: int) -> None:
+    """The runner of a Proceso adherido: import the fproc from its package, make its class in
+    its Carpeta de trabajo and answer each call to one of its public methods, one at a time,
+    until its calls end. It never returns."""
+    assert call.fproc is not None
+    _prepare_runner(call, warden)
+    replies = os.fdopen(replies_in, "wb")
+    try:
+        from allin import fproc  # noqa: PLC0415 - the runner's alone
+
+        fproc.attached_as(
+            call.fproc.name, None if call.fproc.file is None else Path(call.fproc.file)
+        )
+        fproc_class = _fproc_class(importlib.import_module(call.module))
+        instance = fproc_class()
+        answer = _line({"type": "attached"})
+    except BaseException as error:  # noqa: BLE001 - why it could not start is its output
+        _answer(replies, _line({"type": "raised", "error": f"{type(error).__name__}: {error}"}))
+        os._exit(0)
+    _answer(replies, answer)
+    with os.fdopen(calls_out, "rb") as calls:
+        for line in calls:
+            _answer(replies, _run_method(fproc_class, instance, line))
+    os._exit(0)
+
+
+def _run_method(fproc_class: type, instance: object, line: bytes) -> bytes:
+    """The answer to one method call, as the line Main reads."""
+    try:
+        message = json.loads(line)
+        method, arguments = message["method"], message["arguments"]
+        if not isinstance(vars(fproc_class).get(method), FunctionType) or method.startswith("_"):
+            return _line({"type": "raised", "error": f"NoSuchMethod: {method!r}"})
+        value = getattr(instance, method)(**arguments)
+        return _line({"type": "returned", "value": value})
+    except BaseException as error:  # noqa: BLE001 - the method's error is its output, as data
+        return _line({"type": "raised", "error": f"{type(error).__name__}: {error}"})
+
+
+def _answer(replies: IO[bytes], line: bytes) -> None:
+    sys.stdout.flush()
+    sys.stderr.flush()
+    replies.write(line)
+    replies.flush()
+
+
+def _fproc_class(module: ModuleType) -> type:
+    """The module's one public class, as its description found it (``describer``)."""
+    own = [
+        value
+        for name, value in vars(module).items()
+        if not name.startswith("_")
+        and isinstance(value, type | FunctionType)
+        and getattr(value, "__module__", None) == module.__name__
+    ]
+    if len(own) != 1 or not isinstance(own[0], type):
+        msg = f"{module.__name__} defines no single public class"
+        raise TypeError(msg)
+    return own[0]
 
 
 class _SourceOnlyLoader(importlib.machinery.SourceFileLoader):

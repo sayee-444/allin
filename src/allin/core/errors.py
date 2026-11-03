@@ -514,6 +514,57 @@ class ToolNotStarted(AllInError):
     code: ClassVar[str] = "tool_not_started"
 
 
+class AttachFailed(AllInError):
+    """A Proceso adherido could not start: making its fproc's class raised ``error``."""
+
+    code: ClassVar[str] = "attach_failed"
+
+
+class AttachedEnded(AllInError):
+    """A Proceso adherido's process ended, so its methods fail until a human attaches it
+    again: ``exit_code``, negative for a signal, or ``None`` if not known (ADR-0012)."""
+
+    code: ClassVar[str] = "attached_ended"
+
+
+class AttachedNotFound(AllInError):
+    """No Proceso adherido of the active Profile has this ``name``."""
+
+    code: ClassVar[str] = "attached_not_found"
+
+
+class AttachedNameTaken(AllInError):
+    """A Proceso adherido of the active Profile already runs with this ``name``."""
+
+    code: ClassVar[str] = "attached_name_taken"
+
+
+class AttachedNameInvalid(AllInError):
+    """``name`` is no Proceso adherido's name: a letter, then letters, digits or _, up to 24."""
+
+    code: ClassVar[str] = "attached_name_invalid"
+
+
+class FprocNotOffered(AllInError):
+    """No approved fproc of the active Profile is the module ``fproc``."""
+
+    code: ClassVar[str] = "fproc_not_offered"
+
+
+class SharedFileRefused(AllInError):
+    """``path`` cannot be a Proceso adherido's shared file: ``reason`` ("not a file", which
+    covers none there, or "AllIn's own")."""
+
+    code: ClassVar[str] = "shared_file_refused"
+
+
+class SharedFileNotApproved(AllInError):
+    """A Session asked for a shared file from outside its Carpeta de trabajo and the human did
+    not approve it: the Proceso adherido was not attached (ADR-0013)."""
+
+    code: ClassVar[str] = "shared_file_not_approved"
+
+
 class InvalidReach(AllInError):
     """``@reach`` got something that is not an Alcance: ``field`` and what it held (``value``),
     such as a path with no symbolic root (``work``, ``home``, ``/``) or a port out of range."""

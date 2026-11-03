@@ -22,6 +22,7 @@ from allin.core.errors import (
 from allin.core.ids import CommandName, MainId, SessionId, new_prompt_id
 from allin.core.origin import HUMAN, Origin
 from allin.ipc.messages import OrganizerRow
+from allin.main.attached import ATTACH_USAGE, DETACH_USAGE, AttachedProcesses
 from allin.main.attachments import attach
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import error_entry
@@ -142,6 +143,7 @@ class MainCommands:
         functions: FuncCommands,
         notifications: Notifications,
         creator: PieceCreator,
+        attached: AttachedProcesses,
     ) -> None:
         self._functions = functions
         self._creator = creator
@@ -377,6 +379,29 @@ class MainCommands:
                 usage_text=KEY_USAGE,
                 rest=True,
                 optional=("key…",),
+                human_only=True,
+            ),
+            "/attach": CommandSpec(
+                (),
+                attached.run,
+                "list the Procesos adheridos, or attach one from an approved fproc",
+                args={
+                    "fproc": "the fproc's module",
+                    "name": "its name, by default its fproc's; its folder comes back with it",
+                    "--to=<sid,…>": "the Sessions that get its methods, comma separated",
+                    "--file=<path>": "its shared file; from a Session's outside, a human approves it",
+                },
+                usage_text=ATTACH_USAGE,
+                optional=("fproc", "name", "--to=<sid,…>", "--file=<path>"),
+                takes_origin=True,
+                takes_answer=True,
+            ),
+            "/detach": CommandSpec(
+                ("name",),
+                attached.detach,
+                "let a Proceso adherido go, with every process it started",
+                args={"name": "its name"},
+                usage_text=DETACH_USAGE,
                 human_only=True,
             ),
             # Built from this registry, so a new Command main shows by itself (#23).
