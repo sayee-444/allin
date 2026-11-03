@@ -398,6 +398,8 @@ class TurnQueue:
         def heard(done: CompactionDone) -> None:
             # The Context dropped: how much was left no longer holds (#120).
             self._notifications.withdraw(done.session_id, CONTEXT_LEFT)
+            # A Turn that yielded to it, even before a restart, goes on after Steps of before.
+            self._prompts.compacted(done.session_id)
             if self._yielded.pop(done.session_id, None) is not None:
                 # Its Turn goes on reading the new summary, so it reads what is pending now
                 # too, the live state among it: its next Step's input changed anyway.
@@ -522,7 +524,7 @@ class TurnQueue:
     ) -> None:
         """The Server measured the input of a Session's next Prompt, or something its
         Compaction asked, or what one saved."""
-        if self._compactions.context_measured(session_id, ticket, tokens):
+        if self._compactions.context_measured(ticket, tokens):
             return
         if self._compactions.owns(session_id, ticket):
             self._compaction_measured(session_id, ticket, tokens)
@@ -901,6 +903,11 @@ class TurnQueue:
             waiting = "compacting…"
         queued = [p.text for p in self._prompts.of(session_id) if p.queued]
         self._windows.send(session_id, TurnState(active=active, waiting=waiting, queued=queued))
+
+    def renamed(self, old: SessionId, renamed: Session) -> None:
+        """A Session with no Turn under way took a new id (#59): what is still to be measured
+        of its last Compaction shows under it (#177)."""
+        self._compactions.renamed(old, renamed)
 
     def streamed(self, session_id: SessionId) -> Streamed | None:
         """What the Session's running Turn has given so far; ``None`` if it has none."""
@@ -1297,8 +1304,10 @@ class TurnQueue:
             if compacting
             else self._notifications.opening(session, conversation, told),
             told=told,
+            streamed=Streamed(
+                steps=list(prompt.steps), context_from=prompt.context_from, compacting=compacting
+            ),
         )
-        self._running[session.id].streamed.steps.extend(prompt.steps)
         self._reserve(self._running[session.id])
         if compacting:
             shown = "summary step started"

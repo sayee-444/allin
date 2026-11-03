@@ -31,8 +31,17 @@ def rewind(conversation: Conversation, archived: Sequence[Conversation], n: int)
             raise ArchiveMissing(turn=target)
         source = earlier[-1]
     turns = source.turns[: target - source.summarized]
-    kept = source.model_copy(update={"turns": turns, "pruned": min(source.pruned, len(turns))})
-    return Rewound(kept, undone, target)
+    update = {"turns": turns, "pruned": min(source.pruned, len(turns))}
+    if len(turns) < len(source.turns) and _compacted(source):
+        # The Turn it ends on may have run before that Compaction: its Context is unknown,
+        # never the one of before (#177).
+        update["compacted_since_turn"] = True
+    return Rewound(source.model_copy(update=update), undone, target)
+
+
+def _compacted(conversation: Conversation) -> bool:
+    """Whether a Compaction summarized or pruned it."""
+    return conversation.summary is not None or conversation.pruned > 0
 
 
 def _every_turn(conversations: Sequence[Conversation]) -> dict[int, Turn]:

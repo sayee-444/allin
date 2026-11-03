@@ -136,8 +136,9 @@ class RowSource:
         context = known.context
         if known.compacted is not None:
             context = self._windows.saved_context(session_id, known.compacted)
-        if streamed is not None and streamed.steps:
-            context = context_tokens(streamed.steps)
+        steps = [] if streamed is None else streamed.context_steps()
+        if steps:
+            context = context_tokens(steps)
         return OrganizerRow(
             session_id=session_id,
             title=row_title(session_id, session.settings.title, known.first_prompt),

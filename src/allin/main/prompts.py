@@ -43,6 +43,9 @@ class Prompt:
     # (ADR-0023), with what it had when it started (ADR-0013).
     suspended: bool = False
     steps: tuple[Step, ...] = ()
+    # How many of ``steps`` read the Conversation of before the Compactación its Turn yielded
+    # to: their Context no longer holds (#177).
+    context_from: int = 0
     # The Suscripciones waiting for its answer, its sender's ``--reply-to`` (#116).
     owed: tuple[SubscriptionId, ...] = ()
     # A Suscripción's Prompt: those that woke its Session with it, a Continuation (#116).
@@ -151,6 +154,16 @@ class PromptQueue:
         if mine and mine[-1].queued:
             index = self._prompts.index(mine[-1])
             self._prompts[index] = replace(mine[-1], in_window=True)
+
+    def compacted(self, session_id: SessionId) -> None:
+        """A Compactación of the Session saved: the Steps its Turn waiting to go on had ended
+        read the Conversation of before (#177)."""
+        self._prompts = [
+            replace(prompt, context_from=len(prompt.steps))
+            if prompt.session_id == session_id
+            else prompt
+            for prompt in self._prompts
+        ]
 
     def turn_started(self, session_id: SessionId) -> None:
         """A new Turn of the Session started: what it has waiting was typed before it, so it

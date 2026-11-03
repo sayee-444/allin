@@ -158,21 +158,28 @@ class Compactions:
         work = self._works.get(session_id)
         return work is not None and work.done > 0
 
-    def context_measured(self, session_id: SessionId, ticket: int, tokens: int | None) -> bool:
-        """Whether ``ticket`` measured the Conversation the Session's last Compaction saved;
-        if so, its Window's border shows it."""
-        asked = self._contexts.get(session_id)
-        if asked is None or asked[0] != ticket:
+    def context_measured(self, ticket: int, tokens: int | None) -> bool:
+        """Whether ``ticket`` measured the Conversation a Session's last Compaction saved; if
+        so, its Window's border shows it. Known by its ticket alone: the Session may have taken
+        a new id since it was asked (#177)."""
+        session = next((s for asked, s in self._contexts.values() if asked == ticket), None)
+        if session is None:
             return False
-        del self._contexts[session_id]
-        session = asked[1]
+        del self._contexts[session.id]
         if tokens is None:
             shown = (
                 "the Server could not measure the compacted Conversation: its Context is unknown"
             )
-            self._reporter.log_session(session_id, "context_unmeasured", text=shown)
+            self._reporter.log_session(session.id, "context_unmeasured", text=shown)
         self._windows.compacted_measured(session, tokens)
         return True
+
+    def renamed(self, old: SessionId, renamed: Session) -> None:
+        """A Session took a new id (#59): what its last Compaction saved, if still being
+        measured, shows under it (#177)."""
+        asked = self._contexts.pop(old, None)
+        if asked is not None:
+            self._contexts[renamed.id] = (asked[0], renamed)
 
     def owns(self, session_id: SessionId, ticket: int) -> bool:
         work = self._works.get(session_id)
