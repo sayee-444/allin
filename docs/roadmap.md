@@ -8,32 +8,40 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #114 Métodos de una fproc (2026-11-02).
-  - Los métodos públicos de un Proceso adherido llegan al LLM como tools `<nombre>_<método>`, salvo los marcados `@human`. Un humano los llama con `/call <nombre> [<método> [clave=valor…]]` desde el Chat de Main, o con `@call` desde una Ventana. `/call <nombre>` a secas los lista.
-  - Lo que devuelve sale en el Chat donde se tecleó y en el Log de Main. Con `@call`, también en el Log de la Sesión, con una Notificación de una línea.
-  - **Command sessions desde un método.** Corren los que declara la fproc y tiene toda la cadena. El Proceso adherido va en el Origen (`… > process:<nombre>`) y nunca cuenta como humano: ni `-y` ni `--devastation` pasan a través de él. Desde el Chat de Main no hay Sesión, así que se rechazan.
-  - **Quién los tiene.** La Sesión que adhiere el proceso, o las del `--to`. Un humano los da y quita con `/func add|remove <sid> attached:<nombre>`, y una Sesión puede quitarse los suyos. `/new -am=<nombres>` da los métodos al nacer, y una Sesión solo pasa los que tiene toda su cadena. Un Rewind a antes de recibirlos los quita, y `/detach` los quita a todas.
-  - Un `@reach` puesto en un método hace fallar la descripción.
-  - **Probado a mano** con `llama serve` (Q6): el LLM no vio `board_clear` y su `board_pin` devolvió 1; `/call` y `@call` llegaron al mismo método; se rechazó lo no declarado y lo que la Sesión `ajena` no tenía en su lista; un `@call -y` que pide `@grant` mostró igualmente la Confirmación «asked by human > process:board».
+- **Último hecho:** #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos (2026-11-02).
+  - **Revisión.** La lleva el código de AllIn dentro del proceso (`allin/fproc_runtime.py`). Sube con cada método `@writes` o `@commutative` y con `self.changed()`. Main apunta la que vio cada Sesión en cada llamada de su LLM, y un `@writes` de una Sesión que no vio la actual da `attached_changed` («read it again, then write»). Un Rewind olvida las vistas desde entonces.
+  - **`@concurrent(n)`** en la clase: Main manda cada llamada con su id, hasta `n` a la vez (`@concurrent()`: sin tope), y retiene las demás por orden de llegada.
+  - **Llamadas largas.** `self.progress(…)` sale en la Ventana o en el Chat donde se hizo la llamada y reinicia su timeout. Cancelar el Turno le llega al método (`self.cancelled()`). Una llamada que no acaba tras su timeout y el Ajuste `attached.release` (5 s) hace que Main mate el proceso, con un Aviso.
+  - **Probado a mano** con `llama serve` (Q6), con la fproc `pizarra`:
+    - la escritura de `lectora` se rechazó tras la de `autora`, y pasó después de releer;
+    - un cambio a mano con `self.changed()` obligó a `autora` a releer;
+    - con `@concurrent(2)`, la tercera llamada esperó a que acabara la primera;
+    - una tarea de 6 s con avisos no venció con un timeout de 4 s;
+    - cerrar la Ventana canceló el Turno y el método lo vio;
+    - una llamada colgada hizo que Main matara el proceso, con su Aviso.
   - **La revisión encontró**, ya arreglado:
-    - un método que se llamaba a sí mismo colgaba el proceso para siempre;
-    - un método que fallaba acababa en `ok`;
-    - una Sesión podía quitar los métodos a otra;
-    - una llamada cancelada gastaba el plazo de la siguiente.
-  - Métricas: 1502 tests, cobertura 85 %, mutación 94 %, 34 escapes. Antes: #113 Adherir y soltar Procesos adheridos.
-- **Siguiente:** #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos.
+    - un proceso que avisaba a menudo nunca moría aunque colgara una llamada;
+    - el lector podía quedar bloqueado en un envío con el cerrojo tomado;
+    - un `KeyError` si el proceso acababa durante una cancelación.
+  - Métricas: 1515 tests, cobertura 84 %, mutación 94 %, 40 escapes. Antes: #114 Métodos de una fproc.
+- **Siguiente:** #116 Suscripción.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
   - ¿Que `/detach` sea solo de un humano?
   - ¿Que el `--file` relativo de un humano parta del directorio desde el que lanzó Main?
-  - ¿Que, hasta #115, una llamada que pasa su timeout tire el Proceso adherido entero?
 
   Sobre #114:
   - ¿Le vale que un método llamado con `/call` desde el Chat de Main no pueda ejecutar Command sessions, porque ahí no hay Sesión en la que correr?
   - ¿Que con un `@call` tecleado por un humano, los Command sessions del método no los limite la lista de la Sesión (como cuando él teclea `@…`), sino el Alcance de la fproc y la Confirmación?
   - ¿Que `@call` no venga en la lista por defecto, como `@attach`?
   - ¿Que un `@call` que ejecuta una tool reciba solo `ok`, y no lo que devolvió el método?
+
+  Sobre #115:
+  - ¿Le vale que solo se comprueben las escrituras que hace el LLM con sus tools? Las de `/call` y `@call` no se comprueban, tampoco cuando el `@call` lo lanza una fsource de una Sesión. El issue decía «un `@writes` de una Sesión».
+  - ¿Que una Sesión que nunca leyó vea rechazado su primer `@writes`, aunque nada haya cambiado?
+  - ¿Que una llamada cancelada que el método no deja también acabe matando el proceso, pasados su timeout y `attached.release`?
+  - ¿Que `@concurrent()` con paréntesis sea «sin tope», y que `@concurrent` a secas dé error?
   - Mientras se crea la clase, adherir bloquea a Main hasta 20 s. Lo perdido aún no avisa a las Sesiones afectadas: llega con el Informe de recuperación.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
@@ -120,7 +128,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 14. ✅ #112 Moldes y Crear
 15. ✅ #113 Adherir y soltar Procesos adheridos
 16. ✅ #114 Métodos de una fproc
-17. #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos
+17. ✅ #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos
 18. #116 Suscripción
 19. #117 Encargo y Lote
 20. #118 Consultar
