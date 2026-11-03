@@ -1,0 +1,24 @@
+# The checks of .githooks/pre-commit, for every pull request and push to main, so a clone
+# without the hook cannot merge unchecked code. Tests that need Landlock ABI 6 skip themselves
+# on the runner's kernel; they run in the pre-commit hook on a machine that has it.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv sync --locked --extra dev
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run basedpyright
+      - run: uv run pytest -q

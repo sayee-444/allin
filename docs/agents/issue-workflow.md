@@ -11,15 +11,15 @@ When the milestone "Pre-F2 · Pendientes de F1" starts, tell the user it is time
 ## Per issue
 
 1. Read the issue, `GLOSSARY.md` and the ADRs it names. Create its branch from an up-to-date `main` (**Branches and pull requests** below).
-2. Implement test-first (`tdd` skill). Code, comments and Log in English; docs and GitHub text in Spanish.
+2. Implement test-first (`tdd` skill). Code, comments and Log in English; docs and GitHub text in Spanish. When the issue adds state that lives while a Turn runs, write a test for each crossing that can reach it mid-Turn: Shift+Enter, closing the Window, a failed Step, a fall that suspends the Turn, yielding to compact, Rewind, `/exit` or a restart, and `/profile switch`. The review of #116–#121 found its bugs there.
 3. Run the full suite, `basedpyright` and `ruff`; all must be clean.
-4. Test by hand against every acceptance criterion. For a real Server, follow **Testing with llama serve** below.
-5. Record evidence (below).
-6. Commit to the issue's branch with `Refs #N` (never `Closes #N`), plus the attribution trailer. Push the branch and open its pull request.
-7. Merge the pull request once every criterion is checked and the evidence is uploaded. Then close the issue with a comment in Spanish: what was built, how each criterion was checked (test name or manual step), the pull request, the commits that did it (short hash and subject, as they are in `main`) and the merge commit that brought them, and the evidence images. If a criterion was not met or could not be tested, say so and leave the issue open.
-8. If the issue was already closed by the user, still verify it and comment; don't reopen it unless a criterion fails.
-
-9. Mark the issue ✅ in `docs/roadmap.md` and update its **Dónde vamos** section (last done, next, open questions for the user), and commit that on the issue's branch before merging. A new session resumes from that section, so it must always be current.
+4. Review the change (`code-review` skill) and fix what it finds, test-first, before testing by hand, so the evidence shows the code that is merged.
+5. Test by hand against every acceptance criterion. For a real Server, follow **Testing with llama serve** below.
+6. Record evidence (below).
+7. Commit to the issue's branch with `Refs #N` (never `Closes #N`), plus the attribution trailer. Push the branch and open its pull request.
+8. Merge the pull request once every criterion is checked and the evidence is uploaded. Then close the issue with a comment in Spanish: what was built, how each criterion was checked (test name or manual step), the pull request, the commits that did it (short hash and subject, as they are in `main`) and the merge commit that brought them, and the evidence images. If a criterion was not met or could not be tested, say so and leave the issue open.
+9. If the issue was already closed by the user, still verify it and comment; don't reopen it unless a criterion fails.
+10. Mark the issue ✅ in `docs/roadmap.md` and update its **Dónde vamos** section (last done, next, open questions for the user), and commit that on the issue's branch before merging. A new session resumes from that section, so it must always be current.
 
 Never edit the body of a closed issue. If a decision changes during an issue, update the issue body, the glossary or the ADR first.
 
@@ -39,11 +39,11 @@ The user chose this on 2026-10-30: one short-lived branch and one pull request p
 
 ## Evidence
 
-- **Driving and capturing xterms**: the desktop is Wayland with xterm on Xwayland and no capture tool is installed. Use python-xlib and Pillow through `uv run --with python-xlib --with pillow`, without adding them to the project: `XGetImage` on the xterm's frame window gives a real pixel capture, and `XSendEvent` of KeyPress/KeyRelease to the xterm's VT100 widget (the child of the window whose WM_CLASS is `XTerm`), with an explicit key event mask, types into it. xterm only accepts sent keys with `XTerm*allowSendEvents: true`: pass it with `-xrm` to Main's xterm and through `XENVIRONMENT=<file>` so the Windows that Main launches get it too. Only characters on the keyboard map can be typed (no `¿`).
-- Run Main in its own xterm with `--data-dir` pointing to a throwaway folder, never the user's `var/`. Main's `base_url` is fixed to port 9931, so tests need the Server there; check that the port is free first. Find Main's pid with `pgrep -f "^./venv/bin/python -m allin --data-dir <dir>"` (the xterm's command line also contains that text) and only ever kill processes you started, matched by their exact title or pid.
+- **Driving and capturing xterms**: the desktop is Wayland with xterm on Xwayland and no capture tool is installed. `tools/xterm_drive.py` lists AllIn's xterms, captures one, types into it, sends Shift+Enter and waits for an event in a Session's Log (`<data-dir>/sessions/<sid>/log.jsonl`); its docstring has the `uv run` line and the xterm options it needs.
+- Run Main in its own xterm with `--data-dir` pointing to a throwaway folder, never the user's `var/`. Main's default Enlace is port 9931, so a Session made with `/new` uses the Server there; check that the port is free first. Find Main's pid with `pgrep -f "^./venv/bin/python -m allin --data-dir <dir>"` (the xterm's command line also contains that text) and only ever kill processes you started, matched by their exact title or pid.
 - **Capture only what proves something.** Take a capture at the moment a criterion becomes visible (before and after the action that matters), not at every step. Pick the form that proves it best: a whole-window capture, a crop of the relevant line (the border, one Chat line), a short sequence of captures for something that changes over time, or plain text (a JSON state file, a Log excerpt, `/slots` output, a process or FIFO count) when text shows it more exactly than an image. If a criterion is only covered by tests, say so instead of capturing.
 - **Evidence shows only the work.** Everything uploaded must come from the repository's code, its running processes and their data: the repo tree, its files, AllIn's Windows, Logs and state, the `llama serve` line and its output. Never run or upload anything that inspects the user's system outside the project (listing their home or other folders, other processes, hardware or desktop details). Before uploading, replace absolute paths outside the repo with placeholders (`<data-dir>`, `<scratch>`), and crop or retake a capture that shows such a path.
-- Store evidence on the orphan branch `evidence`, under `issues/<n>/`: the captures and a `test.log` with the steps, the `llama serve` line and the results. Never commit evidence to `main`.
+- Store evidence on the orphan branch `evidence`, under `issues/<n>/`: the captures and a `test.log` with the steps, the `llama serve` line and the results. Never commit evidence to `main`. Work on it in a worktree of its own (`git worktree list` shows one if it exists; else `git worktree add <scratch>/wt-evidence evidence`), and `git pull --ff-only` there first.
 - Embed every image in the closing comment so it shows in the issue itself: `![what it shows](https://github.com/sayee-444/allin/blob/evidence/issues/<n>/<file>.png?raw=true)`. A plain link (`[Main](…png)`, without the `!`) only shows a word to click; #24, #25, #28, #34 and #55 were closed that way and got a later comment with the images embedded. Text files (`test.log`, JSON) stay as plain links. Before posting, check that each file exists on `origin/evidence`.
 
 ## Testing with llama serve
@@ -55,4 +55,4 @@ The binary is `llama` (`llama serve …`). Models are in `models/` (gitignored);
 - **Two Servers at once**: `Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf` (12.3 GB) with `mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf`, `-ctk q4_0 -ctv q4_0`, e.g. `-c 64000` and `-c 32000`.
 - **Three Servers, or testing only the mechanics** (queues, slot locks, several brains): `Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf` (8.9 GB), two comfortably, three only with a small `-c` and no `--mmproj` (measure with `nvidia-smi`). It reasons noticeably worse: never judge a coordinator Session's behaviour with it.
 - Common flags: `-ngl all -fa on --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp`. Change `-np`, `-c` and `--kv-unified` as the test needs.
-- Port 9931 is usually the user's own Server. Main can only reach 9931 until the Supervisor's Enlace exists (#24), so use it only when it is free; for raw `llama serve` probes use 9932+. Shut down every Server you started when done.
+- Port 9931 is usually the user's own Server: use it only when it is free; for raw `llama serve` probes use 9932+. Shut down every Server you started when done.
