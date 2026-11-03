@@ -183,6 +183,10 @@ _Avoid_: job, barrera, tarea
 Encargo cuyas tareas no van asignadas de antemano. Main le da la siguiente a una trabajadora de su lista cuando esta no tiene Turno ni cola y su Servidor tiene sitio para empezarla, así que los Supervisores libres se turnan el lote. La Sesión que lo abrió despierta una sola vez, con todos los resultados y el Supervisor y el modelo que respondió cada uno. Plazo, quórum y cancelación funcionan como en el Encargo. Se abre con `@batch` (un humano, `/batch`).
 _Avoid_: pool, cola de trabajo, job
 
+**Consultar** (`Status`):
+Leer, sin cambiar nada, lo que una Sesión tiene a su alcance en el Perfil activo: la cola (qué Sesiones tienen Turno o Prompts esperando), las Suscripciones y Encargos abiertos con su avance, los Procesos adheridos y sus métodos, los Servidores que vigilan sus Enlaces con sus slots y su modelo, y los Supervisores. Una Sesión escribe `@status [parte]` y lo recibe por el canal de vuelta; un humano, `/status <sid> [parte]` en el Chat de Main. El árbol de Mains se añadirá en F3.
+_Avoid_: estado, info, dashboard
+
 **Paso** (`Step`):
 Una sola llamada a `responses.create` dentro de un Turno; un Turno con tools tiene varios Pasos.
 _Avoid_: ronda, iteración

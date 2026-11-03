@@ -49,3 +49,10 @@ El plazo de un Encargo o de un Lote no le cuenta a cada trabajadora el tiempo en
 - **El Informe de recuperación** nace aquí. Si el Main anterior murió con Turnos a medias, Main deja `recovery_report` en su Log, muestra un Aviso con los Encargos que estaban abiertos (si siguen o si el Turno perdido los cerró, y qué trabajadoras quedaron sin respuesta) y deja una Notificación a cada coordinadora. Una tarea cuyo Turno murió con Main cuenta como sin respuesta, sin reintento; las que estaban en cola siguen. Lo demás que el Informe debe contar (Procesos adheridos perdidos, Ventanas) se le irá sumando.
 - **Al cerrar Main** con Turnos en marcha, cortarlos no cuenta como fallo: quedan en el Estado de Main, y el siguiente arranque los da por sin respuesta, también para `--reply-to`.
 - **Con su Perfil inactivo** se congela: una respuesta que llega se apunta, y el plazo, los reintentos y el reparto del Lote esperan a que vuelva.
+
+**Enmienda (#118).** Consultar queda así:
+
+- **Cómo se pide.** `@status [queue|subscriptions|attached|servers]` en una Sesión; `/status <sid> [parte]` un humano. Sin parte, todas. Viene en la lista por defecto de Command sessions: solo lee.
+- **Qué devuelve.** La tool recibe `{"result": "ok", "state": {…}}` por el canal de vuelta, con `queue` (Sesión, si tiene Turno, cuántos Prompts esperan), `subscriptions` (id, Sesión, evento y el avance de un Encargo), `attached` (nombre y métodos), `servers` (cada Servidor que vigila un Enlace: estado, slots, cuántos ocupan Turnos de este Main y modelo) y `supervisors` (nombre, estado y si es el del Enlace por defecto). El Chat de Main muestra lo mismo en líneas.
+- **Solo el Perfil activo.** La cola y las Suscripciones solo traen Sesiones del Perfil activo; las de otro Perfil, congeladas, no salen. Los Servidores y Supervisores son de la máquina y salen igual en todos los Perfiles. Los Procesos adheridos ya son del Perfil activo.
+- **No cambia nada.** No pide Confirmación ni toca la cola, las Suscripciones ni el Estado de Main.
