@@ -26,17 +26,18 @@ FAILED_BEFORE = "the turn before failed"
 
 def returned_prompts(log: Iterable[LogEntry]) -> list[str]:
     """What goes back to a Window's input as it opens: the Prompt of the Session's last failed
-    Turn and those dropped with it, in the order they were sent (#15). Nothing once a later
-    Prompt was sent, a later Turn ended, or they were given back to an open Window already."""
+    Turn and those dropped with it, in the order they were sent (#15), as they were typed
+    (#166). Nothing once a later Prompt was sent, a later Turn ended, or they were given back
+    to an open Window already."""
     texts: list[str] = []
     for entry in log:
         fields = entry.fields
         match entry.event:
             case "turn_failed":
-                prompt = fields.get("prompt")
+                prompt = fields.get("typed") or fields.get("prompt")
                 texts = [prompt] if isinstance(prompt, str) else []
             case "prompts_dropped" if texts and fields.get("reason") == FAILED_BEFORE:
-                dropped: list[object] = fields.get("texts", [])
+                dropped: list[object] = fields.get("typed") or fields.get("texts", [])
                 kinds: list[object] = fields.get("kinds", ["prompt"] * len(dropped))
                 texts += [
                     text
