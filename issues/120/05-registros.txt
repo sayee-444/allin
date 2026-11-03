@@ -1,0 +1,61 @@
+# Comandos de Main
+{"ts": "2026-11-03T00:02:22.820023-06:00", "event": "command", "sid": "corta", "command": "/session set corta sampling.max_output_tokens=120", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:02:36.253763-06:00", "event": "command", "sid": "lectora", "command": "/session set lectora notices.context.threshold=0.5", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:03:05.956980-06:00", "event": "command", "sid": "corta", "command": "/send corta Escribe un cuento largo, de al menos 800 palabras, sobre un faro.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:03:14.172631-06:00", "event": "command", "command": "send corta Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "error unknown_command: command='send'", "origin"
+{"ts": "2026-11-03T00:13:23.893094-06:00", "event": "command", "sid": "corta", "command": "/send corta Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:13:40.218274-06:00", "event": "command", "command": "conversation_logs corta off cut", "result": "error unknown_command: command='conversation_logs'", "origin": ["human"]}
+{"ts": "2026-11-03T00:13:44.576270-06:00", "event": "command", "sid": "corta", "command": "/send corta Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:13:53.873583-06:00", "event": "command", "command": "conversation_logs corta off cut", "result": "error unknown_command: command='conversation_logs'", "origin": ["human"]}
+{"ts": "2026-11-03T00:13:57.297936-06:00", "event": "command", "sid": "corta", "command": "/conversation_logs corta off cut", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:14:07.372596-06:00", "event": "command", "sid": "corta", "command": "/send corta Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:14:10.736155-06:00", "event": "command", "command": "send corta Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "error unknown_command: command='send'", "origin"
+{"ts": "2026-11-03T00:24:17.272955-06:00", "event": "command", "sid": "lectora", "command": "/send lectora Usa leer con capitulo=1 y dime solo su primera palabra.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:24:30.351928-06:00", "event": "command", "sid": "lectora", "command": "/send lectora Sin usar tools y en una linea: copia literalmente lo que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "ok", "origin": ["hum
+{"ts": "2026-11-03T00:24:42.533397-06:00", "event": "command", "sid": "lectora", "command": "/conversation_logs lectora off context", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:24:46.140259-06:00", "event": "command", "sid": "lectora", "command": "/session set lectora notices.context.threshold=0.6", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:24:55.160033-06:00", "event": "command", "sid": "lectora", "command": "/send lectora Usa leer con capitulo=2 y dime solo su primera palabra.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:02.715859-06:00", "event": "command", "sid": "lectora", "command": "/send lectora Sin usar tools y en una linea: copia literalmente lo que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "ok", "origin": ["hum
+{"ts": "2026-11-03T00:25:31.542759-06:00", "event": "command", "sid": "segunda", "command": "/session set segunda notices.context.threshold=0.5", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:36.025589-06:00", "event": "command", "sid": "segunda", "command": "/conversation_logs segunda off context", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:46.448554-06:00", "event": "command", "sid": "segunda", "command": "/send segunda Usa leer con capitulo=1 y dime solo su primera palabra.", "result": "ok", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:58.973996-06:00", "event": "command", "sid": "segunda", "command": "/send segunda Sin usar tools y en una linea: copia literalmente lo que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "result": "ok", "origin": ["hum
+
+# corta: Log de la Sesión (cortes, Avisos y Notificaciones)
+{"ts": "2026-11-03T00:03:05.956303-06:00", "event": "prompt", "text": "Escribe un cuento largo, de al menos 800 palabras, sobre un faro.", "prompt_id": "x6yr4k", "origin": ["human"]}
+{"ts": "2026-11-03T00:03:07.080046-06:00", "event": "notice", "kind": "cut_turn", "title": "Turn cut", "text": "it reached its output cap of 120 tokens; raise it with /session set corta sampling.max_output_tokens=<n>, or ask it to go on"}
+{"ts": "2026-11-03T00:03:07.081968-06:00", "event": "turn_finished", "turn": 0, "cut": "output_cap"}
+{"ts": "2026-11-03T00:13:23.892280-06:00", "event": "prompt", "text": "Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "prompt_id": "u1jgdu", "origin": ["human"]}
+{"ts": "2026-11-03T00:13:24.920135-06:00", "event": "notice", "kind": "cut_turn", "title": "Turn cut", "text": "it reached its output cap of 120 tokens; raise it with /session set corta sampling.max_output_tokens=<n>, or ask it to go on"}
+{"ts": "2026-11-03T00:13:24.922201-06:00", "event": "turn_finished", "turn": 1, "cut": "output_cap"}
+{"ts": "2026-11-03T00:13:44.575154-06:00", "event": "prompt", "text": "Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "prompt_id": "0vg5cv", "origin": ["human"]}
+{"ts": "2026-11-03T00:13:45.667910-06:00", "event": "notice", "kind": "cut_turn", "title": "Turn cut", "text": "it reached its output cap of 120 tokens; raise it with /session set corta sampling.max_output_tokens=<n>, or ask it to go on"}
+{"ts": "2026-11-03T00:13:45.669806-06:00", "event": "turn_finished", "turn": 2, "cut": "output_cap"}
+{"ts": "2026-11-03T00:13:57.297855-06:00", "event": "conversation_logs", "action": "off", "source": "cut"}
+{"ts": "2026-11-03T00:14:07.371596-06:00", "event": "prompt", "text": "Responde corto: copia literalmente las lineas que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "prompt_id": "371iuy", "origin": ["human"]}
+{"ts": "2026-11-03T00:14:08.381987-06:00", "event": "notice", "kind": "cut_turn", "title": "Turn cut", "text": "it reached its output cap of 120 tokens; raise it with /session set corta sampling.max_output_tokens=<n>, or ask it to go on"}
+{"ts": "2026-11-03T00:14:08.383806-06:00", "event": "turn_finished", "turn": 3, "cut": "output_cap"}
+
+# lectora: Log de la Sesión (cortes, Avisos y Notificaciones)
+{"ts": "2026-11-03T00:02:56.907180-06:00", "event": "notification", "source": "/func", "text": "function:lector was given to you: its tools are yours", "conversation": true}
+{"ts": "2026-11-03T00:24:17.272210-06:00", "event": "prompt", "text": "Usa leer con capitulo=1 y dime solo su primera palabra.", "prompt_id": "ojev65", "origin": ["human"]}
+{"ts": "2026-11-03T00:24:20.208718-06:00", "event": "notice", "kind": "context", "title": "Context", "text": "the Context is at 53% of 8192 tokens"}
+{"ts": "2026-11-03T00:24:20.208885-06:00", "event": "notification", "source": "context", "text": "Your Context is at 53% of 8192 tokens: about 3813 tokens are left.", "conversation": true}
+{"ts": "2026-11-03T00:24:20.212597-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T00:24:30.350866-06:00", "event": "prompt", "text": "Sin usar tools y en una linea: copia literalmente lo que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "prompt_id": "psvuqy", "origin": ["human"]}
+{"ts": "2026-11-03T00:24:31.645614-06:00", "event": "turn_finished", "turn": 1}
+{"ts": "2026-11-03T00:24:42.533311-06:00", "event": "conversation_logs", "action": "off", "source": "context"}
+{"ts": "2026-11-03T00:24:55.159232-06:00", "event": "prompt", "text": "Usa leer con capitulo=2 y dime solo su primera palabra.", "prompt_id": "94kvsx", "origin": ["human"]}
+{"ts": "2026-11-03T00:24:55.828873-06:00", "event": "pruned", "first": 1, "last": 1, "saved": 3847}
+{"ts": "2026-11-03T00:24:58.084377-06:00", "event": "turn_finished", "turn": 2}
+{"ts": "2026-11-03T00:25:02.715027-06:00", "event": "prompt", "text": "Sin usar tools y en una linea: copia literalmente lo que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "prompt_id": "zlp4p3", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:03.162170-06:00", "event": "turn_finished", "turn": 3}
+
+# segunda: Log de la Sesión (cortes, Avisos y Notificaciones)
+{"ts": "2026-11-03T00:25:36.025511-06:00", "event": "conversation_logs", "action": "off", "source": "context"}
+{"ts": "2026-11-03T00:25:46.447906-06:00", "event": "prompt", "text": "Usa leer con capitulo=1 y dime solo su primera palabra.", "prompt_id": "ffbuoj", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:49.725998-06:00", "event": "notice", "kind": "context", "title": "Context", "text": "the Context is at 53% of 8192 tokens"}
+{"ts": "2026-11-03T00:25:49.726149-06:00", "event": "notification", "source": "context", "text": "Your Context is at 53% of 8192 tokens: about 3787 tokens are left.", "conversation": false}
+{"ts": "2026-11-03T00:25:49.727897-06:00", "event": "turn_finished", "turn": 0}
+{"ts": "2026-11-03T00:25:58.973239-06:00", "event": "prompt", "text": "Sin usar tools y en una linea: copia literalmente lo que recibiste bajo [LOGS @COMMANDS] en este mensaje, o di NINGUNA.", "prompt_id": "m4y1wp", "origin": ["human"]}
+{"ts": "2026-11-03T00:25:59.824886-06:00", "event": "turn_finished", "turn": 1}
