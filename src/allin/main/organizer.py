@@ -108,7 +108,7 @@ class RowSource:
         open_ids = [*visible_ids, *hidden]
         try:
             profile = self._profile_sessions()
-            held = self._held()
+            held = self._subprofiles.held()
         except AllInError:
             profile, held = [], {}
         closed = [sid for sid in [*profile, *held] if sid not in open_ids]
@@ -117,18 +117,10 @@ class RowSource:
         for session_id in [*open_ids, *closed]:
             row = self._row(session_id)
             if row is not None:
-                name, exempt = held.get(session_id, ("", False))
+                name = held.get(session_id)
+                exempt = name is not None and self._subprofiles.is_exempt(name)
                 rows.append(row.model_copy(update={"subprofile": name, "exempt": exempt}))
         return rows
-
-    def _held(self) -> dict[SessionId, tuple[str, bool]]:
-        """Each Session of a Subperfil: the instance's name, and whether it has the Exención."""
-        held: dict[SessionId, tuple[str, bool]] = {}
-        for name in self._subprofiles.names():
-            record = self._subprofiles.record(name)
-            for session_id in record.sessions:
-                held[session_id] = (name, record.exempt)
-        return held
 
     def _row(self, session_id: SessionId) -> OrganizerRow | None:
         known = self._facts(session_id)

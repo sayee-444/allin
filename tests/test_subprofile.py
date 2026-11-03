@@ -11,8 +11,8 @@ from pydantic import JsonValue
 
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
-from allin.core.ids import BoxId, CommandName, SessionId
-from allin.core.origin import Origin
+from allin.core.ids import AttachedName, BoxId, CommandName, SessionId
+from allin.core.origin import HUMAN, Link, Origin
 from allin.ipc.messages import Coverage, OrganizerRow
 from allin.main.descriptions import Descriptions
 from allin.main.events import (
@@ -33,6 +33,7 @@ from tests.test_attached import from_session
 from tests.test_dispatcher import TURNS_ENDED, MainHarness
 from tests.test_fproc_initiative import (
     GUIDE,
+    LONER,
     act,
     enter,
     guide_heard,
@@ -88,6 +89,8 @@ def main(tmp_path: Path) -> Iterator[MainHarness]:
     functions = harness.profile.folder / "functions"
     (functions / "guides" / "molds").mkdir(parents=True)
     (functions / "guides" / "guide.py").write_text(GUIDE)
+    (functions / "guides" / "rival.py").write_text(GUIDE.replace("class Guide", "class Rival"))
+    (functions / "guides" / "loner.py").write_text(LONER)
     (functions / "guides" / "molds" / "helper.toml").write_text(WORKER)
     for name, source in (("inside", INSIDE), ("outside", OUTSIDE)):
         (functions / name).mkdir()
@@ -229,8 +232,10 @@ def test_the_organizer_folds_its_sessions_under_the_instance(main: MainHarness):
 def test_a_view_folds_each_subprofile_apart_and_unfolds_it_on_its_own():
     rows = [
         OrganizerRow(session_id="a1", title="a1", place="view"),
-        OrganizerRow(session_id="g1", title="g1", place="background", subprofile="guide"),
-        OrganizerRow(session_id="g2", title="g2", place="closed", subprofile="guide"),
+        OrganizerRow(
+            session_id="g1", title="g1", place="background", subprofile=AttachedName("guide")
+        ),
+        OrganizerRow(session_id="g2", title="g2", place="closed", subprofile=AttachedName("guide")),
         OrganizerRow(session_id="c1", title="c1", place="closed"),
     ]
     view = OrganizerView()
@@ -298,3 +303,106 @@ def test_a_window_marks_on_its_border_that_devastation_answers_only_inside(tmp_p
     listener.on_message(Coverage(covered=False))
     [*_, last] = [update for update in shown if isinstance(update, TitleMark)]
     assert last.text == ""
+
+
+def test_its_sessions_create_no_session_and_attach_no_process(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "hola"))
+    before = set(main.sessions.ids())
+
+    def inside() -> Origin:
+        sid = subprofile_sessions(main)[0]
+        return Origin(chain=(*HUMAN.chain, Link("process", "guide"), Link("session", sid)))
+
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        enter(main, lambda: "/new", inside),
+        enter(main, lambda: "/attach guide second", inside),
+        settle=True,
+    )
+    assert len([line for line in chat if "made_outside_subprofile" in line]) == 2
+    assert set(main.sessions.ids()) - before == set(subprofile_sessions(main))
+    assert not any(line.startswith("second (guide) attached") for line in chat)
+
+
+# The boundary holds whoever acts, and whatever comes between.
+
+
+def test_an_fproc_without_a_subprofile_acts_on_no_session_of_the_profile(main: MainHarness):
+    a = main.create_session()
+    main.profiles.add_session(main.profile, a.id)
+    heard: list[JsonValue] = []
+    chat = main.run(
+        MainCommandEntered(f"/open {a.id}"),
+        MainCommandEntered("/attach loner"),
+        act(main, "@new helper", "loner"),
+        hearing(main, 1, "loner"),
+        lambda: heard.extend(guide_heard(main, "loner")),
+        MainCommandEntered(
+            f"/close {a.id}", Origin(chain=(*HUMAN.chain, Link("process", "loner")))
+        ),
+        settle=True,
+    )
+    assert "no_subprofile" in str(heard[0])
+    assert any(f"/close {a.id}: error human_only" in line for line in chat)
+    assert main.state.saved[-1].windows.keys() == {a.id}
+
+
+def test_what_acts_for_a_session_of_the_subprofile_stays_in_it(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "hola"))
+    a = main.create_session()
+    main.profiles.add_session(main.profile, a.id)
+
+    def through_loner() -> Origin:
+        sid = subprofile_sessions(main)[0]
+        links = (Link("process", "guide"), Link("session", sid), Link("process", "loner"))
+        return Origin(chain=(*HUMAN.chain, *links))
+
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        enter(main, lambda: f"/send {a.id} desde dentro", through_loner),
+        settle=True,
+    )
+    assert any("outside_subprofile" in line for line in chat), "a method of another fproc"
+    mine = main.sessions.load_conversation(a)
+    assert mine is None or not mine.turns
+
+
+def test_another_fproc_attached_with_its_name_never_gets_its_subprofile(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "hola"))
+    heard: list[JsonValue] = []
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        MainCommandEntered("/detach guide"),
+        MainCommandEntered("/attach rival guide"),
+        MainCommandEntered("/attach loner guide"),
+        act(main, lambda: f"@send {heard_state(heard, 0)} hola"),
+        hearing(main, 1),
+        lambda: heard.extend(guide_heard(main)),
+        settle=True,
+    )
+    assert any("/attach rival guide: error subprofile_of_another" in line for line in chat)
+    assert "no_subprofile" in str(heard[2]), "the loner named guide reaches none of them"
+
+
+def test_switching_profile_freezes_the_subprofile_and_coming_back_finds_it(main: MainHarness):
+    main.llm = FakeLlm(full_reply("", "hola"))
+    main.profiles.create("tesis", main.profile)
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        MainCommandEntered("/profile switch tesis"),
+        MainCommandEntered("/subprofile"),
+        MainCommandEntered("/profile switch default"),
+        MainCommandEntered("/subprofile"),
+        settle=True,
+    )
+    first = chat.index("subprofiles: 0")
+    assert chat[chat.index("subprofiles: 1", first) + 1] == "  guide: 1 session · turns 1"

@@ -13,7 +13,7 @@ from allin.main.reporting import Reporter
 from allin.main.subprofiles import SubprofileRecord, Subprofiles
 
 SUBPROFILE_USAGE = "/subprofile [<name> [exempt=on|off] [turns=<n>]]"
-_SWITCH = {"on": True, "off": False}
+_ON_OFF = {"on": True, "off": False}
 
 
 def subprofile_line(name: AttachedName, record: SubprofileRecord) -> str:
@@ -81,8 +81,8 @@ def _parse(changes: str) -> tuple[bool | None, int | None]:
     turns: int | None = None
     for word in changes.split():
         key, _, value = word.partition("=")
-        if key == "exempt" and exempt is None and value in _SWITCH:
-            exempt = _SWITCH[value]
+        if key == "exempt" and exempt is None and value in _ON_OFF:
+            exempt = _ON_OFF[value]
         elif key == "turns" and turns is None and value.isdigit() and int(value) >= 1:
             turns = int(value)
         else:

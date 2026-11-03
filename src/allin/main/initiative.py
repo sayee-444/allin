@@ -18,6 +18,7 @@ from allin.core.errors import (
     AllInError,
     InitiativeRefused,
     InvalidSessionCommand,
+    NoSubprofile,
     SessionCommandNotDeclared,
     SessionCommandNotListed,
 )
@@ -106,6 +107,8 @@ class FprocInitiative:
         went. Returns whether Main keeps running."""
         try:
             fproc = self._attached.attached_fproc(name)
+            if not self._attached.declares_subprofile(name):
+                raise NoSubprofile(name=name)  # it created no Session to act on
             origin = from_process(self._attached.attached_by(name), name)
             command = session_command_name(text) or ""
             if command not in fproc.offered.description.reach.commands:

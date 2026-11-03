@@ -11,7 +11,6 @@ the active Profile, which is private, or one Subperfil (ADR-0010, ADR-0026). A s
 adherido) has no Carpeta de trabajo: every file it attaches is from outside.
 """
 
-import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -27,7 +26,14 @@ from allin.core.errors import (
     SubscriptionInvalid,
     SubscriptionNotOwn,
 )
-from allin.core.ids import AttachedName, SessionId, SubscriptionId, new_prompt_id
+from allin.core.ids import (
+    AttachedName,
+    Outsider,
+    SessionId,
+    SubscriptionId,
+    new_prompt_id,
+    parse_outsider,
+)
 from allin.core.origin import Origin, acting_process
 from allin.main.attachments import copy_in, source_of
 from allin.main.boxes import MainBoxes
@@ -40,7 +46,6 @@ from allin.main.subscriptions import Subscriptions
 from allin.main.turn_queue import TurnQueue
 
 ME = "me"  # ``--reply-to=me``: the Session that sends, as its LLM writes it (#116)
-_OUTSIDER = re.compile(r"[\w.:@+-]{1,64}")  # an Externo's identity, as ``discord:juan``
 OUTSIDER_USAGE = "--outsider=<who>: up to 64 letters, digits and . : @ + - _"
 
 
@@ -68,8 +73,7 @@ class SessionSends:
         space = self._subprofiles.check_reach(origin, target.id)
         if space.subprofile is not None and not origin.is_human:
             self._check_room(space.subprofile, target.id)
-        if options.outsider is not None:
-            _check_outsider(options.outsider, origin)
+        outsider = None if options.outsider is None else _outsider(options.outsider, origin)
         subscriber = (
             None if options.reply_to is None else self._subscriber(options.reply_to, origin)
         )
@@ -77,7 +81,7 @@ class SessionSends:
         files = [(path, _source(path, base)) for path in options.attach]
         outside = [s for _, s in files if base is None or not s.is_relative_to(base.resolve())]
         if not outside:
-            self._push(target, options, origin, files, subscriber)
+            self._push(target, options, origin, files, subscriber, outsider)
             answer("ok")
             return
 
@@ -86,7 +90,7 @@ class SessionSends:
                 if not yes:
                     raise AttachmentNotApproved(paths=list[JsonValue](map(str, outside)))
                 self._subprofiles.check_reach(origin, target.id)  # one may have switched
-                self._push(target, options, origin, files, subscriber)
+                self._push(target, options, origin, files, subscriber, outsider)
             except AllInError as error:
                 answer(error)
             else:
@@ -119,9 +123,11 @@ class SessionSends:
         origin: Origin,
         files: Sequence[tuple[str, Path]],
         subscriber: SessionId | None,
+        outsider: Outsider | None,
     ) -> None:
         """Copy the attachments, the very files resolved and shown, and queue the Prompt;
-        its answer wakes ``subscriber``, if any (#116)."""
+        its answer wakes ``subscriber``, if any (#116), and its words are ``outsider``'s, if
+        an Externo's (ADR-0026)."""
         prompt_id = new_prompt_id()
         attachments = copy_in(files, self._sessions.workspace(target.id), prompt_id)
         owed: tuple[SubscriptionId, ...] = ()
@@ -129,9 +135,9 @@ class SessionSends:
             owed = (self._subscriptions.reply_to(subscriber, target.id, prompt_id, origin),)
         prompt = Prompt(
             target.id,
-            f"{origin_header(origin, options.outsider)}\n{options.text}",  # never read for @…
+            f"{origin_header(origin, outsider)}\n{options.text}",  # never read for @…
             origin=origin,
-            outsider=options.outsider,
+            outsider=outsider,
             prompt_id=prompt_id,
             attachments=tuple(attachments),
             overrides=options.overrides,
@@ -166,13 +172,15 @@ class SessionSends:
         return None if sender is None else self._sessions.workspace(sender)
 
 
-def _check_outsider(outsider: str, origin: Origin) -> None:
-    """Only a Proceso adherido brings an Externo's words, and names them in a way that cannot
-    pass for anything else in its Prompt's header (ADR-0026)."""
+def _outsider(written: str, origin: Origin) -> Outsider:
+    """The Externo ``--outsider=`` names: only a Proceso adherido brings one's words, and names
+    them in a way that cannot pass for anything else in its Prompt's header (ADR-0026)."""
     if acting_process(origin) is None:
-        raise OutsiderNotFromProcess(outsider=outsider, origin=list[JsonValue](origin.labels))
-    if _OUTSIDER.fullmatch(outsider) is None:
+        raise OutsiderNotFromProcess(outsider=written, origin=list[JsonValue](origin.labels))
+    outsider = parse_outsider(written)
+    if outsider is None:
         raise InvalidArguments(usage=OUTSIDER_USAGE)
+    return outsider
 
 
 def _source(path: str, base: Path | None) -> Path:

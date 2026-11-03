@@ -59,7 +59,7 @@ class _Runtime:
         self._initiative_ids = itertools.count(1)
         self._writing = threading.Lock()  # one line at a time on the pipe to Main
         self._calls: dict[int, _Call] = {}
-        self._calls_lock = threading.Lock()
+        self._lock = threading.Lock()  # the calls, and the initiatives that wait
         self._revision = 0
         self._revision_lock = threading.Lock()
         self._writes = threading.Lock()  # one ``@writes`` at a time, with its check
@@ -82,7 +82,7 @@ class _Runtime:
             if kind == "method":
                 self._start(call_id, message)
             elif kind == "initiative_result":
-                with self._calls_lock:
+                with self._lock:
                     waiting = self._initiatives.get(call_id)
                 if waiting is not None:
                     waiting.put(message.get("result"))
@@ -106,7 +106,7 @@ class _Runtime:
     def _initiative(self, text: str) -> _Json:
         """A Command session on the fproc's own (ADR-0026), once Main reads its lines."""
         waiting: Queue[_Json] = Queue()
-        with self._calls_lock:
+        with self._lock:
             initiative_id = next(self._initiative_ids)
             self._initiatives[initiative_id] = waiting
         try:
@@ -114,7 +114,7 @@ class _Runtime:
             self._send({"type": "initiative", "id": initiative_id, "text": text})
             return waiting.get()  # Main answers each
         finally:
-            with self._calls_lock:
+            with self._lock:
                 del self._initiatives[initiative_id]
 
     def progress(self, text: str) -> None:
@@ -143,7 +143,7 @@ class _Runtime:
     def _start(self, call_id: int, message: dict[str, _Json]) -> None:
         prompt_id = message.get("prompt_id")
         call = _Call(call_id, prompt_id if isinstance(prompt_id, str) else "")
-        with self._calls_lock:
+        with self._lock:
             self._calls[call_id] = call
         threading.Thread(
             target=self._run, args=(call, message), name=f"call-{call_id}", daemon=True
@@ -158,7 +158,7 @@ class _Runtime:
                 answer = _raised(call, error)
             self._send(answer)
         finally:
-            with self._calls_lock:
+            with self._lock:
                 del self._calls[call.id]
 
     def _answer(self, call: _Call, message: dict[str, _Json]) -> dict[str, _Json]:
@@ -209,7 +209,7 @@ class _Runtime:
             return self._revision
 
     def _call(self, call_id: int) -> _Call | None:
-        with self._calls_lock:
+        with self._lock:
             return self._calls.get(call_id)
 
     def _current(self) -> _Call:

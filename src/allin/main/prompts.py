@@ -7,7 +7,7 @@ from collections.abc import Callable, Container
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
-from allin.core.ids import NO_PROMPT_ID, PromptId, SessionId, SubscriptionId
+from allin.core.ids import NO_PROMPT_ID, Outsider, PromptId, SessionId, SubscriptionId
 from allin.core.origin import HUMAN, LinkKind, Origin
 from allin.main.conversation import Attachment, Step
 from allin.main.prompt_commands import TurnOverrides
@@ -52,7 +52,7 @@ class Prompt:
     in_window: bool = False
     # The Externo whose words a Proceso adherido brought: noted for the Log and the memory,
     # never any authority (ADR-0026).
-    outsider: str | None = None
+    outsider: Outsider | None = None
 
     @property
     def as_typed(self) -> str:
@@ -190,7 +190,7 @@ _SENDERS: dict[LinkKind, str] = {
 }
 
 
-def origin_header(origin: Origin, outsider: str | None = None) -> str:
+def origin_header(origin: Origin, outsider: Outsider | None = None) -> str:
     """What heads a Prompt that no human typed, so its LLM reads it as data from whoever sent
     it, never as the human's words: ``[from Session ab12]`` (ADR-0013); an Externo's, brought
     by a Proceso adherido, says whose words they are (ADR-0026)."""

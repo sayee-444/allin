@@ -224,7 +224,7 @@ class AttachedProcesses:
         self._given: Callable[[AttachedName, tuple[SessionId, ...]], None] = _nobody
         self._taken: Callable[[AttachedName], None] = _nobody
         self._asker: Callable[[AttachedName], OnCommand | None] = lambda _: None
-        self._subprofile: Callable[[AttachedName], None] = _nobody
+        self._subprofile: Callable[[AttachedName, FprocName], None] = _nobody
         self._instances: dict[AttachedName, _Instance] = {}
 
     def listen(
@@ -240,7 +240,7 @@ class AttachedProcesses:
     def act_through(
         self,
         asker: Callable[[AttachedName], OnCommand],
-        subprofile: Callable[[AttachedName], None],
+        subprofile: Callable[[AttachedName, FprocName], None],
     ) -> None:
         """``asker`` gives what runs the Command sessions an instance asks on its own, between
         calls; ``subprofile`` hears that one whose fproc declares ``@subprofile`` was attached,
@@ -248,7 +248,13 @@ class AttachedProcesses:
         self._asker = asker
         self._subprofile = subprofile
 
-    def attached_by(self, name: str) -> Origin:
+    def declares_subprofile(self, name: AttachedName) -> bool:
+        """Whether the Proceso adherido ``name`` runs now and its fproc declares
+        ``@subprofile`` (ADR-0026)."""
+        instance = self._instances.get(name)
+        return instance is not None and has_subprofile(instance.offered.description.marks)
+
+    def attached_by(self, name: AttachedName) -> Origin:
         """Who attached the Proceso adherido ``name``: what it does on its own goes with that
         chain, and never with more (ADR-0026). Raises ``AttachedNotFound``."""
         instance = self._instances.get(_name(name))
@@ -517,6 +523,8 @@ class AttachedProcesses:
         except OSError as error:
             raise ToolNotStarted(cause=type(error).__name__) from error
         described = offered.description
+        if has_subprofile(described.marks):
+            self._subprofile(asked.name, FprocName(described.module))  # before it may act
         start = FprocStart(
             offered.package,
             FprocName(described.module),
@@ -535,8 +543,6 @@ class AttachedProcesses:
             self._asker(name),
         )
         self._instances[name] = _Instance(asked, profile, offered, process)
-        if has_subprofile(described.marks):
-            self._subprofile(name)
         self._save()
         self._given(name, asked.to)
         verb = "started again: its fproc's Alcance changed" if restarted else "attached"

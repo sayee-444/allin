@@ -12,6 +12,7 @@ from allin.core.errors import (
     AllInError,
     HumanOnly,
     InvalidArguments,
+    MadeOutsideSubprofile,
     MoldNotDeclared,
     NoSubprofile,
     NotItsSession,
@@ -56,6 +57,7 @@ from allin.main.key_commands import KeyCommands
 from allin.main.kit_commands import USAGE as KIT_USAGE
 from allin.main.kit_commands import KitCommands
 from allin.main.method_calls import CALL_USAGE, MethodCalls
+from allin.main.molds import LoadedMold
 from allin.main.notifications import CONTEXT_LEFT, Notifications
 from allin.main.notifications import USAGE as CONVERSATION_LOGS_USAGE
 from allin.main.open_windows import OpenWindows
@@ -643,6 +645,7 @@ class MainCommands:
                 raise InvalidArguments(usage=command.usage(name))
             if (yes or command.only_human(args)) and not origin.is_human:
                 raise HumanOnly(action=name, origin=list[JsonValue](origin.labels))
+            self._check_makes_inside(name, origin)
             if command.check is not None:
                 command.check(args)
             delicate = command.delicate(args)
@@ -660,6 +663,18 @@ class MainCommands:
         except AllInError as error:
             done(error)
         return keep_running
+
+    def _check_makes_inside(self, name: str, origin: Origin) -> None:
+        """What acts in a Subperfil makes nothing outside it: only its fproc creates Sessions,
+        in it, and nothing in it attaches a Proceso adherido (ADR-0026)."""
+        if name not in _MAKERS:
+            return
+        space = self._subprofiles.acting_space(origin)
+        if space is None or space.subprofile is None:
+            return
+        if name == "/new" and acting_process(origin) is not None:
+            return
+        raise MadeOutsideSubprofile(command=name, acts_in=space.subprofile)
 
     def _call(
         self, command: CommandSpec, args: list[str], origin: Origin, yes: bool, done: OnOutcome
@@ -817,15 +832,7 @@ class MainCommands:
         of its package its Alcance names, born in the background with the Molde's functions
         and Command sessions alone, never more than every Session of ``origin``'s chain has,
         and never Otorgar (ADR-0026)."""
-        if asked.mold is None or asked.agents or asked.commands is not None or asked.methods:
-            raise InvalidArguments(usage=NEW_USAGE)
-        fproc = self._attached.attached_fproc(name)
-        described = fproc.offered.description
-        if not has_subprofile(described.marks):
-            raise NoSubprofile(name=name)
-        if asked.mold not in described.reach.molds:
-            raise MoldNotDeclared(mold=asked.mold, name=name, declared=list(described.reach.molds))
-        mold = self._creator.package_mold(fproc.offered.piece, asked.mold)
+        mold = self._package_mold(name, asked)
         task = mold.recipe.task
         if task is not None:
             self._check_may_send(origin)
@@ -863,6 +870,19 @@ class MainCommands:
             self._send_task(session, task, origin)
         return session
 
+    def _package_mold(self, name: AttachedName, asked: _NewAsked) -> LoadedMold:
+        """The Molde of its package ``@new`` asks the Proceso adherido ``name`` for: one its
+        Alcance names, and nothing else asked but an id (ADR-0026)."""
+        if asked.mold is None or asked.agents or asked.commands is not None or asked.methods:
+            raise InvalidArguments(usage=NEW_USAGE)
+        fproc = self._attached.attached_fproc(name)
+        described = fproc.offered.description
+        if not has_subprofile(described.marks):
+            raise NoSubprofile(name=name)
+        if asked.mold not in described.reach.molds:
+            raise MoldNotDeclared(mold=asked.mold, name=name, declared=list(described.reach.molds))
+        return self._creator.package_mold(fproc.offered.piece, asked.mold)
+
     def _born_exempt(
         self, settings: SessionSettings, chain: list[Session | None] | None
     ) -> SessionSettings:
@@ -888,7 +908,7 @@ class MainCommands:
         missing = lacking(self._sessions, origin, CommandName("send"))
         if missing:
             raise SessionCommandNotListed(command="send", not_in=list[JsonValue](missing))
-        self._subprofiles.acting_space(origin)  # raises if who sends it is out of reach
+        self._subprofiles.check_acting(origin)
 
     def _send_task(self, session: Session, task: str, origin: Origin) -> None:
         """A Molde's initial task, sent as a ``/send`` with the Origin of whoever created the
@@ -1002,7 +1022,7 @@ class MainCommands:
         rows = self._organizer_rows()
         space = self._subprofiles.acting_space(origin)
         if space is not None:  # a Session or a Proceso adherido sees its own space (ADR-0026)
-            rows = [row for row in rows if row.subprofile == (space.subprofile or "")]
+            rows = [row for row in rows if row.subprofile == space.subprofile]
         if origin.is_human:
             for line in windows_list(rows):
                 self._reporter.show(None, line)
@@ -1048,10 +1068,10 @@ class MainCommands:
         the background (ADR-0013, ADR-0020). A human's, or an fproc's on its own Sessions."""
         session = self._sessions.load_owned(session_id, self._main_id)
         if not origin.is_human:
+            space = self._subprofiles.check_reach(origin, session.id)
             process = acting_process(origin)
-            if process is None:
+            if process is None or space.subprofile != process:
                 raise HumanOnly(action="/close", origin=list[JsonValue](origin.labels))
-            self._subprofiles.check_reach(origin, session.id)
         if self._windows.is_open(session.id):
             self._windows.close(session.id, CLOSED)
         elif self._windows.is_background(session.id):
@@ -1219,6 +1239,7 @@ class MainCommands:
         return True
 
 
+_MAKERS = ("/new", "/attach")  # what makes a Session or a Proceso adherido (ADR-0026)
 _REPLY_TO = "--reply-to="  # a human's /send: first, the Session its answer wakes (#116)
 
 

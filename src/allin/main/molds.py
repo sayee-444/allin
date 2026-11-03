@@ -114,11 +114,7 @@ def load_mold(quarantine: Quarantine, ref: PieceRef) -> LoadedMold:
         raise MoldInvalid(mold=name, reason=str(error)) from error
     if content_hash(data) != piece.hash:  # changed since it was approved: not this one
         raise PieceInQuarantine(piece=ref.id)
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise MoldInvalid(mold=name, reason="not UTF-8 text") from error
-    return LoadedMold(ref, parse_mold(name, text), piece.hash)
+    return LoadedMold(ref, parse_mold(name, _text(name, data)), piece.hash)
 
 
 PACKAGE_MOLDS = "molds"  # in an fproc's package: the Moldes it creates its Sessions from
@@ -138,11 +134,14 @@ def load_package_mold(quarantine: Quarantine, package: PieceRef, name: str) -> L
         raise MoldInvalid(mold=name, reason=str(error)) from error
     if quarantine.piece(package).hash != piece.hash:  # changed while it was read
         raise PieceInQuarantine(piece=package.id)
+    return LoadedMold(package, parse_mold(name, _text(name, data)), piece.hash)
+
+
+def _text(name: str, data: bytes) -> str:
     try:
-        text = data.decode("utf-8")
+        return data.decode("utf-8")
     except UnicodeDecodeError as error:
         raise MoldInvalid(mold=name, reason="not UTF-8 text") from error
-    return LoadedMold(package, parse_mold(name, text), piece.hash)
 
 
 def _merged(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

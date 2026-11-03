@@ -8,6 +8,7 @@ Sessions of each Subperfil go folded under their instance, apart from the Profil
 from dataclasses import dataclass, field
 from typing import Literal
 
+from allin.core.ids import AttachedName
 from allin.ipc.messages import OrganizerAction, OrganizerRow, Place
 from allin.ui.sanitize import visible
 from allin.ui.wrap import cell_width
@@ -46,23 +47,27 @@ def row_text(row: OrganizerRow) -> str:
     return f"{shown_id}{title} — {row_state(row)}"
 
 
-def subprofile_groups(rows: list[OrganizerRow]) -> dict[str, list[OrganizerRow]]:
+def subprofile_groups(rows: list[OrganizerRow]) -> dict[AttachedName, list[OrganizerRow]]:
     """The rows of each Subperfil, by its instance's name, in name order."""
-    groups: dict[str, list[OrganizerRow]] = {}
+    groups: dict[AttachedName, list[OrganizerRow]] = {}
     for row in rows:
-        if row.subprofile:
+        if row.subprofile is not None:
             groups.setdefault(row.subprofile, []).append(row)
     return dict(sorted(groups.items()))
 
 
-def _subprofile_title(name: str, group: list[OrganizerRow]) -> str:
+def _profile_rows(rows: list[OrganizerRow]) -> list[OrganizerRow]:
+    return [row for row in rows if row.subprofile is None]
+
+
+def _subprofile_title(name: AttachedName, group: list[OrganizerRow]) -> str:
     exempt = ", exempt" if any(row.exempt for row in group) else ""
     return f"subprofile {name}{exempt}: {len(group)}"
 
 
 def windows_list(rows: list[OrganizerRow]) -> list[str]:
     """What ``/windows list`` writes in Main's Chat: the Organizer's rows, all unfolded."""
-    profile = [row for row in rows if not row.subprofile]
+    profile = _profile_rows(rows)
     open_rows = [row for row in profile if row.place != "closed"]
     closed = [row for row in profile if row.place == "closed"]
     lines = [f"open sessions: {len(open_rows)}"]
@@ -98,7 +103,7 @@ HELP = "↑↓ move · Enter or click: bring · b: background · x: close · c: 
 class Fold:
     """A fold of the list: the Profile's closed Sessions, or those of one Subperfil."""
 
-    subprofile: str = ""  # empty: the closed ones
+    subprofile: AttachedName | None = None  # ``None``: the closed ones
 
 
 type Item = OrganizerRow | Fold
@@ -143,7 +148,7 @@ class OrganizerView:
     rows: list[OrganizerRow] = field(default_factory=list[OrganizerRow])
     selected: int = 0  # among the items: the open rows, then each fold and its rows if unfolded
     unfolded: bool = False  # the Profile's closed Sessions
-    unfolded_subprofiles: set[str] = field(default_factory=set[str])
+    unfolded_subprofiles: set[AttachedName] = field(default_factory=set[AttachedName])
     hover: int | None = None  # the line under the mouse
 
     def set_rows(self, rows: list[OrganizerRow]) -> None:
@@ -158,14 +163,11 @@ class OrganizerView:
                     return
         self.selected = min(self.selected, len(items) - 1)
 
-    def _profile_rows(self) -> list[OrganizerRow]:
-        return [row for row in self.rows if not row.subprofile]
-
     def _open_rows(self) -> list[OrganizerRow]:
-        return [row for row in self._profile_rows() if row.place != "closed"]
+        return [row for row in _profile_rows(self.rows) if row.place != "closed"]
 
     def _closed_rows(self) -> list[OrganizerRow]:
-        return [row for row in self._profile_rows() if row.place == "closed"]
+        return [row for row in _profile_rows(self.rows) if row.place == "closed"]
 
     def _items(self) -> list[Item]:
         """What can be selected, in order: the open rows, the fold of the closed ones and
@@ -284,7 +286,7 @@ class OrganizerView:
         return None if item is None else Act("open", item.session_id)
 
     def _toggle(self, fold: Fold) -> None:
-        if not fold.subprofile:
+        if fold.subprofile is None:
             self.unfolded = not self.unfolded
         else:
             self.unfolded_subprofiles ^= {fold.subprofile}

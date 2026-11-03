@@ -81,7 +81,7 @@ class Devastation:
         """Whether it answers what stays inside the Session's Subperfil, which has the
         Exención; what its Window marks."""
         name = self._subprofiles.holding(session_id)
-        return self._on and name is not None and self._subprofiles.record(name).exempt
+        return self._on and name is not None and self._subprofiles.is_exempt(name)
 
     def _exempt_inside(self, link: Link) -> bool:
         match link.kind:
@@ -89,7 +89,7 @@ class Devastation:
                 return self.covers_inside(SessionId(link.id))
             case "process":
                 name = AttachedName(link.id)
-                return name in self._subprofiles.names() and self._subprofiles.record(name).exempt
+                return self._subprofiles.declares(name) and self._subprofiles.is_exempt(name)
             case _:
                 return False
 
@@ -127,7 +127,7 @@ class Devastation:
             text = (
                 f"Main now answers the Confirmations of its Chat and of these Sessions: {covered}"
             )
-            exempt = [n for n in self._subprofiles.names() if self._subprofiles.record(n).exempt]
+            exempt = [n for n in self._subprofiles.names() if self._subprofiles.is_exempt(n)]
             if exempt:
                 text += f"; and what stays inside these Subperfiles: {', '.join(exempt)}"
             self._boxes.notify(None, _NOTICE_TITLE, text)

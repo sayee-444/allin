@@ -141,7 +141,8 @@ class SendOptions:
     overrides: TurnOverrides
     text: str
     reply_to: str | None = None  # the Session its answer wakes, a Suscripción (#116)
-    # Whose words they are, an Externo's, when a Proceso adherido brings them (ADR-0026).
+    # Whose words they are, an Externo's, as written, when a Proceso adherido brings them
+    # (ADR-0026).
     outsider: str | None = None
 
 

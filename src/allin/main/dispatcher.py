@@ -13,7 +13,7 @@ from collections.abc import Callable
 from allin.confinement.launcher import ToolLauncher
 from allin.confinement.support import FULL_SUPPORT, ConfinementSupport
 from allin.core.errors import AllInError
-from allin.core.ids import MainId, SessionId, SupervisorName, parse_supervisor_name
+from allin.core.ids import AttachedName, MainId, SessionId, SupervisorName, parse_supervisor_name
 from allin.core.origin import HUMAN
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import ConfinementGap
@@ -177,11 +177,15 @@ class Dispatcher:
         # Made below: the Subperfiles read them only once Main runs.
         self._switch: ProfileSwitch
         self._profile_commands: ProfileCommands
+        self._attached: AttachedProcesses
 
         def in_profile(session_id: SessionId) -> bool:
             return self._profile_commands.in_active(session_id)
 
-        self._subprofiles = Subprofiles(lambda: self._switch.active.folder, in_profile)
+        def declares(name: AttachedName) -> bool:
+            return self._attached.declares_subprofile(name)
+
+        self._subprofiles = Subprofiles(lambda: self._switch.active.folder, in_profile, declares)
         self._devastation = Devastation(
             devastation,
             self._marks,

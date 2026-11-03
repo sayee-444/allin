@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from allin.core.errors import MalformedMessage
-from allin.core.ids import BoxId
+from allin.core.ids import AttachedName, BoxId
 from allin.core.themes import Theme
 from allin.ui.boxes import BoxKind
 from allin.ui.marks import UnconfinedArea
@@ -263,8 +263,8 @@ class OrganizerRow(BaseModel, frozen=True):
     context: int | None = None  # tokens of its last Context
     limit: int | None = None  # its Server's slot, once known
     supervisor: str = ""  # its Enlace (ADR-0022); empty: Main's base_url
-    # The instance whose Subperfil has it, folded under it (ADR-0026); empty: the Profile's.
-    subprofile: str = ""
+    # The instance whose Subperfil has it, folded under it (ADR-0026); ``None``: the Profile's.
+    subprofile: AttachedName | None = None
     exempt: bool = False  # its Subperfil has the Exención
 
 

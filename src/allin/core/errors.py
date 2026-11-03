@@ -402,6 +402,20 @@ class SubprofileBusy(AllInError):
     code: ClassVar[str] = "subprofile_busy"
 
 
+class MadeOutsideSubprofile(AllInError):
+    """What acts in a Subperfil makes nothing outside it: only its fproc creates Sessions, in
+    it, and nothing in it attaches a Proceso adherido (ADR-0026)."""
+
+    code: ClassVar[str] = "made_outside_subprofile"
+
+
+class SubprofileOfAnother(AllInError):
+    """The Subperfil of that name is another fproc's: an instance never gets the Sessions and
+    the Exención of another fproc's (ADR-0026). Attach it with another name."""
+
+    code: ClassVar[str] = "subprofile_of_another"
+
+
 class SubprofileNotFound(AllInError):
     """No instance attached with that name has a Subperfil in the active Profile."""
 
