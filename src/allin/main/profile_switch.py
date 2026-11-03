@@ -74,9 +74,8 @@ class ProfileSwitch:
         now = now or (self._asked is not None and self._asked.now)
         self._asked = _Asked(profile, now)
         self._turns.pause()
-        if now:
-            for prompt in self._turns.cancel_turns(SWITCHED):
-                self._windows.put_back(prompt.session_id, prompt.text)
+        if now:  # a human's Prompt goes back to its input as its Turn ends cancelled (#156)
+            self._turns.cancel_turns(SWITCHED)
         if self._turns.has_running():
             turns = self._turns.running_count()
             shown = f"profile switch to {profile.name}: waiting for {_turns(turns)} to end"

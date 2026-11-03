@@ -839,21 +839,16 @@ class TurnQueue:
     def running_count(self) -> int:
         return len(self._running)
 
-    def cancel_turns(self, reason: str) -> list[Prompt]:
-        """Stop every running Turn and keep the queue (``/profile switch --now``); the
-        Prompts of those that were a Prompt's Turn, which go back to their input.
+    def cancel_turns(self, reason: str) -> None:
+        """Stop every running Turn and keep the queue (``/profile switch --now``).
 
         Each Turn stays active until its executor reports it ended, as with ``cancel``.
         """
-        stopped: list[Prompt] = []
         for running in self._running.values():
             if running.cancellation.reason is not None:
                 continue
             running.cancellation.cancel(reason)
             self._withdraw(running)
-            if not _compacting(running):
-                stopped.append(running.prompt)
-        return stopped
 
     def take_queue(self, keep: Container[SessionId]) -> list[Prompt]:
         """Take out the waiting Prompts of every Session but those in ``keep``, as they are:
@@ -1839,7 +1834,7 @@ class TurnQueue:
         if not self._stopping:  # else MainState keeps it running, for the next start to tell
             self._answers.failed(running.prompt, f"its Turn {ending}: {error}")
         if cancelled:  # back to its Draft, as what still waited in the queue (ADR-0024)
-            for text in reversed(joined):
+            for text in reversed([*self._cancelled_prompt(running), *joined]):
                 self._windows.put_back(session_id, text)
         else:  # its Prompt is in no Conversation, so the user may send it again
             # The Session's queued Prompts leave with it: without it in the Conversation they
@@ -1849,6 +1844,13 @@ class TurnQueue:
                 self._windows.send(session_id, dropped_entry(len(behind), FAILED_BEFORE))
             typed = [queued.text for queued in behind if queued.kind == "prompt"]
             self._give_back(session_id, [prompt, *joined, *typed])
+
+    def _cancelled_prompt(self, running: _RunningTurn) -> list[str]:
+        """What of a cancelled Turn's Prompt goes back to its Draft, ahead of its Textos
+        intercalados (#156): a human's, as typed. With Main stopping, MainState keeps it
+        running, and the next start puts it back."""
+        prompt = running.prompt
+        return [prompt.as_typed] if prompt.origin.is_human and not self._stopping else []
 
     def _drop_queued(
         self, session_id: SessionId, reason: str, by_human: bool = False
