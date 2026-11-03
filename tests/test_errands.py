@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import JsonValue
 
-from allin.core.errors import TurnCancelled, TurnCrashed
+from allin.core.errors import LlmUnavailable, TurnCancelled, TurnCrashed
 from allin.main.events import MainCommandEntered, Tick, TurnEnded
 from allin.main.sessions import Session
 from tests.test_dispatcher import (
@@ -135,6 +135,29 @@ def test_with_k_1_the_first_that_ends_well_cancels_the_others(main: MainHarness)
     [dropped] = logged(main, third, "prompts_dropped")
     assert "has what it waited for" in str(dropped["reason"])
     assert cancelled_for(main, first) != []
+
+
+def test_a_suspended_turn_its_errand_no_longer_waits_for_forgets_the_falls_of_its_step(
+    main: MainHarness,
+):
+    # Its Turn left the queue: the worker's next Turn gets its two tries (ADR-0023, #190).
+    main.server = server(slots=2)
+    c, a, b = (main.create_session() for _ in range(3))
+    fell = LlmUnavailable(reason="Connection error.", reached=True)
+    main.run(
+        MainCommandEntered(f"/errand {c.id} --k=1 --to={a.id},{b.id} corre"),
+        TurnEnded(a.id, error=fell),  # suspended until its Server is back
+        answers(b, "llegué"),  # the quorum is met: a's Turn is no longer waited for
+        Tick(),
+        MainCommandEntered(f"/send {a.id} otra"),
+        server_ready(main.server),
+        TurnEnded(a.id, error=fell),  # its first fall: suspended, not failed
+        settle=True,
+    )
+    [dropped] = logged(main, a, "prompts_dropped")
+    assert "has what it waited for" in str(dropped["reason"])
+    events = [entry.event for entry in main.session_log(a)]
+    assert events.count("turn_suspended") == 2 and "turn_failed" not in events
 
 
 def test_a_worker_that_fails_is_tried_again_without_waking_its_session(main: MainHarness):

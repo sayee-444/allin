@@ -669,8 +669,7 @@ class TurnQueue:
         dropped = self._drop_queued(session_id, reason, by_human)
         for text in reversed(_back_to_input(dropped)):  # each one goes ahead of the one after it
             self._windows.put_back(session_id, text)
-        if any(prompt.suspended for prompt in dropped):  # a running one's go as it ends
-            self._falls.pop(session_id, None)
+        self._forget_falls(dropped)  # a running one's go as it ends
         running = self._running.get(session_id)
         if running is not None and (not by_human or running.prompt.origin.is_human):
             running.cancellation.cancel(reason)
@@ -884,6 +883,7 @@ class TurnQueue:
         """Take out the waiting Prompts of every Session but those in ``keep``, as they are:
         the Profile Main leaves keeps them, and a Session both Profiles share goes on."""
         taken = [prompt for prompt in self._prompts.all() if prompt.session_id not in keep]
+        self._forget_falls(taken)  # as on shutdown: its Turn comes back with its two tries
         for session_id in dict.fromkeys(prompt.session_id for prompt in taken):
             self._prompts.drop(session_id)
             self._measures.pop(session_id, None)
@@ -1186,6 +1186,7 @@ class TurnQueue:
         waited for its Server, since it is in no Conversation."""
         session_id = prompt.session_id
         self._prompts.remove(prompt)
+        self._forget_falls([prompt])
         self._measures.pop(session_id, None)
         if prompt.kind != "prompt":  # its Prompt, if it compacted for one, goes on
             self._compactions.failed(prompt, error)
@@ -1511,6 +1512,13 @@ class TurnQueue:
         )
         return True
 
+    def _forget_falls(self, left: Iterable[Prompt]) -> None:
+        """Prompts that left the queue: a suspended Turn among them takes the falls of its
+        Step with it, so its Session's next Turn gets its two tries (ADR-0023, #190)."""
+        for prompt in left:
+            if prompt.suspended:
+                self._falls.pop(prompt.session_id, None)
+
     def _stalled(self, running: _RunningTurn) -> None:
         """No progress for ``step.stall`` seconds: the Step fails, without repeating, since it
         would stall again on the same Server (ADR-0023)."""
@@ -1773,6 +1781,7 @@ class TurnQueue:
             if prompt.prompt_id != prompt_id or prompt.kind != "prompt":
                 continue
             self._prompts.remove(prompt)
+            self._forget_falls([prompt])
             self._measures.pop(session_id, None)
             if not self._prompts.has(session_id):
                 self._since.pop(session_id, None)

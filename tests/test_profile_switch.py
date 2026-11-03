@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from allin.core.errors import TurnCancelled
+from allin.core.errors import LlmUnavailable, TurnCancelled
 from allin.core.origin import HUMAN, from_session
 from allin.core.settings import MainSettings, SessionSettings
 from allin.ipc.messages import Close, InputRestore
@@ -20,9 +20,10 @@ from allin.main.profiles import Profile
 from allin.main.settings_files import MainSettingsFiles
 from allin.main.state import MainStateStore
 from tests.pieces import approve_sysprompt
-from tests.test_dispatcher import SETTINGS, MainHarness, ended, restored, server
+from tests.test_dispatcher import SETTINGS, MainHarness, ended, restored, server, server_ready
 
 GPU_TOML = 'model = "m.gguf"\ncontext = 8192\nport = 9101\n'
+FELL = LlmUnavailable(reason="Connection error.", reached=True)  # its Step was half-done
 
 
 @pytest.fixture
@@ -159,6 +160,48 @@ def test_a_shared_sessions_queued_prompts_stay_in_the_queue(main: MainHarness):
     left = MainStateStore(main.profile.state).load()
     assert [prompt.text for prompt in left.queue] == ["mine"]
     assert [prompt.text for prompt in MainStateStore(tesis.state).load().queue] == ["shared one"]
+
+
+def test_a_suspended_turn_the_outgoing_profile_keeps_takes_the_falls_of_its_step(
+    main: MainHarness,
+):
+    # It left this Main's queue, as on shutdown: a Turn of its Session in the incoming Profile
+    # gets its two tries (ADR-0023, #190).
+    session = main.create_session()
+    other_profile(main)
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        TurnEnded(session.id, error=FELL),
+        switch("tesis"),
+        MainCommandEntered(f"/open {session.id}"),  # it joins tesis too
+        InputReceived(session.id, "otra"),
+        server_ready(main.server),
+        TurnEnded(session.id, error=FELL),  # its first fall: suspended, not failed
+        settle=True,
+    )
+    assert prompts(main) == ["hola", "otra"]
+    events = [entry.event for entry in main.session_log(session)]
+    assert events.count("turn_suspended") == 2 and "turn_failed" not in events
+
+
+def test_a_shared_sessions_suspended_turn_keeps_the_falls_of_its_step(main: MainHarness):
+    shared = main.create_session()
+    tesis = other_profile(main)
+    main.profiles.add_session(tesis, shared.id)
+    main.hold_turns = True
+    main.run(
+        MainCommandEntered(f"/open {shared.id}"),
+        InputReceived(shared.id, "hola"),
+        TurnEnded(shared.id, error=FELL),
+        switch("tesis"),  # it goes on as it is
+        server_ready(main.server),
+        TurnEnded(shared.id, error=FELL),  # its Step's second fall in a row
+        settle=True,
+    )
+    events = [entry.event for entry in main.session_log(shared)]
+    assert events.count("turn_suspended") == 1 and "turn_failed" in events
 
 
 def test_without_now_a_running_turn_ends_before_the_switch(main: MainHarness):

@@ -1052,6 +1052,38 @@ def test_a_human_turn_cancelled_as_it_repeats_its_step_forgets_the_falls_of_that
     assert events.count("turn_suspended") == 2 and "turn_failed" not in events
 
 
+def test_a_suspended_turn_that_no_longer_fits_its_slot_forgets_the_falls_of_its_step(
+    main: MainHarness,
+):
+    # It left the queue: the Session's next Turn gets its two tries (ADR-0023, #190).
+    session = main.create_session()
+    main.hold_turns = True
+    fell = LlmUnavailable(reason="Connection error.", reached=True)
+    smaller = server(context=32_000)
+
+    def grows_to(tokens: int | None) -> Callable[[], None]:
+        def step() -> None:
+            main.servers.input_tokens[session.id] = tokens
+
+        return step
+
+    main.run(
+        MainCommandEntered(f"/open {session.id}"),
+        InputReceived(session.id, "hola"),
+        TurnEnded(session.id, error=fell),
+        grows_to(50_000),
+        server_ready(smaller),  # back with a slot its Step does not fit in: it is dropped
+        grows_to(100),
+        InputReceived(session.id, "otra"),
+        TurnEnded(session.id, error=fell),  # its first fall: suspended, not failed
+        settle=True,
+    )
+    events = [entry.event for entry in main.session_log(session)]
+    assert "prompt_too_big" in events
+    assert events.count("turn_suspended") == 2 and "turn_failed" not in events
+    assert len(main.held) == 2
+
+
 def test_while_the_server_is_unreachable_the_queue_waits_until_its_health_is_ok(
     main: MainHarness,
 ):
