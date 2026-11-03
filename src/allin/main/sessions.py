@@ -233,6 +233,14 @@ class SessionStore:
             raise SessionNotFound(session_id=text)
         return renamed
 
+    def same(self, first: str, second: str) -> bool:
+        """Whether both name the same Session, by its id or an alias it had (#59); ``False``
+        if either is gone."""
+        try:
+            return self.resolve(first) == self.resolve(second)
+        except SessionNotFound:
+            return False
+
     def check_new_id(self, text: str) -> SessionId:
         """``text`` as an id a Session may take: of the right shape, and no other Session's id
         or alias."""

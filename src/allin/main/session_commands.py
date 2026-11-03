@@ -280,21 +280,26 @@ ATTACH = SessionCommandType(
 )
 
 
-def _own_or_named(command: str, usage: str) -> Callable[[SessionCommandCall], str]:
-    """``@bg`` and ``@close``: its own Session, or the one it names; who may touch which is
-    checked by the Command main (ADR-0020)."""
-
-    def translate(call: SessionCommandCall) -> str:
-        words = call.args.split()
-        if len(words) > 1:
-            raise ValueError(usage)
-        return f"{command} {words[0] if words else call.session_id}"
-
-    return translate
-
-
 _BG_USAGE = "@bg [sid]"
-_CLOSE_USAGE = "@close [sid]"
+_CLOSE_USAGE = "@close"
+
+
+def _bg(call: SessionCommandCall) -> str:
+    """Its own Session, or the one it names; which ones a Session's LLM may send away is
+    checked by the Command main (ADR-0020)."""
+    words = call.args.split()
+    if len(words) > 1:
+        raise ValueError(_BG_USAGE)
+    return f"/bg {words[0] if words else call.session_id}"
+
+
+def _close(call: SessionCommandCall) -> str:
+    """Always its own Window, as its X; ``/close <sid>`` in Main's Chat closes any."""
+    if call.args.strip():
+        raise ValueError(_CLOSE_USAGE)
+    return f"/close {call.session_id}"
+
+
 _OPEN_USAGE = "@open <sid>"
 
 
@@ -306,10 +311,12 @@ def _open(call: SessionCommandCall) -> str:
     return f"/open {words[0]}"
 
 
+_WINDOWS_USAGE = "@windows"
+
+
 def _windows(call: SessionCommandCall) -> str:
     if call.args.strip():
-        msg = "@windows"
-        raise ValueError(msg)
+        raise ValueError(_WINDOWS_USAGE)
     return "/windows list"
 
 
@@ -318,14 +325,14 @@ BG = SessionCommandType(
     _BG_USAGE,
     "send your own Session, or one you created, to the background: its Window closes, its"
     " Turns go on",
-    _own_or_named("/bg", _BG_USAGE),
+    _bg,
 )
 # Like the Window's X: only a human closes (ADR-0020), so it is never in the default list.
 CLOSE = SessionCommandType(
     "close",
     _CLOSE_USAGE,
     "close this Session's Window, as its X does; only a human",
-    _own_or_named("/close", _CLOSE_USAGE),
+    _close,
 )
 OPEN = SessionCommandType(
     "open",
@@ -336,7 +343,7 @@ OPEN = SessionCommandType(
 )
 WINDOWS = SessionCommandType(
     "windows",
-    "@windows",
+    _WINDOWS_USAGE,
     "list the Sessions of this Profile: in view, in the background or closed",
     _windows,
 )

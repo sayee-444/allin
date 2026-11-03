@@ -2,6 +2,7 @@
 sends its own and those it created to the background, and brings one into view without
 displacing anyone; only a human closes a Window."""
 
+import ast
 import json
 import shutil
 from collections.abc import Iterator
@@ -13,7 +14,7 @@ from pydantic import JsonValue
 from allin.confinement.landlock import abi_version
 from allin.confinement.launcher import ToolLauncher
 from allin.core.ids import BoxId, PieceId
-from allin.core.origin import HUMAN, Origin, from_session
+from allin.core.origin import HUMAN, Link, Origin, from_session
 from allin.main.boxes import ATTENTION_TITLE
 from allin.main.descriptions import Descriptions
 from allin.main.events import BoxAnswered, InputReceived, MainCommandEntered, OrganizerConnected
@@ -26,6 +27,7 @@ from allin.ui.screen import HideBox, ShowBox
 from tests.llm_fakes import FakeLlm, full_reply, tool_call
 from tests.test_background import with_max
 from tests.test_dispatcher import MainHarness
+from tests.test_installed_functions import declared
 from tests.test_organizer import last_rows
 from tests.test_session_commands import outputs
 
@@ -42,6 +44,13 @@ def main(tmp_path: Path) -> MainHarness:
 # Typed by a human in a Window
 
 
+def test_close_typed_in_a_window_closes_only_its_own(main: MainHarness):
+    a, b = main.create_session(), main.create_session()
+    chat = main.run(command(f"/open {b.id}"), InputReceived(a.id, f"@close {b.id}"), settle=True)
+    assert main.state.saved[-1].windows.keys() == {b.id}
+    assert any("invalid_session_command" in line for line in chat)
+
+
 def test_close_typed_in_a_window_closes_its_own(main: MainHarness):
     session = main.create_session()
     main.run(command(f"/open {session.id}"), InputReceived(session.id, "@close"), settle=True)
@@ -54,6 +63,12 @@ def test_bg_typed_in_a_window_sends_its_own_to_the_background(main: MainHarness)
     main.run(command(f"/open {session.id}"), InputReceived(session.id, "@bg"), settle=True)
     saved = main.state.saved[-1]
     assert saved.windows == {} and saved.background == [session.id]
+
+
+def test_a_sessions_list_is_not_written_in_mains_chat(main: MainHarness):
+    a = main.create_session()
+    chat = main.run(MainCommandEntered("/windows list", of(a)), settle=True)
+    assert not any(line.startswith("open sessions") for line in chat)
 
 
 def test_windows_typed_in_a_window_writes_the_list_in_mains_chat(main: MainHarness):
@@ -100,6 +115,25 @@ def test_a_session_never_sends_another_to_the_background(main: MainHarness):
     [result] = results(main, f"/bg {b.id}")
     assert isinstance(result, str) and "not_its_session" in result
     assert a.id in result
+
+
+def test_another_session_in_the_chain_cannot_make_one_send_itself_away(main: MainHarness):
+    # A asks B, which it did not create, to send itself away: the chain is as weak as A.
+    a, b = main.create_session(), main.create_session()
+    through_a = Origin(chain=(*of(a).chain, Link("session", b.id)))
+    main.run(command(f"/open {b.id}"), MainCommandEntered(f"/bg {b.id}", through_a), settle=True)
+    assert main.state.saved[-1].windows.keys() == {b.id}
+    [result] = results(main, f"/bg {b.id}")
+    assert isinstance(result, str) and "not_its_session" in result and a.id in result
+
+
+def test_a_session_its_creator_asks_sends_itself_away(main: MainHarness):
+    a = main.create_session()
+    main.run(MainCommandEntered("/new", of(a)), settle=True)
+    [child] = [sid for sid in main.sessions.ids() if sid != a.id]
+    through_a = Origin(chain=(*of(a).chain, Link("session", child)))
+    main.run(MainCommandEntered(f"/bg {child}", through_a), settle=True)
+    assert main.state.saved[-1].background == [child]
 
 
 def test_a_session_never_closes_a_window_not_even_its_own(main: MainHarness):
@@ -251,9 +285,15 @@ def test_the_fsource_brings_a_session_and_hears_whether_it_fit(tools: MainHarnes
     assert len(attention_boxes(tools)) == 1
 
 
-def test_no_tool_of_the_fsource_closes_a_window():
-    names = {path.stem for path in INSTALLED.glob("*.py")}
-    assert names == {"list_windows", "bring_window", "background_window"}
+def test_no_tool_of_the_fsource_may_close_a_window():
+    declared_by = {
+        path.stem: declared(ast.parse(path.read_text())) for path in INSTALLED.glob("*.py")
+    }
+    assert declared_by == {
+        "list_windows": {"windows"},
+        "bring_window": {"open"},
+        "background_window": {"bg"},
+    }
 
 
 def test_leaving_the_profile_drops_the_mark_of_its_sessions(main: MainHarness):
@@ -277,3 +317,39 @@ def test_a_session_of_another_profile_is_out_of_its_reach(main: MainHarness):
     [result] = results(main, f"/open {other.id}")
     assert isinstance(result, str) and "outside_profile" in result
     assert main.windows(other.id) == []
+
+
+def test_closing_a_session_that_asks_for_attention_drops_its_mark(main: MainHarness):
+    with_max(main, 1)
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        command(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}", of(a)),
+        command(f"/close {b.id}"),
+        settle=True,
+    )
+    assert attention_boxes(main) == []
+    assert main.state.saved[-1].background == []
+
+
+def test_a_renamed_session_keeps_its_mark_until_brought(main: MainHarness):
+    with_max(main, 1)
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        command(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}", of(a)),
+        command(f"/session id {b.id} nuevo1"),
+        command("/windows"),
+        OrganizerConnected(),
+        settle=True,
+    )
+    [row] = [r for r in last_rows(main.organizers[0]) if r.session_id == "nuevo1"]
+    assert row.attention
+    main.run(
+        command(f"/open {a.id}"),
+        MainCommandEntered(f"/open {b.id}", of(a)),
+        command(f"/session id {b.id} nuevo2"),
+        command("/open nuevo2"),
+        settle=True,
+    )
+    assert attention_boxes(main) == []

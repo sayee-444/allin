@@ -6,7 +6,7 @@ Window opens, as long as nobody answered it.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import count
 
 from allin.core.ids import BoxId, SessionId
@@ -68,6 +68,8 @@ class MainBoxes:
         self.notify(session_id, ATTENTION_TITLE, text, ATTENTION)
 
     def wants_attention(self, session_id: SessionId) -> bool:
+        """Whether the Session asks the human for attention, until they bring it or dismiss
+        its Notice."""
         return any(
             pending.session_id == session_id and pending.kind == ATTENTION
             for pending in self._pending.values()
@@ -108,6 +110,12 @@ class MainBoxes:
         pending = self._pending.pop(box_id, None)
         if pending is not None:
             self._hide(pending)
+
+    def renamed(self, old: SessionId, new: SessionId) -> None:
+        """A Session took a new id (#59): its boxes follow it, its mark among them."""
+        for box_id, pending in list(self._pending.items()):
+            if pending.session_id == old:
+                self._pending[box_id] = replace(pending, session_id=new)
 
     def window_opened(self, session_id: SessionId) -> None:
         """Show a Window that just opened the boxes of its Session still waiting; it is in

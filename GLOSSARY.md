@@ -48,7 +48,7 @@ Pantalla temporal de Main que lista las Sesiones abiertas del Perfil, a la vista
 _Avoid_: fsource organizadora, barra de tareas, Lanzador (es el que abre las Ventanas)
 
 **Pide atención** (`attention`):
-Marca de una Sesión que un LLM, con la fsource `windows`, quiso traer a la vista cuando no cabían más Ventanas: no desplaza a nadie, así que sigue en segundo plano, y la marca sale como Aviso en el Chat de Main y en su fila del Organizador hasta que el humano la trae o descarta el Aviso (ADR-0020). Al dejar su Perfil, se va.
+Marca de una Sesión que un LLM, con la fsource `windows`, quiso traer a la vista cuando no cabían más Ventanas: no desplaza a nadie, así que sigue en segundo plano, y la marca sale como Aviso en el Chat de Main y en su fila del Organizador hasta que la Sesión está a la vista o el humano descarta el Aviso (ADR-0020). Se va también al cerrarla o al dejar su Perfil, y, como los demás Avisos, con un reinicio de Main.
 _Avoid_: urgente, notificación (es otra cosa)
 
 **Servidor** (`Server`):
@@ -70,7 +70,7 @@ _Avoid_: adherir (es lo que se hace con un Proceso adherido), url, servidor de M
 ## Sesiones y registros
 
 **Sesión** (`Session`):
-Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana. Un humano puede cambiarle el id, y el viejo sigue valiendo como alias. Guarda qué Sesión la creó, si la creó el LLM de una (`creator`): esa puede mandarla a segundo plano (ADR-0020).
+Entidad persistente con id corto y carpeta propia (Conversación, Log, ajustes, functions); sobrevive al cierre de su Ventana. Un humano puede cambiarle el id, y el viejo sigue valiendo como alias. Guarda qué Sesión la creó, si la creó el LLM de una (`creator`): esa puede mandarla a segundo plano, si todas las Sesiones de la cadena pueden (ADR-0013, ADR-0020).
 _Avoid_: ventana, chat
 
 **Carpeta de trabajo** (`workspace`):
