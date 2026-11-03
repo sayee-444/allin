@@ -47,7 +47,7 @@ from allin.core.ids import (
     SupervisorName,
     new_prompt_id,
 )
-from allin.core.origin import HUMAN, Origin, acting_process, from_session
+from allin.core.origin import HUMAN, Origin, from_session
 from allin.core.settings import Sampling
 from allin.core.slot_locks import SlotLock
 from allin.core.wait_list import Reservation, WaitClass, Waiter, WaitList, WaitListView
@@ -1014,7 +1014,13 @@ class TurnQueue:
         if self._compacts_first(prompt, session, need, slot_context):
             # It makes room for that Prompt, so it goes, or stays, with it.
             self._compactions.wanted(session_id, need)
-            entry = Prompt(session_id, "", "auto_compact", origin=prompt.origin)
+            entry = Prompt(
+                session_id,
+                "",
+                "auto_compact",
+                origin=prompt.origin,
+                initiative=prompt.initiative,
+            )
             self._prompts.insert_before(prompt, entry)
             return self._prompt_candidate(entry, waiting)
         if need > slot_context:
@@ -1027,8 +1033,8 @@ class TurnQueue:
             or bool(prompt.woke_by)  # a Suscripción's: its Session goes on (ADR-0004)
         )
         kind: WaitClass = "continuation" if repeats else "prompt"
-        if kind == "prompt" and acting_process(prompt.origin) is not None:
-            kind = "fproc"  # behind the humans' and the Sessions' (ADR-0026)
+        if kind == "prompt" and prompt.initiative:
+            kind = "initiative"  # behind the humans' and the Sessions' (ADR-0026)
         since = self._since.setdefault(session_id, self._wall())
         waiter = self._waiter(session_id, kind, since, need)
         return _Candidate(waiter, link, prompt=prompt, session=session)
@@ -1286,11 +1292,9 @@ class TurnQueue:
             self._reporter.record(session.id, "compaction_step_started", shown, need=need)
             self.send_turn_state(session.id)  # its border says so while the Step runs
         else:
-            # An Externo's words are noted with whose they were, and nothing more (ADR-0026).
-            outsider: dict[str, JsonValue] = (
-                {} if prompt.outsider is None else {"outsider": prompt.outsider}
+            self._reporter.record(
+                session.id, "turn_started", "turn started", need=need, **_brought(prompt)
             )
-            self._reporter.record(session.id, "turn_started", "turn started", need=need, **outsider)
         self._submit_turn(job)
 
     def _server_changed(self, server: ServerKey, state: ServerState) -> None:
@@ -1968,6 +1972,18 @@ def _commands(prompt: Prompt) -> dict[str, JsonValue]:
         fields["owed"] = list[JsonValue](prompt.owed)
     if prompt.woke_by:
         fields["woke_by"] = list[JsonValue](prompt.woke_by)
+    return fields
+
+
+def _brought(prompt: Prompt) -> dict[str, JsonValue]:
+    """What the Log keeps, as its Turn starts, of what a Proceso adherido brought: an
+    Externo's identity, never read by its LLM, and whether it came by the Iniciativa
+    (ADR-0026)."""
+    fields: dict[str, JsonValue] = {}
+    if prompt.outsider is not None:
+        fields["outsider"] = prompt.outsider
+    if prompt.initiative:
+        fields["initiative"] = True
     return fields
 
 

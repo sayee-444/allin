@@ -103,8 +103,7 @@ def weakest_link(origin: Origin) -> Authority:
 
 def acting_process(origin: Origin) -> AttachedName | None:
     """The Proceso adherido that acts last in ``origin``'s chain, if it is one and not a
-    Session: what it creates goes in its Subperfil, and what it sends waits behind the humans'
-    (ADR-0026)."""
+    Session: what it creates goes in its Subperfil (ADR-0026)."""
     for link in reversed(origin.chain):
         if link.kind == "session":
             return None

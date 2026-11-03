@@ -152,6 +152,9 @@ class CommandSpec:
     # ``run`` gets ``answer=`` and calls it itself once it is done, maybe later: /send, when an
     # attachment waits for a human's Approval (#110).
     takes_answer: bool = False
+    # ``run`` gets ``initiative=``: whether a Proceso adherido asks it on its own, so the Prompts
+    # it queues wait behind the humans' and the Sessions' (ADR-0026).
+    takes_initiative: bool = False
     # ``--devastation`` answers its Confirmation only if it also covers the Session it concerns:
     # Otorgar's must cover all it touches (ADR-0025).
     covers_its_session: bool = False
@@ -254,6 +257,7 @@ class MainCommands:
                 ),
                 takes_origin=True,
                 takes_answer=True,
+                takes_initiative=True,  # its Molde's task
             ),
             "/create": CommandSpec(
                 ("piece", "content"),
@@ -318,6 +322,7 @@ class MainCommands:
                 takes_origin=True,
                 takes_yes=True,
                 takes_answer=True,
+                takes_initiative=True,
             ),
             "/subscribe": CommandSpec(
                 ("sid",),
@@ -627,12 +632,14 @@ class MainCommands:
         text: str,
         origin: Origin = HUMAN,
         answer: OnOutcome | None = None,
+        initiative: bool = False,
     ) -> bool:
         """Run a Command main and report how it went; return whether Main keeps running.
 
         A delicate one first asks a Confirmation, unless ``-y`` (only from a human) or
         ``--devastation`` answers it; it then runs when the answer comes. ``answer`` gets how
-        it went once it did (for a tool, ADR-0025).
+        it went once it did (for a tool, ADR-0025). ``initiative``: a Proceso adherido asks it
+        on its own, between calls (ADR-0026).
         """
         answer = answer or _ignored
         name = (text.split(maxsplit=1) or [""])[0]
@@ -675,12 +682,12 @@ class MainCommands:
                 or (session_id is not None and self._devastation.covers_session(session_id))
             )
             if delicate and not yes and not answered_by_main:
-                self._ask(command, args, text, session_id, origin, done)
+                self._ask(command, args, text, session_id, origin, done, initiative)
                 return True
             if delicate and not yes:
                 shown = f"{_summary(text)}: confirmation answered by --devastation"
                 self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
-            keep_running = self._call(command, args, origin, yes, done)
+            keep_running = self._call(command, args, origin, done, yes=yes, initiative=initiative)
         except AllInError as error:
             done(error)
         return keep_running
@@ -698,7 +705,14 @@ class MainCommands:
         raise MadeOutsideSubprofile(command=name, acts_in=space.subprofile)
 
     def _call(
-        self, command: CommandSpec, args: list[str], origin: Origin, yes: bool, done: OnOutcome
+        self,
+        command: CommandSpec,
+        args: list[str],
+        origin: Origin,
+        done: OnOutcome,
+        *,
+        yes: bool,
+        initiative: bool,
     ) -> bool:
         """Run it; ``done`` hears how it went, from the command itself if it takes an answer
         (it may finish later), else once it returns."""
@@ -707,6 +721,8 @@ class MainCommands:
             options["origin"] = origin
         if command.takes_yes:
             options["yes"] = yes
+        if command.takes_initiative:
+            options["initiative"] = initiative
         if command.takes_answer:
             options["answer"] = done
             return command.run(*args, **options)
@@ -722,6 +738,7 @@ class MainCommands:
         session_id: str | None,
         origin: Origin,
         done: OnOutcome,
+        initiative: bool,
     ) -> None:
         """Ask before a delicate command; once answered yes it runs with the Origin it came
         with, never more."""
@@ -731,7 +748,7 @@ class MainCommands:
                 done("rejected")
                 return
             try:
-                self._call(command, args, origin, False, done)
+                self._call(command, args, origin, done, yes=False, initiative=initiative)
             except AllInError as error:
                 done(error)
 
@@ -767,15 +784,23 @@ class MainCommands:
         if sender is not None and SessionId(sender) in self._sessions.ids():  # not one gone
             self._reporter.log_session(SessionId(sender), event, **fields)
 
-    def _new(self, *options: str, origin: Origin = HUMAN, answer: OnOutcome) -> bool:
+    def _new(
+        self,
+        *options: str,
+        origin: Origin = HUMAN,
+        answer: OnOutcome,
+        initiative: bool = False,
+    ) -> bool:
         """Whoever asked hears the new Session's id and where it is; one an fproc asks for is
-        born in its Subperfil (ADR-0026)."""
+        born in its Subperfil (ADR-0026), and its Molde's task, asked on its own, goes by its
+        ``initiative``."""
         asked = self._parse_new(options)
         process = acting_process(origin)
         if process is None:
             session, in_view = self._new_session(asked, origin)
         else:
-            session, in_view = self._new_of_process(process, asked, origin), False
+            session = self._new_of_process(process, asked, origin, initiative)
+            in_view = False
         place: Place = "view" if in_view else "background"
         answer(Queried({"session_id": session.id, "place": place}))
         return True
@@ -848,7 +873,9 @@ class MainCommands:
             self._send_task(session, task, origin)
         return session, in_view
 
-    def _new_of_process(self, name: AttachedName, asked: _NewAsked, origin: Origin) -> Session:
+    def _new_of_process(
+        self, name: AttachedName, asked: _NewAsked, origin: Origin, initiative: bool
+    ) -> Session:
         """A Session the Proceso adherido ``name`` creates: only in its Subperfil, from a Molde
         of its package its Alcance names, born in the background with the Molde's functions
         and Command sessions alone, never more than every Session of ``origin``'s chain has,
@@ -888,7 +915,7 @@ class MainCommands:
         self._subprofiles.add_session(name, session.id)
         self._windows.to_background(session.id)
         if task is not None:
-            self._send_task(session, task, origin)
+            self._send_task(session, task, origin, initiative)
         return session
 
     def _package_mold(self, name: AttachedName, asked: _NewAsked) -> LoadedMold:
@@ -931,13 +958,17 @@ class MainCommands:
             raise SessionCommandNotListed(command="send", not_in=list[JsonValue](missing))
         self._subprofiles.check_acting(origin)
 
-    def _send_task(self, session: Session, task: str, origin: Origin) -> None:
+    def _send_task(
+        self, session: Session, task: str, origin: Origin, initiative: bool = False
+    ) -> None:
         """A Molde's initial task, sent as a ``/send`` with the Origin of whoever created the
-        Session (ADR-0011). Its text is the Molde's, never read for Command prompts."""
+        Session (ADR-0011), and by the ``initiative`` of a Proceso adherido that did so on its
+        own (ADR-0026). Its text is the Molde's, never read for Command prompts."""
         if origin.is_human:
             self._turns.push(session, Prompt(session.id, task, origin=origin))
         else:
-            self._sends.send(session, SendOptions((), TurnOverrides(), task), origin, _ignored)
+            options = SendOptions((), TurnOverrides(), task)
+            self._sends.send(session, options, origin, _ignored, initiative)
 
     def _place(self, session: Session, background: bool, origin: Origin) -> bool:
         """Open a Session in view, under the Máximo de Ventanas, or in the background; whether
@@ -1112,17 +1143,19 @@ class MainCommands:
         origin: Origin = HUMAN,
         yes: bool = False,
         answer: OnOutcome | None = None,
+        initiative: bool = False,
     ) -> bool:
         """``yes``: ``-y``, a human's only: its Turn's Confirmations are answered yes. A human
         writes Command prompts in the text; anyone else, in the structured form ahead of it,
-        since Main never reads its text (ADR-0013)."""
+        since Main never reads its text (ADR-0013). ``initiative``: a Proceso adherido sends
+        it on its own (ADR-0026)."""
         answer = answer or _ignored
         session = self._sessions.load_owned(session_id, self._main_id)
         if not origin.is_human:
             options = parse_send(text)
             if not options.text.strip():
                 raise InvalidArguments(usage=SEND_USAGE)
-            self._sends.send(session, options, origin, answer)
+            self._sends.send(session, options, origin, answer, initiative)
             return True
         reply_to, typed = _reply_to(text)
         try:

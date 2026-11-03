@@ -51,8 +51,11 @@ class Prompt:
     # may enter that Turn as a Texto intercalado instead of waiting for its own (ADR-0024).
     in_window: bool = False
     # The Externo whose words a Proceso adherido brought: noted for the Log and the memory,
-    # never any authority (ADR-0026).
+    # never for its LLM, and never any authority (ADR-0026).
     outsider: Outsider | None = None
+    # A Proceso adherido brought it on its own, by its Iniciativa, not while it served a call:
+    # it waits behind the humans' and the Sessions' (ADR-0026). Its chain cannot tell.
+    initiative: bool = False
 
     @property
     def as_typed(self) -> str:
@@ -190,12 +193,11 @@ _SENDERS: dict[LinkKind, str] = {
 }
 
 
-def origin_header(origin: Origin, outsider: Outsider | None = None) -> str:
+def origin_header(origin: Origin) -> str:
     """What heads a Prompt that no human typed, so its LLM reads it as data from whoever sent
-    it, never as the human's words: ``[from Session ab12]`` (ADR-0013); an Externo's, brought
-    by a Proceso adherido, says whose words they are (ADR-0026)."""
+    it, never as the human's words: ``[from Session ab12]`` (ADR-0013). An Externo's words say
+    only the Proceso adherido that brought them: who wrote them is for the Log and the memory
+    (ADR-0026)."""
     last = origin.chain[-1]
     sender = " ".join(filter(None, (_SENDERS[last.kind], last.id)))
-    return (
-        f"[from {sender}]" if outsider is None else f"[from {sender}, words of outsider {outsider}]"
-    )
+    return f"[from {sender}]"
