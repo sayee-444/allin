@@ -685,3 +685,22 @@ def test_its_initiatives_mark_stays_on_a_queued_prompt_through_a_profile_switch(
         e.fields for e in main.session_log(main.sessions.load(sid)) if e.event == "turn_started"
     ]
     assert started["initiative"] is True, "back from the switch, it is still its initiative's"
+
+
+def test_an_at_secret_it_asks_on_its_own_is_refused_and_its_value_never_kept(
+    main: MainHarness,
+):
+    heard: list[JsonValue] = []
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        act(main, "@secret set guide token hunter2"),
+        hearing(main, 3),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        settle=True,
+    )
+    assert "error" in str(heard[2])
+    assert "hunter2" not in main.main_log_path.read_text()
+    assert not any("hunter2" in line for line in chat)
