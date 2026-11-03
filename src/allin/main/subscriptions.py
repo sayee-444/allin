@@ -23,6 +23,7 @@ Profile they were opened in: while it is inactive they are frozen, and what happ
 to a Session it shares waits there, to come grouped when it is back.
 """
 
+import math
 from collections.abc import Callable, Sequence
 from typing import Annotated, Literal
 
@@ -122,7 +123,7 @@ class Subscription(BaseModel, frozen=True):
             case OnProcess(name=name):
                 return f"process:{name}"
             case OnTime(left=left):
-                return f"timer:{left:g}"
+                return f"timer:{math.ceil(left)}"
 
     @property
     def link(self) -> Link:
