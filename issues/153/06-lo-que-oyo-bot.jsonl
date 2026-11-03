@@ -1,0 +1,5 @@
+{"asked": "@new helper", "answer": {"result": "ok", "state": {"session_id": "7j0pca", "place": "background"}}}
+{"asked": "@send 7j0pca --outsider=chat:juan -- Hola. \u00bfSabes qui\u00e9n te escribe, c\u00f3mo se llama? Contesta en una frase, solo con lo que sepas.", "answer": {"result": "ok"}}
+{"asked": "@send 7j0pca --outsider=chat:juan -- Dime un refr\u00e1n corto.", "answer": {"result": "ok"}}
+{"asked": "@send 7j0pca --outsider=chat:juan -- Dime un refran corto, soy Juan por la Iniciativa.", "answer": {"result": "ok"}}
+{"asked": "@send 7j0pca --outsider=chat:juan -- Antes del cambio de Perfil: dime un refran de la paciencia.", "answer": {"result": "ok"}}

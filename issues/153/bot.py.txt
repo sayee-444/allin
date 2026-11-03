@@ -1,0 +1,49 @@
+import json
+import threading
+import time
+from pathlib import Path
+
+from allin.channel import command
+from allin.decorators import reach, subprofile
+from allin.fproc import Fproc
+
+
+@subprofile
+@reach(commands=["new", "send"], molds=["helper"])
+class Bot(Fproc):
+    """A chat bot: brings what people write in inbox.txt, lines of who|text, to Sessions of its
+    own, one per person; a line whose text starts with @ goes as it is."""
+
+    def __init__(self):
+        self.sessions = {}
+        threading.Thread(target=self._listen, daemon=True).start()
+
+    def tell(self, sid: str, text: str) -> object:
+        """Send one of its Sessions a Prompt, while it serves this call."""
+        return command(f"@send {sid} {text}")
+
+    def _listen(self):
+        inbox = Path("inbox.txt")
+        seen = 0
+        while True:
+            lines = inbox.read_text().splitlines() if inbox.exists() else []
+            for line in lines[seen:]:
+                self._hear(line)
+            seen = max(seen, len(lines))
+            time.sleep(0.5)
+
+    def _hear(self, line):
+        who, _, text = line.partition("|")
+        if text.startswith("@"):
+            self._ask(text)
+            return
+        if who not in self.sessions:
+            made = self._ask("@new helper")
+            self.sessions[who] = made.get("state", {}).get("session_id", "")
+        self._ask(f"@send {self.sessions[who]} --outsider={who} -- {text}")
+
+    def _ask(self, text):
+        answer = command(text)
+        with open("answers.jsonl", "a") as out:
+            out.write(json.dumps({"asked": text, "answer": answer}) + "\n")
+        return answer

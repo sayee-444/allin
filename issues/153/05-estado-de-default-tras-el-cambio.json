@@ -1,0 +1,53 @@
+{
+  "windows": {
+    "jefa153": 917785,
+    "llama153": 917965,
+    "7j0pca": 919257
+  },
+  "drafts": {},
+  "queue": [
+    {
+      "session_id": "7j0pca",
+      "text": "[from attached process bot]\nAntes del cambio de Perfil: dime un refran de la paciencia.",
+      "kind": "prompt",
+      "prompt_id": "0w2crb",
+      "attachments": [],
+      "overrides": {
+        "temperature": null,
+        "top_p": null,
+        "max_output_tokens": null,
+        "top_k": null,
+        "min_p": null,
+        "presence_penalty": null,
+        "frequency_penalty": null,
+        "repeat_penalty": null,
+        "seed": null,
+        "reasoning_budget_tokens": null,
+        "effort": null
+      },
+      "typed": "",
+      "queued": false,
+      "origin": [
+        "human",
+        "process:bot"
+      ],
+      "answered_by": null,
+      "suspended": false,
+      "steps": [],
+      "owed": [],
+      "woke_by": [],
+      "in_window": false,
+      "outsider": "chat:juan",
+      "initiative": true
+    }
+  ],
+  "running": [],
+  "background": [
+    "otra153"
+  ],
+  "subscriptions": {
+    "open": [],
+    "pending": [],
+    "debts": []
+  }
+}

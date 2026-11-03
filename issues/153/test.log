@@ -1,0 +1,49 @@
+# #153 — La identidad del Externo y la Iniciativa en la Admisión, como dice ADR-0026 (2026-11-03)
+
+Servidor (otra sesión tenía uno arriba, así que Swift IQ3_XXS con -c 32000):
+llama serve -m models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf --mmproj models/mmproj-Swift-1.5-Qwen3.8-27B-F16.gguf -ngl all -fa on -ctk q4_0 -ctv q4_0 -c 32000 --jinja --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.05 --presence-penalty 0 --repeat-penalty 1.0 --kv-unified -np 2 --spec-type draft-mtp --port 9933
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m153, en un xterm, con el código del commit 09fd4c3.
+Ajustes: /set parallel=1 (un Turno a la vez, para ver el orden) y /set base_url=http://127.0.0.1:9933/v1 (y reinicio).
+
+## Preparación
+- <data-dir>/profiles/default/functions/chatbots/: bot.py (aquí al lado, como bot.py.txt) y molds/helper.toml.
+  bot.py: `@subprofile`, `@reach(commands=["new","send"], molds=["helper"])`. Desde su propio hilo lee
+  líneas «quién|texto» de inbox.txt; la primera vez de cada persona hace «@new helper» y luego
+  «@send <sid> --outsider=<quién> -- <texto>» (Iniciativa). Su método tell(sid, text) hace «@send <sid> <text>»
+  mientras atiende la llamada. Lo que oye va a answers.jsonl (06-lo-que-oyo-bot.jsonl).
+- /piece approve --all; /new --id=jefa153; /new --id=otra153 --bg; /new --id=llama153; /attach bot; /profile new tesis.
+- La Sesión de Juan, creada por bot, es 7j0pca.
+
+## Criterios
+1. El LLM lee el Prompt de un Externo sin su identidad, que queda en el Turno guardado y en el Log (01-externo-sin-identidad.png)
+   Juan escribe «Hola. ¿Sabes quién te escribe, cómo se llama?…». El Prompt llega como
+   «[from attached process bot]\nHola. …», sin chat:juan. El LLM contesta «Sé que me escribe sayee.»: no sabe que es Juan.
+   Turno guardado (conversation.json): "outsider": "chat:juan", "origin": ["human", "process:bot"].
+   Log de 7j0pca: turn_started {"outsider": "chat:juan", "initiative": true}.
+2. Un Prompt de la Iniciativa espera detrás de uno humano que llegó después (02-main-iniciativa-detras.png, orden.txt)
+   jefa153 con un Turno largo. 06:44:12.009 bot manda a 7j0pca (Iniciativa); 06:44:16.481 el humano manda a otra153.
+   Acaba jefa153 a las 06:44:49.988: otra153 empieza a las 06:44:49.990 y 7j0pca a las 06:44:53.122, cuando acaba otra153.
+   El caso de una Sesión que llega después lo prueba el test
+   test_a_prompt_of_its_initiative_waits_behind_a_humans_and_a_sessions_that_came_later (a mano no hay dos Turnos a la vez con parallel=1).
+3. Un Prompt que manda un método durante una llamada se admite por orden de llegada (03-main-metodo-por-llegada.png, orden.txt)
+   jefa153 con un Turno largo. En la Ventana de llama153 el humano escribe
+   «@call bot tell sid=7j0pca text='Dime un refran del mar, por el metodo.'»: 06:45:20.909 el método manda a 7j0pca.
+   06:45:20.998 el humano manda a otra153. Acaba jefa153 (06:45:29.672): 7j0pca empieza a las 06:45:29.673, antes que otra153 (06:45:31.940).
+   Ese Prompt lleva el Origen ["human", "process:bot"], la misma cadena que los de la Iniciativa; su turn_started no lleva "initiative".
+4. La marca de Iniciativa sigue en el Prompt tras un cambio de Perfil con él en cola (04-main-cambio-de-perfil.png, 05-estado-de-default-tras-el-cambio.json)
+   jefa153 con un Turno largo; 06:46:08.052 bot manda a 7j0pca (en cola). /profile switch tesis espera a jefa153 y cambia.
+   El MainState de default guarda en la cola el Prompt de 7j0pca con "outsider": "chat:juan" y "initiative": true.
+   /profile switch default: el Prompt sale de la cola y su turn_started (06:49:30.053) lleva {"outsider": "chat:juan", "initiative": true}.
+   El reinicio de Main lee el mismo MainState; lo prueba también
+   test_the_compaction_before_a_prompt_of_an_fprocs_initiative_waits_with_it_behind_a_humans, que arranca con él en cola.
+5. Tests con una fproc de verdad: los de tests/test_fproc_initiative.py corren el proceso real (encerrado) con un LLM falso.
+
+## Tests de #153
+tests/test_fproc_initiative.py::test_an_outsiders_prompt_carries_the_fprocs_origin_and_never_y PASSED
+tests/test_fproc_initiative.py::test_a_prompt_of_its_initiative_waits_behind_a_humans_and_a_sessions_that_came_later PASSED
+tests/test_fproc_initiative.py::test_the_task_of_a_molde_it_creates_on_its_own_waits_behind_a_humans PASSED
+tests/test_fproc_initiative.py::test_a_prompt_a_method_sends_during_a_call_is_admitted_by_arrival PASSED
+tests/test_fproc_initiative.py::test_its_initiatives_mark_stays_on_a_queued_prompt_through_a_profile_switch PASSED
+tests/test_compaction_turns.py::test_the_compaction_before_a_prompt_of_an_fprocs_initiative_waits_with_it_behind_a_humans PASSED
+tests/test_admission.py::test_a_prompt_of_an_fprocs_initiative_goes_after_the_new_prompts_of_a_human PASSED
+Suite completa: 1705 passed; basedpyright 0 errores; ruff limpio.

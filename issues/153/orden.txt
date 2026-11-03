@@ -1,0 +1,33 @@
+06:42:15.973 7j0pca prompt origin=['human', 'process:bot'] text='Hola. ¿Sabes quién te escribe, cómo se llama? Cont'
+06:42:15.977 7j0pca turn_started initiative=True outsider=chat:juan
+06:42:17.528 7j0pca turn_finished 
+06:42:58.162 jefa153 prompt origin=['human'] text='Escribe una lista numerada de 60 refranes, cada un'
+06:42:58.166 jefa153 turn_started initiative=False outsider=None
+06:42:58.486 7j0pca prompt origin=['human', 'process:bot'] text='Dime un refrán corto.'
+06:43:42.491 jefa153 turn_finished 
+06:43:42.492 7j0pca turn_started initiative=True outsider=chat:juan
+06:43:43.302 7j0pca turn_finished 
+06:44:11.688 jefa153 prompt origin=['human'] text='Escribe otra lista numerada de 60 refranes, cada u'
+06:44:11.696 jefa153 turn_started initiative=False outsider=None
+06:44:12.009 7j0pca prompt origin=['human', 'process:bot'] text='Dime un refran corto, soy Juan por la Iniciativa.'
+06:44:16.481 otra153 prompt origin=['human'] text='Dime un refran corto, el humano.'
+06:44:49.988 jefa153 turn_finished 
+06:44:49.990 otra153 turn_started initiative=False outsider=None
+06:44:53.121 otra153 turn_finished 
+06:44:53.122 7j0pca turn_started initiative=True outsider=chat:juan
+06:44:54.767 7j0pca turn_finished 
+06:45:20.812 jefa153 prompt origin=['human'] text='Y una tercera lista numerada de 60 refranes, cada '
+06:45:20.822 jefa153 turn_started initiative=False outsider=None
+06:45:20.909 7j0pca prompt origin=['human', 'process:bot'] text='Dime un refran del mar, por el metodo.'
+06:45:20.998 otra153 prompt origin=['human'] text='Otro refran, el humano despues del metodo.'
+06:45:29.672 jefa153 turn_finished 
+06:45:29.673 7j0pca turn_started initiative=False outsider=None
+06:45:31.939 7j0pca turn_finished 
+06:45:31.940 otra153 turn_started initiative=False outsider=None
+06:45:43.930 otra153 turn_finished 
+06:46:07.817 jefa153 prompt origin=['human'] text='Una cuarta lista numerada de 60 refranes, cada uno'
+06:46:07.829 jefa153 turn_started initiative=False outsider=None
+06:46:08.052 7j0pca prompt origin=['human', 'process:bot'] text='Antes del cambio de Perfil: dime un refran de la p'
+06:46:12.060 jefa153 turn_finished 
+06:49:30.053 7j0pca turn_started initiative=True outsider=chat:juan
+06:49:32.432 7j0pca turn_finished 
