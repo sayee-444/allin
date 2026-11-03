@@ -8,13 +8,13 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #120 Notificaciones de Turno cortado y de Contexto restante (2026-11-03).
-  - **Turno cortado.** El Prompt que sigue a un Turno cortado por su Tope de salida o por el slot abre con «Your last answer was cut: …» y las cifras de su último Paso (fuente `cut`). Si una Compactación reemplaza el Turno cortado, la Conversación guarda el corte y la línea sale igual.
-  - **Contexto restante.** Si en un Turno sale el Aviso de Contexto, al guardarse Main deja «Your Context is at P% of L tokens: about N tokens are left.» (fuente `context`). Reemplaza a la pendiente, y una Compactación o un Rewind la retiran.
-  - **Probado a mano** con `llama serve` (Q6, 8k): el LLM copió las dos líneas literalmente, y con `@conversation_logs off cut` / `off context` dijo que no había ninguna.
-  - **La revisión encontró**, ya arreglado: tras llenar el slot, la Compactación podía tragarse la línea de corte; la de Contexto quedaba con cifras viejas tras más Pasos, una Compactación o un Rewind.
-  - Métricas: 1591 tests, cobertura 85 %, mutación 93 %, 40 escapes. Antes: #119 Compactación en F2.
-- **Siguiente:** #121 Lo escrito durante un Turno entra antes del siguiente Paso.
+- **Último hecho:** #121 Lo escrito durante un Turno entra antes del siguiente Paso (2026-11-03).
+  - **Texto intercalado.** Lo que el humano envía desde la Ventana mientras corren las tools de un Turno entra en ese Turno: el siguiente Paso lo lee tras las salidas de las tools, como mensaje del usuario. El Turno conserva su Origen. Solo entra texto llano escrito después de que el Turno empezara; con Command prompts o `-y`, lo que no cabe en el slot y lo de `/send` esperan su Turno. Se guarda en el Paso; si el Turno falla vuelve al input, si se cancela al Borrador, y un Rewind lo devuelve.
+  - **Shift+Enter durante las tools** las mata y guarda el Paso que las llamó: con sus salidas si ya acabaron, o con un error por llamada que dice que se cortó.
+  - **Probado a mano** con `llama serve` (Q6, 32k): la plantilla de Qwen3.8 acepta el mensaje tras `<tool_response>`; el LLM obedeció el texto intercalado («MANZANA») y, tras cortar una tool de 90 s, explicó que la llamada se interrumpió.
+  - **La revisión encontró**, ya arreglado: un Shift+Enter justo tras entrar el texto lo perdía y cambiaba por un error las salidas reales; cerrar la Ventana perdía lo intercalado; lo escrito antes de empezar el Turno entraba en él.
+  - Métricas: 1619 tests, cobertura 85 %, mutación 93 %, 40 escapes. Antes: #120 Notificaciones de Turno cortado y de Contexto restante.
+- **Siguiente:** #122 La fsource `windows`.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -72,6 +72,13 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Le vale que las líneas al LLM vayan en inglés, como las demás Notificaciones de Main?
   - ¿Que la línea de Contexto se deje al guardarse el Turno, y no si el Turno falla o se cancela?
   - ¿Que el corte por Shift+Enter siga con su fuente `interrupted`, aparte de `cut`?
+
+  Sobre #121:
+  - ¿Le vale que solo entre texto llano, y que lo que lleva Command prompts o `-y` espere su propio Turno, con lo escrito después detrás, para no cambiar el orden?
+  - ¿Que lo que no cabe en lo que le queda al slot (contado a un token por carácter) espere su Turno en vez de entrar?
+  - ¿Que lo escrito mientras el Prompt anterior aún esperaba slot cuente como el siguiente Prompt y no entre en su Turno?
+  - ¿Que, al cortar con Shift+Enter unas tools que seguían corriendo, el LLM lea en cada llamada que se cortó y que pudo hacer parte de su trabajo?
+  - Al cancelarse un Turno (cerrar la Ventana), lo intercalado vuelve al Borrador, aunque el Prompt de ese Turno todavía no vuelve (pendiente menor ya anotado).
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -163,7 +170,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 20. ✅ #118 Consultar
 21. ✅ #119 Compactación en F2
 22. ✅ #120 Notificaciones de Turno cortado y de Contexto restante
-23. #121 Lo escrito durante un Turno entra antes del siguiente Paso
+23. ✅ #121 Lo escrito durante un Turno entra antes del siguiente Paso
 24. #122 La fsource `windows`
 25. #123 Iniciativa de una fproc, Externos y Subperfil
 26. #124 Secretos
