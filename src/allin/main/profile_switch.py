@@ -43,8 +43,10 @@ class ProfileSwitch:
         active: Profile,
         enter: EnterProfile,
         detach_all: Callable[[], None] = lambda: None,
+        drop_attention: Callable[[SessionId], None] = lambda _: None,
     ) -> None:
-        """``detach_all`` lets the outgoing Profile's Procesos adheridos go (ADR-0012)."""
+        """``detach_all`` lets the outgoing Profile's Procesos adheridos go (ADR-0012);
+        ``drop_attention`` takes away a Session's mark asking for attention (#122)."""
         self._reporter = reporter
         self._profiles = profiles
         self._windows = windows
@@ -53,6 +55,7 @@ class ProfileSwitch:
         self._active = active
         self._enter = enter
         self._detach_all = detach_all
+        self._drop_attention = drop_attention
         self._asked: _Asked | None = None
 
     @property
@@ -114,6 +117,7 @@ class ProfileSwitch:
         for session_id in self._windows.background_ids():  # saved with its MainState (#52)
             if session_id not in kept:
                 self._windows.forget(session_id)
+                self._drop_attention(session_id)  # it is out of the new Profile's reach
 
     def _drop(self, profile: Profile) -> None:
         if self._asked is None:

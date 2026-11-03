@@ -280,6 +280,75 @@ ATTACH = SessionCommandType(
 )
 
 
+_BG_USAGE = "@bg [sid]"
+_CLOSE_USAGE = "@close"
+
+
+def _bg(call: SessionCommandCall) -> str:
+    """Its own Session, or the one it names; which ones a Session's LLM may send away is
+    checked by the Command main (ADR-0020)."""
+    words = call.args.split()
+    if len(words) > 1:
+        raise ValueError(_BG_USAGE)
+    return f"/bg {words[0] if words else call.session_id}"
+
+
+def _close(call: SessionCommandCall) -> str:
+    """Always its own Window, as its X; ``/close <sid>`` in Main's Chat closes any."""
+    if call.args.strip():
+        raise ValueError(_CLOSE_USAGE)
+    return f"/close {call.session_id}"
+
+
+_OPEN_USAGE = "@open <sid>"
+
+
+def _open(call: SessionCommandCall) -> str:
+    """Never ``--bg``: sending a Session to the background is ``@bg``'s, with its check."""
+    words = call.args.split()
+    if len(words) != 1 or words[0].startswith("-"):
+        raise ValueError(_OPEN_USAGE)
+    return f"/open {words[0]}"
+
+
+_WINDOWS_USAGE = "@windows"
+
+
+def _windows(call: SessionCommandCall) -> str:
+    if call.args.strip():
+        raise ValueError(_WINDOWS_USAGE)
+    return "/windows list"
+
+
+BG = SessionCommandType(
+    "bg",
+    _BG_USAGE,
+    "send your own Session, or one you created, to the background: its Window closes, its"
+    " Turns go on",
+    _bg,
+)
+# Like the Window's X: only a human closes (ADR-0020), so it is never in the default list.
+CLOSE = SessionCommandType(
+    "close",
+    _CLOSE_USAGE,
+    "close this Session's Window, as its X does; only a human",
+    _close,
+)
+OPEN = SessionCommandType(
+    "open",
+    _OPEN_USAGE,
+    "open a Session's Window, or bring it from the background, displacing nobody; without room"
+    " it asks the human for attention",
+    _open,
+)
+WINDOWS = SessionCommandType(
+    "windows",
+    _WINDOWS_USAGE,
+    "list the Sessions of this Profile: in view, in the background or closed",
+    _windows,
+)
+
+
 # Otorgar (ADR-0025): never in the default list, since only a human gives it.
 GRANT = SessionCommandType(
     GRANT_NAME,
@@ -314,12 +383,18 @@ BUILT_IN = LoadedSessionCommands(
             GRANT,
             ATTACH,
             CALL,
+            WINDOWS,
+            OPEN,
+            BG,
+            CLOSE,
         )
     },
     # @create, @attach and @call widen what Sessions do: given by name, never by default; a
     # Suscripción only wakes its own Session, with its chain capped (#116), and an Encargo
     # sends no more than @send would (#117), @status only reads (#118) and @compact only touches
-    # its own Conversation, which a Rewind gives back (#119).
+    # its own Conversation, which a Rewind gives back (#119). The fsource ``windows`` needs
+    # @windows, @open and @bg (#122): they only read, displace nobody, and send to the
+    # background only what the Session made; @close is a human's alone.
     tuple(
         CommandName(kind.name)
         for kind in (
@@ -332,6 +407,9 @@ BUILT_IN = LoadedSessionCommands(
             BATCH,
             STATUS,
             COMPACT,
+            WINDOWS,
+            OPEN,
+            BG,
         )
     ),
 )

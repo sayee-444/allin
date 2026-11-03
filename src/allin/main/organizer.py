@@ -133,6 +133,7 @@ class RowSource:
             queued=self._turns.queued_count(session_id),
             asking=self._boxes.asking(session_id),
             notice=self._boxes.noticing(session_id),
+            attention=self._boxes.wants_attention(session_id),
             context=context,
             limit=self._windows.context_limit(session),
             supervisor=session.settings.server or "",

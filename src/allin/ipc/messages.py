@@ -257,6 +257,7 @@ class OrganizerRow(BaseModel, frozen=True):
     queued: int = 0  # Prompts waiting behind it
     asking: bool = False  # a Confirmation waits for its answer
     notice: bool = False  # a Notice is on screen
+    attention: bool = False  # a Session's LLM asked to bring it into view, with no room (#122)
     context: int | None = None  # tokens of its last Context
     limit: int | None = None  # its Server's slot, once known
     supervisor: str = ""  # its Enlace (ADR-0022); empty: Main's base_url
