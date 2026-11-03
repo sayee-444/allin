@@ -65,6 +65,15 @@ class Reach:
         return self.net is not False
 
     @property
+    def stays_in_work(self) -> bool:
+        """Whether it touches nothing but its Session's Carpeta de trabajo: no other path, no
+        network, no display and no Command session; what may stay inside a Subperfil
+        (ADR-0026)."""
+        paths = (*self.read, *self.write)
+        in_work = all(PurePosixPath(path).parts[0] == "work" for path in paths)
+        return in_work and not self.network and not self.display and not self.commands
+
+    @property
     def acts_as_user(self) -> bool:
         """``display``, or writing where the user runs things: what the tool leaves there runs
         as them, out of the Encierro (ADR-0016). Their home or the whole system, a dotted

@@ -17,7 +17,8 @@ from allin.main.prompt_commands import TurnOverrides
 type PromptKind = Literal["prompt", "compact", "auto_compact"]
 
 
-type AutoConfirm = Literal["-y", "--devastation"]
+# ``--devastation inside``: only what stays inside a Subperfil with the Exención (ADR-0026).
+type AutoConfirm = Literal["-y", "--devastation", "--devastation inside"]
 
 
 @dataclass(frozen=True)

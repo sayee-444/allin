@@ -144,10 +144,12 @@ class BoxShow(BaseModel):
 
 class Coverage(BaseModel):
     """Whether Main answers this Session's Confirmations itself (``--devastation`` and its
-    Exemption); the Window marks it on its border."""
+    Exemption), or only those of what stays inside its Subperfil, which has the Exención
+    (ADR-0026); the Window marks it on its border."""
 
     type: Literal["coverage"] = "coverage"
     covered: bool
+    inside: bool = False
 
 
 class GrantHeld(BaseModel):
@@ -261,6 +263,9 @@ class OrganizerRow(BaseModel, frozen=True):
     context: int | None = None  # tokens of its last Context
     limit: int | None = None  # its Server's slot, once known
     supervisor: str = ""  # its Enlace (ADR-0022); empty: Main's base_url
+    # The instance whose Subperfil has it, folded under it (ADR-0026); empty: the Profile's.
+    subprofile: str = ""
+    exempt: bool = False  # its Subperfil has the Exención
 
 
 class OrganizerRows(BaseModel):

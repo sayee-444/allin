@@ -1,5 +1,6 @@
 """``--devastation``: with it, Main answers by itself the Confirmations of its Chat and of its
-Sessions with the Exemption (ADR-0013, as amended on 2026-11-01).
+Sessions with the Exemption (ADR-0013, as amended on 2026-11-01), and those of a Subperfil with
+the Exención that touch nothing outside it (ADR-0026).
 
 Only a human lights it, when Main starts or with ``/devastation on``, and it lasts that start
 of Main: it is never saved and never travels. Main's Chat and each covered Window mark it on
@@ -7,7 +8,7 @@ their border, and lighting it tells, in a Notice, which Sessions stop asking.
 """
 
 from allin.core.errors import AllInError
-from allin.core.ids import MainId, SessionId
+from allin.core.ids import AttachedName, MainId, SessionId
 from allin.core.origin import Link, Origin, weakest_link
 from allin.core.settings import SessionSettings
 from allin.ipc.messages import Coverage
@@ -15,6 +16,7 @@ from allin.main.boxes import MainBoxes
 from allin.main.open_windows import OpenWindows
 from allin.main.reporting import Reporter
 from allin.main.sessions import SessionStore
+from allin.main.subprofiles import Subprofiles
 from allin.ui.marks import BorderMarks
 
 _NOTICE_TITLE = "--devastation on"
@@ -30,6 +32,7 @@ class Devastation:
         boxes: MainBoxes,
         reporter: Reporter,
         main_id: MainId,
+        subprofiles: Subprofiles,
     ) -> None:
         self._on = on
         self._marks = marks
@@ -38,6 +41,7 @@ class Devastation:
         self._boxes = boxes
         self._reporter = reporter
         self._main_id = main_id
+        self._subprofiles = subprofiles
 
     @property
     def on(self) -> bool:
@@ -64,6 +68,30 @@ class Devastation:
         if weakest_link(origin) != "session":
             return True
         return all(self._covers_link(link) for link in origin.chain)
+
+    def answers_inside(self, origin: Origin) -> bool:
+        """Whether Main answers by itself, of a Confirmation asked with ``origin``, only what
+        stays inside the Subperfil it acts in: each link is covered or in a Subperfil with the
+        Exención, a Proceso adherido by its own (ADR-0026)."""
+        if not self._on:
+            return False
+        return all(self._covers_link(link) or self._exempt_inside(link) for link in origin.chain)
+
+    def covers_inside(self, session_id: SessionId) -> bool:
+        """Whether it answers what stays inside the Session's Subperfil, which has the
+        Exención; what its Window marks."""
+        name = self._subprofiles.holding(session_id)
+        return self._on and name is not None and self._subprofiles.record(name).exempt
+
+    def _exempt_inside(self, link: Link) -> bool:
+        match link.kind:
+            case "session" if link.id:
+                return self.covers_inside(SessionId(link.id))
+            case "process":
+                name = AttachedName(link.id)
+                return name in self._subprofiles.names() and self._subprofiles.record(name).exempt
+            case _:
+                return False
 
     def _covers_link(self, link: Link) -> bool:
         match link.kind:
@@ -99,6 +127,9 @@ class Devastation:
             text = (
                 f"Main now answers the Confirmations of its Chat and of these Sessions: {covered}"
             )
+            exempt = [n for n in self._subprofiles.names() if self._subprofiles.record(n).exempt]
+            if exempt:
+                text += f"; and what stays inside these Subperfiles: {', '.join(exempt)}"
             self._boxes.notify(None, _NOTICE_TITLE, text)
 
     def mark(self, session_id: SessionId) -> None:
@@ -108,7 +139,9 @@ class Devastation:
         except AllInError as error:
             self._reporter.error(error, session_id)
             return
-        self._windows.send(session_id, Coverage(covered=self.covers(settings)))
+        covered = self.covers(settings)
+        inside = not covered and self.covers_inside(session_id)
+        self._windows.send(session_id, Coverage(covered=covered, inside=inside))
 
     def _exempt_sessions(self) -> list[SessionId]:
         exempt: list[SessionId] = []

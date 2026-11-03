@@ -350,6 +350,9 @@ class ConfirmationRequested:
     session_id: SessionId
     title: str
     text: str
+    # What it asks about touches nothing outside the Session's Carpeta de trabajo: the
+    # Exención of a Subperfil answers it (ADR-0026).
+    inside: bool = False
 
 
 @dataclass(frozen=True)

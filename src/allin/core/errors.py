@@ -402,6 +402,12 @@ class SubprofileBusy(AllInError):
     code: ClassVar[str] = "subprofile_busy"
 
 
+class SubprofileNotFound(AllInError):
+    """No instance attached with that name has a Subperfil in the active Profile."""
+
+    code: ClassVar[str] = "subprofile_not_found"
+
+
 class InitiativeRefused(AllInError):
     """Between calls an fproc runs only the Command sessions that act on its own Sessions:
     ``@new``, ``@send``, ``@open`` and ``@close`` (ADR-0026)."""

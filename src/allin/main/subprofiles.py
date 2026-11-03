@@ -19,7 +19,6 @@ from allin.core.errors import OutsideProfile, OutsideSubprofile, ProfileStorageF
 from allin.core.files import write_atomically
 from allin.core.ids import AttachedName, SessionId, parse_attached_name
 from allin.core.origin import Origin
-from allin.main.profiles import Profile
 
 FOLDER = "subprofiles"
 DEFAULT_TURNS = 1  # its Sessions with a Turn running or queued at once: one of the two slots
@@ -48,10 +47,11 @@ class Subprofiles:
     """The Subperfiles of the active Profile; only Main's dispatcher changes them."""
 
     def __init__(
-        self, profile: Callable[[], Profile], in_profile: Callable[[SessionId], bool]
+        self, profile_folder: Callable[[], Path], in_profile: Callable[[SessionId], bool]
     ) -> None:
-        """``in_profile``: whether a Session is in the active Profile's own list."""
-        self._profile = profile
+        """``profile_folder``: the active Profile's folder; ``in_profile``: whether a Session
+        is in its own list."""
+        self._profile_folder = profile_folder
         self._in_profile = in_profile
 
     def names(self) -> list[AttachedName]:
@@ -141,7 +141,7 @@ class Subprofiles:
         return target
 
     def _folder(self) -> Path:
-        return self._profile().folder / FOLDER
+        return self._profile_folder() / FOLDER
 
     def _path(self, name: AttachedName) -> Path:
         return self._folder() / f"{name}.json"

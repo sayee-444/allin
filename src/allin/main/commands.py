@@ -83,6 +83,7 @@ from allin.main.settings_commands import (
 from allin.main.status import PARTS_SHOWN as STATUS_PARTS
 from allin.main.status import USAGE as STATUS_USAGE
 from allin.main.status import Sources, parse_part, read
+from allin.main.subprofile_commands import SUBPROFILE_USAGE, SubprofileCommands
 from allin.main.subprofiles import Subprofiles
 from allin.main.subscriptions import (
     SUBSCRIBE_USAGE,
@@ -218,6 +219,7 @@ class MainCommands:
         self._sends = SessionSends(sessions, turns, boxes, subprofiles, subscriptions)
         self._organizer: Organizer | None = None
         self._organizer_rows: Callable[[], list[OrganizerRow]] = list
+        subprofile = SubprofileCommands(subprofiles, reporter, devastation.mark)
         # Command mains are registered once, when Main starts.
         self._commands: dict[str, CommandSpec] = {
             "/new": CommandSpec(
@@ -427,6 +429,20 @@ class MainCommands:
                 self._switch_devastation,
                 "let Main answer the Confirmations of its own Chat by itself",
                 args={"state": "on or off"},
+                human_only=True,
+            ),
+            "/subprofile": CommandSpec(
+                (),
+                subprofile.run,
+                "list the Subperfiles of the fprocs, or give one the Exención or a cap on Turns",
+                usage_text=SUBPROFILE_USAGE,
+                args={
+                    "name": "the instance whose Subperfil it is",
+                    "changes": "exempt=on|off: --devastation answers what stays inside it;"
+                    " turns=<n>: how many of its Sessions have a Turn running or queued at once",
+                },
+                optional=("name", "changes"),
+                rest=True,
                 human_only=True,
             ),
             "/server": CommandSpec(
@@ -814,7 +830,10 @@ class MainCommands:
         if task is not None:
             self._check_may_send(origin)
         chain = self._chain(origin)
-        settings = self._born_exempt(mold.settings(self._settings.current.session), chain)
+        # Only its Subperfil's Exención, a human's, covers it (ADR-0026).
+        settings = mold.settings(self._settings.current.session).model_copy(
+            update={"exempt": False}
+        )
         sysprompt = render_sysprompt(self._sysprompts, settings)
         functions = self._functions.born_with(True, [], mold.recipe.functions or (), chain)
         named = [str(name) for name in mold.recipe.commands or ()]
@@ -909,6 +928,7 @@ class MainCommands:
             self._windows.close(old, f"renamed to {renamed.id}")
         self._windows.rename(old, renamed.id)
         self._profiles.renamed(old, renamed.id)
+        self._subprofiles.renamed(old, renamed.id)
         self._subscriptions.renamed(old, renamed.id)
         self._boxes.renamed(old, renamed.id)
         shown = f"renamed from {old}; {old} still reaches it"
@@ -980,6 +1000,9 @@ class MainCommands:
         if option != "list":
             raise InvalidArguments(usage=self._commands["/windows"].usage("/windows"))
         rows = self._organizer_rows()
+        space = self._subprofiles.acting_space(origin)
+        if space is not None:  # a Session or a Proceso adherido sees its own space (ADR-0026)
+            rows = [row for row in rows if row.subprofile == (space.subprofile or "")]
         if origin.is_human:
             for line in windows_list(rows):
                 self._reporter.show(None, line)

@@ -110,8 +110,28 @@ def summarize(path: str) -> str:
 - **Paths** start at a symbolic root: `work` (the Session's working folder), `home` or `/`, plus a subpath.
 - **`net`** is `False`, `True` or a list of TCP ports. Landlock limits the network **by port, not by host**: a tool with port 443 reaches every HTTPS site there is, so approving a piece with network is the only thing that stops it sending your data out. With a list, UDP stays open, because DNS needs it; only `net=False` closes it. `net=True` is every port but those of AllIn's Servers, the one Main only observes included, so no tool uses the LLM behind the queue's back.
 - **`display`** opens the X11 or Wayland socket. A graphical client can read and type keys into other windows, the Windows and Main's Chat included, so `display` is acting as you. Writing where you run things (`home`, `~/.config`, a repo's hooks) is too.
-- **`commands`** names the Command sessions it runs. For now it is only kept: Main starts enforcing it with Command sessions.
+- **`commands`** names the Command sessions it runs; Main runs no other.
+- **`molds`**, an fproc's, names the Moldes of its package (`molds/<name>.toml`) it creates Sessions from.
 - Terminals (`/dev/pts`, `/dev/tty*`) are never in a reach.
+
+**An fproc that acts on its own.** Between calls, from a thread of its own, an fproc runs the Command sessions its reach declares with `allin.channel.command`, but only on the Sessions it created, in its **Subperfil** (`@subprofile`): `@new <mold>`, `@send`, `@open` and `@close`. Those Sessions are born in the background, outside the Profile's list, with the functions of their Mold and never more than whoever attached it. `@send <sid> --outsider=discord:juan -- …` notes whose words they are, an **outsider**'s, which never count as yours. What it sends waits behind your Prompts, and past its cap (`/subprofile <name> turns=<n>`) it hears `subprofile_busy`. `/subprofile <name> exempt=on` lets `--devastation` answer what stays inside it: a tool that touches nothing but its Session's working folder.
+
+```python
+import threading
+from allin.channel import command
+from allin.decorators import reach, subprofile
+from allin.fproc import Fproc
+
+@subprofile
+@reach(commands=["new", "send"], molds=["helper"])
+class Bot(Fproc):
+    def __init__(self):
+        threading.Thread(target=self._listen, daemon=True).start()
+
+    def _listen(self):
+        sid = command("@new helper")["state"]["session_id"]
+        command(f"@send {sid} --outsider=chat:juan -- hola")
+```
 
 **Trimming.** Landlock grants whole folders, so granting `home` would grant AllIn's data inside it too. At every call, Main turns each granted folder that holds something of AllIn's into grants on every sibling along the way. With AllIn installed in `~/Pictures/Neva` and its data folder in `~/Pictures/Neva/var`:
 
@@ -214,6 +234,7 @@ In a Prompt you type, `@key=value` changes a sampling parameter for that Turn on
 | `/server new\|set\|restart\|adopt\|sleep\|wake …` | Manage Supervisors and their Servers |
 | `/raw on\|off [sid]` | Show the raw stream events in Main's Chat |
 | `/devastation on\|off` | Let Main answer the Confirmations by itself |
+| `/subprofile [<name> [exempt=on\|off] [turns=<n>]]` | List the Subperfiles of the fprocs, or give one the Exención or a cap on Turns |
 | `/exit` | Close everything cleanly |
 
 ---
