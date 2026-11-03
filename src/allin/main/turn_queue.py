@@ -157,6 +157,7 @@ _RESUMED_TEXT = "queue resumed: {server} is ready"
 # no progress for ``step.stall`` seconds (it fails).
 RESTARTING = "the Server restarts now"
 STALLED = "the Step made no progress"
+TOO_BIG = "its next Step does not fit in its Server's pool"  # it fails as ``PromptTooBig``
 INTERRUPTED = "interrupted with Shift+Enter"
 # What the LLM reads as the output of a call whose Turn a human interrupted (ADR-0024).
 CUT_CALL = (
@@ -263,6 +264,12 @@ class _RunningTurn:
     # answered, or the tools its Step called gave back what they said (a Continuation).
     resume: Callable[[], None] | None = None
     ready_at: float = 0.0  # wall clock: since when it waits so, its place in the Wait list
+    # Its next Step's input as its Server measures it, once the estimate of it passed the
+    # pool (#188): the measure asked, whether ``need`` holds it now, and the error it fails
+    # with once its executor stops, if even that does not fit in the empty pool.
+    measuring: int | None = None
+    measured: bool = False
+    too_big: PromptTooBig | None = None
 
     def release_slot(self) -> None:
         if self.slot is not None:
@@ -529,6 +536,10 @@ class TurnQueue:
         if self._compactions.owns(session_id, ticket):
             self._compaction_measured(session_id, ticket, tokens)
             return
+        running = self._running.get(session_id)
+        if running is not None and running.measuring == ticket:
+            self._continuation_measured(running, tokens)
+            return
         measure = self._measures.get(session_id)
         if measure is None or measure.ticket != ticket or measure.server != server:
             return  # a stale measure: the Prompt or its Server changed since
@@ -573,6 +584,8 @@ class TurnQueue:
             return
         if isinstance(error, TurnYielded) and running.cancellation.reason is not None:
             error = TurnCancelled(reason=running.cancellation.reason)  # it lands first
+        if isinstance(error, TurnCancelled) and _reason(error) == TOO_BIG and running.too_big:
+            error = running.too_big  # Main stopped it: it fails as a Prompt that does not fit
         if not isinstance(error, TurnYielded) and self._yielded.get(session_id) == (
             running.prompt.prompt_id
         ):
@@ -772,6 +785,7 @@ class TurnQueue:
         running.tools_step = step
         running.need += grows
         running.grown += grows
+        running.measuring, running.measured = None, False  # a new estimate, of another Step
         running.resume = functools.partial(self._next_step, running)
         running.ready_at = self._wall()
         self._reporter.log_session(session_id, "tools_returned", grows=grows)
@@ -802,7 +816,7 @@ class TurnQueue:
         if not wants_compaction(compact, running.need, running.slot_context):
             return False
         # What it read when it started holds its saved Turns, and more: at most this much.
-        schemas = len(json.dumps(running.job.tools.schemas))  # counted a character each
+        schemas = _schema_chars(running.job.tools.schemas)
         saved = running.need - running.grown - running.output_cap - schemas
         return saved > compact.keep * running.slot_context and bool(
             self._conversation(session).turns
@@ -995,6 +1009,8 @@ class TurnQueue:
             if not self._ready(running.link.key):
                 waiting[running.session.id] = self._server_waiting(running.link.key)
                 continue
+            if not self._may_fit(running):  # measured first, or it fails
+                continue
             since = running.ready_at
             waiter = self._waiter(running.session.id, "continuation", since, running.need)
             candidates.append(_Candidate(waiter, running.link, running=running))
@@ -1016,6 +1032,46 @@ class TurnQueue:
             if candidate is not None:
                 candidates.append(candidate)
         return candidates
+
+    def _may_fit(self, running: _RunningTurn) -> bool:
+        """Whether the Continuation's next Step fits in its Server's empty pool, so it may
+        wait for room. One estimated bigger is measured on the Server first, and one measured
+        bigger fails, since it would wait for ever (#188)."""
+        pool = self._pool(running.link.key)
+        if pool is None or running.need <= pool:
+            return True
+        if running.measured:
+            self._fail_too_big(running, pool)
+        elif running.measuring is None:
+            self._measure_next(running)
+        return False
+
+    def _measure_next(self, running: _RunningTurn) -> None:
+        running.measuring = next(self._tickets)
+        items = _next_input(running)
+        self._servers.measure(running.link.key, running.session.id, running.measuring, items)
+
+    def _fail_too_big(self, running: _RunningTurn, pool: int) -> None:
+        """Stop the Turn: once its executor says it stopped, it fails as ``PromptTooBig``."""
+        running.too_big = PromptTooBig(need=running.need, limit=pool)
+        running.cancellation.cancel(TOO_BIG)
+        self._withdraw(running)
+
+    def _continuation_measured(self, running: _RunningTurn, tokens: int | None) -> None:
+        """The Server measured the input of the Continuation's next Step (#188): it needs that,
+        its tools' schemas and its Output cap. One it could not measure reserves the whole
+        pool, so it starts once no other Step is in course."""
+        running.measuring, running.measured = None, True
+        if tokens is None:
+            shown = "the Server could not measure the input: it waits for the whole pool"
+            self._reporter.log_session(running.session.id, "input_unmeasured", text=shown)
+            need = min(running.need, self._pool(running.link.key) or running.need)
+        else:
+            need = tokens + _schema_chars(running.job.tools.schemas) + running.output_cap
+        running.grown -= running.need - need  # what it read when it started stays the same
+        running.need = need
+        self._reporter.log_session(running.session.id, "continuation_measured", need=need)
+        self._start_turns()
 
     def _prompt_candidate(
         self, prompt: Prompt, waiting: dict[SessionId, Waiting]
@@ -1074,7 +1130,7 @@ class TurnQueue:
             items = self._input(prompt, session, link)
             ticket = next(self._tickets)
             tools = self._tools_for(session)
-            schemas = len(json.dumps(tools.schemas)) if tools is not None else 0
+            schemas = _schema_chars(tools.schemas) if tools is not None else 0
             self._measures[session.id] = _Measure(prompt, link.key, ticket, schemas=schemas)
             self._servers.measure(link.key, session.id, ticket, items)
             return None
@@ -2056,6 +2112,23 @@ def _brought(prompt: Prompt) -> dict[str, JsonValue]:
 def _compacting(running: _RunningTurn) -> bool:
     """Whether its Step is a Compaction's summary Step."""
     return running.prompt.kind != "prompt"
+
+
+def _schema_chars(schemas: list[Item]) -> int:
+    """What tool schemas take of each Step's input at most, a character each: ``/tokenize``
+    does not read them (#106)."""
+    return len(json.dumps(schemas)) if schemas else 0
+
+
+def _next_input(running: _RunningTurn) -> list[Item]:
+    """What the Turn's next Step reads: its first Step's input, what each Step it ended since
+    gave, and the Step whose tools answered last."""
+    request = running.job.request
+    ended = running.streamed.steps[len(request.done) :]
+    items = [*request.input, *(item for step in ended for item in step.items)]
+    if running.tools_step is not None:
+        items.extend(running.tools_step.items)
+    return items
 
 
 def _reason(error: AllInError) -> JsonValue:
