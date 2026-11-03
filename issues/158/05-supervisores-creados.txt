@@ -1,0 +1,20 @@
+# servers/swift.toml (creado desde el Kit: modelo encontrado)
+model = "<repo>/models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf"
+context = 32000
+parallel = 2
+port = 9940
+extra = []
+command = ["llama", "serve"]
+
+# servers/otro.toml (creado desde el Kit: modelo no encontrado)
+model = "Otro-27B-Q4_K_M.gguf"
+context = 16000
+port = 9941
+extra = []
+command = ["llama", "serve"]
+
+# servers/base.toml (el Supervisor que ya había)
+model = "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf"
+context = 32000
+port = 9933
+

@@ -1,0 +1,12 @@
+{"ts": "2026-11-03T07:38:42.169556-06:00", "event": "queue_paused", "server": "9931", "state": "None"}
+{"ts": "2026-11-03T07:38:42.173467-06:00", "event": "queue_paused", "server": "9931", "state": "ServerDown"}
+{"ts": "2026-11-03T07:39:29.679448-06:00", "event": "kit_exported", "kit": "kit158", "pieces": ["server:swift", "server:otro"]}
+{"ts": "2026-11-03T07:39:36.783404-06:00", "event": "kit_loaded", "kit": "kit158", "version": "1", "written": [], "kept": []}
+{"ts": "2026-11-03T07:39:43.466973-06:00", "event": "kit_server_created", "server": "swift", "kit": "kit158", "model": "<repo>/models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf"}
+{"ts": "2026-11-03T07:39:49.527433-06:00", "event": "kit_server_created", "server": "otro", "kit": "kit158", "model": "Otro-27B-Q4_K_M.gguf"}
+{"ts": "2026-11-03T07:39:58.871131-06:00", "event": "queue_paused", "server": "otro", "state": "None"}
+{"ts": "2026-11-03T07:39:58.871282-06:00", "event": "link_change_asked", "sid": "s158", "server": "otro"}
+{"ts": "2026-11-03T07:39:58.871554-06:00", "event": "supervisor_woken", "server": "otro"}
+{"ts": "2026-11-03T07:39:58.871674-06:00", "event": "queue_paused", "server": "otro", "state": "ServerAsleep"}
+{"ts": "2026-11-03T07:39:59.871482-06:00", "event": "queue_paused", "server": "otro", "state": "ServerFailed"}
+{"ts": "2026-11-03T07:40:09.175979-06:00", "event": "link_change_failed", "sid": "s158"}

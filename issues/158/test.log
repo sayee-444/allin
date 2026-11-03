@@ -1,0 +1,41 @@
+# #158 — Un Supervisor que propone un Kit avisa si su modelo no está (2026-11-03)
+
+Sin Servidor: ningún criterio necesita que llama arranque, y el tercero prueba justo que no se lanza.
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m158, en un xterm (allin-main-158), desde <repo>
+(el worktree, donde models/ es el enlace a los modelos del usuario), con el código del commit a6aef2a.
+
+## Preparación
+- <data-dir>/servers/: base.toml (model = "models/Swift-1.5-Qwen3.8-27B-IQ3_XXS.gguf", port 9933),
+  swift.toml (model = "models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf") y otro.toml (model = "Otro-27B-Q4_K_M.gguf", que no existe).
+- /kit export kit158 server:swift server:otro: el Kit nombra los modelos solo por su nombre de archivo.
+- Se sacan swift.toml y otro.toml de <data-dir>/servers/; queda base.toml.
+- /kit load kit158: dos recuadros «Kit Supervisor», uno por Supervisor sugerido.
+
+## Criterios
+1. El recuadro de /kit load dice si el modelo sugerido no está junto a los de ningún Supervisor de la máquina
+   (02-caja-no-encontrado.png): «Create Supervisor otro from kit kit158, asleep? Its model Otro-27B-Q4_K_M.gguf
+   is not next to the model of any Supervisor on this machine; give it one with /server set otro model=<path>».
+   El de swift, cuyo modelo sí está junto al de base, lo nombra con su ruta (01-caja-encontrado.png).
+   Tests: test_a_kits_server_creates_an_asleep_supervisor_once_accepted (texto del recuadro sin modelo).
+2. Si está, el Supervisor creado lo nombra con su ruta (05-supervisores-creados.txt, 07-log-de-main.jsonl):
+   swift.toml queda con model = "<repo>/models/Swift-1.5-Qwen3.8-27B-IQ2_XXS.gguf"; otro.toml, con el nombre tal cual.
+   El Log de Main lo dice: kit_server_created {"server": "swift", "model": "<repo>/models/…IQ2_XXS.gguf"}.
+   Tests: test_a_kits_model_next_to_a_supervisors_is_named_by_its_path (salta otro toml roto y otra carpeta),
+   test_a_kits_model_is_looked_for_in_a_supervisors_settings_folder (modelo relativo a su cwd).
+3. Un Supervisor cuyo modelo no existe no se lanza, y su Aviso nombra el archivo y /server set <nombre> model=<ruta>
+   (03-aviso-modelo-falta.png, 04-main-tras-el-aviso.png, 06-otro.json):
+   /new --id=s158 --bg; /session set s158 server=otro. Main despierta a otro (supervisor_woken), que falla al
+   momento: Aviso «Supervisor otro has no model» con «<repo>/Otro-27B-Q4_K_M.gguf is not there; give it one with
+   /server set otro model=<path>». La espera y el cambio de Enlace fallido dicen lo mismo en el Chat:
+   «queue paused: Supervisor otro has no model: …» y «[s158] Enlace not changed: Supervisor otro has no model: …;
+   the Enlace stays on the Server».
+   otro.json: status failed, failure model_missing, reason = la ruta, server_pid null.
+   No hay <data-dir>/logs/servers/: el Supervisor nunca escribió server.log, es decir, no lanzó llama.
+   Tests: test_a_model_that_is_not_there_fails_naming_it_without_launching_the_server,
+   test_a_relative_model_is_looked_for_in_the_settings_folder,
+   test_pending_settings_whose_model_is_not_there_fall_back_to_the_last_that_started (un /server set a un
+   modelo que no está, en un Supervisor que ya corre, vuelve a los últimos Ajustes que arrancaron),
+   test_a_supervisor_whose_model_is_missing_is_a_notice_naming_the_file_and_the_command,
+   test_a_missing_model_is_named_with_the_command_that_gives_one,
+   test_the_model_file_starts_from_the_settings_folder_or_else_where_the_server_runs.
+4. Tests: 1736 pasan; basedpyright y ruff limpios; mutación 93 % (930/995), sin mutantes vivos en el código nuevo.

@@ -1,0 +1,24 @@
+{
+  "status": "failed",
+  "pid": null,
+  "server_pid": null,
+  "arguments": [
+    "llama",
+    "serve",
+    "-m",
+    "Otro-27B-Q4_K_M.gguf",
+    "-c",
+    "16000",
+    "--port",
+    "9941"
+  ],
+  "cwd": null,
+  "port": 9941,
+  "slept_by_human": false,
+  "last_exit_code": null,
+  "failure": "model_missing",
+  "reason": "<repo>/Otro-27B-Q4_K_M.gguf",
+  "restart": null,
+  "going_to_sleep": false,
+  "fallback_reason": null
+}
