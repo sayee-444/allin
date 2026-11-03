@@ -71,15 +71,17 @@ from allin.main.profile_commands import ProfileCommands
 from allin.main.prompt_commands import (
     SendOptions,
     TurnOverrides,
-    is_secret_command,
+    holds_secret,
+    kept_of_command,
     parse_prompt,
     parse_send,
+    sends_secret,
 )
 from allin.main.prompts import Prompt
 from allin.main.reporting import Reporter
 from allin.main.rewind import rewind
 from allin.main.secret_commands import USAGE as SECRET_USAGE
-from allin.main.secret_commands import SecretCommands, kept_of_secret
+from allin.main.secret_commands import SecretCommands
 from allin.main.sends import SessionSends
 from allin.main.server_commands import USAGE as SERVER_USAGE
 from allin.main.server_commands import ServerCommands
@@ -88,7 +90,6 @@ from allin.main.server_commands import human_only as server_human_only
 from allin.main.session_commands import (
     NEW_USAGE,
     chain_sessions,
-    kept_of_session_command,
     lacking,
 )
 from allin.main.sessions import Session, SessionStore
@@ -183,9 +184,6 @@ class CommandSpec:
     covers_its_session: bool = False
     # Raises what running it would, before a Confirmation asks a human about it: /grant.
     check: Callable[[list[str]], None] | None = None
-    # What Main's Chat and Log keep of its text, if not all of it: /secret's never holds a
-    # value typed on the command line by mistake (#124).
-    kept: Callable[[str], str] | None = None
 
     def delicate(self, args: list[str]) -> bool:
         return self.confirm(args) if callable(self.confirm) else self.confirm
@@ -346,7 +344,6 @@ class MainCommands:
                 takes_yes=True,
                 takes_answer=True,
                 takes_initiative=True,
-                kept=_kept_of_send,
             ),
             "/subscribe": CommandSpec(
                 ("sid",),
@@ -480,7 +477,6 @@ class MainCommands:
                 optional=("action…",),
                 rest=True,
                 human_only=True,
-                kept=kept_of_secret,
             ),
             "/subprofile": CommandSpec(
                 (),
@@ -675,7 +671,8 @@ class MainCommands:
         if command is not None and command.rest:
             args = _split_rest(text, len(command.params) + len(command.optional))
         session_id = None
-        kept = _kept(command, text)
+        # Never a Secreto's value typed by mistake, whatever the command (ADR-0026).
+        kept = kept_of_command(text)
 
         def done(outcome: CommandOutcome) -> None:
             """How it went, maybe later: only then is it logged, under the Session it names
@@ -686,7 +683,7 @@ class MainCommands:
         keep_running = True
         try:
             if command is None:
-                if is_secret_command(text):
+                if sends_secret(text):
                     raise SecretInMainChatOnly(usage=SECRET_USAGE)
                 raise UnknownCommand(command=name)
             names = command.params + command.optional
@@ -708,11 +705,11 @@ class MainCommands:
                 or (session_id is not None and self._devastation.covers_session(session_id))
             )
             if delicate and not yes and not answered_by_main:
-                self._ask(command, args, text, session_id, origin, done, initiative)
+                self._ask(command, args, kept, session_id, origin, done, initiative)
                 return True
             if delicate and not yes:
-                shown = f"{_summary(text)}: confirmation answered by --devastation"
-                self._reporter.report(session_id, "confirmation_auto_answered", shown, command=text)
+                shown = f"{_summary(kept)}: confirmation answered by --devastation"
+                self._reporter.report(session_id, "confirmation_auto_answered", shown, command=kept)
             keep_running = self._call(command, args, origin, done, yes=yes, initiative=initiative)
         except AllInError as error:
             done(error)
@@ -1187,9 +1184,9 @@ class MainCommands:
             self._sends.send(session, options, origin, answer, initiative)
             return True
         reply_to, typed = _reply_to(text)
-        if is_secret_command(typed):
+        if holds_secret(typed):
             # Never back to its input, nor to the Draft Main keeps on disk: it may hold a
-            # Secreto's value typed by mistake (#178).
+            # Secreto's value typed by mistake (#178, #195).
             refused = SecretInMainChatOnly(usage=SECRET_USAGE)
             self._windows.send(session.id, error_entry(str(refused)))
             raise refused
@@ -1302,6 +1299,8 @@ class MainCommands:
         """``/errand`` and ``/batch``: its Session and every worker of the active Profile."""
         coordinator = self._active_session(session_id)
         errand = parse_errand(text, batch, self._settings.current.errand)
+        if any(sends_secret(part.task) for part in errand.parts):  # a Prompt to each worker
+            raise SecretInMainChatOnly(usage=SECRET_USAGE)
         known = {worker: self._active_session(worker) for worker in errand.assigned}  # by id now
         self._subscriptions.open_errand(coordinator, errand.with_workers(known), origin)
         return True
@@ -1339,26 +1338,6 @@ def _reply_to(text: str) -> tuple[str | None, str]:
     if not first.startswith(_REPLY_TO) or not rest.strip():
         return None, text
     return first.removeprefix(_REPLY_TO), rest
-
-
-def _kept(command: CommandSpec | None, text: str) -> str:
-    """What Main's Chat and Log keep of a command's text: what its ``kept`` says, if it has
-    one; of an unknown ``@secret …``, which may hold a value typed by mistake, its first four
-    words (#178); all of it otherwise."""
-    if command is None:
-        return kept_of_session_command(text)
-    return text if command.kept is None else command.kept(text)
-
-
-def _kept_of_send(text: str) -> str:
-    """What Main's Chat and Log keep of a ``/send``: of an ``@secret …`` sent, its first four
-    words, as ``/secret`` (#178); any other as typed."""
-    match _split_rest(text, 2):
-        case [_, sent]:
-            _, typed = _reply_to(sent)
-            return text.removesuffix(typed) + kept_of_session_command(typed)
-        case _:
-            return text
 
 
 # How a Session writes it: its Command prompts in the structured form, ahead of the text.

@@ -18,17 +18,6 @@ USAGE = (
 )
 
 
-_KEPT_WORDS = 4  # /secret set <instance> <name>: never the value after them
-
-
-def kept_of_secret(text: str) -> str:
-    """What Main's Chat and Log keep of a ``/secret`` line: its first four words, and ``…``
-    for whatever follows them, such as a value typed there by mistake."""
-    words = text.split()
-    hidden = " …" if len(words) > _KEPT_WORDS else ""
-    return " ".join(words[:_KEPT_WORDS]) + hidden
-
-
 class SecretCommands:
     def __init__(self, secrets: Secrets, boxes: MainBoxes, reporter: Reporter) -> None:
         self._secrets = secrets

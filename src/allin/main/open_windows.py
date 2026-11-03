@@ -27,7 +27,7 @@ from allin.main.chat_rebuild import error_entry, prompt_history, rebuild_chat, r
 from allin.main.conversation import Conversation, Step
 from allin.main.executors import SHUTTING_DOWN
 from allin.main.links import LinkResolver
-from allin.main.prompt_commands import is_secret_command
+from allin.main.prompt_commands import holds_secret
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.themes import ThemeKeeper
@@ -416,9 +416,10 @@ class OpenWindows:
         return {session_id: link.pid for session_id, link in self._links.items()}
 
     def keep_draft(self, session_id: SessionId, blocks: Sequence[str]) -> None:
-        """What a Session's Window holds in its input now, shown block first; never an
-        ``@secret …``, which MainState would keep on disk with a value typed in it (#155)."""
-        self._drafts[session_id] = [block for block in blocks if not is_secret_command(block)]
+        """What a Session's Window holds in its input now, shown block first; never one that
+        holds an ``@secret …``, which MainState would keep on disk with a value typed in it
+        (#155, #195)."""
+        self._drafts[session_id] = [block for block in blocks if not holds_secret(block)]
 
     def rename(self, old: SessionId, new: SessionId) -> None:
         """A Session took a new id (#59): its Draft follows it, and what its last Compaction

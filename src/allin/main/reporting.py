@@ -15,6 +15,7 @@ from pydantic import JsonValue
 from allin.core.errors import AllInError
 from allin.core.ids import SessionId
 from allin.main.log import Log
+from allin.main.prompt_commands import kept_of_command
 from allin.main.sessions import SessionStore
 
 
@@ -88,13 +89,26 @@ class Reporter:
     def log_main(self, event: str, **fields: JsonValue) -> None:
         """Keep an event in Main's Log only."""
         try:
-            self._main_log.append(event, **fields)
+            self._main_log.append(event, **_kept(fields))
         except AllInError as error:  # never logged again, or a broken Log would loop
             self._main_chat(f"error {error}")
 
     def log_session(self, session_id: SessionId, event: str, **fields: JsonValue) -> None:
         """Keep an event in a Session's Log only."""
         try:
-            self._sessions.log(session_id).append(event, **fields)
+            self._sessions.log(session_id).append(event, **_kept(fields))
         except AllInError as error:
             self.report(session_id, "error", f"error {error}", error=str(error))
+
+
+# The fields that hold a command's line, as typed or as it runs.
+_COMMAND_FIELDS = ("command", "runs")
+
+
+def _kept(fields: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """What a Log keeps of an event: of a command's line, never a Secreto's value typed in it
+    by mistake, whoever wrote it there (ADR-0026, #195)."""
+    return {
+        key: kept_of_command(value) if key in _COMMAND_FIELDS and isinstance(value, str) else value
+        for key, value in fields.items()
+    }
