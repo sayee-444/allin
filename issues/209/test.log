@@ -1,0 +1,65 @@
+# #209 — los caminos que aún llevaban el valor de un @secret a la entrada o al Log (2026-11-03)
+
+Servidor: ninguno (rechazar un @secret no pide LLM; Main corrió con su Enlace sin Servidor, «queue paused»).
+Main: ./venv/bin/python -m allin --data-dir <scratch>/m209, en un xterm (allin-main-209), con PYTHONPATH=src,
+con el código del commit 542f1cd.
+Valor de prueba tecleado: xoxb-209-valor-de-prueba (inventado).
+
+## Pasos
+1. En Main: /new --id=otra209, /close otra209, /new --id=caja209 (abre su Ventana).
+2. En la Ventana de caja209, con Enter (01-caja.png):
+   @send otra209 --attach="my notes.txt" @secret set bot token xoxb-209-valor-de-prueba   (opción entre comillas)
+   @errand {"otra209": "@secret set bot token xoxb-209-valor-de-prueba"}
+   @send otra209 "@secret set bot token xoxb-209-valor-de-prueba"                         (texto entre comillas)
+   Cada una sale como «[error] … @secret set bot token …: secret_in_main_chat_only: usage='/secret …'», y la
+   entrada queda vacía: ninguna volvió. Antes, la primera y la tercera se mandaban a otra209 como Prompt.
+3. En el Chat de Main, con Enter (02-main.png):
+   /send otra209 --attach=notes.txt @secret set bot token xoxb-…  -> «… @secret set bot token …: error secret_in_main_chat_only»
+   /send otra209 -- @secret set bot token xoxb-…                  -> lo mismo
+   (antes, las dos se mandaban a otra209 como Prompt con el valor)
+   /send caja209 --reply-to=otra209 + Tab: el Tab no entra en la entrada de Main, así que el --reply-to= seguido de tab
+   o salto de línea queda solo en tests (abajo). Se borró la línea sin mandarla.
+4. En la Ventana de caja209, sin Enter, un Borrador con un escape de JSON (\t) tras @secret:
+   @errand {"otra209": "@secret\tset bot token xoxb-209-valor-de-prueba"}
+   - <data-dir>/profiles/default/state.json: "drafts": {}
+   - grep -rl xoxb-209 <data-dir>: nada.
+5. Se borró y se tecleó con Enter el @ escapado como en JSON (04-caja-escapado.png, cuarta línea de error):
+   @errand {"otra209": "@secret set bot token xoxb-209-valor-de-prueba"}
+   -> «[error] @errand {"otra209": "@secret set bot token …: secret_in_main_chat_only…», y no volvió a la entrada.
+   Después, la misma línea quedó en la entrada sin Enter (Borrador): state.json "drafts": {}; grep -rl: nada.
+   (03-caja-borrador.png es el Borrador del paso 4.)
+6. /exit en Main (guarda el Estado de Main por última vez y cierra la Ventana).
+   - state.json: "drafts": {}; grep -rl xoxb-209 <data-dir>: nada.
+7. Log de Main y de las Sesiones (05-logs.jsonl): cada línea de comando con @secret acaba en «@secret set bot token …»,
+   también la del @ (que el Log guarda ya leída: «"@secret set bot token …»); otra209 no tiene ningún evento prompt.
+
+## Criterios
+1. Ninguna de las formas deja el valor en la entrada, el Borrador, state.json, el Log, el Chat ni la Conversación:
+   pasos 2–7 a mano para las opciones (también entre comillas), el texto entre comillas y los escapes; los tests, para
+   todas:
+   - --reply-to= y salto de línea o tab, con la Ventana abierta y cerrada (solo tests):
+     test_sent_with_reply_to_and_a_newline_or_tab_before_at_secret_it_goes_back_nowhere[4 variantes]
+   - opción delante desde el Chat de Main: test_sent_from_mains_chat_with_an_option_ahead_of_at_secret_it_sends_nothing
+     [--attach=notes.txt, --temperature=0.5, --, --attach="my notes.txt"]
+   - opción entre comillas desde una Ventana: test_sent_as_at_send_with_a_quoted_option_from_a_window_it_runs_nothing
+   - opción entre comillas pedida por una herramienta: test_asked_as_at_send_with_an_option_by_a_tool_it_is_refused[2]
+   - texto entre comillas: test_sent_as_at_secret_in_quotes_it_sends_nothing[Ventana, Chat de Main]
+   - escapes de JSON en la tarea de un Encargo (@, \n, \t,  ):
+     test_an_errand_whose_json_escapes_its_at_secret_task_sends_nothing_and_keeps_four_words[4]
+2. Un solo reconocedor (read_secret en prompt_commands.py) que usan el recorte del Log (Reporter), el rechazo
+   (MainCommands.run, SessionCommands.run y run_initiative, _errand) y la vuelta a la entrada (OpenWindows.put_back y
+   keep_draft): test_one_reading_says_what_is_cut_what_is_refused_and_what_goes_back[17 líneas].
+3. La Iniciativa de una fproc también rechaza @send <sid> @secret …: solo tests, con la fproc guide de verdad
+   (Subperfil e Iniciativa): test_an_at_send_at_secret_it_asks_on_its_own_is_refused_and_its_value_never_kept
+   (oye secret_in_main_chat_only, su Sesión no recibe más Prompt que el saludo, y el grep tras /exit no da nada).
+4. Un grep del valor en la carpeta de datos, tras /exit, no da nada: paso 6, y files_with tras /exit en los tests.
+5. Tests, uno por forma: los de arriba, en tests/test_secrets.py y tests/test_fproc_initiative.py. Además,
+   test_a_humans_reply_to_followed_by_a_newline_or_tab_wakes_it_too (tests/test_subscriptions.py): un --reply-to=
+   seguido de salto de línea o tab sigue despertando a quien espera.
+
+Los 14 tests de la revisión (rev3/test_rev3_secret.py, _secret_tool.py, _initiative_secret.py) pasan.
+Suite completa: 1951 passed; basedpyright 0 errores; ruff limpio.
+
+## Fuera de este issue
+«/secret set <instancia> <nombre> <valor>» tecleado como Prompt en una Ventana, o mandado con /send, va entero al LLM y
+al Log (reproducido con un test): #210.
