@@ -27,7 +27,7 @@ from allin.main.chat_rebuild import error_entry, prompt_history, rebuild_chat, r
 from allin.main.conversation import Conversation, Step
 from allin.main.executors import SHUTTING_DOWN
 from allin.main.links import LinkResolver
-from allin.main.prompt_commands import holds_secret
+from allin.main.prompt_commands import read_secret
 from allin.main.reporting import Reporter
 from allin.main.sessions import Session, SessionStore
 from allin.main.themes import ThemeKeeper
@@ -419,7 +419,7 @@ class OpenWindows:
         """What a Session's Window holds in its input now, shown block first; never one that
         holds an ``@secret …``, which MainState would keep on disk with a value typed in it
         (#155, #195)."""
-        self._drafts[session_id] = [block for block in blocks if not holds_secret(block)]
+        self._drafts[session_id] = [block for block in blocks if not read_secret(block).held]
 
     def rename(self, old: SessionId, new: SessionId) -> None:
         """A Session took a new id (#59): its Draft follows it, and what its last Compaction
@@ -437,11 +437,13 @@ class OpenWindows:
     def put_back(self, session_id: SessionId, text: str) -> None:
         """A Prompt that did not run goes back to its input, ahead of the Draft. With its
         Window closed, ahead of what a failed Turn left to give back too, which an open Window
-        would hold already, so both come back in the order they would have with it open."""
+        would hold already, so both come back in the order they would have with it open. Never
+        one that holds an ``@secret …``, whoever gives it back (#209)."""
         if session_id not in self._links:
             with suppress(AllInError):  # no such Session any more: nothing of it to give back
                 self._give_back_failed(self._sessions.load(session_id))
-        self._to_input(session_id, text)
+        if not read_secret(text).held:
+            self._to_input(session_id, text)
 
     def _to_input(self, session_id: SessionId, text: str) -> None:
         self._drafts[session_id] = put_back(self._drafts.get(session_id, []), text)

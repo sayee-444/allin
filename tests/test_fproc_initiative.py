@@ -750,3 +750,29 @@ def test_an_at_secret_it_asks_on_its_own_is_refused_and_its_value_never_kept(
     assert "error" in str(heard[2])
     assert "hunter2" not in main.main_log_path.read_text()
     assert not any("hunter2" in line for line in chat)
+
+
+def test_an_at_send_at_secret_it_asks_on_its_own_is_refused_and_its_value_never_kept(
+    main: MainHarness, tmp_path: Path
+):
+    heard: list[JsonValue] = []
+    chat = main.run(
+        MainCommandEntered("/attach guide"),
+        hearing(main, 2),
+        TURNS_ENDED,
+        act(main, lambda: f"@send {subprofile_sessions(main)[0]} @secret set guide token hunter2"),
+        hearing(main, 3),
+        TURNS_ENDED,
+        lambda: heard.extend(guide_heard(main)),
+        MainCommandEntered("/exit"),
+        settle=True,
+    )
+    assert "secret_in_main_chat_only" in str(heard[2])
+    [sid] = subprofile_sessions(main)
+    prompts = [e for e in main.session_log(main.sessions.load(sid)) if e.event == "prompt"]
+    assert len(prompts) == 1, "only its greeting"
+    assert not any("hunter2" in line for line in chat)
+    found = [
+        path for path in tmp_path.rglob("*") if path.is_file() and b"hunter2" in path.read_bytes()
+    ]
+    assert found == []

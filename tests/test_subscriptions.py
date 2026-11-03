@@ -77,6 +77,19 @@ def test_a_reply_wakes_the_sender_with_the_answer_and_waiting_holds_no_slot(main
     assert started(main, a) == 1, "only once it woke"
 
 
+@pytest.mark.parametrize("gap", ["\n", "\t"])
+def test_a_humans_reply_to_followed_by_a_newline_or_tab_wakes_it_too(main: MainHarness, gap: str):
+    a, b = main.create_session(), main.create_session()
+    main.run(
+        MainCommandEntered(f"/send {b.id} --reply-to={a.id}{gap}hola"),
+        answers(b, "hola, A"),
+        Tick(),
+        settle=True,
+    )
+    assert [fields["text"] for fields in logged(main, b, "prompt")] == ["hola"]
+    assert len(woken(main, a)) == 1
+
+
 def test_events_that_come_one_after_another_wake_it_once(main: MainHarness):
     a, b, c = main.create_session(), main.create_session(), main.create_session()
     main.run(
