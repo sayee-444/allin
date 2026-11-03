@@ -6,7 +6,7 @@ renamed Sessions had, which still reach them (#59): other Conversations keep the
 """
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +36,7 @@ from allin.core.settings import SessionSettings
 from allin.core.themes import pick_border_color
 from allin.main.conversation import (
     Conversation,
+    Item,
     archive_conversation,
     load_archived,
     load_conversation,
@@ -44,6 +45,7 @@ from allin.main.conversation import (
 from allin.main.log import Log, LogEntry, read_log
 
 _METADATA = "session.json"
+_RECIPE = "recipe.json"  # its birth recipe, for Restablecer (ADR-0015)
 _LOG = "log.jsonl"
 _ALIASES = "aliases.json"
 
@@ -71,6 +73,25 @@ class Notification(BaseModel, frozen=True):
     source: NotificationSource
     text: str
     change: Change | None = None
+
+
+class MoldVersion(BaseModel, frozen=True):
+    """Which Molde, and which version of it: the hash it was approved and read with."""
+
+    piece: PieceId
+    hash: str
+
+
+class BirthRecipe(BaseModel, frozen=True):
+    """What a Session was born from, as it was then: the Molde and the version it came from,
+    or the Session template ``/new`` copied, with what that gave it (ADR-0015, #112)."""
+
+    mold: MoldVersion | None = None
+    settings: SessionSettings
+    sysprompt: str  # rendered
+    functions: tuple[PieceId, ...] = ()
+    commands: tuple[CommandName, ...] = ()
+    history: list[Item] = []
 
 
 class Session(BaseModel, frozen=True):
@@ -146,9 +167,12 @@ class SessionStore:
         chosen: str | None = None,
         functions: tuple[PieceId, ...] = (),
         commands: tuple[CommandName, ...] = (),
+        history: Sequence[Item] = (),
+        mold: MoldVersion | None = None,
     ) -> Session:
         """Create a Session and its folder, with the id a human ``chosen`` or a fresh one;
-        ``sysprompt`` is already rendered."""
+        ``sysprompt`` is already rendered, and ``history`` opens its Conversation. Its birth
+        recipe is written before it exists: no Session is ever without one."""
         wanted = None if chosen is None else self.check_new_id(chosen)
         try:
             self._root.mkdir(parents=True, exist_ok=True)
@@ -163,7 +187,16 @@ class SessionStore:
                 functions=functions,
                 commands=commands,
             )
-            save_conversation(folder, Conversation(sysprompt=sysprompt))
+            recipe = BirthRecipe(
+                mold=mold,
+                settings=settings,
+                sysprompt=sysprompt,
+                functions=functions,
+                commands=commands,
+                history=list(history),
+            )
+            write_atomically(folder / _RECIPE, recipe.model_dump_json(indent=2))
+            save_conversation(folder, Conversation(sysprompt=sysprompt, history=list(history)))
             write_atomically(folder / _METADATA, session.model_dump_json(indent=2))
         except OSError as error:
             raise SessionStorageFailed(root=str(self._root), reason=str(error)) from error
@@ -282,6 +315,15 @@ class SessionStore:
     ) -> Session:
         """The Session with other pending Notificaciones, already on disk."""
         return self._save(session.model_copy(update={"notifications": notifications}))
+
+    def load_recipe(self, session: Session) -> BirthRecipe | None:
+        """Its birth recipe; ``None`` for one born before Sessions kept it."""
+        try:
+            return BirthRecipe.model_validate_json((self._root / session.id / _RECIPE).read_bytes())
+        except FileNotFoundError:
+            return None
+        except (OSError, ValidationError) as error:
+            raise SessionUnreadable(session_id=session.id, reason=str(error)) from error
 
     def save_commands(self, session: Session, commands: tuple[CommandName, ...]) -> Session:
         """The Session with another list of Command sessions, already on disk."""

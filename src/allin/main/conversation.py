@@ -94,6 +94,8 @@ class Turn(BaseModel, frozen=True):
 
 class Conversation(BaseModel, frozen=True):
     sysprompt: str  # rendered text, so editing the file later does not change this Session
+    # A Molde's initial history: messages that open the Conversation and are no Turns (#112).
+    history: list[Item] = []
     # What the last Compaction wrote of the Turns it replaced, which are archived (ADR-0017).
     summary: str | None = None
     summarized: int = 0  # how many first Turns the summary replaced: the number of turns[0]
@@ -122,7 +124,7 @@ class Conversation(BaseModel, frozen=True):
         """The ``input`` for the first Step of a Turn that answers ``prompt``; ``reader``
         gives what the LLM gets of each attachment, this Prompt's and earlier ones', and
         ``notifications`` go ahead of the Prompt."""
-        items: list[Item] = [{"role": "developer", "content": self.sysprompt}]
+        items: list[Item] = [{"role": "developer", "content": self.sysprompt}, *self.history]
         if self.summary is not None:
             items.append(summary_item(self.summary, self.summarized))
         for turn in self.turns:
