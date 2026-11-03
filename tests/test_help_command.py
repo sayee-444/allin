@@ -35,7 +35,7 @@ def test_help_lists_every_registered_command_main(main: MainHarness):
 @pytest.mark.parametrize("asked", ["/send", "send"])
 def test_help_about_a_command_shows_its_usage_and_arguments(main: MainHarness, asked: str):
     chat = main.run(MainCommandEntered(f"/help {asked}"))
-    assert "usage: /send [-y] <sid> <text>" in chat
+    assert "usage: /send [-y] <sid> [--reply-to=<sid>] <text>" in chat
     assert any(line.startswith("  <sid>: ") for line in chat)
     assert any(line.startswith("  <text>: ") for line in chat)
 

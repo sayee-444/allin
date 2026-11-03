@@ -8,23 +8,25 @@ Cada fase es un milestone en GitHub (`sayee-444/allin`). Dentro de una fase, los
 
 Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
 
-- **Último hecho:** #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos (2026-11-02).
-  - **Revisión.** La lleva el código de AllIn dentro del proceso (`allin/fproc_runtime.py`). Sube con cada método `@writes` o `@commutative` y con `self.changed()`. Main apunta la que vio cada Sesión en cada llamada de su LLM, y un `@writes` de una Sesión que no vio la actual da `attached_changed` («read it again, then write»). Un Rewind olvida las vistas desde entonces.
-  - **`@concurrent(n)`** en la clase: Main manda cada llamada con su id, hasta `n` a la vez (`@concurrent()`: sin tope), y retiene las demás por orden de llegada.
-  - **Llamadas largas.** `self.progress(…)` sale en la Ventana o en el Chat donde se hizo la llamada y reinicia su timeout. Cancelar el Turno le llega al método (`self.cancelled()`). Una llamada que no acaba tras su timeout y el Ajuste `attached.release` (5 s) hace que Main mate el proceso, con un Aviso.
-  - **Probado a mano** con `llama serve` (Q6), con la fproc `pizarra`:
-    - la escritura de `lectora` se rechazó tras la de `autora`, y pasó después de releer;
-    - un cambio a mano con `self.changed()` obligó a `autora` a releer;
-    - con `@concurrent(2)`, la tercera llamada esperó a que acabara la primera;
-    - una tarea de 6 s con avisos no venció con un timeout de 4 s;
-    - cerrar la Ventana canceló el Turno y el método lo vio;
-    - una llamada colgada hizo que Main matara el proceso, con su Aviso.
+- **Último hecho:** #116 Suscripción (2026-11-02).
+  - **Qué despierta.** `@subscribe <evento>` (un humano: `/subscribe <sid> <evento>`) abre una Suscripción a `process:<nombre>` (lo que un método anuncia con `self.announce(…)`), `timer:<segundos>`, `rewind:<sid>` o `compact:<sid>` (con el rango de Prompts y sus ids). `@unsubscribe` la cierra. `--reply-to=me` al enviar (un humano: `/send <sid> --reply-to=<sid> …`) despierta a quien envía con la respuesta. Una Sesión solo se suscribe a sí misma.
+  - **El id del Prompt.** Cada Prompt lo tiene; una tool lo lee con `allin.channel.prompt_id()` y un método con `self.prompt_id()`.
+  - **Agrupar y cortar.** Los eventos esperan al tick; una Sesión sin Turno recibe uno solo con todos (hasta `subscription.events`, 20), como Continuación. Una cadena que pasa `subscription.repeats` veces (5) por la misma Suscripción se corta con una Notificación.
+  - **La respuesta de un Prompt** espera a las respuestas que abrió su propio Turno; un Rewind cancela lo abierto desde el Turno al que vuelve.
+  - **Probado a mano** con `llama serve` (Q6, un slot):
+    - `jefa` preguntó a `ayudante` con su tool `enviar` y la respuesta la despertó, después de que acabara su Turno;
+    - tres avisos de la fproc `avisos` llegaron a `vigia` en un solo Prompt;
+    - con `subscription.repeats=2`, el bucle `jefa`↔`ayudante` se cortó al tercer número, con la Notificación;
+    - el Rewind de `vigia` canceló el temporizador que abrió su tool `suscribir` y dejó la Suscripción del humano;
+    - el Rewind de `ayudante` despertó a `vigia` con «rewound Prompts 3–4 (ids …)».
   - **La revisión encontró**, ya arreglado:
-    - un proceso que avisaba a menudo nunca moría aunque colgara una llamada;
-    - el lector podía quedar bloqueado en un envío con el cerrojo tomado;
-    - un `KeyError` si el proceso acababa durante una cancelación.
-  - Métricas: 1515 tests, cobertura 84 %, mutación 94 %, 40 escapes. Antes: #114 Métodos de una fproc.
-- **Siguiente:** #116 Suscripción.
+    - un Prompt de Suscripción se colaba delante de un Turno suspendido;
+    - el Rewind y el reinicio no cancelaban lo que ya había llegado;
+    - lo que llegaba a un Perfil congelado no respetaba el tope;
+    - `--reply-to` con un id viejo dejaba la Suscripción a nombre del alias;
+    - un humano podía suscribir una Sesión de otro Perfil.
+  - Métricas: 1534 tests, cobertura 84 %, mutación 94 %, 40 escapes. Antes: #115 Revisión, concurrencia y llamadas largas.
+- **Siguiente:** #117 Encargo y Lote.
 - **Preguntas abiertas para el usuario:** ¿le vale que Main apruebe solo los Sysprompts idénticos a los instalados (#104)? Los que ya editó en su Perfil `default` quedarán en cuarentena hasta `/piece approve --all`. ¿Le vale que las fsources vivan en `functions/` y las fagents en `agents/` del Perfil (#106)? ¿Le vale que, en un kernel que no encierra del todo, una tool que no escribió él ni se ofrezca al LLM, en vez de devolverle «este kernel no puede encerrar esta tool» como decía #106? ¿Le vale que `-y` para las tools se ponga solo con `/send -y` desde el Chat de Main (en la Ventana aún no hay forma), y que todas las Confirmaciones de un Paso se pregunten antes de que corra ninguna tool (#107)? ¿Le vale que lo que muestra un `@…` tecleado en la Ventana (como `@conversation_logs list`) salga en el Chat de Main, donde sale todo Command main, y no en la Ventana (#109)? ¿Le vale que la forma estructurada de `/send` (`--attach=`, `--temperature=`…) sea solo de las Sesiones y que un humano siga escribiendo `@./ruta` y `@clave=valor` en su texto (#110)? Ante el «no» a un archivo de fuera, el LLM lo volvió a pedir una vez, y saltó otro recuadro. ¿Le vale que `/grant` lo pueda escribir también un humano en el Chat de Main (pide Confirmación como si fuera de una Sesión), y que dar la fsource que declara Otorgar dé ya `@grant`, en vez de pedir las dos cosas por separado (#111)? Ahora toda Confirmación que no pidió un humano dice quién la pide (`asked by human > session:…`). ¿Le vale que `@send` y `@server` sean de Main (siempre están, y la lista por defecto los trae) en vez de módulos en `comsession/`, y que si se cancela el Turno de una tool que espera la Confirmación de su Command main, la Confirmación siga abierta y el comando corra si alguien dice sí (#108)? ¿Le vale que `/dev/shm` se declare en `@reach` en vez de ir en el mínimo, y que `HOME` sea la Carpeta de trabajo? Un `@reach` puesto en un método de una fproc ya hace fallar su descripción (#114). ¿Le vale que `@create` no venga en la lista por defecto de una Sesión (se da con `-cs=create` o con Otorgar), y que una Sesión que crea desde un Molde con tarea necesite `@send` (#112)? ¿Le vale que en el modo normal el «sí» al recuadro de una pieza creada por una Sesión la deje aprobada? El criterio del issue decía «deja la pieza en cuarentena»; el cuerpo y el ADR-0013 dicen «Confirmación y Aprobación a la vez». `-y` no aplica: un comando que pide una Sesión nunca lo trae. Sobre #113:
   - ¿Le vale que los pids de los Procesos adheridos vayan en `state/attached.json`, uno por carpeta de datos, y no en el Estado de Main, que es de cada Perfil?
   - ¿Que `@attach` no venga en la lista por defecto, como `@create`?
@@ -43,6 +45,17 @@ Lo actualiza el agente al terminar cada issue (`docs/agents/issue-workflow.md`).
   - ¿Que una llamada cancelada que el método no deja también acabe matando el proceso, pasados su timeout y `attached.release`?
   - ¿Que `@concurrent()` con paréntesis sea «sin tope», y que `@concurrent` a secas dé error?
   - Mientras se crea la clase, adherir bloquea a Main hasta 20 s. Lo perdido aún no avisa a las Sesiones afectadas: llega con el Informe de recuperación.
+
+  Sobre #116:
+  - ¿Le vale que los eventos se agrupen en el tick (hasta un segundo de espera), y no al momento?
+  - ¿Que `@subscribe` y `@unsubscribe` vengan en la lista por defecto? Solo despiertan a la propia Sesión y su cadena tiene tope.
+  - ¿Que todas las respuestas de una Sesión a otra, y todos sus temporizadores, cuenten como la misma Suscripción para el tope de la cadena?
+  - ¿Que un humano escriba `--reply-to=<sid>` justo tras el `<sid>` de `/send`, como primera palabra?
+  - ¿Que un método solo pueda anunciar durante una llamada, y no desde un hilo propio (un bot que vigila)? Hoy da error fuera de una llamada.
+  - ¿Que la Suscripción no tenga Exención propia, sino la de la Sesión a la que despierta?
+  - ¿Que `subscription.repeats` sea 5 por defecto?
+  - ¿Que solo una respuesta pendiente retenga la del Prompt, y no un temporizador abierto? El issue decía «si un Turno deja abierta una Suscripción».
+  - Restablecer y `/reset --all` serán eventos cuando existan.
 - **Queda pendiente, menor:** tras compactar, el borde sigue con el contexto de antes hasta el Turno siguiente; un Supervisor sugerido cuyo modelo no está en la máquina todavía no avisa; la imagen no tiene aún descripción (llega con el Sysprompt `describir`, ADR-0019); el Prompt del Turno que se cancela al cerrar la Ventana todavía no vuelve al Borrador, aunque el GLOSARIO dice que un Prompt humano cancelado vuelve al input; y en el Chat de Main, que corre en el terminal del humano, Ctrl+Enter y Shift+Enter solo se distinguen si ese terminal manda `modifyOtherKeys`.
 - **Decidido en el grilling del tejido (ronda 1):** autoridad por Origen, `-y` y `--devastation` solo humanos, inyección entre Sesiones (ADR-0013); vida del Encargo si falla la coordinadora (ADR-0011); revisión optimista en Procesos adheridos (ADR-0012); Kit compartible y cargado por copia (ADR-0014).
 - **Decidido en el grilling del tejido (rondas 2–4):** cuarentena de functions ajenas, fusión de Kits, Servidor sugerido, entrada, Plano e historial inicial (ADR-0014); Restablecer, `/reset --all` y archivos como composición (ADR-0015).
@@ -129,7 +142,7 @@ Creados el 2026-11-02 con todo lo decidido hasta ADR-0026; cada issue nombra sus
 15. ✅ #113 Adherir y soltar Procesos adheridos
 16. ✅ #114 Métodos de una fproc
 17. ✅ #115 Revisión, concurrencia y llamadas largas en los Procesos adheridos
-18. #116 Suscripción
+18. ✅ #116 Suscripción
 19. #117 Encargo y Lote
 20. #118 Consultar
 21. #119 Compactación en F2

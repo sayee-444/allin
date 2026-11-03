@@ -13,6 +13,7 @@ from allin.core.errors import MainStateStorageFailed, MainStateUnreadable
 from allin.core.files import write_atomically
 from allin.core.ids import SessionId
 from allin.main.prompts import Prompt
+from allin.main.subscriptions import SubscriptionState
 
 
 class MainState(BaseModel, frozen=True):
@@ -24,6 +25,8 @@ class MainState(BaseModel, frozen=True):
     running: list[Prompt] = Field(default_factory=list[Prompt])  # their Turns had started
     # Sessions open in the background, without a Window (#52), in the order they went there.
     background: list[SessionId] = Field(default_factory=list[SessionId])
+    # Its Suscripciones: frozen while its Profile is inactive (#116, ADR-0011).
+    subscriptions: SubscriptionState = Field(default_factory=SubscriptionState)
 
     def renamed(self, old: SessionId, new: SessionId) -> "MainState":
         """The same MainState, with a Session renamed (#59)."""
@@ -40,6 +43,7 @@ class MainState(BaseModel, frozen=True):
             queue=prompts(self.queue),
             running=prompts(self.running),
             background=[key(sid) for sid in self.background],
+            subscriptions=self.subscriptions.renamed(old, new),
         )
 
     @field_validator("drafts", mode="before")

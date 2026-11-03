@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from allin.core.cut import CutReason
 from allin.core.errors import SessionStorageFailed, SessionUnreadable
 from allin.core.files import write_atomically
+from allin.core.ids import NO_PROMPT_ID, PromptId
 from allin.core.origin import HUMAN, Origin
 
 _FILE = "conversation.json"
@@ -86,6 +87,7 @@ class Turn(BaseModel, frozen=True):
     # changed it, and who sent it.
     typed: str = ""
     origin: Origin = HUMAN
+    prompt_id: PromptId = NO_PROMPT_ID  # its Prompt's, which its tools knew (#116)
 
     @property
     def as_typed(self) -> str:

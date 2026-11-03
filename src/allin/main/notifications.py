@@ -31,8 +31,9 @@ from allin.main.sessions import Change, Notification, Session, SessionStore
 INTERRUPTED = NotificationSource("interrupted")
 FUNC = NotificationSource("/func")  # functions and Command sessions given or taken away
 CALL = NotificationSource("call")  # a human's @call of a Proceso adherido's method (#114)
+SUBSCRIPTION = NotificationSource("subscription")  # a Suscripción's chain cut (#116)
 # The sources Main itself leaves Notificaciones from, listed even before any did.
-SOURCES = (FUNC, CALL, INTERRUPTED)
+SOURCES = (FUNC, CALL, INTERRUPTED, SUBSCRIPTION)
 USAGE = "/conversation_logs <sid> on|off|list [source]"
 _ACTION = TypeAdapter[Literal["on", "off", "list"]](Literal["on", "off", "list"])
 

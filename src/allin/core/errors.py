@@ -547,6 +547,25 @@ class AttachedChanged(AllInError):
     code: ClassVar[str] = "attached_changed"
 
 
+class SubscriptionInvalid(AllInError):
+    """``event`` is not something a Suscripción waits for, or names what is not there."""
+
+    code: ClassVar[str] = "subscription_invalid"
+
+
+class SubscriptionNotFound(AllInError):
+    """The Session has no open Suscripción with this id."""
+
+    code: ClassVar[str] = "subscription_not_found"
+
+
+class SubscriptionNotOwn(AllInError):
+    """A Session asked a Suscripción for another one: subscribing only wakes its own
+    (ADR-0011)."""
+
+    code: ClassVar[str] = "subscription_not_own"
+
+
 class AttachedCallsItself(AllInError):
     """A method of the Proceso adherido ``name`` calls ``name`` again: taking one call at a
     time, it would wait for itself for good, so no method calls its own process."""

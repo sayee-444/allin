@@ -27,6 +27,7 @@ class CallTool(BaseModel, frozen=True):
     net_layer: int | None  # the descriptor of net=True's shared layer (``port_layer``)
     ip: bool  # whether it may create IP sockets at all; without it UDP is closed too
     unix: bool  # whether it may create unix sockets: ``display``
+    prompt_id: str = ""  # the Prompt whose Turn calls it (``allin.channel.prompt_id``)
 
 
 class DescribeModule(BaseModel, frozen=True):
@@ -68,6 +69,7 @@ class CallMethod(BaseModel, frozen=True):
     method: str
     arguments: dict[str, JsonValue]
     seen: int | None = None
+    prompt_id: str = ""  # the Prompt whose Turn calls it; none for a human's call (#116)
 
 
 class CancelCall(BaseModel, frozen=True):
@@ -155,6 +157,15 @@ class Progress(BaseModel, frozen=True):
     text: str = Field(max_length=PROGRESS_MAX)
 
 
+class Announce(BaseModel, frozen=True):
+    """A method says something happened (``Fproc.announce``), which wakes the Sessions
+    subscribed to its process (#116)."""
+
+    type: Literal["announce"] = "announce"
+    id: int
+    text: str = Field(max_length=PROGRESS_MAX)
+
+
 class Died(BaseModel, frozen=True):
     """The function's process ended without a result; negative ``exit_code`` for a signal."""
 
@@ -170,7 +181,9 @@ class Unconfined(BaseModel, frozen=True):
     errno: int
 
 
-type ToMain = Returned | Raised | Died | Unconfined | RunCommand | Attached | Stale | Progress
+type ToMain = (
+    Returned | Raised | Died | Unconfined | RunCommand | Attached | Stale | Progress | Announce
+)
 
 _to_main: TypeAdapter[ToMain] = TypeAdapter(Annotated[ToMain, Field(discriminator="type")])
 

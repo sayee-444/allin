@@ -44,6 +44,7 @@ from allin.main.chat_rebuild import logs_entry
 from allin.main.events import (
     CommandOutcome,
     MainEvent,
+    MethodAnnounced,
     MethodAnswered,
     MethodProgressed,
     OnOutcome,
@@ -140,6 +141,9 @@ class MethodCalls:
                     on_command,
                     on_progress=lambda text: self._emit(
                         MethodProgressed(asked.window, progressed + text)
+                    ),
+                    on_announce=lambda text: self._emit(
+                        MethodAnnounced(attached.name, text, from_process(origin, attached.name))
                     ),
                 )
             except AllInError as error:

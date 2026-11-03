@@ -64,6 +64,22 @@ class Fproc:
         if runtime is not None:
             runtime.progress(text)
 
+    def announce(self, text: str) -> None:
+        """Say something happened: it wakes each Session subscribed to this process with
+        ``text`` (``@subscribe process:<name>``). Only from a thread that serves a call; raises
+        ``RuntimeError`` in any other."""
+        runtime = fproc_runtime.runtime()
+        if runtime is None:
+            msg = "not in a Proceso adherido: announce runs only from one of its methods"
+            raise RuntimeError(msg)
+        runtime.announce(text)
+
+    def prompt_id(self) -> str:
+        """The id of the Prompt whose Turn made the call this thread serves; empty for a
+        human's call, or outside one."""
+        runtime = fproc_runtime.runtime()
+        return runtime.prompt_id() if runtime is not None else ""
+
     def cancelled(self) -> bool:
         """Whether Main gave up on the call this thread serves, because its Turn was cancelled
         or it ran out of time: the method should leave it. A method that does not is killed

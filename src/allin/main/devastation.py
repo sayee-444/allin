@@ -57,8 +57,8 @@ class Devastation:
     def answers(self, origin: Origin) -> bool:
         """Whether Main answers by itself a Confirmation asked with ``origin``: only if it covers
         every link of the chain (ADR-0013). A human's or its own are covered; a Session only
-        if it is Main's and has the Exemption; a Proceso adherido never, and a Suscripción not
-        until #116 says how it is covered."""
+        if it is Main's and has the Exemption; a Proceso adherido never; a Suscripción, as the
+        Session it wakes, which comes after it."""
         if not self._on:
             return False
         if weakest_link(origin) != "session":
@@ -68,6 +68,10 @@ class Devastation:
     def _covers_link(self, link: Link) -> bool:
         match link.kind:
             case "human" | "main":
+                return True
+            # A Suscripción only wakes its own Session, which follows it in the chain and is
+            # checked there (#116).
+            case "subscription":
                 return True
             case "session" if link.id:
                 try:

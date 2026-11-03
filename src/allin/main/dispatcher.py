@@ -35,6 +35,7 @@ from allin.main.events import (
     InputReceived,
     MainCommandEntered,
     MainEvent,
+    MethodAnnounced,
     MethodAnswered,
     MethodProgressed,
     OrganizerActed,
@@ -89,6 +90,7 @@ from allin.main.sessions import Session, SessionStore
 from allin.main.settings_commands import SettingsCommands
 from allin.main.settings_files import LoadedSettings, MainSettingsFiles
 from allin.main.state import MainStateStore
+from allin.main.subscriptions import Subscriptions, SubscriptionState
 from allin.main.themes import NO_FONT_PROBE, FontProbe, Looks, ThemeBook, ThemeKeeper
 from allin.main.tool_steps import SessionTools, session_tools
 from allin.main.turn_queue import Servers, SubmitTurn, TurnQueue
@@ -191,6 +193,17 @@ class Dispatcher:
             tools_for=lambda session: self._session_tools(session, sessions, describer),
             notifications=self._notifications,
         )
+        self._profiles = profiles
+        self._subscriptions = Subscriptions(
+            sessions,
+            self._turns,
+            self._reporter,
+            self._notifications,
+            lambda: self._settings_commands.current.subscription,  # made below
+            clock,
+            self._change_frozen,
+        )
+        self._turns.listen(self._subscriptions, self._subscriptions.compacted)
         self._recovery = Recovery(
             self._reporter,
             self._windows,
@@ -199,6 +212,7 @@ class Dispatcher:
             main_id,
             state,
             close_orphan_window,
+            self._subscriptions,
         )
         command_types = session_commands
         self._start_problems = [*settings.problems, *notices.problems, *command_types.problems]
@@ -320,6 +334,7 @@ class Dispatcher:
             self._attached,
             self._methods,
             calls,
+            self._subscriptions,
         )
         self._session_commands = SessionCommands(
             command_types,
@@ -414,6 +429,21 @@ class Dispatcher:
         self._windows.close_all()
         self._reporter.log_main("main_stopped", main_id=self._main_id)
 
+    def _change_frozen(self, change: Callable[[SubscriptionState], SubscriptionState]) -> None:
+        """Change the Suscripciones of every Profile but the active one, which wait frozen in
+        its MainState (#116)."""
+        for name in self._profiles.names():
+            if name == self._switch.active.name:
+                continue
+            store = MainStateStore(self._profiles.find(name).state)
+            try:
+                saved = store.load()
+                changed = change(saved.subscriptions)
+                if changed != saved.subscriptions:
+                    store.save(saved.model_copy(update={"subscriptions": changed}))
+            except AllInError as error:
+                self._reporter.error(error)
+
     def _enter(self, profile: Profile) -> None:
         """Use the Settings and Sysprompts of the Profile Main switched to."""
         files = MainSettingsFiles(profile.settings)
@@ -496,6 +526,9 @@ class Dispatcher:
                 self._turns.measured(server, session_id, ticket, tokens)
             case Tick():
                 self._turns.tick()
+                self._subscriptions.tick()
+            case MethodAnnounced(process, text, origin):
+                self._subscriptions.announced(process, text, origin)
             case ThemesChanged():
                 self._looks_changed()
             case StepEnded(session_id, step):

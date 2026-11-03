@@ -1,6 +1,7 @@
 """The Function tool's process, confined for real (#100): these tests run on this kernel."""
 
 import contextlib
+import dataclasses
 import os
 import shutil
 import socket
@@ -184,6 +185,11 @@ def ask_main(texts, nap=0):
     results = [command(text) for text in texts]
     time.sleep(nap)
     return results
+
+
+def whose_prompt():
+    from allin.channel import prompt_id
+    return prompt_id()
 
 
 def forge_result():
@@ -644,3 +650,10 @@ def test_what_a_tool_writes_on_its_channel_reaches_main_only_as_a_command_sessio
     outcome = launcher.run(call(package, workspace, "forge_result"), 20, on_command=on_command)
     assert asked == ["@ping"], "the forged line never reached Main as an answer"
     assert outcome.value == {"error": "malformed command"}, "what it forged was refused"
+
+
+def test_a_tool_knows_the_id_of_the_prompt_it_runs_in(
+    launcher: ToolLauncher, package: Path, workspace: Path
+):
+    asked = dataclasses.replace(call(package, workspace, "whose_prompt"), prompt_id="p4x9k2")
+    assert launcher.run(asked, 20).value == "p4x9k2"

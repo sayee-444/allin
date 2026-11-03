@@ -21,6 +21,7 @@ from allin.main.events import (
     MainCommandEntered,
     ServerChanged,
     ServerReady,
+    Tick,
     TurnEnded,
     WindowClosed,
 )
@@ -365,3 +366,19 @@ def test_the_border_says_compacting_while_its_summary_step_runs(main: MainHarnes
     window = main.windows(session.id)[-1]  # the second run is Main started again
     states = [m for m in window.sent if isinstance(m, TurnState)]
     assert states[-1] == TurnState(active=True, waiting="compacting…")
+
+
+def test_a_compaction_wakes_who_subscribed_to_it(main: MainHarness):
+    session, watcher = main.create_session(), main.create_session()
+    main.llm = FakeLlm(*answers(6), reply("We chose mango."), reply("visto"))
+    main.run(
+        MainCommandEntered(f"/subscribe {watcher.id} compact:{session.id}"),
+        *talk(session, 6),
+        compact(session, ""),
+        Tick(),
+        settle=True,
+    )
+    [wake] = [e.fields for e in main.session_log(watcher) if e.event == "prompt"]
+    ids = [str(e.fields["prompt_id"]) for e in main.session_log(session) if e.event == "prompt"]
+    shown = f"Session {session.id} compacted: Prompts 1\N{EN DASH}4 summarized"
+    assert f"{shown} (ids {', '.join(ids[:4])})" in str(wake["text"])

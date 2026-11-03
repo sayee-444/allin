@@ -16,7 +16,8 @@ from typing import Literal
 
 from allin.core.cut import CutReason
 from allin.core.errors import AllInError, CompactionFailed
-from allin.core.ids import ServerKey, SessionId
+from allin.core.ids import PromptId, ServerKey, SessionId
+from allin.core.origin import Origin
 from allin.main.boxes import MainBoxes
 from allin.main.chat_rebuild import compacted_entries, compaction_failed_entry
 from allin.main.compaction import (
@@ -65,6 +66,17 @@ class _Work:
     checking: bool = False  # every part is summarized: its summary is being measured
 
 
+# Hears a Compactación done: its Session, how many first Prompts its summary holds now, the
+# ids of those it summarized this time, and who asked it.
+type Compacted = Callable[[SessionId, int, tuple[PromptId, ...], Origin], None]
+
+
+def _heard_by_nobody(
+    session_id: SessionId, summarized: int, ids: tuple[PromptId, ...], origin: Origin
+) -> None:
+    pass
+
+
 class Compactions:
     def __init__(
         self,
@@ -90,6 +102,9 @@ class Compactions:
         self._works: dict[SessionId, _Work] = {}
         # Sessions whose next Prompt already had its automatic Compaction.
         self._tried: set[SessionId] = set()
+        # Hears each Compactación done: the Session, how many first Prompts the summary has
+        # and who asked it, for its Suscripciones (#116).
+        self.on_compacted: Compacted = _heard_by_nobody
 
     def use_sysprompts(self, sysprompts: Path) -> None:
         """The active Profile's, once Main switched to another."""
@@ -290,3 +305,5 @@ class Compactions:
         )
         for entry in compacted_entries(after.summarized, work.summary):
             self._windows.send(session_id, entry)
+        ids = tuple(turn.prompt_id for turn in work.conversation.turns[: work.summarize])
+        self.on_compacted(session_id, after.summarized, ids, work.entry.origin)

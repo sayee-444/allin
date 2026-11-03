@@ -70,6 +70,7 @@ class _Call:
     ip: bool
     unix: bool
     fproc: _Fproc | None = None  # a Proceso adherido's: it serves its methods until detached
+    prompt_id: str = ""  # the Prompt whose Turn calls the function (#116)
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,7 @@ def main() -> None:
         if call.function is not None:  # a description runs none
             from allin import channel as commands  # noqa: PLC0415 - the runner's alone
 
-            commands.connect(asks_in, results_out)
+            commands.connect(asks_in, results_out, call.prompt_id)
         _run_function(call, reply_in, warden)
     for end in (reply_in, asks_in, results_out):
         os.close(end)
@@ -203,6 +204,7 @@ def _parse_tool_call(fields: dict[object, object]) -> _Call | None:
         net_layer=net_layer,
         ip=ip,
         unix=unix,
+        prompt_id=prompt_id if isinstance(prompt_id := fields.get("prompt_id"), str) else "",
     )
 
 
@@ -462,7 +464,7 @@ def _relay_methods(channel: socket.socket, replies_out: int, calls_in: int) -> b
 
 
 _FOR_RUNNER = {  # what Main sends a Proceso adherido's runner, and the fields it keeps
-    "method": ("method", "arguments", "seen"),
+    "method": ("method", "arguments", "seen", "prompt_id"),
     "command_result": ("result",),
     "cancel_call": (),
 }

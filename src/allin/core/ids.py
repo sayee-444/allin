@@ -28,9 +28,29 @@ def new_session_id() -> SessionId:
     return SessionId("".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
 
 
-def new_prompt_id() -> str:
-    """A Prompt's id, the name of its attachments' folder: like a Session's, 6 characters."""
-    return "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH))
+# A Prompt's id (#116): its Turn and its tools know it, and it names its attachments' folder.
+PromptId = NewType("PromptId", str)
+NO_PROMPT_ID = PromptId("")  # a Prompt the queue has not given one yet
+
+
+def new_prompt_id() -> PromptId:
+    """A Prompt's id: like a Session's, 6 characters."""
+    return PromptId("".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
+
+
+# A Suscripción's id (#116): ``s`` and 6 characters of ``[a-z0-9]``.
+SubscriptionId = NewType("SubscriptionId", str)
+
+
+_SUBSCRIPTION_ID = re.compile(f"s[{re.escape(_ALPHABET)}]{{{_LENGTH}}}")
+
+
+def new_subscription_id() -> SubscriptionId:
+    return SubscriptionId("s" + "".join(secrets.choice(_ALPHABET) for _ in range(_LENGTH)))
+
+
+def parse_subscription_id(text: str) -> SubscriptionId | None:
+    return SubscriptionId(text) if _SUBSCRIPTION_ID.fullmatch(text) is not None else None
 
 
 def parse_session_id(text: str) -> SessionId | None:

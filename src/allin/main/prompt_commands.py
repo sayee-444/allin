@@ -28,7 +28,7 @@ _REFERENCE = re.compile(r"@((?:/|~|\./)\S*)")
 _COMMAND_SESSION = re.compile(r"\s*@([a-z][a-z0-9_]*)(?:\s|$)")
 _SPACE = re.compile(r"(\s+)")
 # One option of ``/send``'s structured form, with the one space after it; ``--`` alone ends them.
-_SEND_OPTION = re.compile(r'\s*--(?:(?P<key>[a-z_]+)=(?P<value>"(?:[^"\\]|\\.)*"|\S+))?(?:\s|$)')
+_SEND_OPTION = re.compile(r'\s*--(?:(?P<key>[a-z_-]+)=(?P<value>"(?:[^"\\]|\\.)*"|\S+))?(?:\s|$)')
 # Sent as arguments of the SDK, as the Session's Sampling settings are.
 _SAMPLING_KEYS = ("temperature", "top_p", "max_output_tokens")
 
@@ -140,6 +140,7 @@ class SendOptions:
     attach: tuple[str, ...]  # as written: relative to the sender's Carpeta de trabajo
     overrides: TurnOverrides
     text: str
+    reply_to: str | None = None  # the Session its answer wakes, a Suscripción (#116)
 
 
 def parse_send(text: str) -> SendOptions:
@@ -147,6 +148,7 @@ def parse_send(text: str) -> SendOptions:
     path may be written as a JSON string, for one with spaces."""
     attach: list[str] = []
     overrides: dict[str, str] = {}
+    reply_to: str | None = None
     rest = text
     while (option := _SEND_OPTION.match(rest)) is not None:
         rest = rest[option.end() :]
@@ -157,11 +159,13 @@ def parse_send(text: str) -> SendOptions:
             value = _unquoted(value)
         if key == "attach":
             attach.append(value)
+        elif key == "reply-to":
+            reply_to = value
         else:
             overrides[key] = value
     if rest is text:
         return SendOptions((), TurnOverrides(), text)  # without options it goes exactly as written
-    return SendOptions(tuple(attach), parse_overrides(overrides), rest)
+    return SendOptions(tuple(attach), parse_overrides(overrides), rest, reply_to)
 
 
 def _unquoted(value: str) -> str:

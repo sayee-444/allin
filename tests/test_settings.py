@@ -24,6 +24,8 @@ def test_every_setting_declares_its_key_scope_default_and_what_it_is():
         "step.stall",
         "admission.patience",
         "attached.release",
+        "subscription.repeats",
+        "subscription.events",
         "windows.max",
         "session.assistant_name",
         "session.username",

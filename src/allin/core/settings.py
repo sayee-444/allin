@@ -208,6 +208,22 @@ class AdmissionSettings(BaseModel, frozen=True):
     )
 
 
+class SubscriptionSettings(BaseModel, frozen=True):
+    model_config = ConfigDict(extra="forbid")
+
+    repeats: int = Field(
+        default=5,
+        ge=1,
+        description="times one Suscripción may wake its Session in one chain before Main cuts"
+        " the chain with a Notificación",
+    )
+    events: int = Field(
+        default=20,
+        ge=1,
+        description="events one Suscripción Prompt carries at most; the rest go in the next",
+    )
+
+
 WINDOWS_MAX_DEFAULT = 6
 
 
@@ -238,6 +254,7 @@ class MainSettings(BaseModel, frozen=True):
     admission: AdmissionSettings = AdmissionSettings()
     windows: WindowsSettings = WindowsSettings()  # the Máximo de Ventanas (#52, ADR-0020)
     attached: AttachedSettings = AttachedSettings()  # the Procesos adheridos (ADR-0012)
+    subscription: SubscriptionSettings = SubscriptionSettings()  # the Suscripciones (#116)
     # The Atajos of Main's own Chat as they differ from the defaults; only ``/key`` changes them.
     keys: dict[str, str] = Field(default_factory=dict[str, str])
     theme: ThemeName = Field(
